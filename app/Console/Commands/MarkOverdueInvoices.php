@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Services\Sales\InvoiceService;
+use App\Services\Sales\OverdueInvoiceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -14,10 +14,10 @@ class MarkOverdueInvoices extends Command
 
     protected $description = 'Mark sent/partial invoices as overdue when their due date has passed';
 
-    public function handle(InvoiceService $invoiceService): int
+    public function handle(OverdueInvoiceService $overdueInvoices): int
     {
         try {
-            $count = $invoiceService->markOverdueInvoices();
+            $count = $overdueInvoices->markOverdueInvoices();
 
             $this->info("Marked {$count} invoice(s) as overdue.");
 

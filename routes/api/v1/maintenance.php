@@ -8,8 +8,8 @@ use App\Http\Controllers\Api\V1\Maintenance\MaintenanceNotificationController;
 use App\Http\Controllers\Api\V1\Maintenance\MaintenancePermitController;
 use App\Http\Controllers\Api\V1\Maintenance\MaintenanceReportController;
 use App\Http\Controllers\Api\V1\Maintenance\MaintenanceSettlementController;
-use App\Http\Controllers\Api\V1\Maintenance\PmOrderController;
-use App\Http\Controllers\Api\V1\Maintenance\PmTaskListController;
+use App\Http\Controllers\Api\V1\Maintenance\CounterBasedMaintenanceController;
+use App\Http\Controllers\Api\V1\Maintenance\MaintenanceTaskListController;
 use App\Http\Controllers\Api\V1\Maintenance\ServiceOrderController;
 use Illuminate\Support\Facades\Route;
 
@@ -229,25 +229,25 @@ Route::middleware(['auth:api'])->group(function (): void {
 
     /*
     |--------------------------------------------------------------------------
-    | Counter-Based PM Scheduling (PM-PRM)
+    | Counter-based maintenance scheduling
     |--------------------------------------------------------------------------
     */
-    Route::prefix('pm-counters')->name('maintenance.pm-counters.')->group(function (): void {
-        Route::get('/', [PmOrderController::class, 'counters'])->name('index');
-        Route::post('/', [PmOrderController::class, 'storeCounter'])->name('store');
-        Route::post('/{counterId}/readings', [PmOrderController::class, 'recordReading'])->name('readings.store');
+    Route::prefix('counters')->name('maintenance.counters.')->group(function (): void {
+        Route::get('/', [CounterBasedMaintenanceController::class, 'counters'])->name('index');
+        Route::post('/', [CounterBasedMaintenanceController::class, 'storeCounter'])->name('store');
+        Route::post('/{counterId}/readings', [CounterBasedMaintenanceController::class, 'recordReading'])->name('readings.store');
     });
 
-    Route::prefix('pm-plans')->name('maintenance.pm-plans.')->group(function (): void {
-        Route::get('/', [PmOrderController::class, 'plans'])->name('index');
-        Route::post('/', [PmOrderController::class, 'storePlan'])->name('store');
-        Route::get('/due', [PmOrderController::class, 'dueOrders'])->name('due');
-        Route::post('/{planId}/generate-order', [PmOrderController::class, 'generateOrder'])->name('generate-order');
+    Route::prefix('counter-plans')->name('maintenance.counter-plans.')->group(function (): void {
+        Route::get('/', [CounterBasedMaintenanceController::class, 'plans'])->name('index');
+        Route::post('/', [CounterBasedMaintenanceController::class, 'storePlan'])->name('store');
+        Route::get('/due', [CounterBasedMaintenanceController::class, 'dueOrders'])->name('due');
+        Route::post('/{planId}/generate-order', [CounterBasedMaintenanceController::class, 'generateOrder'])->name('generate-order');
     });
 
-    Route::prefix('pm-orders')->name('maintenance.pm-orders.')->group(function (): void {
-        Route::get('/', [PmOrderController::class, 'orders'])->name('index');
-        Route::post('/{orderId}/complete', [PmOrderController::class, 'completeOrder'])->name('complete');
+    Route::prefix('counter-orders')->name('maintenance.counter-orders.')->group(function (): void {
+        Route::get('/', [CounterBasedMaintenanceController::class, 'orders'])->name('index');
+        Route::post('/{orderId}/complete', [CounterBasedMaintenanceController::class, 'completeOrder'])->name('complete');
     });
 
     // Work Permits & Safety Checks (PM-WOC-PTW)
@@ -266,17 +266,17 @@ Route::middleware(['auth:api'])->group(function (): void {
 
     /*
     |--------------------------------------------------------------------------
-    | PM Task Lists (PM-PRM-TL)
+    | Maintenance task lists
     |--------------------------------------------------------------------------
     */
-    Route::prefix('pm-task-lists')->name('maintenance.pm-task-lists.')->group(function (): void {
-        Route::get('/', [PmTaskListController::class, 'index'])->name('index');
-        Route::post('/', [PmTaskListController::class, 'store'])->name('store');
-        Route::get('/{pmTaskList}', [PmTaskListController::class, 'show'])->name('show');
-        Route::put('/{pmTaskList}', [PmTaskListController::class, 'update'])->name('update');
-        Route::delete('/{pmTaskList}', [PmTaskListController::class, 'destroy'])->name('destroy');
-        Route::post('/{pmTaskList}/operations', [PmTaskListController::class, 'storeOperation'])->name('operations.store');
-        Route::delete('/{pmTaskList}/operations/{operation}', [PmTaskListController::class, 'destroyOperation'])->name('operations.destroy');
+    Route::prefix('task-lists')->name('maintenance.task-lists.')->group(function (): void {
+        Route::get('/', [MaintenanceTaskListController::class, 'index'])->name('index');
+        Route::post('/', [MaintenanceTaskListController::class, 'store'])->name('store');
+        Route::get('/{taskList}', [MaintenanceTaskListController::class, 'show'])->name('show');
+        Route::put('/{taskList}', [MaintenanceTaskListController::class, 'update'])->name('update');
+        Route::delete('/{taskList}', [MaintenanceTaskListController::class, 'destroy'])->name('destroy');
+        Route::post('/{taskList}/operations', [MaintenanceTaskListController::class, 'storeOperation'])->name('operations.store');
+        Route::delete('/{taskList}/operations/{operation}', [MaintenanceTaskListController::class, 'destroyOperation'])->name('operations.destroy');
     });
 
     /*

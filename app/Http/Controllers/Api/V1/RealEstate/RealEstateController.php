@@ -14,14 +14,24 @@ use App\Models\RealEstate\Property;
 use App\Models\RealEstate\RentalUnit;
 use App\Models\RealEstate\SecurityDeposit;
 use App\Models\RealEstate\ServiceChargeSettlement;
-use App\Services\RealEstate\RealEstateService;
+use App\Services\RealEstate\Ifrs16LeaseService;
+use App\Services\RealEstate\LeaseContractService;
+use App\Services\RealEstate\LeasePostingService;
+use App\Services\RealEstate\PropertyService;
+use App\Services\RealEstate\SecurityDepositService;
+use App\Services\RealEstate\ServiceChargeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class RealEstateController extends Controller
 {
     public function __construct(
-        private readonly RealEstateService $service,
+        private readonly PropertyService $properties,
+        private readonly LeaseContractService $contracts,
+        private readonly LeasePostingService $posting,
+        private readonly SecurityDepositService $deposits,
+        private readonly ServiceChargeService $serviceCharges,
+        private readonly Ifrs16LeaseService $ifrs16,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -30,7 +40,7 @@ class RealEstateController extends Controller
 
     public function listPortfolios(): JsonResponse
     {
-        $portfolios = $this->service->listPortfolios($this->organizationId());
+        $portfolios = $this->properties->listPortfolios($this->organizationId());
 
         return $this->success($portfolios);
     }
@@ -46,14 +56,14 @@ class RealEstateController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $portfolio = $this->service->createPortfolio($this->organizationId(), $data);
+        $portfolio = $this->properties->createPortfolio($this->organizationId(), $data);
 
         return $this->created($portfolio);
     }
 
     public function portfolioOverview(): JsonResponse
     {
-        $overview = $this->service->getPortfolioOverview($this->organizationId());
+        $overview = $this->properties->getPortfolioOverview($this->organizationId());
 
         return $this->success($overview);
     }
@@ -64,7 +74,7 @@ class RealEstateController extends Controller
 
     public function listProperties(Request $request): JsonResponse
     {
-        $properties = $this->service->listProperties(
+        $properties = $this->properties->listProperties(
             $this->organizationId(),
             $request->only(['portfolio_id', 'status'])
         );
@@ -94,7 +104,7 @@ class RealEstateController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $property = $this->service->createProperty($this->organizationId(), $data);
+        $property = $this->properties->createProperty($this->organizationId(), $data);
 
         return $this->created($property->load('portfolio'));
     }
@@ -151,7 +161,7 @@ class RealEstateController extends Controller
 
     public function listRentalUnits(Request $request): JsonResponse
     {
-        $units = $this->service->listRentalUnits(
+        $units = $this->properties->listRentalUnits(
             $this->organizationId(),
             $request->only(['status', 'building_id', 'unit_type'])
         );
@@ -194,7 +204,7 @@ class RealEstateController extends Controller
 
     public function listContracts(Request $request): JsonResponse
     {
-        $contracts = $this->service->listContracts(
+        $contracts = $this->contracts->listContracts(
             $this->organizationId(),
             $request->only(['status', 'contract_type'])
         );
@@ -235,7 +245,7 @@ class RealEstateController extends Controller
             'options.*.new_rent_amount' => 'nullable|numeric|min:0',
         ]);
 
-        $contract = $this->service->createContract($this->organizationId(), $data);
+        $contract = $this->contracts->createContract($this->organizationId(), $data);
 
         return $this->created($contract);
     }
@@ -249,7 +259,7 @@ class RealEstateController extends Controller
 
     public function activateContract(LeaseContract $contract): JsonResponse
     {
-        $contract = $this->service->activateContract($contract);
+        $contract = $this->contracts->activateContract($contract);
 
         return $this->success($contract);
     }
@@ -261,7 +271,7 @@ class RealEstateController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $contract = $this->service->terminateContract($contract, $data);
+        $contract = $this->contracts->terminateContract($contract, $data);
 
         return $this->success($contract);
     }
@@ -269,7 +279,7 @@ class RealEstateController extends Controller
     public function expiringContracts(Request $request): JsonResponse
     {
         $days = (int) $request->input('within_days', 90);
-        $contracts = $this->service->getExpiringContracts($this->organizationId(), $days);
+        $contracts = $this->contracts->getExpiringContracts($this->organizationId(), $days);
 
         return $this->success($contracts);
     }
@@ -280,7 +290,7 @@ class RealEstateController extends Controller
 
     public function exerciseOption(ContractOption $option): JsonResponse
     {
-        $option = $this->service->exerciseOption($option);
+        $option = $this->contracts->exerciseOption($option);
 
         return $this->success($option);
     }
@@ -291,7 +301,7 @@ class RealEstateController extends Controller
 
     public function dueEscalations(): JsonResponse
     {
-        $conditions = $this->service->getDueEscalations($this->organizationId());
+        $conditions = $this->contracts->getDueEscalations($this->organizationId());
 
         return $this->success($conditions);
     }
@@ -299,7 +309,7 @@ class RealEstateController extends Controller
     public function upcomingEscalations(Request $request): JsonResponse
     {
         $days = (int) $request->input('within_days', 30);
-        $conditions = $this->service->getUpcomingEscalations($this->organizationId(), $days);
+        $conditions = $this->contracts->getUpcomingEscalations($this->organizationId(), $days);
 
         return $this->success($conditions);
     }
@@ -310,7 +320,7 @@ class RealEstateController extends Controller
             'new_amount' => 'required|numeric|min:0',
         ]);
 
-        $newCondition = $this->service->applyEscalation($condition, $data['new_amount']);
+        $newCondition = $this->contracts->applyEscalation($condition, $data['new_amount']);
 
         return $this->created($newCondition);
     }
@@ -327,7 +337,7 @@ class RealEstateController extends Controller
             'period_month' => 'required|integer|min:1|max:12',
         ]);
 
-        $simulation = $this->service->simulatePostingRun(
+        $simulation = $this->posting->simulatePostingRun(
             $this->organizationId(),
             $data['type'],
             $data['period_year'],
@@ -345,7 +355,7 @@ class RealEstateController extends Controller
             'period_month' => 'required|integer|min:1|max:12',
         ]);
 
-        $run = $this->service->executePostingRun(
+        $run = $this->posting->executePostingRun(
             $this->organizationId(),
             $data['type'],
             $data['period_year'],
@@ -367,7 +377,7 @@ class RealEstateController extends Controller
             'interest_rate_pct' => 'sometimes|numeric|min:0',
         ]);
 
-        $deposit = $this->service->createSecurityDeposit($contract, $data);
+        $deposit = $this->deposits->createSecurityDeposit($contract, $data);
 
         return $this->created($deposit);
     }
@@ -379,14 +389,14 @@ class RealEstateController extends Controller
             'date' => 'required|date',
         ]);
 
-        $deposit = $this->service->recordDepositCollection($deposit, $data['amount'], $data['date']);
+        $deposit = $this->deposits->recordDepositCollection($deposit, $data['amount'], $data['date']);
 
         return $this->success($deposit);
     }
 
     public function accrueDepositInterest(SecurityDeposit $deposit): JsonResponse
     {
-        $deposit = $this->service->accrueDepositInterest($deposit);
+        $deposit = $this->deposits->accrueDepositInterest($deposit);
 
         return $this->success($deposit);
     }
@@ -398,7 +408,7 @@ class RealEstateController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        $deposit = $this->service->refundDeposit($deposit, $data['amount'], $data['reason']);
+        $deposit = $this->deposits->refundDeposit($deposit, $data['amount'], $data['reason']);
 
         return $this->success($deposit);
     }
@@ -422,14 +432,14 @@ class RealEstateController extends Controller
             'cost_items.*.description' => 'nullable|string',
         ]);
 
-        $settlement = $this->service->createServiceChargeSettlement($this->organizationId(), $data);
+        $settlement = $this->serviceCharges->createServiceChargeSettlement($this->organizationId(), $data);
 
         return $this->created($settlement);
     }
 
     public function calculateSettlement(ServiceChargeSettlement $settlement): JsonResponse
     {
-        $settlement = $this->service->calculateSettlement($settlement);
+        $settlement = $this->serviceCharges->calculateSettlement($settlement);
 
         return $this->success($settlement);
     }
@@ -441,7 +451,7 @@ class RealEstateController extends Controller
     public function vacancyReport(Request $request): JsonResponse
     {
         $portfolioId = $request->integer('portfolio_id') ?: null;
-        $report = $this->service->getVacancyReport($this->organizationId(), $portfolioId);
+        $report = $this->properties->getVacancyReport($this->organizationId(), $portfolioId);
 
         return $this->success($report);
     }
@@ -463,7 +473,7 @@ class RealEstateController extends Controller
             'commencement_date' => 'nullable|date',
         ]);
 
-        $result = $this->service->generateIfrs16Schedule(
+        $result = $this->ifrs16->generateSchedule(
             $contract,
             (float) $validated['ibr_percent'],
             $validated['commencement_date'] ?? null,
@@ -485,7 +495,7 @@ class RealEstateController extends Controller
      */
     public function ifrs16Schedule(LeaseContract $contract): JsonResponse
     {
-        $schedule = $this->service->getIfrs16Schedule($contract);
+        $schedule = $this->ifrs16->getSchedule($contract);
 
         return $this->success($schedule);
     }

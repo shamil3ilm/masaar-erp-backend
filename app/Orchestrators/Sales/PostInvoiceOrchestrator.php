@@ -22,24 +22,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Orchestrates all side-effects triggered when a sales invoice is posted.
+ * Runs every side-effect of posting a sales invoice, in three phases:
  *
- * Responsibilities:
- * - Runs the atomic core inside a DB transaction: credit-limit gate, journal
- *   entry creation, inventory deduction, and status flip to SENT.
- * - After the transaction commits, dispatches the InvoicePosted domain event so
- *   downstream listeners (COPA auto-post, customer-balance update) are triggered.
- * - Handles non-transactional side-effects: ZATCA submission, customer
- *   notification, rebate accrual, PDF generation, user-event tracking.
+ * 1. Atomic core, inside a transaction — credit-limit gate, journal entry,
+ *    inventory deduction, and the status flip to SENT.
+ * 2. The InvoicePosted event, dispatched once the transaction has committed.
+ * 3. Side-effects that must not hold a transaction open — ZATCA submission,
+ *    customer notification, rebate accrual, PDF generation, event tracking.
  *
- * This class is the canonical reference implementation of Architecture Rule 2:
- * "Cross-module flows MUST use an orchestrator; no service may call another
- * module's service directly to satisfy a multi-step business flow."
- *
- * CONTRACT:
- * - execute() must only be called once per invoice (guarded upstream by
- *   FinancialIdempotencyService in InvoiceService::send()).
- * - The invoice passed in must be in STATUS_DRAFT; that guard lives in InvoiceService.
+ * Callers must satisfy two preconditions, both enforced by InvoiceService::send():
+ * the invoice is in STATUS_DRAFT, and execute() runs at most once per invoice
+ * (guarded by FinancialIdempotencyService).
  */
 class PostInvoiceOrchestrator
 {
@@ -91,10 +84,8 @@ class PostInvoiceOrchestrator
         });
 
         // ─── PHASE 2: domain event ────────────────────────────────────────────
-        // Dispatched AFTER the transaction commits so listeners never observe a
-        // partially-written invoice. This is THE fix for the latent bug where
-        // PostCopaOnInvoicePostedListener and UpdateCustomerBalanceOnInvoicePostedListener
-        // were registered but the event was never fired.
+        // Dispatched after the transaction commits so listeners never observe a
+        // partially-written invoice.
         InvoicePosted::dispatch($invoice);
 
         // ─── PHASE 3: non-transactional side-effects ──────────────────────────

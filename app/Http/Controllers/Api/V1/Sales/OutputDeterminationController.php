@@ -144,6 +144,7 @@ class OutputDeterminationController extends Controller
         if (!$outputMessage->canRetry()) {
             return $this->error(
                 "Output message #{$outputMessage->id} cannot be retried (status: {$outputMessage->status}).",
+                'INVALID_STATUS',
                 422
             );
         }

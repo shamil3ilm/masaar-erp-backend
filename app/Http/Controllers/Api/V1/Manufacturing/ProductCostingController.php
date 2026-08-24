@@ -87,7 +87,7 @@ class ProductCostingController extends Controller
     public function runCosting(Request $request, CostingVersion $version): JsonResponse
     {
         if (!$version->isDraft() && !$version->isActive()) {
-            return $this->error('Only draft or active versions can be processed.', 422);
+            return $this->error('Only draft or active versions can be processed.', 'INVALID_STATUS', 422);
         }
 
         $organization = $this->organization($request)

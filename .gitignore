@@ -32,7 +32,7 @@ test-results*.xml
 test-cn.xml
 fail-classes.txt
 failed-tests.txt
-analyze-errors*.php
+analyze*.php
 fix-imports*.php
 run-tests*.php
 run-mfg-test*.php

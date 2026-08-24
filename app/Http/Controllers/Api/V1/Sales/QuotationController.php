@@ -11,7 +11,7 @@ use App\Models\Sales\Quotation;
 use App\Models\Sales\QuotationLine;
 use App\Models\Sales\SalesOrder;
 use App\Models\Sales\SalesOrderLine;
-use App\Services\Sales\InvoiceService;
+use App\Services\Sales\InvoiceConversionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -318,7 +318,7 @@ class QuotationController extends Controller
             $convertTo = $validated['convert_to'];
 
             if ($convertTo === 'invoice') {
-                $invoice = app(InvoiceService::class)->createFromQuotation($quotation, $request->all());
+                $invoice = app(InvoiceConversionService::class)->createFromQuotation($quotation, $request->all());
 
                 return ['type' => 'invoice', 'id' => $invoice->id, 'number' => $invoice->invoice_number];
             }

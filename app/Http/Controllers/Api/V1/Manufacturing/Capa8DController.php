@@ -101,7 +101,7 @@ class Capa8DController extends Controller
         ]);
 
         if (!in_array($step, $validSteps, true)) {
-            return $this->error("Invalid step '{$step}'. Valid steps: d0–d8.", 422);
+            return $this->error("Invalid step '{$step}'. Valid steps: d0–d8.", 'VALIDATION_ERROR', 422);
         }
 
         $record = $this->service->updateStep(

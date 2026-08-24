@@ -184,7 +184,7 @@ class EwmController extends Controller
         );
 
         if ($bin === null) {
-            return $this->error('No suitable putaway bin found', 404);
+            return $this->notFound('No suitable putaway bin found');
         }
 
         return $this->success($bin->load(['storageType', 'storageSection']), 'Putaway bin suggested');

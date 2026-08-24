@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Services\Core\WebhookService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Trait for automatically dispatching webhooks on model events.
+ * Emits a webhook when the model is created, updated, or deleted.
  *
  * Usage:
- * - Add `use DispatchesWebhooks;` to your model
- * - Optionally override $webhookEvents to customize which events trigger webhooks
- * - Optionally override toWebhookArray() to customize the payload
+ * - Add `use DispatchesWebhooks;` to the model
+ * - Optionally override $webhookEvents to change which events emit
+ * - Optionally override toWebhookArray() to change the payload
+ *
+ * Nothing is sent unless the organization has an active subscription for the
+ * event, and emission can be switched off entirely with WEBHOOKS_ENABLED=false.
  */
 trait DispatchesWebhooks
 {
@@ -36,36 +40,56 @@ trait DispatchesWebhooks
     }
 
     /**
-     * Dispatch webhook for a model event.
+     * Dispatch a webhook for a model event.
+     *
+     * A webhook is never worth failing the write for, so every failure here is
+     * logged and swallowed.
      */
     protected static function dispatchWebhookForEvent($model, string $event): void
     {
-        // Skip if model doesn't have organization_id
-        if (!isset($model->organization_id)) {
+        if (! static::webhookDispatchIsEnabled()) {
             return;
         }
 
-        // Skip during tests unless explicitly enabled
-        if (app()->environment('testing') && !config('webhooks.dispatch_in_tests', false)) {
+        // Webhooks are scoped to an organization; a record without one has no
+        // subscriber to notify.
+        if (! isset($model->organization_id)) {
             return;
         }
 
         try {
-            $webhookService = app(WebhookService::class);
-
-            $webhookService->dispatchForModel(
+            app(WebhookService::class)->dispatchForModel(
                 $model,
                 $event,
                 $model->getAdditionalWebhookData($event)
             );
-        } catch (\Exception $e) {
-            // Log but don't fail the operation
-            \Log::warning("Failed to dispatch webhook: {$e->getMessage()}", [
+        } catch (\Throwable $e) {
+            Log::warning("Failed to dispatch webhook: {$e->getMessage()}", [
                 'model' => get_class($model),
-                'id' => $model->getKey(),
+                'id'    => $model->getKey(),
                 'event' => $event,
             ]);
         }
+    }
+
+    /**
+     * Whether model events should emit webhooks at all.
+     *
+     * WEBHOOKS_ENABLED is the kill switch: setting it to false stops emission
+     * everywhere without a deploy. Tests opt in separately so the suite never
+     * queues deliveries by accident.
+     */
+    protected static function webhookDispatchIsEnabled(): bool
+    {
+        if (! config('webhooks.enabled', true)) {
+            return false;
+        }
+
+        if (app()->environment('testing')) {
+            return (bool) config('webhooks.dispatch_in_tests', false);
+        }
+
+        return true;
     }
 
     /**

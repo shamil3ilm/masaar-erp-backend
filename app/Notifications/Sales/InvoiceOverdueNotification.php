@@ -6,6 +6,7 @@ namespace App\Notifications\Sales;
 
 use App\Channels\SmsChannel;
 use App\Models\Sales\Invoice;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -22,9 +23,14 @@ class InvoiceOverdueNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $channels = ['mail', 'database'];
+        $channels = ['mail'];
 
-        if (!empty($notifiable->phone)) {
+        // In-app notifications are only stored for users, not external contacts.
+        if ($notifiable instanceof User) {
+            $channels[] = 'database';
+        }
+
+        if (! empty($notifiable->phone)) {
             $channels[] = SmsChannel::class;
         }
 

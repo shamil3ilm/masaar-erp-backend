@@ -7,6 +7,7 @@ namespace App\Models\Purchase;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
@@ -21,7 +22,7 @@ use Illuminate\Support\Facades\DB;
 
 class Bill extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_STANDARD = 'standard';
     public const TYPE_DEBIT_NOTE = 'debit_note';

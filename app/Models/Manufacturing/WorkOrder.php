@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
@@ -22,7 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WorkOrder extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, SoftDeletes, DispatchesWebhooks;
 
     public const STATUS_DRAFT       = 'draft';
     public const STATUS_RELEASED    = 'released';

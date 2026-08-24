@@ -339,7 +339,7 @@ class ConsolidationController extends Controller
         try {
             $entries = $this->consolidationService->generateEliminationEntries($period, auth()->id());
         } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success([

@@ -87,7 +87,7 @@ class ReturnsInspectionController extends Controller
             $lot = $this->service->show($id);
             $lot = $this->service->startInspection($lot);
         } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success(new ReturnsInspectionLotResource($lot));
@@ -201,7 +201,7 @@ class ReturnsInspectionController extends Controller
         try {
             $lot = $this->service->makeUsageDecision($lot, $validated);
         } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success(new ReturnsInspectionLotResource($lot->load('defects')));
@@ -216,7 +216,7 @@ class ReturnsInspectionController extends Controller
             $lot = $this->service->show($id);
             $lot = $this->service->postStockMovements($lot);
         } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success(new ReturnsInspectionLotResource($lot));
@@ -231,7 +231,7 @@ class ReturnsInspectionController extends Controller
             $lot = $this->service->show($id);
             $lot = $this->service->cancel($lot);
         } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success(new ReturnsInspectionLotResource($lot));

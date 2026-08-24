@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Employee extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, SoftDeletes, DispatchesWebhooks;
 
     public const EMPLOYMENT_TYPE_FULL_TIME = 'full_time';
     public const EMPLOYMENT_TYPE_PART_TIME = 'part_time';

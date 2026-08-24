@@ -6,28 +6,34 @@
 
 ---
 
-## Rule 1 — All writes go through Action classes `[ASPIRATIONAL]`
+## Rule 1 — Controllers validate and delegate; services own the logic `[ENFORCED by convention]`
 
 ### Rule
-Business-state-changing operations (create, update, post, approve, cancel) must be expressed as
-dedicated `App\Actions\{Module}\{Verb}{Entity}Action` classes, not inlined in controllers or
-general-purpose service methods.
+A controller method does three things and nothing else: validate input, call one service method,
+and shape the response. All business logic — calculations, state changes, cross-record writes —
+lives in `App\Services\{Module}\`.
 
 ### Why
-Controllers are HTTP adapters. Services accumulate scope and become dumping grounds. An Action has
-one job, one input DTO, one return type — it is trivially testable and trivially auditable.
+Controllers are HTTP adapters. Logic placed in them cannot be reused by queued jobs, console
+commands, or other modules, and can only be tested through the HTTP layer.
 
-### Target pattern
+### Pattern
 ```php
-// ✅ Controller delegates to an Action
-public function store(StoreInvoiceRequest $request): JsonResponse
+// ✅ Controller validates, delegates, responds
+public function store(Request $request): JsonResponse
 {
-    $invoice = app(CreateInvoiceAction::class)->execute($request->validated());
-    return $this->success(InvoiceResource::make($invoice));
+    $validated = $request->validate([...]);
+
+    $invoice = $this->invoiceService->create(
+        collect($validated)->except('lines')->toArray(),
+        $validated['lines'],
+    );
+
+    return $this->created(InvoiceResource::make($invoice));
 }
 
 // ❌ Business logic inside the controller
-public function store(StoreInvoiceRequest $request): JsonResponse
+public function store(Request $request): JsonResponse
 {
     $invoice = Invoice::create([...]);
     $journal = JournalEntry::create([...]);
@@ -36,12 +42,18 @@ public function store(StoreInvoiceRequest $request): JsonResponse
 }
 ```
 
+### Splitting controllers
+When a controller accumulates methods for more than one resource, split it rather than prefixing
+method names. `CapacityController::indexWorkCenters()` became `WorkCenterController::index()` for
+this reason — one controller per resource, standard REST method names, route-model binding instead
+of manual `find()` plus null checks.
+
 ### Enforcement
-Code review checklist. Introduce PHPStan custom rule when Action pattern reaches ≥50% coverage.
+Code review.
 
 ---
 
-## Rule 2 — Cross-module flows use orchestrators `[ASPIRATIONAL]`
+## Rule 2 — Cross-module flows use orchestrators `[PARTIALLY ADOPTED]`
 
 ### Rule
 Any operation that writes to more than one bounded module (e.g. Sales + Accounting + Inventory)
@@ -83,6 +95,11 @@ class InvoiceService
     }
 }
 ```
+
+### Current adoption
+`App\Orchestrators\Sales\PostInvoiceOrchestrator` is the reference implementation — it is the only
+orchestrator so far. Other cross-module flows still call services directly and should move to an
+orchestrator when next touched.
 
 ### Enforcement
 Code review. Long-term: architectural fitness function via PHPStan layer rules.
@@ -259,9 +276,37 @@ public function send(Invoice $invoice, ?string $idempotencyKey = null): Invoice
 
 ---
 
-## Change Log
+## Rule 8 — Business models emit webhooks through the trait `[ENFORCED for core models]`
 
-| Date | Rule | Change |
-|------|------|--------|
-| 2026-04-01 | 5, 6, 7 | Promoted from aspirational to enforced after implementation |
-| 2026-04-01 | 1, 2 | Added as aspirational targets |
+### Rule
+Models that external systems subscribe to use `App\Models\Concerns\DispatchesWebhooks`.
+Services must not call `WebhookService` directly to announce a model change.
+
+### Why
+Webhook delivery driven from the model's own lifecycle events fires wherever the record
+changes — controller, job, or console command — so no write path can silently skip it.
+
+### Current adoption
+`Invoice`, `Contact`, `Quotation`, `SalesOrder`, `CreditNote`, `PaymentReceived`,
+`PurchaseOrder`, `Bill`, `Employee`, `WorkOrder`.
+
+### Cost
+`WebhookService::dispatch()` checks for a matching active subscription before recording
+anything, so organizations with no webhooks pay one indexed query per model write and
+store no rows. Delivery itself is queued via `DispatchWebhookJob`.
+
+### Rolling it out
+An organization only receives events it already subscribed to, so enabling emission on an
+environment where subscriptions exist starts real outbound traffic. Check first:
+
+```bash
+php artisan webhooks:subscriptions          # all organizations
+php artisan webhooks:subscriptions --org=12 # one organization
+```
+
+`WEBHOOKS_ENABLED=false` stops all emission without a deploy. Subscription management and
+retrying past deliveries keep working; only new emissions are suppressed.
+
+### Testing
+Suppressed during tests unless `webhooks.dispatch_in_tests` is enabled; see
+`tests/Feature/Core/ModelWebhookDispatchTest.php`.

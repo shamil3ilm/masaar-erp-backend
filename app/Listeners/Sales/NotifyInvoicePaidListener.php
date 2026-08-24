@@ -24,9 +24,6 @@ class NotifyInvoicePaidListener implements ShouldQueue
             return;
         }
 
-        // Update customer outstanding balance
-        $customer->updateOutstandingBalance();
-
         // Notify the invoice creator and finance team
         $recipients = User::withoutGlobalScopes()
             ->where('organization_id', $invoice->organization_id)

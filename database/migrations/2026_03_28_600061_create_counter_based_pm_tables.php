@@ -10,14 +10,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::dropIfExists('pm_orders');
-        Schema::dropIfExists('pm_task_list_operations');
-        Schema::dropIfExists('pm_task_lists');
-        Schema::dropIfExists('pm_maintenance_plans');
-        Schema::dropIfExists('pm_counter_readings');
-        Schema::dropIfExists('pm_counters');
+        Schema::dropIfExists('counter_based_orders');
+        Schema::dropIfExists('task_list_operations');
+        Schema::dropIfExists('maintenance_task_lists');
+        Schema::dropIfExists('counter_based_plans');
+        Schema::dropIfExists('counter_readings');
+        Schema::dropIfExists('equipment_counters');
 
-        Schema::create('pm_counters', function (Blueprint $table): void {
+        Schema::create('equipment_counters', function (Blueprint $table): void {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -36,7 +36,7 @@ return new class extends Migration
             $table->foreign('floc_id', 'pm_ctr_floc_fk')->references('id')->on('functional_locations')->nullOnDelete();
         });
 
-        Schema::create('pm_counter_readings', function (Blueprint $table): void {
+        Schema::create('counter_readings', function (Blueprint $table): void {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -48,11 +48,11 @@ return new class extends Migration
             $table->timestamps();
 
             $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
-            $table->foreign('counter_id', 'pm_ctr_read_ctr_fk')->references('id')->on('pm_counters')->cascadeOnDelete();
+            $table->foreign('counter_id', 'pm_ctr_read_ctr_fk')->references('id')->on('equipment_counters')->cascadeOnDelete();
             $table->foreign('recorded_by', 'pm_ctr_read_usr_fk')->references('id')->on('users')->nullOnDelete();
         });
 
-        Schema::create('pm_task_lists', function (Blueprint $table): void {
+        Schema::create('maintenance_task_lists', function (Blueprint $table): void {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -64,20 +64,20 @@ return new class extends Migration
             $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
         });
 
-        Schema::create('pm_task_list_operations', function (Blueprint $table): void {
+        Schema::create('task_list_operations', function (Blueprint $table): void {
             $table->id();
-            $table->unsignedBigInteger('pm_task_list_id');
+            $table->unsignedBigInteger('task_list_id');
             $table->unsignedSmallInteger('operation_number');
             $table->string('description');
             $table->unsignedBigInteger('work_center_id')->nullable();
             $table->decimal('planned_hours', 6, 2);
             $table->timestamps();
 
-            $table->foreign('pm_task_list_id', 'pm_tl_op_tl_fk')->references('id')->on('pm_task_lists')->cascadeOnDelete();
+            $table->foreign('task_list_id', 'pm_tl_op_tl_fk')->references('id')->on('maintenance_task_lists')->cascadeOnDelete();
             $table->foreign('work_center_id', 'pm_tl_op_wc_fk')->references('id')->on('work_centers')->nullOnDelete();
         });
 
-        Schema::create('pm_maintenance_plans', function (Blueprint $table): void {
+        Schema::create('counter_based_plans', function (Blueprint $table): void {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -96,11 +96,11 @@ return new class extends Migration
 
             $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
             $table->foreign('floc_id', 'pm_plan_floc_fk')->references('id')->on('functional_locations')->nullOnDelete();
-            $table->foreign('counter_id', 'pm_plan_ctr_fk')->references('id')->on('pm_counters')->nullOnDelete();
-            $table->foreign('task_list_id', 'pm_plan_tl_fk')->references('id')->on('pm_task_lists')->nullOnDelete();
+            $table->foreign('counter_id', 'pm_plan_ctr_fk')->references('id')->on('equipment_counters')->nullOnDelete();
+            $table->foreign('task_list_id', 'pm_plan_tl_fk')->references('id')->on('maintenance_task_lists')->nullOnDelete();
         });
 
-        Schema::create('pm_orders', function (Blueprint $table): void {
+        Schema::create('counter_based_orders', function (Blueprint $table): void {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -121,7 +121,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
-            $table->foreign('maintenance_plan_id', 'pm_order_plan_fk')->references('id')->on('pm_maintenance_plans')->nullOnDelete();
+            $table->foreign('maintenance_plan_id', 'pm_order_plan_fk')->references('id')->on('counter_based_plans')->nullOnDelete();
             $table->foreign('floc_id', 'pm_order_floc_fk')->references('id')->on('functional_locations')->nullOnDelete();
             $table->foreign('assigned_to', 'pm_order_usr_fk')->references('id')->on('users')->nullOnDelete();
         });
@@ -129,11 +129,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('pm_orders');
-        Schema::dropIfExists('pm_task_list_operations');
-        Schema::dropIfExists('pm_task_lists');
-        Schema::dropIfExists('pm_maintenance_plans');
-        Schema::dropIfExists('pm_counter_readings');
-        Schema::dropIfExists('pm_counters');
+        Schema::dropIfExists('counter_based_orders');
+        Schema::dropIfExists('task_list_operations');
+        Schema::dropIfExists('maintenance_task_lists');
+        Schema::dropIfExists('counter_based_plans');
+        Schema::dropIfExists('counter_readings');
+        Schema::dropIfExists('equipment_counters');
     }
 };

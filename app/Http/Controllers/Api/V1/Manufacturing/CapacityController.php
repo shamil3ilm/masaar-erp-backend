@@ -10,137 +10,22 @@ use App\Models\Manufacturing\WorkCenter;
 use App\Services\Manufacturing\CapacityPlanningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
+/**
+ * Capacity planning and reporting for work centers.
+ *
+ * Work center records themselves are managed by WorkCenterController.
+ */
 class CapacityController extends Controller
 {
     public function __construct(
-        private CapacityPlanningService $capacityService
+        private readonly CapacityPlanningService $capacityService
     ) {}
-
-    // -------------------------------------------------------------------------
-    // Work Centers — CRUD
-    // -------------------------------------------------------------------------
-
-    /**
-     * List work centers.
-     */
-    public function indexWorkCenters(Request $request): JsonResponse
-    {
-        $query = WorkCenter::with(['createdBy'])
-            ->when($request->search, fn($q, $s) => $q->where(function ($q) use ($s) {
-                $q->where('name', 'like', "%{$s}%")
-                    ->orWhere('code', 'like', "%{$s}%");
-            }))
-            ->when($request->type, fn($q, $t) => $q->ofType($t))
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['code', 'name', 'created_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 15)),
-            null
-        );
-    }
-
-    /**
-     * Store a new work center.
-     */
-    public function storeWorkCenter(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'code'               => [
-                'required', 'string', 'max:50',
-                Rule::unique('work_centers')->where('organization_id', auth()->user()->organization_id),
-            ],
-            'name'               => 'required|string|max:255',
-            'description'        => 'nullable|string',
-            'work_center_type'   => 'nullable|in:machine,labor,assembly,inspection,other',
-            'capacity_per_day'   => 'nullable|numeric|min:0|max:24',
-            'efficiency_percent' => 'nullable|numeric|min:1|max:200',
-            'calendar_type'      => 'nullable|in:5day,6day,7day',
-            'cost_per_hour'      => 'nullable|numeric|min:0',
-            'currency_code'      => 'nullable|string|size:3',
-            'is_active'          => 'nullable|boolean',
-        ]);
-
-        $validated['organization_id'] = auth()->user()->organization_id;
-
-        $workCenter = $this->capacityService->createWorkCenter($validated, auth()->id());
-
-        return $this->created($workCenter, 'Work center created successfully.');
-    }
-
-    /**
-     * Show a single work center.
-     */
-    public function showWorkCenter(int $id): JsonResponse
-    {
-        $workCenter = WorkCenter::with(['exceptions', 'createdBy'])->find($id);
-
-        if ($workCenter === null) {
-            return $this->notFound('Work center not found.');
-        }
-
-        return $this->success($workCenter);
-    }
-
-    /**
-     * Update a work center.
-     */
-    public function updateWorkCenter(Request $request, int $id): JsonResponse
-    {
-        $workCenter = WorkCenter::find($id);
-
-        if ($workCenter === null) {
-            return $this->notFound('Work center not found.');
-        }
-
-        $validated = $request->validate([
-            'code'               => [
-                'sometimes', 'string', 'max:50',
-                Rule::unique('work_centers')
-                    ->where('organization_id', auth()->user()->organization_id)
-                    ->ignore($workCenter->id),
-            ],
-            'name'               => 'sometimes|string|max:255',
-            'description'        => 'nullable|string',
-            'work_center_type'   => 'sometimes|in:machine,labor,assembly,inspection,other',
-            'capacity_per_day'   => 'sometimes|numeric|min:0|max:24',
-            'efficiency_percent' => 'sometimes|numeric|min:1|max:200',
-            'calendar_type'      => 'sometimes|in:5day,6day,7day',
-            'cost_per_hour'      => 'nullable|numeric|min:0',
-            'currency_code'      => 'sometimes|string|size:3',
-            'is_active'          => 'sometimes|boolean',
-        ]);
-
-        $updated = $this->capacityService->updateWorkCenter($workCenter, $validated, auth()->id());
-
-        return $this->success($updated, 'Work center updated successfully.');
-    }
-
-    /**
-     * Soft-delete a work center.
-     */
-    public function destroyWorkCenter(int $id): JsonResponse
-    {
-        $workCenter = WorkCenter::find($id);
-
-        if ($workCenter === null) {
-            return $this->notFound('Work center not found.');
-        }
-
-        $workCenter->delete();
-
-        return $this->success(null, 'Work center deleted successfully.');
-    }
 
     /**
      * Get capacity load for a specific work center over a date range.
      */
-    public function workCenterLoad(Request $request, int $workCenter): JsonResponse
+    public function workCenterLoad(Request $request, WorkCenter $workCenter): JsonResponse
     {
         $validated = $request->validate([
             'from' => 'nullable|date',
@@ -154,42 +39,10 @@ class CapacityController extends Controller
             auth()->user()->organization_id,
             $from,
             $to,
-            $workCenter
+            $workCenter->id
         );
 
         return $this->success($data);
-    }
-
-    // -------------------------------------------------------------------------
-    // Work Center Exceptions
-    // -------------------------------------------------------------------------
-
-    /**
-     * Add or update a calendar exception for a work center.
-     */
-    public function storeException(Request $request, int $id): JsonResponse
-    {
-        $workCenter = WorkCenter::find($id);
-
-        if ($workCenter === null) {
-            return $this->notFound('Work center not found.');
-        }
-
-        $validated = $request->validate([
-            'exception_date'  => 'required|date',
-            'available_hours' => 'required|numeric|min:0|max:24',
-            'reason'          => 'nullable|string|max:255',
-        ]);
-
-        $exception = $this->capacityService->setException(
-            $workCenter,
-            $validated['exception_date'],
-            (float) $validated['available_hours'],
-            $validated['reason'] ?? '',
-            auth()->id()
-        );
-
-        return $this->created($exception, 'Exception saved successfully.');
     }
 
     // -------------------------------------------------------------------------

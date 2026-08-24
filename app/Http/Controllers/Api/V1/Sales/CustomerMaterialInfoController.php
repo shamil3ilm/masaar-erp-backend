@@ -125,7 +125,7 @@ class CustomerMaterialInfoController extends Controller
         $result = $query->first();
 
         if ($result === null) {
-            return $this->error('No customer material info found for the given criteria.', 404);
+            return $this->notFound('No customer material info found for the given criteria.');
         }
 
         return $this->success($result);

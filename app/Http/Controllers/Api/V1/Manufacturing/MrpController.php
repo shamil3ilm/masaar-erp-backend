@@ -8,6 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\DemandForecast;
 use App\Models\Manufacturing\MrpPlannedOrder;
 use App\Models\Manufacturing\MrpRun;
+use App\Services\Manufacturing\DemandForecastService;
+use App\Services\Manufacturing\MrpCapacityService;
+use App\Services\Manufacturing\MrpProcurementService;
 use App\Services\Manufacturing\MrpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +19,10 @@ use Illuminate\Support\Carbon;
 class MrpController extends Controller
 {
     public function __construct(
-        private MrpService $mrpService
+        private readonly MrpService $mrpService,
+        private readonly MrpCapacityService $capacity,
+        private readonly DemandForecastService $forecasts,
+        private readonly MrpProcurementService $procurement,
     ) {}
 
     /**
@@ -102,7 +108,7 @@ class MrpController extends Controller
         try {
             $order = $this->mrpService->firmPlannedOrder($order, auth()->id());
         } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success($order->load('product:id,name,sku'), 'Planned order firmed.');
@@ -122,7 +128,7 @@ class MrpController extends Controller
         try {
             $converted = $this->mrpService->convertToOrder($order, auth()->id());
         } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         return $this->success([
@@ -165,7 +171,7 @@ class MrpController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        $forecast = $this->mrpService->setForecast($validated, auth()->id());
+        $forecast = $this->forecasts->setForecast($validated, auth()->id());
 
         return $this->created(
             $forecast->load(['product:id,name,sku', 'warehouse:id,name']),
@@ -235,7 +241,7 @@ class MrpController extends Controller
             'to'   => 'required|date|after_or_equal:from',
         ]);
 
-        $accuracy = $this->mrpService->getForecastAccuracy(
+        $accuracy = $this->forecasts->getForecastAccuracy(
             $this->organizationId($request),
             $validated['from'],
             $validated['to']
@@ -282,7 +288,7 @@ class MrpController extends Controller
         }
 
         try {
-            $result = $this->mrpService->runCapacityCheck($orders, $horizon);
+            $result = $this->capacity->runCapacityCheck($orders, $horizon);
         } catch (\Throwable $e) {
             return $this->error($e->getMessage(), 'CRP_ERROR', 422);
         }
@@ -307,7 +313,7 @@ class MrpController extends Controller
         $fromDate = Carbon::parse($validated['from_date']);
         $toDate   = Carbon::parse($validated['to_date']);
 
-        $load = $this->mrpService->getCapacityLoad($orgId, $fromDate, $toDate);
+        $load = $this->capacity->getCapacityLoad($orgId, $fromDate, $toDate);
 
         return $this->success($load, 'Capacity load retrieved.');
     }
@@ -327,7 +333,7 @@ class MrpController extends Controller
         ]);
 
         try {
-            $result = $this->mrpService->convertPlannedOrdersToPR(
+            $result = $this->procurement->convertPlannedOrdersToPR(
                 $mrpRun,
                 $validated['planned_order_ids'] ?? null,
                 auth()->id()

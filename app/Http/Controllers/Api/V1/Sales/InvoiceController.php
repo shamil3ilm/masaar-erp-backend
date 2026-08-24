@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\InvoiceResource;
 use App\Models\Sales\Invoice;
 use App\Services\Compliance\CompliPayClient;
+use App\Services\Sales\InvoiceConversionService;
 use App\Services\Sales\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,8 +19,9 @@ class InvoiceController extends Controller
 {
     use SupportsAgGrid;
     public function __construct(
-        private InvoiceService $invoiceService,
-        private CompliPayClient $compliPayClient
+        private readonly InvoiceService $invoiceService,
+        private readonly InvoiceConversionService $invoiceConversion,
+        private readonly CompliPayClient $compliPayClient,
     ) {}
 
     /**
@@ -228,7 +230,7 @@ class InvoiceController extends Controller
         ]);
 
         try {
-            $creditNote = $this->invoiceService->createCreditNote(
+            $creditNote = $this->invoiceConversion->createCreditNote(
                 $invoice,
                 $validated['lines'],
                 $validated['reason'] ?? null
