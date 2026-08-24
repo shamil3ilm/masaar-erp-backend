@@ -56,14 +56,13 @@ class ZatcaComplianceTest extends TestCase
      * Which countries this ERP files invoices for.
      *
      * The submission path carries no jurisdiction — PostInvoiceOrchestrator
-     * calls MasaarClient::submitInvoice(), which POSTs to /pipeline/submit
-     * with no country and a circuit breaker keyed 'zatca'. So a country listed
-     * as requiring compliance has its invoices filed as Saudi ones, whatever
-     * its own authority expects.
+     * calls MasaarClient::submitInvoice(), which posts to /pipeline/submit
+     * with no country and a circuit breaker keyed 'zatca'. A country that
+     * requires compliance therefore has its invoices filed with ZATCA,
+     * whatever its own authority expects.
      *
-     * AE and IN were on that list. Until the platform can file for a
-     * jurisdiction and the partner API routes on it, listing a country here
-     * misfiles its invoices rather than leaving them alone.
+     * This names the countries that must stay off that list until the platform
+     * can file for them and the partner API routes on jurisdiction.
      */
     public function test_only_saudi_organizations_require_compliance(): void
     {

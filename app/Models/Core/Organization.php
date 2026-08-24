@@ -102,17 +102,15 @@ class Organization extends Model
     /**
      * Countries whose invoices this ERP files with a tax authority.
      *
-     * Saudi Arabia only, because Saudi Arabia is the only one the compliance
-     * platform can currently file for. The list read ['SA', 'AE', 'IN'], and
-     * the submission path has no jurisdiction in it: PostInvoiceOrchestrator
-     * calls MasaarClient::submitInvoice(), which POSTs to /pipeline/submit
-     * with no country and a circuit breaker keyed 'zatca'. An Emirati or
-     * Indian organization's invoice was therefore filed as a Saudi one.
+     * Saudi Arabia only, because the submission path carries no jurisdiction:
+     * PostInvoiceOrchestrator calls MasaarClient::submitInvoice(), which posts
+     * to /pipeline/submit with no country and a circuit breaker keyed 'zatca'.
+     * Every country on this list is therefore filed with ZATCA.
      *
-     * Adding a country here is not enough to support it. The platform needs a
-     * compliance profile for that jurisdiction and the partner API needs to
-     * route on it; until both exist, listing a country here misfiles its
-     * invoices rather than leaving them alone.
+     * Adding one is not enough to support it. The platform needs a compliance
+     * profile for that jurisdiction and the partner API needs to route on it;
+     * without both, a country listed here has its invoices misfiled rather
+     * than left alone.
      */
     private const COMPLIANCE_COUNTRIES = ['SA'];
 
