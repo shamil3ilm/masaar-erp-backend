@@ -98,12 +98,27 @@ class Organization extends Model
     }
 
     // Methods
+
+    /**
+     * Countries whose invoices this ERP files with a tax authority.
+     *
+     * Saudi Arabia only, because Saudi Arabia is the only one the compliance
+     * platform can currently file for. The list read ['SA', 'AE', 'IN'], and
+     * the submission path has no jurisdiction in it: PostInvoiceOrchestrator
+     * calls MasaarClient::submitInvoice(), which POSTs to /pipeline/submit
+     * with no country and a circuit breaker keyed 'zatca'. An Emirati or
+     * Indian organization's invoice was therefore filed as a Saudi one.
+     *
+     * Adding a country here is not enough to support it. The platform needs a
+     * compliance profile for that jurisdiction and the partner API needs to
+     * route on it; until both exist, listing a country here misfiles its
+     * invoices rather than leaving them alone.
+     */
+    private const COMPLIANCE_COUNTRIES = ['SA'];
+
     public function requiresCompliance(): bool
     {
-        // Countries that require e-invoicing compliance
-        $complianceCountries = ['SA', 'AE', 'IN'];
-
-        return in_array($this->country_code, $complianceCountries, true);
+        return in_array($this->country_code, self::COMPLIANCE_COUNTRIES, true);
     }
 
     public function getTaxSchemeDetails(): array

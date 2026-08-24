@@ -14,7 +14,7 @@ use App\Models\Sales\Invoice;
 use App\Orchestrators\Sales\PostInvoiceOrchestrator;
 use App\Services\Accounting\CreditManagementService;
 use App\Services\Accounting\JournalEntryFactory;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use App\Services\Core\UserEventService;
 use App\Services\Inventory\StockService;
 use App\Services\Sales\RebateAccrualService;
@@ -36,7 +36,7 @@ class PostInvoiceOrchestratorTest extends TestCase
     private MockInterface $journalEntryFactory;
     private MockInterface $stockService;
     private MockInterface $creditManagementService;
-    private MockInterface $compliPayClient;
+    private MockInterface $masaarClient;
     private MockInterface $userEventService;
     private MockInterface $rebateAccrualService;
 
@@ -53,7 +53,7 @@ class PostInvoiceOrchestratorTest extends TestCase
         $this->journalEntryFactory     = Mockery::mock(JournalEntryFactory::class);
         $this->stockService            = Mockery::mock(StockService::class);
         $this->creditManagementService = Mockery::mock(CreditManagementService::class);
-        $this->compliPayClient         = Mockery::mock(CompliPayClient::class);
+        $this->masaarClient         = Mockery::mock(MasaarClient::class);
         $this->userEventService        = Mockery::mock(UserEventService::class);
         $this->rebateAccrualService    = Mockery::mock(RebateAccrualService::class);
 
@@ -61,7 +61,7 @@ class PostInvoiceOrchestratorTest extends TestCase
             $this->journalEntryFactory,
             $this->stockService,
             $this->creditManagementService,
-            $this->compliPayClient,
+            $this->masaarClient,
             $this->userEventService,
             $this->rebateAccrualService,
         );
@@ -82,7 +82,7 @@ class PostInvoiceOrchestratorTest extends TestCase
         $this->stockService->allows('recordSale')->andReturn(null);
         $this->userEventService->allows('track')->andReturn(null);
         $this->rebateAccrualService->allows('accrueForInvoice')->andReturn(null);
-        $this->compliPayClient->shouldNotReceive('submitInvoice');
+        $this->masaarClient->shouldNotReceive('submitInvoice');
 
         $result = $this->orchestrator->execute($invoice);
 
@@ -119,7 +119,7 @@ class PostInvoiceOrchestratorTest extends TestCase
     }
 
     /**
-     * When compliance_status is PENDING, CompliPayClient::submitInvoice() is called
+     * When compliance_status is PENDING, MasaarClient::submitInvoice() is called
      * after the invoice is transitioned to SENT (which makes requiresCompliance() true).
      */
     public function test_zatca_submission_is_triggered_when_compliance_pending(): void
@@ -142,7 +142,7 @@ class PostInvoiceOrchestratorTest extends TestCase
             'hash'   => 'hash-abc',
         ]);
 
-        $this->compliPayClient->expects('submitInvoice')->once()->andReturn($complianceResult);
+        $this->masaarClient->expects('submitInvoice')->once()->andReturn($complianceResult);
 
         $this->orchestrator->execute($invoice);
     }
@@ -164,7 +164,7 @@ class PostInvoiceOrchestratorTest extends TestCase
         $this->userEventService->allows('track')->andReturn(null);
         $this->rebateAccrualService->allows('accrueForInvoice')->andReturn(null);
 
-        $this->compliPayClient->allows('submitInvoice')
+        $this->masaarClient->allows('submitInvoice')
             ->andThrow(new \Illuminate\Http\Client\ConnectionException('ZATCA unreachable'));
 
         // Must not throw even when ZATCA is down.

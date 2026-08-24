@@ -16,11 +16,11 @@ use Tests\Traits\TestHelpers;
 /**
  * ZATCA compliance-status endpoint tests.
  *
- * The PostInvoiceOrchestrator submits invoices to CompliPayClient after the
+ * The PostInvoiceOrchestrator submits invoices to MasaarClient after the
  * DB transaction commits.  These tests verify the compliance-status endpoint
  * reflects the correct state without requiring the external ZATCA service
  * (ZATCA_INTEGRATION_ENABLED is false in the SQLite test environment, so
- * CompliPayClient returns 'not_applicable' immediately).
+ * MasaarClient returns 'not_applicable' immediately).
  */
 class ZatcaComplianceTest extends TestCase
 {
@@ -51,6 +51,35 @@ class ZatcaComplianceTest extends TestCase
     }
 
     // ── Compliance-status endpoint ───────────────────────────────────────────
+
+    /**
+     * Which countries this ERP files invoices for.
+     *
+     * The submission path carries no jurisdiction — PostInvoiceOrchestrator
+     * calls MasaarClient::submitInvoice(), which POSTs to /pipeline/submit
+     * with no country and a circuit breaker keyed 'zatca'. So a country listed
+     * as requiring compliance has its invoices filed as Saudi ones, whatever
+     * its own authority expects.
+     *
+     * AE and IN were on that list. Until the platform can file for a
+     * jurisdiction and the partner API routes on it, listing a country here
+     * misfiles its invoices rather than leaving them alone.
+     */
+    public function test_only_saudi_organizations_require_compliance(): void
+    {
+        $saudi = \App\Models\Core\Organization::factory()->create(['country_code' => 'SA']);
+
+        $this->assertTrue($saudi->requiresCompliance());
+
+        foreach (['AE', 'IN', 'QA', 'BH', 'KW', 'OM', 'US'] as $country) {
+            $org = \App\Models\Core\Organization::factory()->create(['country_code' => $country]);
+
+            $this->assertFalse(
+                $org->requiresCompliance(),
+                "{$country} invoices would be filed with ZATCA as Saudi documents."
+            );
+        }
+    }
 
     public function test_compliance_status_for_invoice_never_submitted(): void
     {
