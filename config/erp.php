@@ -230,7 +230,7 @@ return [
     | Circuit Breaker
     |--------------------------------------------------------------------------
     | Controls the Redis-backed circuit breaker used to protect calls to
-    | external APIs (e.g. ZATCA / CompliPay).
+    | external APIs (e.g. ZATCA / Masaar).
     |
     | threshold   — consecutive failures before the circuit opens
     | open_ttl    — seconds to keep the circuit open (fast-fail window)

@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Compliance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Core\Branch;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use App\Services\Compliance\ComplianceResult;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 class OnboardingController extends Controller
 {
     public function __construct(
-        private readonly CompliPayClient $client
+        private readonly MasaarClient $client
     ) {}
 
     /**

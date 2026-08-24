@@ -12,7 +12,7 @@ use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Services\Accounting\CreditManagementService;
 use App\Services\Accounting\JournalEntryFactory;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use App\Services\Core\UserEventService;
 use App\Services\Inventory\StockService;
 use App\Services\Sales\RebateAccrualService;
@@ -42,7 +42,7 @@ class PostInvoiceOrchestrator
         private readonly JournalEntryFactory $journalEntryFactory,
         private readonly StockService $stockService,
         private readonly CreditManagementService $creditManagementService,
-        private readonly CompliPayClient $compliPayClient,
+        private readonly MasaarClient $masaarClient,
         private readonly UserEventService $userEventService,
         private readonly RebateAccrualService $rebateAccrualService,
     ) {}
@@ -198,7 +198,7 @@ class PostInvoiceOrchestrator
         }
 
         try {
-            $result = $this->compliPayClient->submitInvoice($invoice);
+            $result = $this->masaarClient->submitInvoice($invoice);
 
             $updateData = [
                 'compliance_status'       => $result->status,

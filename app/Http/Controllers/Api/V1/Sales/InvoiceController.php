@@ -8,7 +8,7 @@ use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\InvoiceResource;
 use App\Models\Sales\Invoice;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use App\Services\Sales\InvoiceConversionService;
 use App\Services\Sales\InvoiceService;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +21,7 @@ class InvoiceController extends Controller
     public function __construct(
         private readonly InvoiceService $invoiceService,
         private readonly InvoiceConversionService $invoiceConversion,
-        private readonly CompliPayClient $compliPayClient,
+        private readonly MasaarClient $masaarClient,
     ) {}
 
     /**
@@ -258,7 +258,7 @@ class InvoiceController extends Controller
         }
 
         try {
-            $result = $this->compliPayClient->getStatus($invoice->compliance_uuid);
+            $result = $this->masaarClient->getStatus($invoice->compliance_uuid);
 
             return $this->success([
                 'status' => $result->status,

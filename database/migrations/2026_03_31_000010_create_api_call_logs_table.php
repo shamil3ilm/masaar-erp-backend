@@ -14,7 +14,7 @@ return new class extends Migration
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->nullable()->constrained('organizations')->nullOnDelete();
-            $table->string('service', 100);           // 'CompliPayClient', 'ZatcaClient', etc.
+            $table->string('service', 100);           // 'MasaarClient', 'ZatcaClient', etc.
             $table->string('method', 10);             // GET, POST, etc.
             $table->string('url', 2048);
             $table->json('request_headers')->nullable();

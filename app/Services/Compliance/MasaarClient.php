@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Log;
  * Communicates with the ZATCA middleware project for e-invoicing
  * compliance in Saudi Arabia (and other GCC authorities via future expansion).
  */
-class CompliPayClient
+class MasaarClient
 {
     use LogsExternalApiCalls;
 
@@ -38,7 +38,7 @@ class CompliPayClient
         $this->enabled        = (bool) config('zatca-integration.enabled', true);
         $this->retryTimes     = (int) config('zatca-integration.retry.times', 3);
         $this->retrySleep     = (int) config('zatca-integration.retry.sleep', 1000);
-        $this->apiServiceName = 'CompliPayClient';
+        $this->apiServiceName = 'MasaarClient';
     }
 
     /**
@@ -54,7 +54,7 @@ class CompliPayClient
         }
 
         if ($this->circuitBreaker()->isOpen('zatca')) {
-            Log::warning('CompliPayClient: circuit breaker open, skipping ZATCA submission', [
+            Log::warning('MasaarClient: circuit breaker open, skipping ZATCA submission', [
                 'invoice_id' => $invoice->id,
             ]);
 
@@ -147,7 +147,7 @@ class CompliPayClient
         }
 
         if ($this->circuitBreaker()->isOpen('zatca')) {
-            Log::warning('CompliPayClient: circuit breaker open, skipping ZATCA status check', [
+            Log::warning('MasaarClient: circuit breaker open, skipping ZATCA status check', [
                 'compliance_uuid' => $complianceUuid,
             ]);
 

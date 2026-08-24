@@ -66,7 +66,7 @@ return new class extends Migration
                 'voided',
             ])->default('draft');
 
-            // Compliance fields (populated by CompliPay)
+            // Compliance fields (populated by Masaar)
             $table->enum('compliance_status', [
                 'not_applicable',
                 'pending',
