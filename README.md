@@ -1,4 +1,4 @@
-# ERP Backend
+# Masaar ERP — Backend
 
 A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait) and **India**. Built to SAP-parity standards — covering Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing, Project System, and Compliance.
 
