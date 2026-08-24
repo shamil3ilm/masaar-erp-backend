@@ -96,7 +96,7 @@ class RevenueRecognitionController extends Controller
     public function update(Request $request, RevenueContract $revenueContract): JsonResponse
     {
         if (!$revenueContract->isDraft()) {
-            return $this->error('Only draft contracts can be updated.', 422);
+            return $this->error('Only draft contracts can be updated.', 'INVALID_STATUS', 422);
         }
 
         $orgId = auth()->user()->organization_id;

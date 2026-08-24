@@ -118,7 +118,7 @@ class PickingListController extends Controller
         }
 
         if ($list->status === 'completed') {
-            return $this->error('Picking list is already completed.', 422);
+            return $this->error('Picking list is already completed.', 'INVALID_STATUS', 422);
         }
 
         $validated = $request->validate([

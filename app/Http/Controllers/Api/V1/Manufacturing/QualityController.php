@@ -221,7 +221,7 @@ class QualityController extends Controller
         }
 
         if ($lot->isAccepted() || $lot->isRejected()) {
-            return $this->error('Inspection lot is already completed.', 422);
+            return $this->error('Inspection lot is already completed.', 'INVALID_STATUS', 422);
         }
 
         $validated = $request->validate([

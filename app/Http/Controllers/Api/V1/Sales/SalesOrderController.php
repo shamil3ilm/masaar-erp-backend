@@ -10,7 +10,7 @@ use App\Models\Sales\Contact;
 use App\Models\Sales\SalesOrder;
 use App\Models\Sales\SalesOrderLine;
 use App\Services\Accounting\CreditManagementService;
-use App\Services\Sales\InvoiceService;
+use App\Services\Sales\InvoiceConversionService;
 use App\Services\Sales\SalesOrderDeliveryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -398,7 +398,7 @@ class SalesOrderController extends Controller
             );
         }
 
-        $invoice = app(InvoiceService::class)->createFromSalesOrder($salesOrder);
+        $invoice = app(InvoiceConversionService::class)->createFromSalesOrder($salesOrder);
 
         $result = [
             'invoice_id' => $invoice->id,

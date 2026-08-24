@@ -97,7 +97,7 @@ class ServiceEntrySheetController extends Controller
         $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
 
         if ($sheet->status !== ServiceEntrySheet::STATUS_DRAFT) {
-            return $this->error('Only draft service entry sheets can be updated.', 422);
+            return $this->error('Only draft service entry sheets can be updated.', 'INVALID_STATUS', 422);
         }
 
         $validated = $request->validate([
@@ -120,7 +120,7 @@ class ServiceEntrySheetController extends Controller
         $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
 
         if ($sheet->status !== ServiceEntrySheet::STATUS_DRAFT) {
-            return $this->error('Only draft service entry sheets can be submitted.', 422);
+            return $this->error('Only draft service entry sheets can be submitted.', 'INVALID_STATUS', 422);
         }
 
         $sheet->update([
@@ -143,7 +143,7 @@ class ServiceEntrySheetController extends Controller
         $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
 
         if ($sheet->status !== ServiceEntrySheet::STATUS_SUBMITTED) {
-            return $this->error('Only submitted service entry sheets can be reviewed.', 422);
+            return $this->error('Only submitted service entry sheets can be reviewed.', 'INVALID_STATUS', 422);
         }
 
         $validated = $request->validate([

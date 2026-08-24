@@ -3,7 +3,7 @@
 use App\Http\Middleware\AddApiVersionHeader;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\CheckBranch;
-use App\Http\Middleware\CheckChangeFreeeze;
+use App\Http\Middleware\CheckChangeFreeze;
 use App\Http\Middleware\CheckIpAllowlist;
 use App\Http\Middleware\CheckFeatureEnabled;
 use App\Http\Middleware\CheckIdempotency;
@@ -50,7 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'check.idempotency' => CheckIdempotency::class,
             'track.activity' => TrackUserActivity::class,
             'verify.zatca.webhook' => VerifyZatcaWebhook::class,
-            'check.change-freeze'    => CheckChangeFreeeze::class,
+            'check.change-freeze'    => CheckChangeFreeze::class,
             'check.ip-allowlist'     => CheckIpAllowlist::class,
             'api.version'            => AddApiVersionHeader::class,
             'track.response.time'    => TrackResponseTime::class,

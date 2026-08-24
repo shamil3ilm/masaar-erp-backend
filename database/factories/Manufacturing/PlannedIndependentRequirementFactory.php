@@ -38,10 +38,20 @@ class PlannedIndependentRequirementFactory extends Factory
         return $this->state(fn () => ['is_active' => false]);
     }
 
+    /**
+     * Mark the requirement as fully consumed.
+     *
+     * Applied after the attributes are resolved so it matches the final
+     * quantity, including one passed to make() or create().
+     */
     public function fullyConsumed(): static
     {
-        return $this->state(fn (array $attrs) => [
-            'consumed_quantity' => $attrs['quantity'],
-        ]);
+        return $this
+            ->afterMaking(function (PlannedIndependentRequirement $requirement): void {
+                $requirement->consumed_quantity = $requirement->quantity;
+            })
+            ->afterCreating(function (PlannedIndependentRequirement $requirement): void {
+                $requirement->forceFill(['consumed_quantity' => $requirement->quantity])->save();
+            });
     }
 }

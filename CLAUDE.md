@@ -90,7 +90,10 @@ Each module follows the same layered structure:
 - **PSR-12** coding standard
 - **Strict types** (`declare(strict_types=1)`) in all PHP files
 - **Service layer pattern** -- no business logic in controllers
-- **Form Request classes** for input validation
+- **Validation in the controller** via `$request->validate()`; extract a Form Request class
+  (`app/Http/Requests/{Module}/`) when the same rules are reused across endpoints
+- **One resource per controller**, with standard REST method names (`index`, `store`, `show`,
+  `update`, `destroy`) and route-model binding
 - **API Resource classes** for response transformation
 - **`ApiResponse` trait** on the base Controller for consistent response formatting
 - **Conventional route naming:** `{module}.{resource}.{action}` (e.g., `sales.invoices.store`)

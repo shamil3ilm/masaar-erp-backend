@@ -19,32 +19,6 @@ Route::middleware(['auth:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Work Centers
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('work-centers')->group(function () {
-        Route::get('/', [CapacityController::class, 'indexWorkCenters'])
-            ->middleware('check.permission:manufacturing.capacity.view');
-
-        Route::post('/', [CapacityController::class, 'storeWorkCenter'])
-            ->middleware('check.permission:manufacturing.capacity.create');
-
-        Route::get('/{id}', [CapacityController::class, 'showWorkCenter'])
-            ->middleware('check.permission:manufacturing.capacity.view');
-
-        Route::put('/{id}', [CapacityController::class, 'updateWorkCenter'])
-            ->middleware('check.permission:manufacturing.capacity.edit');
-
-        Route::delete('/{id}', [CapacityController::class, 'destroyWorkCenter'])
-            ->middleware('check.permission:manufacturing.capacity.delete');
-
-        // Calendar exceptions
-        Route::post('/{id}/exceptions', [CapacityController::class, 'storeException'])
-            ->middleware('check.permission:manufacturing.capacity.edit');
-    });
-
-    /*
-    |--------------------------------------------------------------------------
     | Capacity Reporting
     |--------------------------------------------------------------------------
     */

@@ -27,16 +27,9 @@ class WebhookService
         ?string $resourceId = null,
         bool $async = true
     ): int {
-        // Record the event
-        $event = WebhookEvent::create([
-            'organization_id' => $organizationId,
-            'event_type' => $eventType,
-            'resource_type' => $resourceType,
-            'resource_id' => $resourceId,
-            'data' => $data,
-        ]);
-
-        // Find active webhooks subscribed to this event
+        // Find active webhooks subscribed to this event. This runs before the
+        // event is recorded so organizations with no subscriptions do not
+        // accumulate a WebhookEvent row for every model write.
         $webhooks = Webhook::where('organization_id', $organizationId)
             ->where('is_active', true)
             ->get()
@@ -46,8 +39,14 @@ class WebhookService
             return 0;
         }
 
-        // Update event with webhook count
-        $event->update(['webhooks_triggered' => $webhooks->count()]);
+        $event = WebhookEvent::create([
+            'organization_id' => $organizationId,
+            'event_type' => $eventType,
+            'resource_type' => $resourceType,
+            'resource_id' => $resourceId,
+            'data' => $data,
+            'webhooks_triggered' => $webhooks->count(),
+        ]);
 
         // Create delivery records and dispatch
         foreach ($webhooks as $webhook) {

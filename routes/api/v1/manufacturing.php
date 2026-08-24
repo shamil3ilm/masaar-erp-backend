@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\V1\Manufacturing\ProductCostCollectorController;
 use App\Http\Controllers\Api\V1\Manufacturing\ProductionVersionController;
 use App\Http\Controllers\Api\V1\Manufacturing\RepetitiveManufacturingController;
 use App\Http\Controllers\Api\V1\Manufacturing\SpcController;
+use App\Http\Controllers\Api\V1\Manufacturing\WorkCenterController;
 use App\Http\Controllers\Api\V1\Manufacturing\WorkOrderController;
 use App\Http\Controllers\Api\V1\Manufacturing\QInfoRecordController;
 use App\Http\Controllers\Api\V1\Manufacturing\QualityCostController;
@@ -125,20 +126,19 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('work-centers')->name('manufacturing.work-centers.')->group(function (): void {
-        Route::get('/', [CapacityController::class, 'indexWorkCenters'])->middleware('check.permission:manufacturing.capacity.view')->name('index');
-        Route::post('/', [CapacityController::class, 'storeWorkCenter'])->middleware('check.permission:manufacturing.capacity.manage')->name('store');
-        Route::get('/{workCenter}', [CapacityController::class, 'showWorkCenter'])->middleware('check.permission:manufacturing.capacity.view')->name('show');
-        Route::put('/{workCenter}', [CapacityController::class, 'updateWorkCenter'])->middleware('check.permission:manufacturing.capacity.manage')->name('update');
-        Route::delete('/{workCenter}', [CapacityController::class, 'destroyWorkCenter'])->middleware('check.permission:manufacturing.capacity.manage')->name('destroy');
+        Route::get('/', [WorkCenterController::class, 'index'])->middleware('check.permission:manufacturing.capacity.view')->name('index');
+        Route::post('/', [WorkCenterController::class, 'store'])->middleware('check.permission:manufacturing.capacity.create')->name('store');
+        Route::get('/{workCenter}', [WorkCenterController::class, 'show'])->middleware('check.permission:manufacturing.capacity.view')->name('show');
+        Route::put('/{workCenter}', [WorkCenterController::class, 'update'])->middleware('check.permission:manufacturing.capacity.edit')->name('update');
+        Route::delete('/{workCenter}', [WorkCenterController::class, 'destroy'])->middleware('check.permission:manufacturing.capacity.delete')->name('destroy');
+        Route::post('/{workCenter}/exceptions', [WorkCenterController::class, 'storeException'])->middleware('check.permission:manufacturing.capacity.edit')->name('exceptions.store');
         Route::get('/{workCenter}/load', [CapacityController::class, 'workCenterLoad'])->middleware('check.permission:manufacturing.capacity.view')->name('load');
-        Route::post('/{workCenter}/exceptions', [CapacityController::class, 'storeException'])->middleware('check.permission:manufacturing.capacity.manage')->name('exceptions.store');
     });
 
     Route::prefix('capacity')->name('manufacturing.capacity.')->group(function (): void {
         Route::get('/load', [CapacityController::class, 'capacityLoad'])->middleware('check.permission:manufacturing.capacity.view')->name('load');
-        Route::get('/utilization', [CapacityController::class, 'utilizationReport'])->middleware('check.permission:manufacturing.capacity.view')->name('utilization');
-        Route::get('/requirements', [CapacityController::class, 'capacityRequirements'])->middleware('check.permission:manufacturing.capacity.view')->name('requirements');
-        Route::post('/refresh', [CapacityController::class, 'refreshCapacityLoad'])->middleware('check.permission:manufacturing.capacity.manage')->name('refresh');
+        Route::get('/bottlenecks', [CapacityController::class, 'bottlenecks'])->middleware('check.permission:manufacturing.capacity.view')->name('bottlenecks');
+        Route::get('/requirements', [CapacityController::class, 'requirements'])->middleware('check.permission:manufacturing.capacity.view')->name('requirements');
     });
 
     Route::prefix('capacity-leveling')->name('manufacturing.capacity-leveling.')->group(function (): void {

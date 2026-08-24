@@ -37,7 +37,7 @@ class EarnedValueController extends Controller
         $snapshot = $this->evmService->getLatestSnapshot($projectId);
 
         if ($snapshot === null) {
-            return $this->error('No EVM snapshots found for this project.', 404);
+            return $this->notFound('No EVM snapshots found for this project.');
         }
 
         return $this->success($snapshot);

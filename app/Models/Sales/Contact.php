@@ -6,6 +6,7 @@ namespace App\Models\Sales;
 
 use App\Models\Accounting\Account;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
@@ -18,7 +19,7 @@ use Illuminate\Notifications\Notifiable;
 
 class Contact extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes, Notifiable;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes, Notifiable, DispatchesWebhooks;
 
     /**
      * Route notifications for mail channel (contact email).
@@ -181,24 +182,16 @@ class Contact extends Model
     }
 
     /**
-     * Get outstanding invoice balance.
+     * Sum of amounts still due on this customer's open invoices.
+     *
+     * Derived from the invoices themselves — there is no stored balance column,
+     * so callers never need to refresh it.
      */
     public function getOutstandingBalance(): float
     {
         return $this->invoices()
             ->whereIn('status', ['sent', 'partial', 'overdue'])
             ->sum('amount_due');
-    }
-
-    /**
-     * Refresh the computed outstanding balance.
-     * Balance is derived live from invoice records — this method exists for
-     * listener compatibility and triggers no additional persistence.
-     */
-    public function updateOutstandingBalance(): void
-    {
-        // Balance is computed on-the-fly via getOutstandingBalance().
-        // No denormalized column exists; this is intentionally a no-op.
     }
 
     /**

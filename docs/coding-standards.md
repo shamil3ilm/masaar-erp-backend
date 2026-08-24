@@ -14,9 +14,11 @@ app/
     Resources/{Module}/            — API response transformers (JSON:API envelope)
     Middleware/                    — Cross-cutting HTTP concerns (auth, org check, rate limit)
   Models/{Module}/                 — Eloquent models with scopes, constants, traits
-  Services/{Module}/               — Business logic orchestration (one class per domain concept)
+  Services/{Module}/               — Business logic (one class per domain concept)
+  Services/Core/Widgets/           — Dashboard widget data, one provider per domain
+  Orchestrators/{Module}/          — Multi-module write flows that own the transaction
   Jobs/                            — Queued background jobs (PDF generation, fraud checks, etc.)
-  Listeners/{Module}/              — Event listeners wired in EventServiceProvider
+  Listeners/{Module}/              — Event listeners, auto-discovered by Laravel
   Traits/                          — Reusable behaviors (ApiResponse, StructuredLogger, HasUuid)
   Exceptions/                      — Typed exceptions (ApiException, ErpException, ErrorCodes)
   Channels/                        — Broadcast channel authorisation
@@ -31,36 +33,48 @@ tests/Unit/{Module}/               — Isolated unit tests for services and help
 
 ## 2. Naming Rules
 
-### Actions
-- Name: `VerbNounAction` — e.g. `CreateInvoiceAction`, `PostJournalEntryAction`
-- Single public method: `execute(array $payload): mixed`
-- No HTTP dependencies; receives plain arrays or DTOs
+**A name must state the purpose, in as few words as will do it.** This applies to files, classes,
+methods, tables, columns, routes, and modules alike.
 
-### Queries
-- Name: `GetNounContextQuery` — e.g. `GetCustomerInvoicesQuery`, `GetArAgingQuery`
-- Single public method: `execute(): mixed` (returns Collection, array, or paginator)
-- All raw/complex SELECT logic lives here — never inline in a controller
-
-### Commands (write-side input objects)
-- Name: `VerbNounCommand` — e.g. `CreateInvoiceCommand`, `RunPayrollCommand`
-- Declared `final readonly`
-- Must implement `fromArray(array $data): static` and `toArray(): array`
-
-### DTOs (read-side data transfer objects)
-- Name: `NounContextDTO` — e.g. `CreateInvoiceDTO`, `PayslipDTO`
-- Declared `final readonly`
-- Must implement `fromArray(array $data): static` and `toArray(): array`
+- **No module-code prefixes.** SAP-style abbreviations say nothing to a reader: `PmOrder` became
+  `CounterBasedOrder`, `QmInspectionStageLog` became `InspectionStageLog`, and the `pm_*` tables
+  were renamed to match. Spell out the concept, or drop the prefix when the folder already gives
+  the context.
+- **Keep well-known domain terms.** `Mrp`, `Copa`, `Zatca`, and `Ifrs16` are the words practitioners
+  actually use; expanding them would make names longer and no clearer.
+- **Don't repeat the folder.** A class in `Services/Sales/` does not need `Sales` in its name.
+- **Shorter beats longer when both are clear.** `ClearBalanceCacheOnInvoicePosted` says what
+  `RefreshCustomerBalanceOnInvoicePosted` said, with less to read.
+- **Say what it is, not how it is built.** `InvoiceConversionService`, not `InvoiceHelper2`.
 
 ### Services
 - Name: `NounService` — e.g. `InvoiceService`, `PayrollService`, `JournalService`
-- Orchestration only: delegate DB writes to Eloquent models, delegate reads to Query classes
+- Holds the module's business logic, including its queries
 - No `Request`, `Response`, or `redirect()` inside a service
+- Keep a service to one concern. When it grows past a few hundred lines and the
+  methods fall into separate groups, split it — `RealEstateService` became
+  `PropertyService`, `LeaseContractService`, `LeasePostingService`,
+  `SecurityDepositService`, `ServiceChargeService`, and `Ifrs16LeaseService`.
+  No file should exceed 800 lines.
+
+### Orchestrators
+- Name: `VerbNounOrchestrator` — e.g. `PostInvoiceOrchestrator`
+- Used only when one flow writes to more than one module (see Rule 2 in `architecture-rules.md`)
+- Owns the `DB::transaction` and dispatches domain events after it commits
 
 ### Controllers
-- Name: `NounController` — e.g. `InvoiceController`, `PayrollController`
-- One action per method; keep under 20 lines
-- Call one service or action method; format result with `ApiResponse` trait
-- Return `$this->successResponse(...)`, `$this->paginatedResponse(...)`, or `$this->errorResponse(...)`
+- Name: `NounController` — e.g. `InvoiceController`, `WorkCenterController`
+- One resource per controller; split rather than prefixing method names with the resource
+- Standard REST method names: `index`, `store`, `show`, `update`, `destroy`
+- Type-hint the model to use route-model binding instead of `find()` plus a null check
+- Keep methods under 20 lines: validate, call one service method, return
+- Format results with the `ApiResponse` trait: `$this->success(...)`, `$this->created(...)`,
+  `$this->paginated(...)`, `$this->error(...)`
+
+### Listeners
+- Name for the effect and the trigger: `ClearBalanceCacheOnInvoicePosted`
+- Laravel auto-discovers them from `app/Listeners/`; a single `handle()` method typed to the event
+- Must be idempotent (see Rule 4 in `architecture-rules.md`)
 
 ### Models
 - Singular PascalCase: `Invoice`, `Payslip`, `JournalEntry`
@@ -143,7 +157,7 @@ return $user;
 ## 5. Error Handling
 
 - **Throw exceptions** internally; never return `false`, `null`, or `['error' => ...]` as error signals from services.
-- **Format errors at the controller layer** using `ApiResponse::errorResponse()`.
+- **Format errors at the controller layer** using `ApiResponse::error()`.
 - **Exception hierarchy**:
   - `ApiException::fromError(ErrorCodes::X, $context, $message)` — structured errors with error codes
   - `\InvalidArgumentException` — validation failures and state guard violations
@@ -166,7 +180,7 @@ return $user;
       return $invoice->fresh();
   });
   ```
-- **No raw SQL outside Query classes** — use Eloquent query builder everywhere else.
+- **Keep raw SQL inside the service that owns the data** — use the Eloquent query builder everywhere else.
 - **Pessimistic locking for concurrent state transitions**: `->lockForUpdate()` on status-gated operations (e.g. send, void, payslip generation) to prevent race conditions.
 - **Eager-load all relations** before iterating — no lazy loading in loops:
   ```php
@@ -256,8 +270,8 @@ public const TYPE_CREDIT_NOTE = 'credit_note';
 |---------|-----|-------------|
 | `processData()`, `doStuff()`, `handleRequest()` | Meaningless names hide intent | `generatePayslip()`, `postJournalEntry()`, `submitToZatca()` |
 | Nested ifs deeper than 3 levels | Unreadable; hides bugs | Guard clauses, extract method |
-| Business logic in controllers | Untestable without HTTP bootstrap | Move to service or action class |
-| Queries outside Query classes (or inline in services/controllers for complex SELECTs) | Scattered data access, hard to optimize | Dedicated Query class with `execute()` |
+| Business logic in controllers | Untestable without HTTP bootstrap | Move to the module's service |
+| Complex SELECTs inlined in controllers | Scattered data access, hard to optimize | Move the query into the module's service |
 | `float` arithmetic on money | Rounding errors accumulate | `bcadd()`, `bcmul()`, `bcdiv()` with 4 decimal places |
 | `$collection->sum()`/`->count()` on large sets | Loads all rows into PHP | `DB::table()->selectRaw('SUM(...)')` |
 | Lazy-loading relations inside loops | N+1 queries | `->with(...)` or `->load(...)` before the loop |

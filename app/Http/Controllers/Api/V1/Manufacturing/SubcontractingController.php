@@ -103,7 +103,7 @@ class SubcontractingController extends Controller
     public function update(Request $request, SubcontractOrder $subcontractOrder): JsonResponse
     {
         if (!$subcontractOrder->isDraft()) {
-            return $this->error('Only draft orders can be updated.', 422);
+            return $this->error('Only draft orders can be updated.', 'INVALID_STATUS', 422);
         }
 
         $data = $request->validate([

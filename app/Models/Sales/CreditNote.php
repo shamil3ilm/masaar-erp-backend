@@ -6,6 +6,7 @@ namespace App\Models\Sales;
 
 use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CreditNote extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_SALES = 'sales';
     public const TYPE_PURCHASE = 'purchase';

@@ -170,7 +170,7 @@ class PriceListController extends Controller
         $result = $this->priceListService->resolvePrice($contact, $product, $quantity, $currency);
 
         if ($result === null) {
-            return $this->error('No applicable price list found for the given parameters.', 404);
+            return $this->notFound('No applicable price list found for the given parameters.');
         }
 
         return $this->success($result);

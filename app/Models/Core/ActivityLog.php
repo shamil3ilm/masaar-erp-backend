@@ -192,7 +192,15 @@ class ActivityLog extends Model
 
     // Helpers
 
-    public function getChanges(): array
+    /**
+     * Field-by-field diff between the recorded old and new values.
+     *
+     * Named apart from Eloquent's getChanges(), which reports this model's own
+     * unsaved attribute changes rather than the audited record's.
+     *
+     * @return array<string, array{old: mixed, new: mixed}>
+     */
+    public function getRecordedChanges(): array
     {
         $changes = [];
 

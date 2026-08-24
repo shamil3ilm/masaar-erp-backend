@@ -7,27 +7,68 @@ namespace App\Services\Core;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Sales\Invoice;
 use App\Models\System\AuditLog;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Moves old completed records to archive tables to keep hot tables lean.
+ * Moves old, settled records into archive tables to keep the hot tables lean.
  *
- * Archive policy (configurable via config/erp.php or env):
- *   - Journal entries: posted, older than ARCHIVE_JOURNAL_DAYS (default 365)
- *   - Invoices: paid/cancelled, older than ARCHIVE_INVOICE_DAYS (default 365)
- *   - Audit logs: older than ARCHIVE_AUDIT_DAYS (default 180)
+ * Only records that can no longer change are archived:
+ *   - Journal entries: posted, older than the given number of days (default 365)
+ *   - Invoices: paid/cancelled/void, older than the given number of days (default 365)
+ *   - Audit logs: older than the given number of days (default 180)
+ *
+ * Archiving copies a record into its archive table and then hard-deletes the
+ * original, so both steps run inside one transaction per batch.
  */
 class ArchiveService
 {
-    public function archiveJournalEntries(int $daysOld = 365, int $batchSize = 500): int
+    public const DEFAULT_JOURNAL_DAYS = 365;
+    public const DEFAULT_INVOICE_DAYS = 365;
+    public const DEFAULT_AUDIT_DAYS   = 180;
+
+    /** Journal entries old enough to archive. */
+    private function journalEntriesOlderThan(int $daysOld): Builder
     {
-        $cutoff = Carbon::now()->subDays($daysOld);
+        return JournalEntry::where('status', 'posted')
+            ->where('entry_date', '<', Carbon::now()->subDays($daysOld));
+    }
+
+    /** Invoices old enough to archive. */
+    private function invoicesOlderThan(int $daysOld): Builder
+    {
+        return Invoice::whereIn('status', ['paid', 'cancelled', 'void'])
+            ->where('invoice_date', '<', Carbon::now()->subDays($daysOld));
+    }
+
+    /** Audit logs old enough to archive. */
+    private function auditLogsOlderThan(int $daysOld): Builder
+    {
+        return AuditLog::where('created_at', '<', Carbon::now()->subDays($daysOld));
+    }
+
+    /**
+     * Count what would be archived, without changing anything.
+     *
+     * @param  array{journal_days?: int, invoice_days?: int, audit_days?: int}  $options
+     * @return array{journal_entries: int, invoices: int, audit_logs: int}
+     */
+    public function preview(array $options = []): array
+    {
+        return [
+            'journal_entries' => $this->journalEntriesOlderThan($options['journal_days'] ?? self::DEFAULT_JOURNAL_DAYS)->count(),
+            'invoices'        => $this->invoicesOlderThan($options['invoice_days'] ?? self::DEFAULT_INVOICE_DAYS)->count(),
+            'audit_logs'      => $this->auditLogsOlderThan($options['audit_days'] ?? self::DEFAULT_AUDIT_DAYS)->count(),
+        ];
+    }
+
+    public function archiveJournalEntries(int $daysOld = self::DEFAULT_JOURNAL_DAYS, int $batchSize = 500): int
+    {
         $archived = 0;
 
-        JournalEntry::where('status', 'posted')
-            ->where('entry_date', '<', $cutoff)
+        $this->journalEntriesOlderThan($daysOld)
             ->chunkById($batchSize, function ($entries) use (&$archived) {
                 DB::transaction(function () use ($entries, &$archived) {
                     foreach ($entries as $entry) {
@@ -59,13 +100,11 @@ class ArchiveService
         return $archived;
     }
 
-    public function archiveInvoices(int $daysOld = 365, int $batchSize = 500): int
+    public function archiveInvoices(int $daysOld = self::DEFAULT_INVOICE_DAYS, int $batchSize = 500): int
     {
-        $cutoff = Carbon::now()->subDays($daysOld);
         $archived = 0;
 
-        Invoice::whereIn('status', ['paid', 'cancelled', 'void'])
-            ->where('invoice_date', '<', $cutoff)
+        $this->invoicesOlderThan($daysOld)
             ->chunkById($batchSize, function ($invoices) use (&$archived) {
                 DB::transaction(function () use ($invoices, &$archived) {
                     foreach ($invoices as $invoice) {
@@ -101,12 +140,11 @@ class ArchiveService
         return $archived;
     }
 
-    public function archiveAuditLogs(int $daysOld = 180, int $batchSize = 1000): int
+    public function archiveAuditLogs(int $daysOld = self::DEFAULT_AUDIT_DAYS, int $batchSize = 1000): int
     {
-        $cutoff = Carbon::now()->subDays($daysOld);
         $archived = 0;
 
-        AuditLog::where('created_at', '<', $cutoff)
+        $this->auditLogsOlderThan($daysOld)
             ->chunkById($batchSize, function ($logs) use (&$archived) {
                 DB::transaction(function () use ($logs, &$archived) {
                     foreach ($logs as $log) {
@@ -144,15 +182,15 @@ class ArchiveService
     {
         return [
             'journal_entries' => $this->archiveJournalEntries(
-                $options['journal_days'] ?? 365,
+                $options['journal_days'] ?? self::DEFAULT_JOURNAL_DAYS,
                 $options['batch_size'] ?? 500,
             ),
             'invoices'        => $this->archiveInvoices(
-                $options['invoice_days'] ?? 365,
+                $options['invoice_days'] ?? self::DEFAULT_INVOICE_DAYS,
                 $options['batch_size'] ?? 500,
             ),
             'audit_logs'      => $this->archiveAuditLogs(
-                $options['audit_days'] ?? 180,
+                $options['audit_days'] ?? self::DEFAULT_AUDIT_DAYS,
                 $options['batch_size'] ?? 1000,
             ),
         ];

@@ -121,7 +121,15 @@ class Activity extends Model
 
     // Helpers
 
-    public function getChanges(): array
+    /**
+     * Field-by-field diff between the recorded old and new values.
+     *
+     * Named apart from Eloquent's getChanges()/hasChanges(), which report this
+     * model's own unsaved attribute changes rather than the audited record's.
+     *
+     * @return array<string, array{old: mixed, new: mixed}>
+     */
+    public function getRecordedChanges(): array
     {
         $changes = [];
 
@@ -143,9 +151,9 @@ class Activity extends Model
         return $changes;
     }
 
-    public function hasChanges(): bool
+    public function hasRecordedChanges(): bool
     {
-        return !empty($this->getChanges());
+        return !empty($this->getRecordedChanges());
     }
 
     public function getFormattedDescription(): string

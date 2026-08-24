@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Manufacturing;
 
-use App\Models\Manufacturing\QmDynamicModificationRule;
+use App\Models\Manufacturing\DynamicModificationRule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -24,7 +24,7 @@ class DynamicModificationTest extends TestCase
 
     public function test_index_returns_rules(): void
     {
-        QmDynamicModificationRule::factory()->count(3)->create([
+        DynamicModificationRule::factory()->count(3)->create([
             'organization_id' => $this->organization->id,
         ]);
 
@@ -81,7 +81,7 @@ class DynamicModificationTest extends TestCase
 
     public function test_show_returns_rule(): void
     {
-        $rule = QmDynamicModificationRule::factory()->create([
+        $rule = DynamicModificationRule::factory()->create([
             'organization_id' => $this->organization->id,
         ]);
 
@@ -100,7 +100,7 @@ class DynamicModificationTest extends TestCase
         $product = \App\Models\Inventory\Product::factory()->create([
             'organization_id' => $this->organization->id,
         ]);
-        $rule = QmDynamicModificationRule::factory()->create([
+        $rule = DynamicModificationRule::factory()->create([
             'organization_id' => $this->organization->id,
         ]);
 

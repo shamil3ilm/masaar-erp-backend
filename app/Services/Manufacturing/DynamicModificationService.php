@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
-use App\Models\Manufacturing\QmDynamicModificationRule;
-use App\Models\Manufacturing\QmInspectionStageLog;
+use App\Models\Manufacturing\DynamicModificationRule;
+use App\Models\Manufacturing\InspectionStageLog;
 use Illuminate\Support\Facades\DB;
 
 class DynamicModificationService
@@ -14,10 +14,10 @@ class DynamicModificationService
      * Sample size multipliers per stage.
      */
     private const SAMPLE_MODIFIERS = [
-        QmInspectionStageLog::STAGE_TIGHTENED => 1.5,
-        QmInspectionStageLog::STAGE_NORMAL    => 1.0,
-        QmInspectionStageLog::STAGE_REDUCED   => 0.4,
-        QmInspectionStageLog::STAGE_SKIP      => 0.0,
+        InspectionStageLog::STAGE_TIGHTENED => 1.5,
+        InspectionStageLog::STAGE_NORMAL    => 1.0,
+        InspectionStageLog::STAGE_REDUCED   => 0.4,
+        InspectionStageLog::STAGE_SKIP      => 0.0,
     ];
 
     /**
@@ -34,12 +34,12 @@ class DynamicModificationService
         bool $passed,
     ): array {
         return DB::transaction(function () use ($organizationId, $ruleId, $productId, $supplierId, $passed): array {
-            $rule = QmDynamicModificationRule::where('organization_id', $organizationId)
+            $rule = DynamicModificationRule::where('organization_id', $organizationId)
                 ->where('id', $ruleId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $log = QmInspectionStageLog::where('organization_id', $organizationId)
+            $log = InspectionStageLog::where('organization_id', $organizationId)
                 ->where('rule_id', $ruleId)
                 ->where('product_id', $productId)
                 ->where('supplier_id', $supplierId)
@@ -49,12 +49,12 @@ class DynamicModificationService
                     'rule_id'         => $ruleId,
                     'product_id'      => $productId,
                     'supplier_id'     => $supplierId,
-                    'current_stage'   => QmInspectionStageLog::STAGE_NORMAL,
+                    'current_stage'   => InspectionStageLog::STAGE_NORMAL,
                     'consecutive_pass' => 0,
                     'consecutive_fail' => 0,
                 ]);
 
-            $previousStage = $log->current_stage ?? QmInspectionStageLog::STAGE_NORMAL;
+            $previousStage = $log->current_stage ?? InspectionStageLog::STAGE_NORMAL;
 
             if ($passed) {
                 $log->consecutive_pass = ($log->consecutive_pass ?? 0) + 1;
@@ -84,8 +84,8 @@ class DynamicModificationService
         int $ruleId,
         int $productId,
         ?int $supplierId,
-    ): ?QmInspectionStageLog {
-        return QmInspectionStageLog::where('organization_id', $organizationId)
+    ): ?InspectionStageLog {
+        return InspectionStageLog::where('organization_id', $organizationId)
             ->where('rule_id', $ruleId)
             ->where('product_id', $productId)
             ->where('supplier_id', $supplierId)
@@ -94,7 +94,7 @@ class DynamicModificationService
 
     public function listRules(int $organizationId, array $filters = []): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
-        $query = QmDynamicModificationRule::where('organization_id', $organizationId);
+        $query = DynamicModificationRule::where('organization_id', $organizationId);
 
         if (isset($filters['is_active'])) {
             $query->where('is_active', (bool) $filters['is_active']);
@@ -103,18 +103,18 @@ class DynamicModificationService
         return $query->latest()->paginate((int) ($filters['per_page'] ?? 20));
     }
 
-    public function createRule(int $organizationId, array $data, int $userId): QmDynamicModificationRule
+    public function createRule(int $organizationId, array $data, int $userId): DynamicModificationRule
     {
-        return QmDynamicModificationRule::create([
+        return DynamicModificationRule::create([
             ...$data,
             'organization_id' => $organizationId,
             'created_by'      => $userId,
         ]);
     }
 
-    public function findRule(int $organizationId, string $uuid): QmDynamicModificationRule
+    public function findRule(int $organizationId, string $uuid): DynamicModificationRule
     {
-        return QmDynamicModificationRule::where('organization_id', $organizationId)
+        return DynamicModificationRule::where('organization_id', $organizationId)
             ->where('uuid', $uuid)
             ->firstOrFail();
     }
@@ -124,56 +124,56 @@ class DynamicModificationService
     // -------------------------------------------------------------------------
 
     private function resolveStageTransition(
-        QmDynamicModificationRule $rule,
-        QmInspectionStageLog $log,
+        DynamicModificationRule $rule,
+        InspectionStageLog $log,
         string $currentStage,
     ): string {
         return match ($currentStage) {
-            QmInspectionStageLog::STAGE_NORMAL => $this->transitionFromNormal($rule, $log),
-            QmInspectionStageLog::STAGE_TIGHTENED => $this->transitionFromTightened($rule, $log),
-            QmInspectionStageLog::STAGE_REDUCED => $this->transitionFromReduced($rule, $log),
+            InspectionStageLog::STAGE_NORMAL => $this->transitionFromNormal($rule, $log),
+            InspectionStageLog::STAGE_TIGHTENED => $this->transitionFromTightened($rule, $log),
+            InspectionStageLog::STAGE_REDUCED => $this->transitionFromReduced($rule, $log),
             // Skip: any failure reinstates normal
-            QmInspectionStageLog::STAGE_SKIP => $log->consecutive_fail > 0
-                ? QmInspectionStageLog::STAGE_NORMAL
-                : QmInspectionStageLog::STAGE_SKIP,
+            InspectionStageLog::STAGE_SKIP => $log->consecutive_fail > 0
+                ? InspectionStageLog::STAGE_NORMAL
+                : InspectionStageLog::STAGE_SKIP,
             default => $currentStage,
         };
     }
 
-    private function transitionFromNormal(QmDynamicModificationRule $rule, QmInspectionStageLog $log): string
+    private function transitionFromNormal(DynamicModificationRule $rule, InspectionStageLog $log): string
     {
         if ($log->consecutive_fail >= $rule->tighten_consecutive_fails) {
-            return QmInspectionStageLog::STAGE_TIGHTENED;
+            return InspectionStageLog::STAGE_TIGHTENED;
         }
 
         if ($log->consecutive_pass >= $rule->reduce_after_consecutive_pass) {
-            return QmInspectionStageLog::STAGE_REDUCED;
+            return InspectionStageLog::STAGE_REDUCED;
         }
 
-        return QmInspectionStageLog::STAGE_NORMAL;
+        return InspectionStageLog::STAGE_NORMAL;
     }
 
-    private function transitionFromTightened(QmDynamicModificationRule $rule, QmInspectionStageLog $log): string
+    private function transitionFromTightened(DynamicModificationRule $rule, InspectionStageLog $log): string
     {
         // Reinstate to normal after enough consecutive passes while tightened
         if ($log->consecutive_pass >= $rule->reinstate_after_tightened_fail) {
-            return QmInspectionStageLog::STAGE_NORMAL;
+            return InspectionStageLog::STAGE_NORMAL;
         }
 
-        return QmInspectionStageLog::STAGE_TIGHTENED;
+        return InspectionStageLog::STAGE_TIGHTENED;
     }
 
-    private function transitionFromReduced(QmDynamicModificationRule $rule, QmInspectionStageLog $log): string
+    private function transitionFromReduced(DynamicModificationRule $rule, InspectionStageLog $log): string
     {
         // Any failure pushes back to normal
         if ($log->consecutive_fail > 0) {
-            return QmInspectionStageLog::STAGE_NORMAL;
+            return InspectionStageLog::STAGE_NORMAL;
         }
 
         if ($log->consecutive_pass >= $rule->skip_after_reduced_pass) {
-            return QmInspectionStageLog::STAGE_SKIP;
+            return InspectionStageLog::STAGE_SKIP;
         }
 
-        return QmInspectionStageLog::STAGE_REDUCED;
+        return InspectionStageLog::STAGE_REDUCED;
     }
 }

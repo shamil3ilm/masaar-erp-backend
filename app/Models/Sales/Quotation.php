@@ -6,6 +6,7 @@ namespace App\Models\Sales;
 
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Quotation extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes, DispatchesWebhooks;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SENT = 'sent';

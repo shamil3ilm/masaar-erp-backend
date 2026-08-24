@@ -49,7 +49,9 @@ class ManufacturingAdvancedJourneyTest extends TestCase
             'manufacturing.mrp.edit',
             // Capacity / Work Centers
             'manufacturing.capacity.view',
-            'manufacturing.capacity.manage',
+            'manufacturing.capacity.create',
+            'manufacturing.capacity.edit',
+            'manufacturing.capacity.delete',
             // Work Orders (for scrap report linkage)
             'manufacturing.workorders.view',
             'manufacturing.workorders.create',
