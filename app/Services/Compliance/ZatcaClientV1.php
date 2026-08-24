@@ -7,22 +7,22 @@ namespace App\Services\Compliance;
 use App\Contracts\ExternalApiClient;
 
 /**
- * ZATCA compliance client — version 1 (CompliPay gateway).
+ * ZATCA compliance client — version 1 (Masaar gateway).
  * When the integration endpoint changes, create ZatcaClientV2 implementing the same interface
  * without touching any code that depends on ExternalApiClient.
  *
  * This adapter bridges the array-based ExternalApiClient contract to the typed
- * CompliPayClient, serialising ComplianceResult responses back into plain arrays.
+ * MasaarClient, serialising ComplianceResult responses back into plain arrays.
  */
 final class ZatcaClientV1 implements ExternalApiClient
 {
     public function __construct(
-        private readonly CompliPayClient $client,
+        private readonly MasaarClient $client,
     ) {}
 
     public function submitInvoice(array $payload): array
     {
-        // CompliPayClient expects an Invoice model; callers using the
+        // MasaarClient expects an Invoice model; callers using the
         // ExternalApiClient contract pass the already-fetched Invoice instance
         // under the 'invoice' key so the adapter can delegate correctly.
         /** @var \App\Models\Sales\Invoice $invoice */

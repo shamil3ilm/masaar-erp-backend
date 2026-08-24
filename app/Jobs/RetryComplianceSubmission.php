@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\Sales\Invoice;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -72,8 +72,8 @@ class RetryComplianceSubmission implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        /** @var CompliPayClient $client */
-        $client = app(CompliPayClient::class);
+        /** @var MasaarClient $client */
+        $client = app(MasaarClient::class);
         $result = $client->submitInvoice($invoice);
 
         if ($result->isRejected()) {

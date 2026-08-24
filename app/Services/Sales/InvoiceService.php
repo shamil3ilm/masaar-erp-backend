@@ -15,7 +15,7 @@ use App\Orchestrators\Sales\PostInvoiceOrchestrator;
 use App\Services\Accounting\CreditManagementService;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Core\UserEventService;
 use App\Services\Inventory\StockService;
@@ -72,7 +72,7 @@ class InvoiceService
         private JournalEntryFactory $journalEntryFactory,
         private StockService $stockService,
         private NumberGeneratorService $numberGenerator,
-        private CompliPayClient $compliPayClient,
+        private MasaarClient $masaarClient,
         private UserEventService $userEventService,
         private CreditManagementService $creditManagementService,
         private RebateAccrualService $rebateAccrualService,
@@ -566,7 +566,7 @@ class InvoiceService
     protected function submitToZatca(Invoice $invoice): void
     {
         try {
-            $result = $this->compliPayClient->submitInvoice($invoice);
+            $result = $this->masaarClient->submitInvoice($invoice);
 
             $updateData = [
                 'compliance_status' => $result->status,

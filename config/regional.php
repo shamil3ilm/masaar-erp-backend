@@ -19,7 +19,7 @@ return [
         'currency' => 'SAR',
         'tax_scheme' => 'VAT',
         'tax_authority' => 'ZATCA',
-        'compliance_system' => 'zatca', // CompliPay integration
+        'compliance_system' => 'zatca', // Masaar integration
 
         'tax_rates' => [
             'standard' => 15.0,

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Services\Compliance\CompliPayClient;
+use App\Services\Compliance\MasaarClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -59,8 +59,8 @@ class SetupZatcaIntegration extends Command
         $webhookStatus = 'FAILED';
 
         try {
-            /** @var CompliPayClient $client */
-            $client = app(CompliPayClient::class);
+            /** @var MasaarClient $client */
+            $client = app(MasaarClient::class);
 
             $result = $client->registerWebhook(
                 url('/api/v1/webhooks/zatca'),
