@@ -154,8 +154,8 @@ class CampaignService
             return;
         }
 
-        /** @var \App\Services\Messaging\SmsService $smsService */
-        $smsService = app(\App\Services\Messaging\SmsService::class);
+        /** @var \App\Services\Core\SmsService $smsService */
+        $smsService = app(\App\Services\Core\SmsService::class);
         $smsService->send($user->phone, $message);
     }
 
