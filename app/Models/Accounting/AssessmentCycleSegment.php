@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class CoAssessmentCycleSegment extends Model
+class AssessmentCycleSegment extends Model
 {
     use HasUuid;
 
@@ -40,7 +40,7 @@ class CoAssessmentCycleSegment extends Model
 
     public function assessmentCycle(): BelongsTo
     {
-        return $this->belongsTo(CoAssessmentCycle::class, 'assessment_cycle_id');
+        return $this->belongsTo(AssessmentCycle::class, 'assessment_cycle_id');
     }
 
     public function senderCostCenter(): BelongsTo
@@ -65,6 +65,6 @@ class CoAssessmentCycleSegment extends Model
 
     public function receivers(): HasMany
     {
-        return $this->hasMany(CoAssessmentCycleReceiver::class, 'assessment_cycle_segment_id');
+        return $this->hasMany(AssessmentCycleReceiver::class, 'assessment_cycle_segment_id');
     }
 }

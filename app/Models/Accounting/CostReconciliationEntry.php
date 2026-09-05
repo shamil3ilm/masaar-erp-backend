@@ -9,12 +9,12 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class CoReconciliationEntry extends Model
+class CostReconciliationEntry extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
 
-    protected $table = 'co_reconciliation_entries';
+    protected $table = 'cost_reconciliation_entries';
 
     protected $guarded = ['id'];
 
@@ -25,7 +25,7 @@ class CoReconciliationEntry extends Model
 
     public function run(): BelongsTo
     {
-        return $this->belongsTo(CoReconciliationRun::class, 'reconciliation_run_id');
+        return $this->belongsTo(CostReconciliationRun::class, 'reconciliation_run_id');
     }
 
     public function senderCostCenter(): BelongsTo

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class MlPriceDifference extends Model
+class MaterialLedgerPriceDifference extends Model
 {
     use BelongsToOrganization;
     use HasFactory;
@@ -32,7 +32,7 @@ class MlPriceDifference extends Model
 
     public function closingEntry(): BelongsTo
     {
-        return $this->belongsTo(MlClosingEntry::class, 'ml_closing_entry_id');
+        return $this->belongsTo(MaterialLedgerClosingEntry::class, 'ml_closing_entry_id');
     }
 
     public function product(): BelongsTo

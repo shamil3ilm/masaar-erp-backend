@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CoDistributionCycle;
+use App\Models\Accounting\DistributionCycle;
 use App\Services\Accounting\DistributionCycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,7 +24,7 @@ class DistributionCycleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CoDistributionCycle::with('executedBy:id,name')
+        $query = DistributionCycle::with('executedBy:id,name')
             ->where('organization_id', $this->organizationId($request))
             ->orderByDesc('fiscal_year')
             ->orderBy('name')
@@ -49,9 +49,9 @@ class DistributionCycleController extends Controller
         ]);
 
         $data['organization_id'] = $this->organizationId($request);
-        $data['status']          = CoDistributionCycle::STATUS_OPEN;
+        $data['status']          = DistributionCycle::STATUS_OPEN;
 
-        $cycle = CoDistributionCycle::create($data);
+        $cycle = DistributionCycle::create($data);
 
         return $this->created($cycle, 'Distribution cycle created.');
     }
@@ -61,7 +61,7 @@ class DistributionCycleController extends Controller
      *
      * GET /controlling/distribution-cycles/{cycle}
      */
-    public function show(CoDistributionCycle $distributionCycle): JsonResponse
+    public function show(DistributionCycle $distributionCycle): JsonResponse
     {
         $distributionCycle->load([
             'segments.receivers',
@@ -77,7 +77,7 @@ class DistributionCycleController extends Controller
      *
      * PUT /controlling/distribution-cycles/{cycle}
      */
-    public function update(Request $request, CoDistributionCycle $distributionCycle): JsonResponse
+    public function update(Request $request, DistributionCycle $distributionCycle): JsonResponse
     {
         if (! $distributionCycle->isOpen()) {
             return $this->error('Only open cycles can be updated.', 'CYCLE_NOT_OPEN', 422);
@@ -99,7 +99,7 @@ class DistributionCycleController extends Controller
      *
      * DELETE /controlling/distribution-cycles/{cycle}
      */
-    public function destroy(CoDistributionCycle $distributionCycle): JsonResponse
+    public function destroy(DistributionCycle $distributionCycle): JsonResponse
     {
         if (! $distributionCycle->isOpen()) {
             return $this->error('Only open cycles can be deleted.', 'CYCLE_NOT_OPEN', 422);
@@ -116,7 +116,7 @@ class DistributionCycleController extends Controller
      *
      * POST /controlling/distribution-cycles/{cycle}/execute
      */
-    public function execute(Request $request, CoDistributionCycle $distributionCycle): JsonResponse
+    public function execute(Request $request, DistributionCycle $distributionCycle): JsonResponse
     {
         $data = $request->validate([
             'period' => ['required', 'integer', 'min:1', 'max:12'],
@@ -138,7 +138,7 @@ class DistributionCycleController extends Controller
      *
      * POST /controlling/distribution-cycles/{cycle}/reverse
      */
-    public function reverse(Request $request, CoDistributionCycle $distributionCycle): JsonResponse
+    public function reverse(Request $request, DistributionCycle $distributionCycle): JsonResponse
     {
         $data = $request->validate([
             'period' => ['required', 'integer', 'min:1', 'max:12'],
@@ -157,7 +157,7 @@ class DistributionCycleController extends Controller
      *
      * GET /controlling/distribution-cycles/{cycle}/postings
      */
-    public function postings(Request $request, CoDistributionCycle $distributionCycle): JsonResponse
+    public function postings(Request $request, DistributionCycle $distributionCycle): JsonResponse
     {
         $query = $distributionCycle->postings()
             ->with([

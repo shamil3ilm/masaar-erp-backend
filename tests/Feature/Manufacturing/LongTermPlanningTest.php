@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Manufacturing;
 
-use App\Models\Manufacturing\LtpSimulation;
+use App\Models\Manufacturing\PlanningSimulation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -24,7 +24,7 @@ class LongTermPlanningTest extends TestCase
 
     public function test_index_returns_paginated(): void
     {
-        LtpSimulation::factory()->count(2)->create([
+        PlanningSimulation::factory()->count(2)->create([
             'organization_id' => $this->organization->id,
         ]);
 
@@ -48,7 +48,7 @@ class LongTermPlanningTest extends TestCase
         );
 
         $response->assertCreated()->assertJsonPath('success', true);
-        $this->assertDatabaseHas('ltp_simulations', [
+        $this->assertDatabaseHas('planning_simulations', [
             'name'            => 'Q4 2026 Plan',
             'organization_id' => $this->organization->id,
         ]);
@@ -72,7 +72,7 @@ class LongTermPlanningTest extends TestCase
 
     public function test_show_returns_simulation(): void
     {
-        $sim = LtpSimulation::factory()->create([
+        $sim = PlanningSimulation::factory()->create([
             'organization_id' => $this->organization->id,
         ]);
 

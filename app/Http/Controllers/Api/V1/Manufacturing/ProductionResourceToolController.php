@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Manufacturing;
 
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\ProductionResourceTool;
-use App\Models\Manufacturing\PrtOperationAssignment;
+use App\Models\Manufacturing\ToolOperationAssignment;
 use App\Services\Manufacturing\ProductionResourceToolService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -114,7 +114,7 @@ class ProductionResourceToolController extends Controller
     public function release(int $id, int $assignmentId): JsonResponse
     {
         ProductionResourceTool::findOrFail($id);
-        $assignment = PrtOperationAssignment::where('production_resource_tool_id', $id)
+        $assignment = ToolOperationAssignment::where('production_resource_tool_id', $id)
             ->findOrFail($assignmentId);
 
         $this->service->release($assignment);

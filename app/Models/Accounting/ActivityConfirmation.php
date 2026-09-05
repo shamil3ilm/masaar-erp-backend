@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class CoActivityConfirmation extends Model
+class ActivityConfirmation extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
@@ -89,7 +89,7 @@ class CoActivityConfirmation extends Model
 
     public function reversalConfirmation(): BelongsTo
     {
-        return $this->belongsTo(CoActivityConfirmation::class, 'reversal_id');
+        return $this->belongsTo(ActivityConfirmation::class, 'reversal_id');
     }
 
     // ----------------------------------------------------------------

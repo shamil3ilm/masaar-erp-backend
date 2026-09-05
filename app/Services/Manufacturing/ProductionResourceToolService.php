@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\ProductionResourceTool;
-use App\Models\Manufacturing\PrtOperationAssignment;
+use App\Models\Manufacturing\ToolOperationAssignment;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -39,9 +39,9 @@ class ProductionResourceToolService
         return $prt->fresh();
     }
 
-    public function assign(ProductionResourceTool $prt, array $data): PrtOperationAssignment
+    public function assign(ProductionResourceTool $prt, array $data): ToolOperationAssignment
     {
-        return DB::transaction(function () use ($prt, $data): PrtOperationAssignment {
+        return DB::transaction(function () use ($prt, $data): ToolOperationAssignment {
             $quantityRequired = (int) ($data['quantity_required'] ?? 1);
 
             if (!$prt->isAvailable()) {
@@ -58,7 +58,7 @@ class ProductionResourceToolService
                 ]);
             }
 
-            $assignment = PrtOperationAssignment::create([
+            $assignment = ToolOperationAssignment::create([
                 'organization_id' => $prt->organization_id,
                 'production_resource_tool_id' => $prt->id,
                 'assigned_at' => now(),
@@ -72,7 +72,7 @@ class ProductionResourceToolService
         });
     }
 
-    public function release(PrtOperationAssignment $assignment): void
+    public function release(ToolOperationAssignment $assignment): void
     {
         DB::transaction(function () use ($assignment): void {
             $prt = $assignment->productionResourceTool;
@@ -88,7 +88,7 @@ class ProductionResourceToolService
 
     public function getForWorkOrder(int $workOrderId): Collection
     {
-        return PrtOperationAssignment::with('productionResourceTool')
+        return ToolOperationAssignment::with('productionResourceTool')
             ->where('work_order_id', $workOrderId)
             ->get();
     }

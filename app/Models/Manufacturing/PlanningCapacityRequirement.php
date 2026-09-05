@@ -9,12 +9,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class LtpCapacityRequirement extends Model
+class PlanningCapacityRequirement extends Model
 {
     use HasFactory, HasUuid;
 
     protected $fillable = [
-        'ltp_simulation_id',
+        'planning_simulation_id',
         'work_center_id',
         'calendar_date',
         'required_hours',
@@ -33,7 +33,7 @@ class LtpCapacityRequirement extends Model
 
     public function simulation(): BelongsTo
     {
-        return $this->belongsTo(LtpSimulation::class, 'ltp_simulation_id');
+        return $this->belongsTo(PlanningSimulation::class, 'planning_simulation_id');
     }
 
     public function workCenter(): BelongsTo

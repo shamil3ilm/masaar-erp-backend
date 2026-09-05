@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CoAssessmentCycle;
+use App\Models\Accounting\AssessmentCycle;
 use App\Services\Accounting\AssessmentCycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +25,7 @@ class AssessmentCycleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CoAssessmentCycle::with('executedBy:id,name')
+        $query = AssessmentCycle::with('executedBy:id,name')
             ->where('organization_id', $this->organizationId($request))
             ->orderByDesc('fiscal_year')
             ->orderBy('name')
@@ -52,9 +52,9 @@ class AssessmentCycleController extends Controller
         ]);
 
         $data['organization_id'] = $this->organizationId($request);
-        $data['status']          = CoAssessmentCycle::STATUS_OPEN;
+        $data['status']          = AssessmentCycle::STATUS_OPEN;
 
-        $cycle = CoAssessmentCycle::create($data);
+        $cycle = AssessmentCycle::create($data);
 
         return $this->created($cycle, 'Assessment cycle created.');
     }
@@ -64,7 +64,7 @@ class AssessmentCycleController extends Controller
      *
      * GET /controlling/assessment-cycles/{cycle}
      */
-    public function show(CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function show(AssessmentCycle $assessmentCycle): JsonResponse
     {
         $assessmentCycle->load([
             'segments.receivers',
@@ -81,7 +81,7 @@ class AssessmentCycleController extends Controller
      *
      * PUT /controlling/assessment-cycles/{cycle}
      */
-    public function update(Request $request, CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function update(Request $request, AssessmentCycle $assessmentCycle): JsonResponse
     {
         if (! $assessmentCycle->isOpen()) {
             return $this->error('Only open cycles can be updated.', 'CYCLE_NOT_OPEN', 422);
@@ -104,7 +104,7 @@ class AssessmentCycleController extends Controller
      *
      * DELETE /controlling/assessment-cycles/{cycle}
      */
-    public function destroy(CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function destroy(AssessmentCycle $assessmentCycle): JsonResponse
     {
         if (! $assessmentCycle->isOpen()) {
             return $this->error('Only open cycles can be deleted.', 'CYCLE_NOT_OPEN', 422);
@@ -116,12 +116,12 @@ class AssessmentCycleController extends Controller
     }
 
     /**
-     * Execute the cycle for a given period — creates CoAssessmentPosting rows
+     * Execute the cycle for a given period — creates AssessmentPosting rows
      * and auto-posts GL journal entries (receiver CC debit / sender CC credit).
      *
      * POST /controlling/assessment-cycles/{cycle}/execute
      */
-    public function execute(Request $request, CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function execute(Request $request, AssessmentCycle $assessmentCycle): JsonResponse
     {
         $data = $request->validate([
             'period' => ['required', 'integer', 'min:1', 'max:12'],
@@ -145,7 +145,7 @@ class AssessmentCycleController extends Controller
      *
      * POST /controlling/assessment-cycles/{cycle}/reverse
      */
-    public function reverse(Request $request, CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function reverse(Request $request, AssessmentCycle $assessmentCycle): JsonResponse
     {
         $data = $request->validate([
             'period' => ['required', 'integer', 'min:1', 'max:12'],
@@ -164,7 +164,7 @@ class AssessmentCycleController extends Controller
      *
      * GET /controlling/assessment-cycles/{cycle}/postings
      */
-    public function postings(Request $request, CoAssessmentCycle $assessmentCycle): JsonResponse
+    public function postings(Request $request, AssessmentCycle $assessmentCycle): JsonResponse
     {
         $query = $assessmentCycle->postings()
             ->with([

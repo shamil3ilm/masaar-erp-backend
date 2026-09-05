@@ -422,7 +422,7 @@ return new class extends Migration
             $table->index(['organization_id', 'snapshot_date']);
         });
 
-        Schema::create('floc_characteristics', function (Blueprint $table) {
+        Schema::create('location_characteristics', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('floc_id');
             $table->string('characteristic_name');
@@ -433,7 +433,7 @@ return new class extends Migration
             $table->foreign('floc_id', 'floc_char_floc_fk')->references('id')->on('functional_locations')->cascadeOnDelete();
         });
 
-        Schema::create('floc_equipment', function (Blueprint $table) {
+        Schema::create('location_equipment', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -668,8 +668,8 @@ return new class extends Migration
         Schema::dropIfExists('hr_headcount_plans');
         Schema::dropIfExists('hr_budget_lines');
         Schema::dropIfExists('hr_budget_plans');
-        Schema::dropIfExists('floc_equipment');
-        Schema::dropIfExists('floc_characteristics');
+        Schema::dropIfExists('location_equipment');
+        Schema::dropIfExists('location_characteristics');
         Schema::dropIfExists('financial_snapshots');
         Schema::dropIfExists('financial_idempotency_keys');
         Schema::dropIfExists('financial_close_task_dependencies');

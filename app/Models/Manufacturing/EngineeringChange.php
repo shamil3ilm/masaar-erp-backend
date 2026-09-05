@@ -65,7 +65,7 @@ class EngineeringChange extends Model
 
     public function affectedObjects(): HasMany
     {
-        return $this->hasMany(EcmAffectedObject::class);
+        return $this->hasMany(EngineeringChangeObject::class);
     }
 
     // Scopes

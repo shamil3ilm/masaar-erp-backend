@@ -10,7 +10,7 @@ use App\Http\Controllers\Api\V1\Accounting\HouseBankController;
 use App\Http\Controllers\Api\V1\Accounting\InstallmentPlanController;
 use App\Http\Controllers\Api\V1\Accounting\PaymentToleranceController;
 use App\Http\Controllers\Api\V1\Accounting\WithholdingTaxController;
-use App\Http\Controllers\Api\V1\Accounting\CoReconciliationController;
+use App\Http\Controllers\Api\V1\Accounting\CostReconciliationController;
 use App\Http\Controllers\Api\V1\Accounting\ParallelLedgerController;
 use App\Http\Controllers\Api\V1\Accounting\EbamController;
 use App\Http\Controllers\Api\V1\Accounting\LeaseAccountingController;
@@ -534,10 +534,10 @@ Route::middleware(['auth:api'])->name('fi.asset-transfers.')->group(function () 
 
     // CO Reconciliation Ledger — SAP KALC
     Route::prefix('co-reconciliation')->name('accounting.co-reconciliation.')->group(function () {
-        Route::get('/', [CoReconciliationController::class, 'index'])->name('index')->middleware('check.permission:accounting.co.view');
-        Route::get('/{id}', [CoReconciliationController::class, 'show'])->name('show')->middleware('check.permission:accounting.co.view');
-        Route::post('/reconcile-assessment', [CoReconciliationController::class, 'reconcileAssessment'])->name('reconcile-assessment')->middleware('check.permission:accounting.co.post');
-        Route::post('/reconcile-distribution', [CoReconciliationController::class, 'reconcileDistribution'])->name('reconcile-distribution')->middleware('check.permission:accounting.co.post');
+        Route::get('/', [CostReconciliationController::class, 'index'])->name('index')->middleware('check.permission:accounting.co.view');
+        Route::get('/{id}', [CostReconciliationController::class, 'show'])->name('show')->middleware('check.permission:accounting.co.view');
+        Route::post('/reconcile-assessment', [CostReconciliationController::class, 'reconcileAssessment'])->name('reconcile-assessment')->middleware('check.permission:accounting.co.post');
+        Route::post('/reconcile-distribution', [CostReconciliationController::class, 'reconcileDistribution'])->name('reconcile-distribution')->middleware('check.permission:accounting.co.post');
     });
 });
 

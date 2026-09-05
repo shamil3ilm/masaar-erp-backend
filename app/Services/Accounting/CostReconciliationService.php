@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Accounting;
 
 use App\Models\Accounting\Account;
-use App\Models\Accounting\CoAssessmentPosting;
-use App\Models\Accounting\CoDistributionPosting;
-use App\Models\Accounting\CoReconciliationEntry;
-use App\Models\Accounting\CoReconciliationRun;
+use App\Models\Accounting\AssessmentPosting;
+use App\Models\Accounting\DistributionPosting;
+use App\Models\Accounting\CostReconciliationEntry;
+use App\Models\Accounting\CostReconciliationRun;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\JournalEntry;
 use App\Models\User;
@@ -27,9 +27,9 @@ use Illuminate\Support\Facades\DB;
  *  1. Detect cross-company postings in a CO run
  *  2. Group by sender / receiver company pair
  *  3. Generate FI debit/credit reconciliation entries (intercompany accounts)
- *  4. Persist a CoReconciliationRun for audit
+ *  4. Persist a CostReconciliationRun for audit
  */
-class CoReconciliationService
+class CostReconciliationService
 {
     /**
      * Create and post reconciliation entries for a completed assessment run.
@@ -44,8 +44,8 @@ class CoReconciliationService
         string $fiscalYear,
         string $period,
         User $postedBy,
-    ): ?CoReconciliationRun {
-        $postings = CoAssessmentPosting::where('assessment_cycle_id', $assessmentCycleId)
+    ): ?CostReconciliationRun {
+        $postings = AssessmentPosting::where('assessment_cycle_id', $assessmentCycleId)
             ->with(['senderCostCenter.organization', 'receiverCostCenter.organization'])
             ->get();
 
@@ -60,8 +60,8 @@ class CoReconciliationService
         string $fiscalYear,
         string $period,
         User $postedBy,
-    ): ?CoReconciliationRun {
-        $postings = CoDistributionPosting::where('distribution_cycle_id', $distributionCycleId)
+    ): ?CostReconciliationRun {
+        $postings = DistributionPosting::where('distribution_cycle_id', $distributionCycleId)
             ->with(['senderCostCenter.organization', 'receiverCostCenter.organization'])
             ->get();
 
@@ -73,7 +73,7 @@ class CoReconciliationService
      */
     public function getRuns(int $organizationId, array $filters = [])
     {
-        $query = CoReconciliationRun::where('organization_id', $organizationId)
+        $query = CostReconciliationRun::where('organization_id', $organizationId)
             ->with('entries');
 
         if (isset($filters['fiscal_year'])) {
@@ -102,7 +102,7 @@ class CoReconciliationService
         string $fiscalYear,
         string $period,
         User $postedBy,
-    ): ?CoReconciliationRun {
+    ): ?CostReconciliationRun {
         // Filter to cross-company postings only
         $crossCompanyPostings = $postings->filter(function ($posting) {
             $senderOrgId   = $posting->senderCostCenter?->organization_id;
@@ -116,17 +116,17 @@ class CoReconciliationService
             return null; // Nothing to reconcile — all same company
         }
 
-        return DB::transaction(function () use ($sourceType, $sourceId, $crossCompanyPostings, $fiscalYear, $period, $postedBy): CoReconciliationRun {
+        return DB::transaction(function () use ($sourceType, $sourceId, $crossCompanyPostings, $fiscalYear, $period, $postedBy): CostReconciliationRun {
             $organizationId = $postedBy->organization_id;
 
-            $run = CoReconciliationRun::create([
+            $run = CostReconciliationRun::create([
                 'organization_id' => $organizationId,
                 'run_number'      => $this->generateRunNumber($organizationId),
                 'source_type'     => $sourceType,
                 'source_id'       => $sourceId,
                 'fiscal_year'     => $fiscalYear,
                 'period'          => $period,
-                'status'          => CoReconciliationRun::STATUS_PENDING,
+                'status'          => CostReconciliationRun::STATUS_PENDING,
                 'currency'        => 'SAR',
             ]);
 
@@ -140,7 +140,7 @@ class CoReconciliationService
                 $je = $this->postReconciliationJournalEntry($posting, $run, $fiscalYear, $period, $postedBy);
 
                 // Debit entry (sender side)
-                CoReconciliationEntry::create([
+                CostReconciliationEntry::create([
                     'organization_id'          => $organizationId,
                     'reconciliation_run_id'    => $run->id,
                     'entry_type'               => 'debit',
@@ -156,7 +156,7 @@ class CoReconciliationService
                 ]);
 
                 // Credit entry (receiver side)
-                CoReconciliationEntry::create([
+                CostReconciliationEntry::create([
                     'organization_id'          => $organizationId,
                     'reconciliation_run_id'    => $run->id,
                     'entry_type'               => 'credit',
@@ -174,7 +174,7 @@ class CoReconciliationService
 
             $run->update([
                 'total_amount' => $totalAmount,
-                'status'       => CoReconciliationRun::STATUS_POSTED,
+                'status'       => CostReconciliationRun::STATUS_POSTED,
                 'posted_by'    => $postedBy->id,
                 'posted_at'    => now(),
             ]);
@@ -189,7 +189,7 @@ class CoReconciliationService
      */
     private function postReconciliationJournalEntry(
         mixed $posting,
-        CoReconciliationRun $run,
+        CostReconciliationRun $run,
         string $fiscalYear,
         string $period,
         User $postedBy,
@@ -251,7 +251,7 @@ class CoReconciliationService
 
     private function generateRunNumber(int $organizationId): string
     {
-        $count = CoReconciliationRun::where('organization_id', $organizationId)->count() + 1;
+        $count = CostReconciliationRun::where('organization_id', $organizationId)->count() + 1;
         return 'KALC-' . date('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
     }
 }

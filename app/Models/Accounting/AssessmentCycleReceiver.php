@@ -7,7 +7,7 @@ namespace App\Models\Accounting;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class CoAssessmentCycleReceiver extends Model
+class AssessmentCycleReceiver extends Model
 {
     protected $fillable = [
         'assessment_cycle_segment_id',
@@ -30,7 +30,7 @@ class CoAssessmentCycleReceiver extends Model
 
     public function segment(): BelongsTo
     {
-        return $this->belongsTo(CoAssessmentCycleSegment::class, 'assessment_cycle_segment_id');
+        return $this->belongsTo(AssessmentCycleSegment::class, 'assessment_cycle_segment_id');
     }
 
     public function receiverCostCenter(): BelongsTo

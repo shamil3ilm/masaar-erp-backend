@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Database\Factories\Manufacturing;
 
 use App\Models\Core\Organization;
-use App\Models\Manufacturing\LtpSimulation;
+use App\Models\Manufacturing\PlanningSimulation;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
-class LtpSimulationFactory extends Factory
+class PlanningSimulationFactory extends Factory
 {
-    protected $model = LtpSimulation::class;
+    protected $model = PlanningSimulation::class;
 
     public function definition(): array
     {

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\CoAssessmentCycle;
-use App\Models\Accounting\CoAssessmentCycleSegment;
-use App\Models\Accounting\CoAssessmentPosting;
+use App\Models\Accounting\AssessmentCycle;
+use App\Models\Accounting\AssessmentCycleSegment;
+use App\Models\Accounting\AssessmentPosting;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\CostElement;
@@ -27,15 +27,15 @@ class AssessmentCycleService
     /**
      * Execute an assessment cycle for a given period.
      *
-     * Calculates allocations per segment and writes co_assessment_postings rows.
+     * Calculates allocations per segment and writes assessment_postings rows.
      * Returns the list of posting records created.
      *
      * @throws InvalidArgumentException if the cycle is not in open status
      * @throws RuntimeException         if no sender balance is found for a segment
      *
-     * @return array{postings: CoAssessmentPosting[]}
+     * @return array{postings: AssessmentPosting[]}
      */
-    public function execute(CoAssessmentCycle $cycle, int $period): array
+    public function execute(AssessmentCycle $cycle, int $period): array
     {
         if (! $cycle->isOpen()) {
             throw new InvalidArgumentException(
@@ -52,7 +52,7 @@ class AssessmentCycleService
         $postings = DB::transaction(function () use ($cycle, $period): array {
             $created = [];
 
-            /** @var Collection<int, CoAssessmentCycleSegment> $segments */
+            /** @var Collection<int, AssessmentCycleSegment> $segments */
             $segments = $cycle->segments()->with(['receivers', 'statisticalKeyFigure'])->get();
 
             foreach ($segments as $segment) {
@@ -76,8 +76,8 @@ class AssessmentCycleService
                         continue;
                     }
 
-                    /** @var CoAssessmentPosting $posting */
-                    $posting = CoAssessmentPosting::create([
+                    /** @var AssessmentPosting $posting */
+                    $posting = AssessmentPosting::create([
                         'uuid'                   => Str::uuid()->toString(),
                         'organization_id'        => $cycle->organization_id,
                         'assessment_cycle_id'    => $cycle->id,
@@ -104,7 +104,7 @@ class AssessmentCycleService
 
             // Mark cycle as executed
             $cycle->update([
-                'status'      => CoAssessmentCycle::STATUS_EXECUTED,
+                'status'      => AssessmentCycle::STATUS_EXECUTED,
                 'executed_at' => now(),
             ]);
 
@@ -121,7 +121,7 @@ class AssessmentCycleService
      *
      * @throws InvalidArgumentException if cycle is not executed
      */
-    public function reverse(CoAssessmentCycle $cycle, int $period): void
+    public function reverse(AssessmentCycle $cycle, int $period): void
     {
         if (! $cycle->isExecuted()) {
             throw new InvalidArgumentException(
@@ -130,14 +130,14 @@ class AssessmentCycleService
         }
 
         DB::transaction(function () use ($cycle, $period): void {
-            $originals = CoAssessmentPosting::where('assessment_cycle_id', $cycle->id)
+            $originals = AssessmentPosting::where('assessment_cycle_id', $cycle->id)
                 ->where('period', $period)
                 ->whereNull('reversal_id')
                 ->get();
 
             foreach ($originals as $original) {
-                /** @var CoAssessmentPosting $reversal */
-                $reversal = CoAssessmentPosting::create([
+                /** @var AssessmentPosting $reversal */
+                $reversal = AssessmentPosting::create([
                     'uuid'                    => Str::uuid()->toString(),
                     'organization_id'         => $original->organization_id,
                     'assessment_cycle_id'     => $original->assessment_cycle_id,
@@ -154,7 +154,7 @@ class AssessmentCycleService
                 $original->update(['reversal_id' => $reversal->id]);
             }
 
-            $cycle->update(['status' => CoAssessmentCycle::STATUS_REVERSED]);
+            $cycle->update(['status' => AssessmentCycle::STATUS_REVERSED]);
         });
     }
 
@@ -168,14 +168,14 @@ class AssessmentCycleService
      * actual CO line items for the sender cost center / cost element.
      */
     private function resolveSenderBalance(
-        CoAssessmentCycle $cycle,
-        CoAssessmentCycleSegment $segment,
+        AssessmentCycle $cycle,
+        AssessmentCycleSegment $segment,
         int $period
     ): float {
         // Query actual postings aggregated for the sender cost center this period.
         // This is intentionally simplified; a full implementation would query
         // the CO actual cost line items table.
-        return (float) DB::table('co_assessment_postings')
+        return (float) DB::table('assessment_postings')
             ->where('organization_id', $cycle->organization_id)
             ->where('fiscal_year', $cycle->fiscal_year)
             ->where('period', $period)
@@ -189,15 +189,15 @@ class AssessmentCycleService
      * For fixed_percentages the sum should equal 100; for SKF/posted it is the raw sum.
      */
     private function resolveReceiverWeights(
-        CoAssessmentCycleSegment $segment,
+        AssessmentCycleSegment $segment,
         int $fiscalYear,
         int $period
     ): float {
-        if ($segment->tracing_factor === CoAssessmentCycleSegment::TRACING_FIXED_PERCENTAGES) {
+        if ($segment->tracing_factor === AssessmentCycleSegment::TRACING_FIXED_PERCENTAGES) {
             return (float) $segment->receivers->sum('fixed_percentage') ?: 100.0;
         }
 
-        if ($segment->tracing_factor === CoAssessmentCycleSegment::TRACING_STATISTICAL_KEY_FIGURE) {
+        if ($segment->tracing_factor === AssessmentCycleSegment::TRACING_STATISTICAL_KEY_FIGURE) {
             return (float) StatisticalKeyFigureValue::where('statistical_key_figure_id', $segment->skf_id)
                 ->where('fiscal_year', $fiscalYear)
                 ->where('period', $period)
@@ -212,7 +212,7 @@ class AssessmentCycleService
      * Calculate the share of sender balance allocated to one receiver.
      */
     private function calculateShare(
-        CoAssessmentCycleSegment $segment,
+        AssessmentCycleSegment $segment,
         ?float $receiverWeight,
         float $senderBalance,
         float $totalWeight
@@ -232,8 +232,8 @@ class AssessmentCycleService
      * Uses 'assessment' as value_type. Falls through silently on missing fiscal year.
      */
     private function postAssessmentToCopa(
-        CoAssessmentPosting $posting,
-        CoAssessmentCycle $cycle,
+        AssessmentPosting $posting,
+        AssessmentCycle $cycle,
         int $period
     ): void {
         try {
@@ -277,9 +277,9 @@ class AssessmentCycleService
      * Falls through silently if GL accounts cannot be resolved.
      */
     private function postAssessmentToGl(
-        CoAssessmentPosting $posting,
-        CoAssessmentCycleSegment $segment,
-        CoAssessmentCycle $cycle
+        AssessmentPosting $posting,
+        AssessmentCycleSegment $segment,
+        AssessmentCycle $cycle
     ): void {
         // Resolve secondary cost element GL account (assessment cost element)
         $costElement = $segment->sender_cost_element_id

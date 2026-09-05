@@ -227,7 +227,7 @@ return new class extends Migration
             $table->index(['organization_id', 'run_date'], 'cr_org_date_idx');
         });
 
-        Schema::create('ecm_affected_objects', function (Blueprint $table) {
+        Schema::create('engineering_change_objects', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete()->name('eao_org_fk');
@@ -296,7 +296,7 @@ return new class extends Migration
             $table->index(['organization_id', 'status']);
         });
 
-        Schema::create('ltp_simulations', function (Blueprint $table) {
+        Schema::create('planning_simulations', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -392,7 +392,7 @@ return new class extends Migration
             $table->index(['organization_id', 'status'], 'prt_org_status_idx');
         });
 
-        Schema::create('prt_operation_assignments', function (Blueprint $table) {
+        Schema::create('tool_operation_assignments', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete()->name('poa_org_fk');
@@ -650,11 +650,11 @@ return new class extends Migration
             $table->unique(['work_center_id', 'load_date']);
         });
 
-        Schema::create('ltp_capacity_requirements', function (Blueprint $table) {
+        Schema::create('planning_capacity_requirements', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->foreignId('ltp_simulation_id')
-                ->constrained('ltp_simulations')
+            $table->foreignId('planning_simulation_id')
+                ->constrained('planning_simulations')
                 ->cascadeOnDelete();
             $table->foreignId('work_center_id')
                 ->constrained('work_centers')
@@ -794,7 +794,7 @@ return new class extends Migration
         Schema::dropIfExists('work_center_capacities');
         Schema::dropIfExists('production_lines');
         Schema::dropIfExists('mrp_capacity_requirements');
-        Schema::dropIfExists('ltp_capacity_requirements');
+        Schema::dropIfExists('planning_capacity_requirements');
         Schema::dropIfExists('capacity_loads');
         Schema::dropIfExists('work_centers');
         Schema::dropIfExists('spc_subgroups');
@@ -805,15 +805,15 @@ return new class extends Migration
         Schema::dropIfExists('qm_inspection_stage_log');
         Schema::dropIfExists('qm_dynamic_modification_rules');
         Schema::dropIfExists('qm_capa_8d');
-        Schema::dropIfExists('prt_operation_assignments');
+        Schema::dropIfExists('tool_operation_assignments');
         Schema::dropIfExists('production_resource_tools');
         Schema::dropIfExists('product_cost_collectors');
         Schema::dropIfExists('product_cost_collector_items');
-        Schema::dropIfExists('ltp_simulations');
+        Schema::dropIfExists('planning_simulations');
         Schema::dropIfExists('mrp_runs');
         Schema::dropIfExists('kanban_supply_areas');
         Schema::dropIfExists('engineering_changes');
-        Schema::dropIfExists('ecm_affected_objects');
+        Schema::dropIfExists('engineering_change_objects');
         Schema::dropIfExists('costing_runs');
         Schema::dropIfExists('costing_versions');
         Schema::dropIfExists('cost_rollup_logs');

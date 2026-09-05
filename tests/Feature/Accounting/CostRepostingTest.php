@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\CoReposting;
+use App\Models\Accounting\CostReposting;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\CostElement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
-class CoRepostingTest extends TestCase
+class CostRepostingTest extends TestCase
 {
     use RefreshDatabase;
     use TestHelpers;
@@ -52,27 +52,27 @@ class CoRepostingTest extends TestCase
         ]);
     }
 
-    private function makeReposting(array $overrides = []): CoReposting
+    private function makeReposting(array $overrides = []): CostReposting
     {
         $ce  = $this->makeCostElement();
         $cc1 = $this->makeCostCenter();
         $cc2 = $this->makeCostCenter();
 
-        return CoReposting::create(array_merge([
+        return CostReposting::create(array_merge([
             'organization_id'  => $this->organization->id,
             'reposting_number' => 'KR-' . fake()->unique()->numerify('######'),
             'posting_date'     => now()->toDateString(),
             'document_date'    => now()->toDateString(),
             'period'           => 1,
             'fiscal_year'      => 2025,
-            'from_type'        => CoReposting::FROM_COST_CENTER,
+            'from_type'        => CostReposting::FROM_COST_CENTER,
             'from_id'          => $cc1->id,
-            'to_type'          => CoReposting::FROM_COST_CENTER,
+            'to_type'          => CostReposting::FROM_COST_CENTER,
             'to_id'            => $cc2->id,
             'cost_element_id'  => $ce->id,
             'amount'           => 10000.00,
             'currency_code'    => 'SAR',
-            'status'           => CoReposting::STATUS_POSTED,
+            'status'           => CostReposting::STATUS_POSTED,
         ], $overrides));
     }
 
@@ -116,9 +116,9 @@ class CoRepostingTest extends TestCase
                 'posting_date'    => now()->toDateString(),
                 'period'          => 3,
                 'fiscal_year'     => 2025,
-                'from_type'       => CoReposting::FROM_COST_CENTER,
+                'from_type'       => CostReposting::FROM_COST_CENTER,
                 'from_id'         => $cc1->id,
-                'to_type'         => CoReposting::FROM_COST_CENTER,
+                'to_type'         => CostReposting::FROM_COST_CENTER,
                 'to_id'           => $cc2->id,
                 'cost_element_id' => $ce->id,
                 'amount'          => 5000.00,
@@ -145,9 +145,9 @@ class CoRepostingTest extends TestCase
                 'posting_date'    => now()->toDateString(),
                 'period'          => 13, // > 12
                 'fiscal_year'     => 2025,
-                'from_type'       => CoReposting::FROM_COST_CENTER,
+                'from_type'       => CostReposting::FROM_COST_CENTER,
                 'from_id'         => 1,
-                'to_type'         => CoReposting::FROM_COST_CENTER,
+                'to_type'         => CostReposting::FROM_COST_CENTER,
                 'to_id'           => 2,
                 'cost_element_id' => $ce->id,
                 'amount'          => 5000.00,
@@ -167,7 +167,7 @@ class CoRepostingTest extends TestCase
                 'fiscal_year'     => 2025,
                 'from_type'       => 'invalid_type',
                 'from_id'         => 1,
-                'to_type'         => CoReposting::FROM_COST_CENTER,
+                'to_type'         => CostReposting::FROM_COST_CENTER,
                 'to_id'           => 2,
                 'cost_element_id' => $ce->id,
                 'amount'          => 5000.00,
@@ -203,12 +203,12 @@ class CoRepostingTest extends TestCase
             ->deleteJson('/api/v1/controlling/co-repostings/' . $reposting->uuid);
 
         $response->assertStatus(200);
-        $this->assertSoftDeleted('co_repostings', ['id' => $reposting->id]);
+        $this->assertSoftDeleted('cost_repostings', ['id' => $reposting->id]);
     }
 
     public function test_destroy_blocks_reversed_reposting(): void
     {
-        $reposting = $this->makeReposting(['status' => CoReposting::STATUS_REVERSED]);
+        $reposting = $this->makeReposting(['status' => CostReposting::STATUS_REVERSED]);
 
         $response = $this->withToken($this->token)
             ->deleteJson('/api/v1/controlling/co-repostings/' . $reposting->uuid);

@@ -78,12 +78,12 @@ return new class extends Migration
                 ->nullOnDelete();
         });
 
-        Schema::create('co_assessment_postings', function (Blueprint $table) {
+        Schema::create('assessment_postings', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
             $table->foreignId('assessment_cycle_id')
-                ->constrained('co_assessment_cycles', 'id', 'co_asmt_post_cycle_fk')
+                ->constrained('assessment_cycles', 'id', 'co_asmt_post_cycle_fk')
                 ->cascadeOnDelete();
             $table->unsignedSmallInteger('fiscal_year');
             $table->tinyInteger('period')->unsigned();
@@ -107,19 +107,19 @@ return new class extends Migration
 
             $table->foreign('reversal_id', 'co_asmt_post_reversal_fk')
                 ->references('id')
-                ->on('co_assessment_postings')
+                ->on('assessment_postings')
                 ->nullOnDelete();
 
             $table->index(['organization_id', 'fiscal_year', 'period'], 'co_asmt_post_org_fy_period_idx');
             $table->index(['assessment_cycle_id'], 'co_asmt_post_cycle_idx');
         });
 
-        Schema::create('co_distribution_postings', function (Blueprint $table) {
+        Schema::create('distribution_postings', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
             $table->foreignId('distribution_cycle_id')
-                ->constrained('co_distribution_cycles', 'id', 'co_dist_post_cycle_fk')
+                ->constrained('distribution_cycles', 'id', 'co_dist_post_cycle_fk')
                 ->cascadeOnDelete();
             $table->unsignedSmallInteger('fiscal_year');
             $table->tinyInteger('period')->unsigned();
@@ -141,11 +141,11 @@ return new class extends Migration
             $table->index(['distribution_cycle_id'], 'co_dist_post_cycle_idx');
         });
 
-        Schema::create('co_distribution_segments', function (Blueprint $table) {
+        Schema::create('distribution_segments', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('distribution_cycle_id')
-                ->constrained('co_distribution_cycles', 'id', 'co_dist_seg_cycle_fk')
+                ->constrained('distribution_cycles', 'id', 'co_dist_seg_cycle_fk')
                 ->cascadeOnDelete();
             $table->foreignId('sender_cost_center_id')
                 ->constrained('cost_centers', 'id', 'co_dist_seg_snd_cc_fk')
@@ -420,11 +420,11 @@ return new class extends Migration
             $table->index('organization_id');
         });
 
-        Schema::create('co_assessment_cycle_segments', function (Blueprint $table) {
+        Schema::create('assessment_cycle_segments', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('assessment_cycle_id')
-                ->constrained('co_assessment_cycles', 'id', 'co_asmt_seg_cycle_fk')
+                ->constrained('assessment_cycles', 'id', 'co_asmt_seg_cycle_fk')
                 ->cascadeOnDelete();
             $table->unsignedSmallInteger('segment_number')->default(1);
             $table->foreignId('sender_cost_center_id')
@@ -450,10 +450,10 @@ return new class extends Migration
             $table->index(['assessment_cycle_id'], 'co_asmt_seg_cycle_idx');
         });
 
-        Schema::create('co_assessment_cycle_receivers', function (Blueprint $table) {
+        Schema::create('assessment_cycle_receivers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('assessment_cycle_segment_id')
-                ->constrained('co_assessment_cycle_segments', 'id', 'co_asmt_rcv_seg_fk')
+                ->constrained('assessment_cycle_segments', 'id', 'co_asmt_rcv_seg_fk')
                 ->cascadeOnDelete();
             $table->foreignId('receiver_cost_center_id')
                 ->nullable()
@@ -473,10 +473,10 @@ return new class extends Migration
             $table->index(['assessment_cycle_segment_id'], 'co_asmt_rcv_seg_idx');
         });
 
-        Schema::create('co_distribution_segment_receivers', function (Blueprint $table) {
+        Schema::create('distribution_segment_receivers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('distribution_segment_id')
-                ->constrained('co_distribution_segments', 'id', 'co_dist_rcv_seg_fk')
+                ->constrained('distribution_segments', 'id', 'co_dist_rcv_seg_fk')
                 ->cascadeOnDelete();
             $table->foreignId('receiver_cost_center_id')
                 ->nullable()
@@ -833,9 +833,9 @@ return new class extends Migration
         Schema::dropIfExists('cost_center_assignments');
         Schema::dropIfExists('copa_planned_line_items');
         Schema::dropIfExists('copa_line_items');
-        Schema::dropIfExists('co_distribution_segment_receivers');
-        Schema::dropIfExists('co_assessment_cycle_receivers');
-        Schema::dropIfExists('co_assessment_cycle_segments');
+        Schema::dropIfExists('distribution_segment_receivers');
+        Schema::dropIfExists('assessment_cycle_receivers');
+        Schema::dropIfExists('assessment_cycle_segments');
         Schema::dropIfExists('profit_centers');
         Schema::dropIfExists('overhead_key_rates');
         Schema::dropIfExists('internal_order_settlements');
@@ -846,9 +846,9 @@ return new class extends Migration
         Schema::dropIfExists('cost_center_budget_lines');
         Schema::dropIfExists('cost_center_budgets');
         Schema::dropIfExists('cost_allocations');
-        Schema::dropIfExists('co_distribution_segments');
-        Schema::dropIfExists('co_distribution_postings');
-        Schema::dropIfExists('co_assessment_postings');
+        Schema::dropIfExists('distribution_segments');
+        Schema::dropIfExists('distribution_postings');
+        Schema::dropIfExists('assessment_postings');
         Schema::dropIfExists('activity_rates');
         Schema::dropIfExists('cost_centers');
     }

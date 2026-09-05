@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\CoAssessmentCycle;
-use App\Models\Accounting\CoReconciliationRun;
+use App\Models\Accounting\AssessmentCycle;
+use App\Models\Accounting\CostReconciliationRun;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
-class CoReconciliationTest extends TestCase
+class CostReconciliationTest extends TestCase
 {
     use RefreshDatabase;
     use TestHelpers;
@@ -29,9 +29,9 @@ class CoReconciliationTest extends TestCase
     // Helpers
     // -------------------------------------------------------------------------
 
-    private function makeRun(array $overrides = []): CoReconciliationRun
+    private function makeRun(array $overrides = []): CostReconciliationRun
     {
-        return CoReconciliationRun::create(array_merge([
+        return CostReconciliationRun::create(array_merge([
             'organization_id' => $this->organization->id,
             'run_number'      => 'KALC-' . fake()->unique()->numerify('####'),
             'source_type'     => 'assessment',
@@ -105,7 +105,7 @@ class CoReconciliationTest extends TestCase
 
     public function test_reconcile_assessment_validates_fiscal_year_length(): void
     {
-        $cycle = CoAssessmentCycle::create([
+        $cycle = AssessmentCycle::create([
             'organization_id' => $this->organization->id,
             'name'            => 'Test Cycle',
             'cycle_type'      => 'assessment',
@@ -124,7 +124,7 @@ class CoReconciliationTest extends TestCase
 
     public function test_reconcile_assessment_validates_period_length(): void
     {
-        $cycle = CoAssessmentCycle::create([
+        $cycle = AssessmentCycle::create([
             'organization_id' => $this->organization->id,
             'name'            => 'Test Cycle 2',
             'cycle_type'      => 'assessment',

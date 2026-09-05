@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class EcmAffectedObject extends Model
+class EngineeringChangeObject extends Model
 {
     use HasFactory, HasUuid;
 

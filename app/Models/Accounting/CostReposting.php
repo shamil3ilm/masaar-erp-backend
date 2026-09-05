@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class CoReposting extends Model
+class CostReposting extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
@@ -80,7 +80,7 @@ class CoReposting extends Model
 
     public function reversedBy(): BelongsTo
     {
-        return $this->belongsTo(CoReposting::class, 'reversed_by_id');
+        return $this->belongsTo(CostReposting::class, 'reversed_by_id');
     }
 
     public function organization(): BelongsTo

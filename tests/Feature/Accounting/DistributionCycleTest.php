@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\CoDistributionCycle;
+use App\Models\Accounting\DistributionCycle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -31,15 +31,15 @@ class DistributionCycleTest extends TestCase
     // Helpers
     // -------------------------------------------------------------------------
 
-    private function makeCycle(array $overrides = []): CoDistributionCycle
+    private function makeCycle(array $overrides = []): DistributionCycle
     {
-        return CoDistributionCycle::create(array_merge([
+        return DistributionCycle::create(array_merge([
             'organization_id' => $this->organization->id,
             'name'            => 'Distribution Cycle ' . fake()->unique()->numerify('###'),
             'fiscal_year'     => 2025,
             'period_from'     => 1,
             'period_to'       => 12,
-            'status'          => CoDistributionCycle::STATUS_OPEN,
+            'status'          => DistributionCycle::STATUS_OPEN,
         ], $overrides));
     }
 
@@ -126,7 +126,7 @@ class DistributionCycleTest extends TestCase
 
     public function test_update_rejects_non_open_cycle(): void
     {
-        $cycle = $this->makeCycle(['status' => CoDistributionCycle::STATUS_EXECUTED]);
+        $cycle = $this->makeCycle(['status' => DistributionCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->putJson('/api/v1/controlling/distribution-cycles/' . $cycle->uuid, [
@@ -148,12 +148,12 @@ class DistributionCycleTest extends TestCase
             ->deleteJson('/api/v1/controlling/distribution-cycles/' . $cycle->uuid);
 
         $response->assertStatus(200);
-        $this->assertNull(CoDistributionCycle::find($cycle->id));
+        $this->assertNull(DistributionCycle::find($cycle->id));
     }
 
     public function test_destroy_rejects_non_open_cycle(): void
     {
-        $cycle = $this->makeCycle(['status' => CoDistributionCycle::STATUS_EXECUTED]);
+        $cycle = $this->makeCycle(['status' => DistributionCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->deleteJson('/api/v1/controlling/distribution-cycles/' . $cycle->uuid);

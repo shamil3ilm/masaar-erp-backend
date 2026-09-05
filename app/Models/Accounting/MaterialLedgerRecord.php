@@ -58,12 +58,12 @@ class MaterialLedgerRecord extends Model
 
     public function mlDocuments(): HasMany
     {
-        return $this->hasMany(MlDocument::class);
+        return $this->hasMany(MaterialLedgerDocument::class);
     }
 
     public function closingEntries(): HasMany
     {
-        return $this->hasMany(MlClosingEntry::class);
+        return $this->hasMany(MaterialLedgerClosingEntry::class);
     }
 
     public function scopeOpen(Builder $query): Builder
