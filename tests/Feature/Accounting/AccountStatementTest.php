@@ -66,7 +66,7 @@ class AccountStatementTest extends TestCase
 
     public function test_vendor_statement_validates_from_required(): void
     {
-        $contact = $this->makeContact(['contact_type' => 'vendor']);
+        $contact = $this->makeContact(['contact_type' => 'supplier']);
 
         $response = $this->withToken($this->token)
             ->getJson('/api/v1/statements/vendors/' . $contact->id);
@@ -76,7 +76,7 @@ class AccountStatementTest extends TestCase
 
     public function test_vendor_statement_returns_data(): void
     {
-        $contact = $this->makeContact(['contact_type' => 'vendor']);
+        $contact = $this->makeContact(['contact_type' => 'supplier']);
 
         $response = $this->withToken($this->token)
             ->getJson('/api/v1/statements/vendors/' . $contact->id . '?from=2025-01-01&to=2025-12-31');
