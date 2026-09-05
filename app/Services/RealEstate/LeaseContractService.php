@@ -6,7 +6,7 @@ namespace App\Services\RealEstate;
 
 use App\Models\RealEstate\ContractCondition;
 use App\Models\RealEstate\ContractOption;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\RentalUnit;
 use App\Services\Core\NumberGeneratorService;
 use Carbon\Carbon;
@@ -28,7 +28,7 @@ class LeaseContractService
 
     public function listContracts(int $organizationId, array $filters = []): LengthAwarePaginator
     {
-        $query = LeaseContract::where('organization_id', $organizationId);
+        $query = RentalContract::where('organization_id', $organizationId);
 
         if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
@@ -42,7 +42,7 @@ class LeaseContractService
             ->paginate(20);
     }
 
-    public function createContract(int $organizationId, array $data): LeaseContract
+    public function createContract(int $organizationId, array $data): RentalContract
     {
         return DB::transaction(function () use ($organizationId, $data) {
             $unit = RentalUnit::where('organization_id', $organizationId)
@@ -58,7 +58,7 @@ class LeaseContractService
             $options    = $data['options'] ?? [];
             unset($data['conditions'], $data['options']);
 
-            $contract = LeaseContract::create(array_merge($data, [
+            $contract = RentalContract::create(array_merge($data, [
                 'organization_id' => $organizationId,
                 'contract_number' => $contractNumber,
                 'status'          => 'draft',
@@ -77,7 +77,7 @@ class LeaseContractService
         });
     }
 
-    public function activateContract(LeaseContract $contract): LeaseContract
+    public function activateContract(RentalContract $contract): RentalContract
     {
         if ($contract->status !== 'draft') {
             throw new InvalidArgumentException('Only draft contracts can be activated.');
@@ -94,7 +94,7 @@ class LeaseContractService
         });
     }
 
-    public function terminateContract(LeaseContract $contract, array $data): LeaseContract
+    public function terminateContract(RentalContract $contract, array $data): RentalContract
     {
         if (! in_array($contract->status, ['active', 'notice_given'], true)) {
             throw new InvalidArgumentException('Contract must be active or in notice period to terminate.');
@@ -236,7 +236,7 @@ class LeaseContractService
 
     public function getExpiringContracts(int $organizationId, int $withinDays = 90): Collection
     {
-        return LeaseContract::where('organization_id', $organizationId)
+        return RentalContract::where('organization_id', $organizationId)
             ->where('status', 'active')
             ->whereNotNull('end_date')
             ->where('end_date', '<=', now()->addDays($withinDays)->toDateString())

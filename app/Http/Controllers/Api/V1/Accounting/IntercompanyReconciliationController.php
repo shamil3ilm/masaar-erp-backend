@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\IcReconciliationItem;
-use App\Models\Accounting\IcReconciliationSession;
+use App\Models\Accounting\IntercompanyReconciliationItem;
+use App\Models\Accounting\IntercompanyReconciliationSession;
 use App\Services\Accounting\IntercompanyReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +18,7 @@ class IntercompanyReconciliationController extends Controller
     /** GET /ic-reconciliation */
     public function index(Request $request): JsonResponse
     {
-        $sessions = IcReconciliationSession::where('organization_id', $request->user()->organization_id)
+        $sessions = IntercompanyReconciliationSession::where('organization_id', $request->user()->organization_id)
             ->when($request->fiscal_year, fn ($q) => $q->where('fiscal_year', $request->fiscal_year))
             ->when($request->status, fn ($q) => $q->where('status', $request->status))
             ->orderByDesc('created_at')
@@ -46,7 +46,7 @@ class IntercompanyReconciliationController extends Controller
     }
 
     /** GET /ic-reconciliation/sessions/{session} */
-    public function show(IcReconciliationSession $icReconciliationSession): JsonResponse
+    public function show(IntercompanyReconciliationSession $icReconciliationSession): JsonResponse
     {
         return $this->success(
             $icReconciliationSession->load(['items', 'matches']),
@@ -55,7 +55,7 @@ class IntercompanyReconciliationController extends Controller
     }
 
     /** POST /ic-reconciliation/sessions/{session}/load-items */
-    public function loadItems(Request $request, IcReconciliationSession $icReconciliationSession): JsonResponse
+    public function loadItems(Request $request, IntercompanyReconciliationSession $icReconciliationSession): JsonResponse
     {
         $data = $request->validate([
             'items'                              => ['required', 'array', 'min:1'],
@@ -78,7 +78,7 @@ class IntercompanyReconciliationController extends Controller
     }
 
     /** POST /ic-reconciliation/sessions/{session}/auto-match */
-    public function autoMatch(IcReconciliationSession $icReconciliationSession): JsonResponse
+    public function autoMatch(IntercompanyReconciliationSession $icReconciliationSession): JsonResponse
     {
         $result = $this->service->autoMatch($icReconciliationSession);
 
@@ -86,7 +86,7 @@ class IntercompanyReconciliationController extends Controller
     }
 
     /** POST /ic-reconciliation/sessions/{session}/manual-match */
-    public function manualMatch(Request $request, IcReconciliationSession $icReconciliationSession): JsonResponse
+    public function manualMatch(Request $request, IntercompanyReconciliationSession $icReconciliationSession): JsonResponse
     {
         $data = $request->validate([
             'receivable_item_id' => ['required', 'integer'],
@@ -94,8 +94,8 @@ class IntercompanyReconciliationController extends Controller
             'notes'              => ['nullable', 'string'],
         ]);
 
-        $receivable = IcReconciliationItem::findOrFail($data['receivable_item_id']);
-        $payable    = IcReconciliationItem::findOrFail($data['payable_item_id']);
+        $receivable = IntercompanyReconciliationItem::findOrFail($data['receivable_item_id']);
+        $payable    = IntercompanyReconciliationItem::findOrFail($data['payable_item_id']);
 
         $match = $this->service->manualMatch(
             session:    $icReconciliationSession,
@@ -108,7 +108,7 @@ class IntercompanyReconciliationController extends Controller
     }
 
     /** POST /ic-reconciliation/sessions/{session}/close */
-    public function close(IcReconciliationSession $icReconciliationSession): JsonResponse
+    public function close(IntercompanyReconciliationSession $icReconciliationSession): JsonResponse
     {
         $session = $this->service->closeSession($icReconciliationSession);
 

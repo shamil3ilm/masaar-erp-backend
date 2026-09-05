@@ -15,7 +15,7 @@ class TransportationOrder extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_transportation_orders';
+    protected $table = 'transportation_orders';
 
     protected $fillable = [
         'organization_id',

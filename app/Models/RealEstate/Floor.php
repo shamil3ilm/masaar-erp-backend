@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Floor extends Model
 {
-    protected $table = 're_floors';
+    protected $table = 'floors';
 
     protected $fillable = [
         'building_id',

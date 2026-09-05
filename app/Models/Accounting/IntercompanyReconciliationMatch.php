@@ -9,11 +9,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class IcReconciliationMatch extends Model
+class IntercompanyReconciliationMatch extends Model
 {
     use HasUuid;
 
-    protected $table = 'ic_reconciliation_matches';
+    protected $table = 'intercompany_reconciliation_matches';
 
     protected $guarded = ['id'];
 
@@ -28,12 +28,12 @@ class IcReconciliationMatch extends Model
 
     public function session(): BelongsTo
     {
-        return $this->belongsTo(IcReconciliationSession::class, 'session_id');
+        return $this->belongsTo(IntercompanyReconciliationSession::class, 'session_id');
     }
 
     public function items(): HasMany
     {
-        return $this->hasMany(IcReconciliationItem::class, 'match_id');
+        return $this->hasMany(IntercompanyReconciliationItem::class, 'match_id');
     }
 
     public function hasDifference(): bool

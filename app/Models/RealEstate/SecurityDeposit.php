@@ -12,7 +12,7 @@ class SecurityDeposit extends Model
 {
     use HasUuid;
 
-    protected $table = 're_security_deposits';
+    protected $table = 'security_deposits';
 
     protected $fillable = [
         'organization_id',
@@ -42,7 +42,7 @@ class SecurityDeposit extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 
     /** Compute interest accrued since collected_date to today. */

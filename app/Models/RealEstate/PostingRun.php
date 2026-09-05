@@ -15,7 +15,7 @@ class PostingRun extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_posting_runs';
+    protected $table = 'posting_runs';
 
     protected $fillable = [
         'organization_id',

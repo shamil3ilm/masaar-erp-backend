@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\RealEstate;
 
 use App\Models\RealEstate\Ifrs16Schedule;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use Carbon\Carbon;
 use InvalidArgumentException;
 
@@ -22,7 +22,7 @@ class Ifrs16LeaseService
     /**
      * Build and persist the amortisation schedule, replacing any previous one.
      *
-     * @param  LeaseContract $contract         Must be a lease_in (lessee) contract.
+     * @param  RentalContract $contract         Must be a lease_in (lessee) contract.
      * @param  float         $ibrPercent       Annual incremental borrowing rate, e.g. 5.5 for 5.5%.
      * @param  string|null   $commencementDate Defaults to the contract start date.
      * @return array<string, mixed>
@@ -30,7 +30,7 @@ class Ifrs16LeaseService
      * @throws InvalidArgumentException when the contract cannot be measured.
      */
     public function generateSchedule(
-        LeaseContract $contract,
+        RentalContract $contract,
         float $ibrPercent,
         ?string $commencementDate = null
     ): array {
@@ -124,7 +124,7 @@ class Ifrs16LeaseService
      *
      * @return array<string, mixed>
      */
-    public function getSchedule(LeaseContract $contract): array
+    public function getSchedule(RentalContract $contract): array
     {
         $rows = Ifrs16Schedule::where('contract_id', $contract->id)
             ->orderBy('period_date')

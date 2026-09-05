@@ -12,11 +12,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class LeaseContract extends Model
+class RentalContract extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_contracts';
+    protected $table = 'rental_contracts';
 
     protected $fillable = [
         'organization_id',

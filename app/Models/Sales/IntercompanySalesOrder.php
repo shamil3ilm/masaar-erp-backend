@@ -86,12 +86,12 @@ class IntercompanySalesOrder extends Model
 
     public function purchaseOrderLink(): HasOne
     {
-        return $this->hasOne(IcPurchaseOrderLink::class);
+        return $this->hasOne(IntercompanyPurchaseOrderLink::class);
     }
 
     public function billingDocuments(): HasMany
     {
-        return $this->hasMany(IcBillingDocument::class);
+        return $this->hasMany(IntercompanyBillingDocument::class);
     }
 
     public function createdBy(): BelongsTo

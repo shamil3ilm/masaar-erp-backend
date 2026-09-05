@@ -18,7 +18,7 @@ class CapaEightD extends Model
     use SoftDeletes;
     use HasAuditTrail;
 
-    protected $table = 'qm_capa_8d';
+    protected $table = 'capa_8d';
 
     // Status constants — one per discipline
     public const STATUS_D0_OPEN         = 'd0_open';

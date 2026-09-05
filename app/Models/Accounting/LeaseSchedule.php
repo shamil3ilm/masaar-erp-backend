@@ -27,7 +27,7 @@ class LeaseSchedule extends Model
 
     public function leaseContract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class);
+        return $this->belongsTo(RentalContract::class);
     }
 
     public function journalEntry(): BelongsTo

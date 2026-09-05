@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TransportationOrderItem extends Model
 {
-    protected $table = 'tm_transportation_order_items';
+    protected $table = 'transportation_order_items';
 
     protected $fillable = [
         'transportation_order_id',

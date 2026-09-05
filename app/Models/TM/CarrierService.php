@@ -12,7 +12,7 @@ class CarrierService extends Model
 {
     use HasUuid;
 
-    protected $table = 'tm_carrier_services';
+    protected $table = 'carrier_services';
 
     protected $fillable = [
         'organization_id',

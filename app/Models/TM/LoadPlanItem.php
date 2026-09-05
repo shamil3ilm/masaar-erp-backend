@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class LoadPlanItem extends Model
 {
-    protected $table = 'tm_load_plan_items';
+    protected $table = 'load_plan_items';
 
     protected $fillable = [
         'load_plan_id',

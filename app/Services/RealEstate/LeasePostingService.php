@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\RealEstate;
 
 use App\Models\Accounting\Account;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\PostingRun;
 use App\Models\RealEstate\PostingRunItem;
 use App\Services\Accounting\JournalService;
@@ -40,7 +40,7 @@ class LeasePostingService
         $totalAmount = '0.0000';
         $postingDate = Carbon::create($year, $month, 1)->endOfMonth()->toDateString();
 
-        LeaseContract::where('organization_id', $organizationId)
+        RentalContract::where('organization_id', $organizationId)
             ->where('status', 'active')
             ->with(['activeConditions', 'rentalUnit'])
             ->chunkById(100, function ($contracts) use ($type, &$items, &$totalAmount) {
@@ -115,7 +115,7 @@ class LeasePostingService
             $totalAmount        = '0.0000';
             $contractsProcessed = 0;
 
-            LeaseContract::where('organization_id', $organizationId)
+            RentalContract::where('organization_id', $organizationId)
                 ->where('status', 'active')
                 ->with(['activeConditions', 'rentalUnit'])
                 ->chunkById(100, function ($contracts) use ($run, $type, &$totalAmount, &$contractsProcessed) {

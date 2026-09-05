@@ -410,7 +410,7 @@ return new class extends Migration
             $table->index(['work_order_id'], 'poa_wo_idx');
         });
 
-        Schema::create('qm_capa_8d', function (Blueprint $table) {
+        Schema::create('capa_8d', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -478,7 +478,7 @@ return new class extends Migration
             $table->index(['organization_id', 'status']);
         });
 
-        Schema::create('qm_dynamic_modification_rules', function (Blueprint $table) {
+        Schema::create('dynamic_modification_rules', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -503,11 +503,11 @@ return new class extends Migration
             $table->unique(['organization_id', 'rule_code']);
         });
 
-        Schema::create('qm_inspection_stage_log', function (Blueprint $table) {
+        Schema::create('inspection_stage_logs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
             $table->foreignId('rule_id')
-                ->constrained('qm_dynamic_modification_rules')
+                ->constrained('dynamic_modification_rules')
                 ->restrictOnDelete();
             $table->unsignedBigInteger('product_id')->nullable();
             $table->unsignedBigInteger('supplier_id')->nullable();
@@ -517,7 +517,7 @@ return new class extends Migration
             $table->timestamp('last_evaluated_at')->nullable();
             $table->timestamps();
 
-            $table->index(['organization_id', 'product_id', 'supplier_id'], 'qm_inspection_stage_log_org_product_supplier_idx');
+            $table->index(['organization_id', 'product_id', 'supplier_id'], 'inspection_stage_logs_org_product_supplier_idx');
         });
 
         Schema::create('scheduling_boards', function (Blueprint $table) {
@@ -802,9 +802,9 @@ return new class extends Migration
         Schema::dropIfExists('skip_lot_sampling_plans');
         Schema::dropIfExists('scrap_reports');
         Schema::dropIfExists('scheduling_boards');
-        Schema::dropIfExists('qm_inspection_stage_log');
-        Schema::dropIfExists('qm_dynamic_modification_rules');
-        Schema::dropIfExists('qm_capa_8d');
+        Schema::dropIfExists('inspection_stage_logs');
+        Schema::dropIfExists('dynamic_modification_rules');
+        Schema::dropIfExists('capa_8d');
         Schema::dropIfExists('tool_operation_assignments');
         Schema::dropIfExists('production_resource_tools');
         Schema::dropIfExists('product_cost_collectors');

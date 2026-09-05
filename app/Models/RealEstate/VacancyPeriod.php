@@ -14,7 +14,7 @@ class VacancyPeriod extends Model
     use BelongsToOrganization;
     use HasUuid;
 
-    protected $table = 're_vacancy_periods';
+    protected $table = 'vacancy_periods';
 
     protected $guarded = ['id'];
 

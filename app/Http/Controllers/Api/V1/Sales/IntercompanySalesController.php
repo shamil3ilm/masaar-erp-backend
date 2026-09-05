@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\Sales\IcBillingDocumentResource;
+use App\Http\Resources\Sales\IntercompanyBillingDocumentResource;
 use App\Http\Resources\Sales\IntercompanySalesOrderResource;
-use App\Models\Sales\IcBillingDocument;
+use App\Models\Sales\IntercompanyBillingDocument;
 use App\Models\Sales\IntercompanySalesOrder;
 use App\Services\Sales\IntercompanySalesService;
 use Illuminate\Http\JsonResponse;
@@ -160,7 +160,7 @@ class IntercompanySalesController extends Controller
 
         $doc = $this->service->createBillingDocument($order, $validated);
 
-        return $this->success(new IcBillingDocumentResource($doc), 'Billing document created.', 201);
+        return $this->success(new IntercompanyBillingDocumentResource($doc), 'Billing document created.', 201);
     }
 
     /**
@@ -170,12 +170,12 @@ class IntercompanySalesController extends Controller
     {
         // Verify the billing document belongs to this order
         $order = IntercompanySalesOrder::findOrFail($id);
-        $doc   = IcBillingDocument::where('intercompany_sales_order_id', $order->id)
+        $doc   = IntercompanyBillingDocument::where('intercompany_sales_order_id', $order->id)
             ->findOrFail($billingDocId);
 
         $doc = $this->service->postBillingDocument($doc);
 
-        return $this->success(new IcBillingDocumentResource($doc), 'Billing document posted.');
+        return $this->success(new IntercompanyBillingDocumentResource($doc), 'Billing document posted.');
     }
 
     /**

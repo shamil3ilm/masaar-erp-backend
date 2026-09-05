@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PostingRunItem extends Model
 {
-    protected $table = 're_posting_run_items';
+    protected $table = 'posting_run_items';
 
     protected $fillable = [
         'posting_run_id',
@@ -36,7 +36,7 @@ class PostingRunItem extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 
     public function condition(): BelongsTo

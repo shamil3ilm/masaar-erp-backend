@@ -15,7 +15,7 @@ class RentalUnit extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_rental_units';
+    protected $table = 'rental_units';
 
     protected $fillable = [
         'organization_id',
@@ -54,12 +54,12 @@ class RentalUnit extends Model
 
     public function contracts(): HasMany
     {
-        return $this->hasMany(LeaseContract::class, 'rental_unit_id');
+        return $this->hasMany(RentalContract::class, 'rental_unit_id');
     }
 
     public function activeContract(): HasOne
     {
-        return $this->hasOne(LeaseContract::class, 'rental_unit_id')
+        return $this->hasOne(RentalContract::class, 'rental_unit_id')
             ->where('status', 'active');
     }
 

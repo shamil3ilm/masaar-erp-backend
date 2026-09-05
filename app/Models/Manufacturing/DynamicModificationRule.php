@@ -19,7 +19,7 @@ class DynamicModificationRule extends Model
     use SoftDeletes;
     use HasAuditTrail;
 
-    protected $table = 'qm_dynamic_modification_rules';
+    protected $table = 'dynamic_modification_rules';
 
     /** @var list<string> */
     protected $fillable = [

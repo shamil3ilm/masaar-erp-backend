@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ServiceChargeAllocation extends Model
 {
-    protected $table = 're_service_charge_allocations';
+    protected $table = 'service_charge_allocations';
 
     protected $fillable = [
         'settlement_id',
@@ -36,6 +36,6 @@ class ServiceChargeAllocation extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 }

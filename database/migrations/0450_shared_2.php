@@ -494,7 +494,7 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('teco_records', function (Blueprint $table) {
+        Schema::create('technical_completion_records', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations');
@@ -510,9 +510,9 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('teco_reservation_clearances', function (Blueprint $table) {
+        Schema::create('technical_completion_clearances', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('teco_record_id')->constrained('teco_records', 'id', 'teco_clr_fk');
+            $table->foreignId('technical_completion_record_id')->constrained('technical_completion_records', 'id', 'teco_clr_fk');
             $table->foreignId('material_id')->constrained('products', 'id', 'teco_clr_mat_fk');
             $table->decimal('cleared_quantity', 18, 4);
             $table->timestamp('cleared_at');
@@ -620,8 +620,8 @@ return new class extends Migration
         Schema::dropIfExists('user_branches');
         Schema::dropIfExists('token_blacklist');
         Schema::dropIfExists('tenant_rate_limit_logs');
-        Schema::dropIfExists('teco_reservation_clearances');
-        Schema::dropIfExists('teco_records');
+        Schema::dropIfExists('technical_completion_clearances');
+        Schema::dropIfExists('technical_completion_records');
         Schema::dropIfExists('staging_movements');
         Schema::dropIfExists('staging_request_lines');
         Schema::dropIfExists('staging_requests');

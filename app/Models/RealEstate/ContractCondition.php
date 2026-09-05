@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContractCondition extends Model
 {
-    protected $table = 're_contract_conditions';
+    protected $table = 'contract_conditions';
 
     protected $fillable = [
         'contract_id',
@@ -40,7 +40,7 @@ class ContractCondition extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 
     public function computeAmount(float $areaSqm = 0): string

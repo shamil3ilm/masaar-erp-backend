@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Ifrs16Schedule extends Model
 {
-    protected $table = 're_ifrs16_schedules';
+    protected $table = 'ifrs16_schedules';
 
     protected $fillable = [
         'contract_id',
@@ -41,6 +41,6 @@ class Ifrs16Schedule extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 }

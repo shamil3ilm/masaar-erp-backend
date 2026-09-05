@@ -13,7 +13,7 @@ class Carrier extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_carriers';
+    protected $table = 'carriers';
 
     protected $fillable = [
         'organization_id',

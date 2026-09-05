@@ -15,7 +15,7 @@ class ServiceChargeSettlement extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_service_charge_settlements';
+    protected $table = 'service_charge_settlements';
 
     protected $fillable = [
         'organization_id',

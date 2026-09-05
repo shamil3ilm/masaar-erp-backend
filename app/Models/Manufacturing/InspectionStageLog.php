@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InspectionStageLog extends Model
 {
-    protected $table = 'qm_inspection_stage_log';
+    protected $table = 'inspection_stage_logs';
 
     public const STAGE_TIGHTENED = 'tightened';
     public const STAGE_NORMAL    = 'normal';

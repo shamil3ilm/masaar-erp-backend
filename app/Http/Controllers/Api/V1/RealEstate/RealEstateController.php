@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\RealEstate\Building;
 use App\Models\RealEstate\ContractCondition;
 use App\Models\RealEstate\ContractOption;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\Portfolio;
 use App\Models\RealEstate\Property;
 use App\Models\RealEstate\RentalUnit;
@@ -250,21 +250,21 @@ class RealEstateController extends Controller
         return $this->created($contract);
     }
 
-    public function showContract(LeaseContract $contract): JsonResponse
+    public function showContract(RentalContract $contract): JsonResponse
     {
         $contract->load(['rentalUnit.building.property', 'conditions', 'options', 'securityDeposit']);
 
         return $this->success($contract);
     }
 
-    public function activateContract(LeaseContract $contract): JsonResponse
+    public function activateContract(RentalContract $contract): JsonResponse
     {
         $contract = $this->contracts->activateContract($contract);
 
         return $this->success($contract);
     }
 
-    public function terminateContract(Request $request, LeaseContract $contract): JsonResponse
+    public function terminateContract(Request $request, RentalContract $contract): JsonResponse
     {
         $data = $request->validate([
             'notice_date' => 'nullable|date',
@@ -369,7 +369,7 @@ class RealEstateController extends Controller
     // Security Deposits
     // -------------------------------------------------------------------------
 
-    public function createDeposit(Request $request, LeaseContract $contract): JsonResponse
+    public function createDeposit(Request $request, RentalContract $contract): JsonResponse
     {
         $data = $request->validate([
             'required_amount' => 'required|numeric|min:0',
@@ -466,7 +466,7 @@ class RealEstateController extends Controller
      * POST /real-estate/contracts/{contract}/ifrs16/generate
      * Body: { "ibr_percent": 5.5, "commencement_date": "2026-01-01" (optional) }
      */
-    public function generateIfrs16(Request $request, LeaseContract $contract): JsonResponse
+    public function generateIfrs16(Request $request, RentalContract $contract): JsonResponse
     {
         $validated = $request->validate([
             'ibr_percent'       => 'required|numeric|min:0|max:100',
@@ -493,7 +493,7 @@ class RealEstateController extends Controller
      *
      * GET /real-estate/contracts/{contract}/ifrs16/schedule
      */
-    public function ifrs16Schedule(LeaseContract $contract): JsonResponse
+    public function ifrs16Schedule(RentalContract $contract): JsonResponse
     {
         $schedule = $this->ifrs16->getSchedule($contract);
 

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Sales;
 
 use App\Models\Accounting\Account;
-use App\Models\Sales\IcBillingDocument;
-use App\Models\Sales\IcPurchaseOrderLink;
+use App\Models\Sales\IntercompanyBillingDocument;
+use App\Models\Sales\IntercompanyPurchaseOrderLink;
 use App\Models\Sales\IntercompanySalesOrder;
 use App\Models\Sales\IntercompanySalesOrderLine;
 use App\Services\Accounting\JournalService;
@@ -95,7 +95,7 @@ class IntercompanySalesService
 
             $order->recalculateTotals();
 
-            IcPurchaseOrderLink::create([
+            IntercompanyPurchaseOrderLink::create([
                 'intercompany_sales_order_id' => $order->id,
                 'buying_organization_id'      => $order->buying_organization_id,
                 'purchase_order_id'           => null,
@@ -136,9 +136,9 @@ class IntercompanySalesService
     /**
      * Link the buying org's purchase order to this IC sales order.
      */
-    public function linkPurchaseOrder(IntercompanySalesOrder $order, int $purchaseOrderId): IcPurchaseOrderLink
+    public function linkPurchaseOrder(IntercompanySalesOrder $order, int $purchaseOrderId): IntercompanyPurchaseOrderLink
     {
-        $link = $order->purchaseOrderLink ?? IcPurchaseOrderLink::firstOrNew([
+        $link = $order->purchaseOrderLink ?? IntercompanyPurchaseOrderLink::firstOrNew([
             'intercompany_sales_order_id' => $order->id,
         ]);
 
@@ -178,32 +178,32 @@ class IntercompanySalesService
      *     notes?: string|null,
      * }  $data
      */
-    public function createBillingDocument(IntercompanySalesOrder $order, array $data): IcBillingDocument
+    public function createBillingDocument(IntercompanySalesOrder $order, array $data): IntercompanyBillingDocument
     {
         if (!$order->canBill()) {
             throw new \RuntimeException("Order [{$order->order_number}] is not in a billable status.");
         }
 
-        return IcBillingDocument::create(array_merge($data, [
+        return IntercompanyBillingDocument::create(array_merge($data, [
             'intercompany_sales_order_id' => $order->id,
             'selling_organization_id'     => $order->selling_organization_id,
             'buying_organization_id'      => $order->buying_organization_id,
-            'status'                      => IcBillingDocument::STATUS_DRAFT,
+            'status'                      => IntercompanyBillingDocument::STATUS_DRAFT,
         ]));
     }
 
     /**
      * Post a draft billing document (set status = posted, record posted_at timestamp).
      */
-    public function postBillingDocument(IcBillingDocument $doc): IcBillingDocument
+    public function postBillingDocument(IntercompanyBillingDocument $doc): IntercompanyBillingDocument
     {
         if (!$doc->canPost()) {
             throw new \RuntimeException("Billing document [{$doc->document_number}] cannot be posted from status [{$doc->status}].");
         }
 
-        return DB::transaction(function () use ($doc): IcBillingDocument {
+        return DB::transaction(function () use ($doc): IntercompanyBillingDocument {
             $doc->update([
-                'status'    => IcBillingDocument::STATUS_POSTED,
+                'status'    => IntercompanyBillingDocument::STATUS_POSTED,
                 'posted_at' => now(),
             ]);
 
@@ -228,7 +228,7 @@ class IntercompanySalesService
      * Auto-create AR (selling org) and AP (buying org) journal entries on billing document post.
      * Returns the AR journal entry ID, or null if required accounts cannot be resolved.
      */
-    private function postIcJournalEntries(IcBillingDocument $doc): ?int
+    private function postIcJournalEntries(IntercompanyBillingDocument $doc): ?int
     {
         $sellingOrgId = $doc->selling_organization_id;
         $buyingOrgId  = $doc->buying_organization_id;

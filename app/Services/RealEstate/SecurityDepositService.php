@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\RealEstate;
 
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\SecurityDeposit;
 use App\Services\Core\NumberGeneratorService;
 use InvalidArgumentException;
@@ -21,7 +21,7 @@ class SecurityDepositService
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
-    public function createSecurityDeposit(LeaseContract $contract, array $data): SecurityDeposit
+    public function createSecurityDeposit(RentalContract $contract, array $data): SecurityDeposit
     {
         if ($contract->securityDeposit()->exists()) {
             throw new InvalidArgumentException('A security deposit already exists for this contract.');

@@ -7,7 +7,7 @@ namespace App\Http\Resources\Sales;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class IcBillingDocumentResource extends JsonResource
+class IntercompanyBillingDocumentResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
