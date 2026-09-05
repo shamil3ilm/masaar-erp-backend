@@ -6,6 +6,7 @@ namespace App\Services\Inventory;
 
 use App\Models\Accounting\Account;
 use App\Models\Accounting\JournalEntry;
+use App\Models\Core\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\StockLevel;
 use App\Services\Accounting\JournalService;
@@ -221,7 +222,11 @@ class MaterialValuationService
 
         return [
             'total_value' => round($totalValue, 4),
-            'currency'    => 'SAR', // TODO: pull from org settings
+            // The organisation's own base currency. This read 'SAR' for every
+            // organisation, so inventory held by anyone reporting in another
+            // currency was labelled with one they do not use - the figure was
+            // right and the unit beside it was wrong.
+            'currency'    => Organization::whereKey($orgId)->value('base_currency') ?? 'SAR',
             'by_product'  => array_values($byProduct),
         ];
     }
