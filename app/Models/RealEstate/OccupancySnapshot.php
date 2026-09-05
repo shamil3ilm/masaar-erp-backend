@@ -11,7 +11,7 @@ class OccupancySnapshot extends Model
 {
     use BelongsToOrganization;
 
-    protected $table = 're_occupancy_snapshots';
+    protected $table = 'occupancy_snapshots';
 
     protected $guarded = ['id'];
 

@@ -10,7 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('tm_carriers', function (Blueprint $table) {
+        Schema::create('carriers', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -28,14 +28,14 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index(['organization_id', 'status'], 'tm_carriers_org_status_idx');
-            $table->index(['organization_id', 'type', 'status'], 'tm_carriers_org_type_status_idx');
+            $table->index(['organization_id', 'status'], 'carriers_org_status_idx');
+            $table->index(['organization_id', 'type', 'status'], 'carriers_org_type_status_idx');
         });
 
-        Schema::create('tm_carrier_performance', function (Blueprint $table) {
+        Schema::create('carrier_performance', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('carrier_id')->constrained('tm_carriers')->cascadeOnDelete();
+            $table->foreignId('carrier_id')->constrained('carriers')->cascadeOnDelete();
             $table->unsignedSmallInteger('period_year');
             $table->unsignedTinyInteger('period_month'); // 1–12
             $table->unsignedInteger('total_shipments')->default(0);
@@ -52,11 +52,11 @@ return new class extends Migration
             $table->unique(['organization_id', 'carrier_id', 'period_year', 'period_month'], 'tm_carrier_perf_org_carrier_period_uniq');
         });
 
-        Schema::create('tm_carrier_services', function (Blueprint $table) {
+        Schema::create('carrier_services', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('carrier_id')->constrained('tm_carriers')->cascadeOnDelete();
+            $table->foreignId('carrier_id')->constrained('carriers')->cascadeOnDelete();
             $table->string('code', 30);
             $table->string('name', 200);
             $table->string('mode', 30)->default('road'); // road|air|sea|rail|courier
@@ -70,18 +70,18 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->unique(['organization_id', 'carrier_id', 'code'], 'tm_carrier_services_org_carrier_code_uniq');
-            $table->index(['organization_id', 'carrier_id', 'is_active'], 'tm_carrier_services_org_carrier_active_idx');
+            $table->unique(['organization_id', 'carrier_id', 'code'], 'carrier_services_org_carrier_code_uniq');
+            $table->index(['organization_id', 'carrier_id', 'is_active'], 'carrier_services_org_carrier_active_idx');
         });
 
-        Schema::create('tm_freight_rate_tables', function (Blueprint $table) {
+        Schema::create('freight_rate_tables', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('code', 30);
             $table->string('name', 200);
-            $table->foreignId('carrier_id')->nullable()->constrained('tm_carriers')->nullOnDelete();
-            $table->foreignId('carrier_service_id')->nullable()->constrained('tm_carrier_services')->nullOnDelete();
+            $table->foreignId('carrier_id')->nullable()->constrained('carriers')->nullOnDelete();
+            $table->foreignId('carrier_service_id')->nullable()->constrained('carrier_services')->nullOnDelete();
             $table->date('valid_from');
             $table->date('valid_to')->nullable();
             $table->string('currency_code', 5)->default('USD');
@@ -92,22 +92,22 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'code'], 'tm_freight_rate_tables_org_code_uniq');
-            $table->index(['organization_id', 'carrier_id', 'is_active'], 'tm_freight_rate_tables_org_carrier_active_idx');
-            $table->index(['organization_id', 'valid_from', 'valid_to'], 'tm_freight_rate_tables_org_validity_idx');
+            $table->unique(['organization_id', 'code'], 'freight_rate_tables_org_code_uniq');
+            $table->index(['organization_id', 'carrier_id', 'is_active'], 'freight_rate_tables_org_carrier_active_idx');
+            $table->index(['organization_id', 'valid_from', 'valid_to'], 'freight_rate_tables_org_validity_idx');
         });
 
-        Schema::create('tm_freight_agreements', function (Blueprint $table) {
+        Schema::create('freight_agreements', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('carrier_id')->constrained('tm_carriers')->cascadeOnDelete();
+            $table->foreignId('carrier_id')->constrained('carriers')->cascadeOnDelete();
             $table->string('agreement_number', 50);
             $table->date('valid_from');
             $table->date('valid_to')->nullable();
             $table->string('currency_code', 5)->default('USD');
             $table->string('status', 20)->default('draft'); // draft|active|expired|terminated
-            $table->foreignId('rate_table_id')->nullable()->constrained('tm_freight_rate_tables')->nullOnDelete();
+            $table->foreignId('rate_table_id')->nullable()->constrained('freight_rate_tables')->nullOnDelete();
             $table->decimal('annual_volume_commitment', 14, 4)->nullable(); // kg
             $table->decimal('annual_spend_commitment', 14, 4)->nullable();
             $table->unsignedSmallInteger('payment_term_days')->default(30);
@@ -115,14 +115,14 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'agreement_number'], 'tm_freight_agreements_org_num_uniq');
-            $table->index(['organization_id', 'carrier_id', 'status'], 'tm_freight_agreements_org_carrier_status_idx');
-            $table->index(['organization_id', 'valid_from', 'valid_to'], 'tm_freight_agreements_org_validity_idx');
+            $table->unique(['organization_id', 'agreement_number'], 'freight_agreements_org_num_uniq');
+            $table->index(['organization_id', 'carrier_id', 'status'], 'freight_agreements_org_carrier_status_idx');
+            $table->index(['organization_id', 'valid_from', 'valid_to'], 'freight_agreements_org_validity_idx');
         });
 
-        Schema::create('tm_freight_rate_lines', function (Blueprint $table) {
+        Schema::create('freight_rate_lines', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('rate_table_id')->constrained('tm_freight_rate_tables')->cascadeOnDelete();
+            $table->foreignId('rate_table_id')->constrained('freight_rate_tables')->cascadeOnDelete();
             $table->string('origin_zone', 100)->nullable();   // null = any
             $table->string('destination_zone', 100)->nullable();
             $table->decimal('weight_from', 10, 3)->default(0);
@@ -135,15 +135,15 @@ return new class extends Migration
             $table->decimal('max_charge', 14, 4)->nullable();
             $table->timestamps();
 
-            $table->index(['rate_table_id', 'origin_zone', 'destination_zone'], 'tm_freight_rate_lines_table_zones_idx');
+            $table->index(['rate_table_id', 'origin_zone', 'destination_zone'], 'freight_rate_lines_table_zones_idx');
         });
 
-        Schema::create('tm_freight_surcharges', function (Blueprint $table) {
+        Schema::create('freight_surcharges', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('rate_table_id')->nullable()->constrained('tm_freight_rate_tables')->nullOnDelete();
-            $table->foreignId('carrier_id')->nullable()->constrained('tm_carriers')->nullOnDelete();
+            $table->foreignId('rate_table_id')->nullable()->constrained('freight_rate_tables')->nullOnDelete();
+            $table->foreignId('carrier_id')->nullable()->constrained('carriers')->nullOnDelete();
             $table->string('code', 30);
             $table->string('name', 200);
             $table->string('type', 30)->default('fuel');
@@ -157,11 +157,11 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->index(['organization_id', 'type', 'is_active'], 'tm_freight_surcharges_org_type_active_idx');
-            $table->index(['organization_id', 'carrier_id', 'is_active'], 'tm_freight_surcharges_org_carrier_active_idx');
+            $table->index(['organization_id', 'type', 'is_active'], 'freight_surcharges_org_type_active_idx');
+            $table->index(['organization_id', 'carrier_id', 'is_active'], 'freight_surcharges_org_carrier_active_idx');
         });
 
-        Schema::create('tm_freight_tender_requests', function (Blueprint $table) {
+        Schema::create('freight_tender_requests', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -181,7 +181,7 @@ return new class extends Migration
             $table->dateTime('bid_deadline')->nullable();
             $table->string('status', 20)->default('draft');
             // status: draft|open|evaluating|awarded|cancelled
-            $table->foreignId('awarded_carrier_id')->nullable()->constrained('tm_carriers')->nullOnDelete();
+            $table->foreignId('awarded_carrier_id')->nullable()->constrained('carriers')->nullOnDelete();
             $table->foreignId('awarded_bid_id')->nullable(); // set after award
             $table->dateTime('awarded_at')->nullable();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
@@ -189,15 +189,15 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'tender_number'], 'tm_freight_tender_requests_org_num_uniq');
-            $table->index(['organization_id', 'status', 'bid_deadline'], 'tm_freight_tender_requests_org_status_deadline_idx');
+            $table->unique(['organization_id', 'tender_number'], 'freight_tender_requests_org_num_uniq');
+            $table->index(['organization_id', 'status', 'bid_deadline'], 'freight_tender_requests_org_status_deadline_idx');
         });
 
-        Schema::create('tm_freight_tender_bids', function (Blueprint $table) {
+        Schema::create('freight_tender_bids', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->foreignId('tender_request_id')->constrained('tm_freight_tender_requests')->cascadeOnDelete();
-            $table->foreignId('carrier_id')->constrained('tm_carriers')->cascadeOnDelete();
+            $table->foreignId('tender_request_id')->constrained('freight_tender_requests')->cascadeOnDelete();
+            $table->foreignId('carrier_id')->constrained('carriers')->cascadeOnDelete();
             $table->decimal('total_price', 14, 4);
             $table->string('currency_code', 5)->default('USD');
             $table->unsignedSmallInteger('transit_days');
@@ -210,13 +210,13 @@ return new class extends Migration
             $table->json('breakdown')->nullable(); // itemized cost breakdown
             $table->timestamps();
 
-            $table->unique(['tender_request_id', 'carrier_id'], 'tm_freight_tender_bids_request_carrier_uniq');
-            $table->index(['tender_request_id', 'status'], 'tm_freight_tender_bids_request_status_idx');
+            $table->unique(['tender_request_id', 'carrier_id'], 'freight_tender_bids_request_carrier_uniq');
+            $table->index(['tender_request_id', 'status'], 'freight_tender_bids_request_status_idx');
         });
 
-        Schema::create('tm_freight_tender_items', function (Blueprint $table) {
+        Schema::create('freight_tender_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('tender_request_id')->constrained('tm_freight_tender_requests')->cascadeOnDelete();
+            $table->foreignId('tender_request_id')->constrained('freight_tender_requests')->cascadeOnDelete();
             $table->string('description', 200);
             $table->decimal('weight', 14, 3)->default(0);
             $table->decimal('volume', 14, 4)->default(0);
@@ -228,15 +228,15 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('tm_load_plans', function (Blueprint $table) {
+        Schema::create('load_plans', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('plan_number', 50);
             $table->string('status', 20)->default('open');
             // status: open|building|finalized|dispatched|closed|cancelled
-            $table->foreignId('carrier_id')->nullable()->constrained('tm_carriers')->nullOnDelete();
-            $table->foreignId('carrier_service_id')->nullable()->constrained('tm_carrier_services')->nullOnDelete();
+            $table->foreignId('carrier_id')->nullable()->constrained('carriers')->nullOnDelete();
+            $table->foreignId('carrier_service_id')->nullable()->constrained('carrier_services')->nullOnDelete();
             $table->string('vehicle_type', 50)->nullable(); // truck|van|container_20ft|container_40ft|etc
             $table->string('vehicle_plate', 30)->nullable();
             $table->string('driver_name', 100)->nullable();
@@ -255,12 +255,12 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'plan_number'], 'tm_load_plans_org_num_uniq');
-            $table->index(['organization_id', 'status', 'planned_departure'], 'tm_load_plans_org_status_departure_idx');
-            $table->index(['organization_id', 'carrier_id', 'status'], 'tm_load_plans_org_carrier_status_idx');
+            $table->unique(['organization_id', 'plan_number'], 'load_plans_org_num_uniq');
+            $table->index(['organization_id', 'status', 'planned_departure'], 'load_plans_org_status_departure_idx');
+            $table->index(['organization_id', 'carrier_id', 'status'], 'load_plans_org_carrier_status_idx');
         });
 
-        Schema::create('tm_transportation_orders', function (Blueprint $table) {
+        Schema::create('transportation_orders', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -268,10 +268,10 @@ return new class extends Migration
             $table->string('type', 20)->default('outbound'); // outbound|inbound|internal
             $table->string('status', 20)->default('draft');
             // status: draft|planned|tendered|carrier_assigned|in_transit|delivered|cancelled
-            $table->foreignId('carrier_id')->nullable()->constrained('tm_carriers')->nullOnDelete();
-            $table->foreignId('carrier_service_id')->nullable()->constrained('tm_carrier_services')->nullOnDelete();
-            $table->foreignId('load_plan_id')->nullable()->constrained('tm_load_plans')->nullOnDelete();
-            $table->foreignId('tender_request_id')->nullable()->constrained('tm_freight_tender_requests')->nullOnDelete();
+            $table->foreignId('carrier_id')->nullable()->constrained('carriers')->nullOnDelete();
+            $table->foreignId('carrier_service_id')->nullable()->constrained('carrier_services')->nullOnDelete();
+            $table->foreignId('load_plan_id')->nullable()->constrained('load_plans')->nullOnDelete();
+            $table->foreignId('tender_request_id')->nullable()->constrained('freight_tender_requests')->nullOnDelete();
             $table->string('origin_address', 500)->nullable();
             $table->string('origin_country', 5)->nullable();
             $table->string('destination_address', 500)->nullable();
@@ -291,25 +291,25 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'order_number'], 'tm_transportation_orders_org_num_uniq');
-            $table->index(['organization_id', 'status', 'planned_departure'], 'tm_transportation_orders_org_status_departure_idx');
-            $table->index(['organization_id', 'carrier_id', 'status'], 'tm_transportation_orders_org_carrier_status_idx');
-            $table->index(['organization_id', 'load_plan_id'], 'tm_transportation_orders_org_load_plan_idx');
+            $table->unique(['organization_id', 'order_number'], 'transportation_orders_org_num_uniq');
+            $table->index(['organization_id', 'status', 'planned_departure'], 'transportation_orders_org_status_departure_idx');
+            $table->index(['organization_id', 'carrier_id', 'status'], 'transportation_orders_org_carrier_status_idx');
+            $table->index(['organization_id', 'load_plan_id'], 'transportation_orders_org_load_plan_idx');
         });
 
-        Schema::create('tm_load_plan_items', function (Blueprint $table) {
+        Schema::create('load_plan_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('load_plan_id')->constrained('tm_load_plans')->cascadeOnDelete();
-            $table->foreignId('transportation_order_id')->constrained('tm_transportation_orders')->cascadeOnDelete();
+            $table->foreignId('load_plan_id')->constrained('load_plans')->cascadeOnDelete();
+            $table->foreignId('transportation_order_id')->constrained('transportation_orders')->cascadeOnDelete();
             $table->unsignedSmallInteger('loading_sequence')->default(0);
             $table->timestamps();
 
-            $table->unique(['load_plan_id', 'transportation_order_id'], 'tm_load_plan_items_plan_order_uniq');
+            $table->unique(['load_plan_id', 'transportation_order_id'], 'load_plan_items_plan_order_uniq');
         });
 
-        Schema::create('tm_transportation_order_items', function (Blueprint $table) {
+        Schema::create('transportation_order_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('transportation_order_id')->constrained('tm_transportation_orders')->cascadeOnDelete();
+            $table->foreignId('transportation_order_id')->constrained('transportation_orders')->cascadeOnDelete();
             $table->string('reference_type', 30)->nullable();
             // reference_type: sales_order|purchase_order|stock_transfer|shipment|other
             $table->unsignedBigInteger('reference_id')->nullable();
@@ -324,27 +324,27 @@ return new class extends Migration
             $table->string('un_number', 10)->nullable();
             $table->timestamps();
 
-            $table->index(['transportation_order_id'], 'tm_transportation_order_items_order_idx');
-            $table->index(['reference_type', 'reference_id'], 'tm_transportation_order_items_ref_idx');
+            $table->index(['transportation_order_id'], 'transportation_order_items_order_idx');
+            $table->index(['reference_type', 'reference_id'], 'transportation_order_items_ref_idx');
         });
 
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('tm_transportation_order_items');
-        Schema::dropIfExists('tm_load_plan_items');
-        Schema::dropIfExists('tm_transportation_orders');
-        Schema::dropIfExists('tm_load_plans');
-        Schema::dropIfExists('tm_freight_tender_items');
-        Schema::dropIfExists('tm_freight_tender_bids');
-        Schema::dropIfExists('tm_freight_tender_requests');
-        Schema::dropIfExists('tm_freight_surcharges');
-        Schema::dropIfExists('tm_freight_rate_lines');
-        Schema::dropIfExists('tm_freight_agreements');
-        Schema::dropIfExists('tm_freight_rate_tables');
-        Schema::dropIfExists('tm_carrier_services');
-        Schema::dropIfExists('tm_carrier_performance');
-        Schema::dropIfExists('tm_carriers');
+        Schema::dropIfExists('transportation_order_items');
+        Schema::dropIfExists('load_plan_items');
+        Schema::dropIfExists('transportation_orders');
+        Schema::dropIfExists('load_plans');
+        Schema::dropIfExists('freight_tender_items');
+        Schema::dropIfExists('freight_tender_bids');
+        Schema::dropIfExists('freight_tender_requests');
+        Schema::dropIfExists('freight_surcharges');
+        Schema::dropIfExists('freight_rate_lines');
+        Schema::dropIfExists('freight_agreements');
+        Schema::dropIfExists('freight_rate_tables');
+        Schema::dropIfExists('carrier_services');
+        Schema::dropIfExists('carrier_performance');
+        Schema::dropIfExists('carriers');
     }
 };

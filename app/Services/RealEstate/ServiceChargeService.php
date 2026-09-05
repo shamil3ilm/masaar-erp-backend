@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\RealEstate;
 
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\ServiceChargeAllocation;
 use App\Models\RealEstate\ServiceChargeSettlement;
 use App\Services\Core\NumberGeneratorService;
@@ -71,7 +71,7 @@ class ServiceChargeService
 
             $totalActualCosts = $costItems->sum('actual_cost');
 
-            $contracts = LeaseContract::where('organization_id', $settlement->organization_id)
+            $contracts = RentalContract::where('organization_id', $settlement->organization_id)
                 ->where('status', 'active')
                 ->whereHas('rentalUnit.building', fn ($q) => $q->where('property_id', $property->id))
                 ->with([

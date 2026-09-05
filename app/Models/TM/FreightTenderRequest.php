@@ -15,7 +15,7 @@ class FreightTenderRequest extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_freight_tender_requests';
+    protected $table = 'freight_tender_requests';
 
     protected $fillable = [
         'organization_id',

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ServiceChargeItem extends Model
 {
-    protected $table = 're_service_charge_items';
+    protected $table = 'service_charge_items';
 
     protected $fillable = [
         'settlement_id',

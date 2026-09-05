@@ -13,7 +13,7 @@ class FreightAgreement extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_freight_agreements';
+    protected $table = 'freight_agreements';
 
     protected $fillable = [
         'organization_id',

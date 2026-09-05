@@ -126,7 +126,7 @@ return new class extends Migration
                 ->references('id')->on('bills')->nullOnDelete();
         });
 
-        Schema::create('ic_purchase_order_links', function (Blueprint $table) {
+        Schema::create('intercompany_purchase_order_links', function (Blueprint $table) {
             $table->id();
 
             $table->unsignedBigInteger('intercompany_sales_order_id');
@@ -431,7 +431,7 @@ return new class extends Migration
         Schema::dropIfExists('exchange_orders');
         Schema::dropIfExists('sales_returns');
         Schema::dropIfExists('purchase_returns');
-        Schema::dropIfExists('ic_purchase_order_links');
+        Schema::dropIfExists('intercompany_purchase_order_links');
         Schema::dropIfExists('debit_notes');
         Schema::dropIfExists('credit_note_applications');
         Schema::dropIfExists('credit_notes');

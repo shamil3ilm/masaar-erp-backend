@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\IcReconciliationSession;
+use App\Models\Accounting\IntercompanyReconciliationSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -27,10 +27,10 @@ class IntercompanyReconciliationTest extends TestCase
 
     private static int $sessionCounter = 0;
 
-    private function makeSession(array $overrides = []): IcReconciliationSession
+    private function makeSession(array $overrides = []): IntercompanyReconciliationSession
     {
         self::$sessionCounter++;
-        return IcReconciliationSession::create(array_merge([
+        return IntercompanyReconciliationSession::create(array_merge([
             'organization_id' => $this->organization->id,
             'session_number'  => 'ICREC-' . str_pad((string) self::$sessionCounter, 6, '0', STR_PAD_LEFT),
             'fiscal_year'     => '2025',

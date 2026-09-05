@@ -14,7 +14,7 @@ class FreightRateTable extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_freight_rate_tables';
+    protected $table = 'freight_rate_tables';
 
     protected $fillable = [
         'organization_id',

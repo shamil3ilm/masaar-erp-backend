@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CarrierPerformance extends Model
 {
-    protected $table = 'tm_carrier_performance';
+    protected $table = 'carrier_performance';
 
     protected $fillable = [
         'organization_id',

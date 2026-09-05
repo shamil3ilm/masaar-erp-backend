@@ -10,7 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('re_occupancy_snapshots', function (Blueprint $table) {
+        Schema::create('occupancy_snapshots', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('organization_id');
             $table->string('snapshot_type');                        // building|property|portfolio
@@ -32,7 +32,7 @@ return new class extends Migration
             $table->index(['organization_id', 'snapshot_type', 'reference_id'], 're_occ_snap_org_type_ref_idx');
         });
 
-        Schema::create('re_portfolios', function (Blueprint $table) {
+        Schema::create('portfolios', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -46,11 +46,11 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'code'], 're_portfolios_org_code_uniq');
-            $table->index(['organization_id', 'is_active'], 're_portfolios_org_active_idx');
+            $table->unique(['organization_id', 'code'], 'portfolios_org_code_uniq');
+            $table->index(['organization_id', 'is_active'], 'portfolios_org_active_idx');
         });
 
-        Schema::create('re_posting_runs', function (Blueprint $table) {
+        Schema::create('posting_runs', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -70,15 +70,15 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'run_number'], 're_posting_runs_org_num_uniq');
-            $table->index(['organization_id', 'type', 'period_year', 'period_month'], 're_posting_runs_org_type_period_idx');
+            $table->unique(['organization_id', 'run_number'], 'posting_runs_org_num_uniq');
+            $table->index(['organization_id', 'type', 'period_year', 'period_month'], 'posting_runs_org_type_period_idx');
         });
 
-        Schema::create('re_properties', function (Blueprint $table) {
+        Schema::create('properties', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('portfolio_id')->constrained('re_portfolios')->cascadeOnDelete();
+            $table->foreignId('portfolio_id')->constrained('portfolios')->cascadeOnDelete();
             $table->string('code', 30);
             $table->string('name', 200);
             $table->string('type', 30)->default('commercial'); // commercial|residential|industrial|mixed
@@ -98,15 +98,15 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'code'], 're_properties_org_code_uniq');
-            $table->index(['organization_id', 'portfolio_id', 'status'], 're_properties_org_portfolio_status_idx');
+            $table->unique(['organization_id', 'code'], 'properties_org_code_uniq');
+            $table->index(['organization_id', 'portfolio_id', 'status'], 'properties_org_portfolio_status_idx');
         });
 
-        Schema::create('re_buildings', function (Blueprint $table) {
+        Schema::create('buildings', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('property_id')->constrained('re_properties')->cascadeOnDelete();
+            $table->foreignId('property_id')->constrained('properties')->cascadeOnDelete();
             $table->string('code', 30);
             $table->string('name', 200);
             $table->unsignedSmallInteger('floors_above_ground')->default(1);
@@ -119,28 +119,28 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'property_id', 'code'], 're_buildings_org_property_code_uniq');
-            $table->index(['organization_id', 'property_id'], 're_buildings_org_property_idx');
+            $table->unique(['organization_id', 'property_id', 'code'], 'buildings_org_property_code_uniq');
+            $table->index(['organization_id', 'property_id'], 'buildings_org_property_idx');
         });
 
-        Schema::create('re_floors', function (Blueprint $table) {
+        Schema::create('floors', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('building_id')->constrained('re_buildings')->cascadeOnDelete();
+            $table->foreignId('building_id')->constrained('buildings')->cascadeOnDelete();
             $table->smallInteger('floor_number'); // negative = basement
             $table->string('floor_label', 50)->nullable(); // "Ground Floor", "Mezzanine", "B1"
             $table->decimal('total_area_sqm', 14, 4)->default(0);
             $table->decimal('lettable_area_sqm', 14, 4)->default(0);
             $table->timestamps();
 
-            $table->unique(['building_id', 'floor_number'], 're_floors_building_num_uniq');
+            $table->unique(['building_id', 'floor_number'], 'floors_building_num_uniq');
         });
 
-        Schema::create('re_rental_units', function (Blueprint $table) {
+        Schema::create('rental_units', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('building_id')->constrained('re_buildings')->cascadeOnDelete();
-            $table->foreignId('floor_id')->nullable()->constrained('re_floors')->nullOnDelete();
+            $table->foreignId('building_id')->constrained('buildings')->cascadeOnDelete();
+            $table->foreignId('floor_id')->nullable()->constrained('floors')->nullOnDelete();
             $table->string('code', 50);
             $table->string('name', 200)->nullable();
             $table->string('unit_type', 30)->default('office');
@@ -157,19 +157,19 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'building_id', 'code'], 're_rental_units_org_building_code_uniq');
-            $table->index(['organization_id', 'status'], 're_rental_units_org_status_idx');
-            $table->index(['organization_id', 'building_id', 'status'], 're_rental_units_org_building_status_idx');
+            $table->unique(['organization_id', 'building_id', 'code'], 'rental_units_org_building_code_uniq');
+            $table->index(['organization_id', 'status'], 'rental_units_org_status_idx');
+            $table->index(['organization_id', 'building_id', 'status'], 'rental_units_org_building_status_idx');
         });
 
-        Schema::create('re_contracts', function (Blueprint $table) {
+        Schema::create('rental_contracts', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('contract_number', 50);
             $table->string('contract_type', 20)->default('lease_out');
             // contract_type: lease_out (we are landlord) | lease_in (we are tenant)
-            $table->foreignId('rental_unit_id')->constrained('re_rental_units')->cascadeOnDelete();
+            $table->foreignId('rental_unit_id')->constrained('rental_units')->cascadeOnDelete();
             // counterparty: tenant (lease_out) or landlord (lease_in) — flexible reference
             $table->string('counterparty_type', 30)->nullable(); // contact|vendor|other
             $table->unsignedBigInteger('counterparty_id')->nullable();
@@ -191,9 +191,9 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'contract_number'], 're_contracts_org_num_uniq');
-            $table->index(['organization_id', 'status', 'end_date'], 're_contracts_org_status_end_idx');
-            $table->index(['organization_id', 'rental_unit_id'], 're_contracts_org_unit_idx');
+            $table->unique(['organization_id', 'contract_number'], 'rental_contracts_org_num_uniq');
+            $table->index(['organization_id', 'status', 'end_date'], 'rental_contracts_org_status_end_idx');
+            $table->index(['organization_id', 'rental_unit_id'], 'rental_contracts_org_unit_idx');
 
             // Only lessee contracts (contract_type = 'lease_in') use IFRS 16.
             $table->decimal('ibr_percent', 8, 4)->nullable()
@@ -207,9 +207,9 @@ return new class extends Migration
             $table->boolean('ifrs16_applied')->default(false);
         });
 
-        Schema::create('re_contract_conditions', function (Blueprint $table) {
+        Schema::create('contract_conditions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('contract_id')->constrained('re_contracts')->cascadeOnDelete();
+            $table->foreignId('contract_id')->constrained('rental_contracts')->cascadeOnDelete();
             $table->string('condition_type', 30)->default('base_rent');
             // condition_type: base_rent|service_charge|deposit|parking|storage|other
             $table->string('description', 200)->nullable();
@@ -229,13 +229,13 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->index(['contract_id', 'condition_type', 'is_active'], 're_contract_conditions_contract_type_active_idx');
-            $table->index(['next_escalation_date', 'is_active'], 're_contract_conditions_escalation_due_idx');
+            $table->index(['contract_id', 'condition_type', 'is_active'], 'contract_conditions_contract_type_active_idx');
+            $table->index(['next_escalation_date', 'is_active'], 'contract_conditions_escalation_due_idx');
         });
 
-        Schema::create('re_contract_options', function (Blueprint $table) {
+        Schema::create('contract_options', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('contract_id')->constrained('re_contracts')->cascadeOnDelete();
+            $table->foreignId('contract_id')->constrained('rental_contracts')->cascadeOnDelete();
             $table->string('option_type', 30)->default('renewal');
             // option_type: renewal|break|purchase|expansion|contraction
             $table->date('exercise_window_start')->nullable();
@@ -249,11 +249,11 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->index(['contract_id', 'status'], 're_contract_options_contract_status_idx');
-            $table->index(['exercise_deadline', 'status'], 're_contract_options_deadline_status_idx');
+            $table->index(['contract_id', 'status'], 'contract_options_contract_status_idx');
+            $table->index(['exercise_deadline', 'status'], 'contract_options_deadline_status_idx');
         });
 
-        Schema::create('re_ifrs16_schedules', function (Blueprint $table) {
+        Schema::create('ifrs16_schedules', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('contract_id');
             $table->date('period_date')->comment('First day of the accounting period');
@@ -267,16 +267,16 @@ return new class extends Migration
             $table->boolean('gl_posted')->default(false);
             $table->timestamps();
 
-            $table->foreign('contract_id')->references('id')->on('re_contracts')->cascadeOnDelete();
+            $table->foreign('contract_id')->references('id')->on('rental_contracts')->cascadeOnDelete();
             $table->unique(['contract_id', 'period_date']);
             $table->index(['contract_id', 'gl_posted']);
         });
 
-        Schema::create('re_posting_run_items', function (Blueprint $table) {
+        Schema::create('posting_run_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('posting_run_id')->constrained('re_posting_runs')->cascadeOnDelete();
-            $table->foreignId('contract_id')->constrained('re_contracts')->cascadeOnDelete();
-            $table->foreignId('condition_id')->constrained('re_contract_conditions')->cascadeOnDelete();
+            $table->foreignId('posting_run_id')->constrained('posting_runs')->cascadeOnDelete();
+            $table->foreignId('contract_id')->constrained('rental_contracts')->cascadeOnDelete();
+            $table->foreignId('condition_id')->constrained('contract_conditions')->cascadeOnDelete();
             $table->string('condition_type', 30);
             $table->decimal('amount', 18, 4);
             $table->decimal('tax_amount', 18, 4)->default(0);
@@ -285,15 +285,15 @@ return new class extends Migration
             $table->string('error_message', 500)->nullable();
             $table->timestamps();
 
-            $table->index(['posting_run_id', 'status'], 're_posting_run_items_run_status_idx');
-            $table->index(['contract_id'], 're_posting_run_items_contract_idx');
+            $table->index(['posting_run_id', 'status'], 'posting_run_items_run_status_idx');
+            $table->index(['contract_id'], 'posting_run_items_contract_idx');
         });
 
-        Schema::create('re_security_deposits', function (Blueprint $table) {
+        Schema::create('security_deposits', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('contract_id')->constrained('re_contracts')->cascadeOnDelete();
+            $table->foreignId('contract_id')->constrained('rental_contracts')->cascadeOnDelete();
             $table->string('deposit_number', 50);
             $table->decimal('required_amount', 18, 4);
             $table->decimal('collected_amount', 18, 4)->default(0);
@@ -308,16 +308,16 @@ return new class extends Migration
             $table->text('refund_reason')->nullable();
             $table->timestamps();
 
-            $table->unique(['organization_id', 'deposit_number'], 're_security_deposits_org_num_uniq');
-            $table->index(['organization_id', 'contract_id'], 're_security_deposits_org_contract_idx');
+            $table->unique(['organization_id', 'deposit_number'], 'security_deposits_org_num_uniq');
+            $table->index(['organization_id', 'contract_id'], 'security_deposits_org_contract_idx');
         });
 
-        Schema::create('re_service_charge_settlements', function (Blueprint $table) {
+        Schema::create('service_charge_settlements', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('settlement_number', 50);
-            $table->foreignId('property_id')->constrained('re_properties')->cascadeOnDelete();
+            $table->foreignId('property_id')->constrained('properties')->cascadeOnDelete();
             $table->integer('settlement_year');
             $table->string('status', 20)->default('draft');
             // status: draft|calculated|approved|invoiced|closed
@@ -332,14 +332,14 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique(['organization_id', 'settlement_number'], 're_service_charge_settlements_org_num_uniq');
-            $table->index(['organization_id', 'property_id', 'settlement_year'], 're_service_charge_settlements_org_property_year_idx');
+            $table->unique(['organization_id', 'settlement_number'], 'service_charge_settlements_org_num_uniq');
+            $table->index(['organization_id', 'property_id', 'settlement_year'], 'service_charge_settlements_org_property_year_idx');
         });
 
-        Schema::create('re_service_charge_allocations', function (Blueprint $table) {
+        Schema::create('service_charge_allocations', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('settlement_id')->constrained('re_service_charge_settlements')->cascadeOnDelete();
-            $table->foreignId('contract_id')->constrained('re_contracts')->cascadeOnDelete();
+            $table->foreignId('settlement_id')->constrained('service_charge_settlements')->cascadeOnDelete();
+            $table->foreignId('contract_id')->constrained('rental_contracts')->cascadeOnDelete();
             $table->decimal('unit_area_sqm', 14, 4)->default(0);
             $table->decimal('allocation_pct', 8, 4)->default(0);
             $table->decimal('actual_amount', 18, 4)->default(0); // tenant's share of actual costs
@@ -347,12 +347,12 @@ return new class extends Migration
             $table->decimal('adjustment_amount', 18, 4)->default(0); // positive = additional charge, negative = refund
             $table->timestamps();
 
-            $table->unique(['settlement_id', 'contract_id'], 're_service_charge_allocations_settlement_contract_uniq');
+            $table->unique(['settlement_id', 'contract_id'], 'service_charge_allocations_settlement_contract_uniq');
         });
 
-        Schema::create('re_service_charge_items', function (Blueprint $table) {
+        Schema::create('service_charge_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('settlement_id')->constrained('re_service_charge_settlements')->cascadeOnDelete();
+            $table->foreignId('settlement_id')->constrained('service_charge_settlements')->cascadeOnDelete();
             $table->string('cost_category', 100); // electricity|water|cleaning|security|maintenance|insurance|etc
             $table->decimal('actual_cost', 18, 4)->default(0);
             $table->decimal('lettable_area_sqm', 14, 4)->default(0); // total apportionable area
@@ -362,10 +362,10 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->timestamps();
 
-            $table->index(['settlement_id'], 're_service_charge_items_settlement_idx');
+            $table->index(['settlement_id'], 'service_charge_items_settlement_idx');
         });
 
-        Schema::create('re_vacancy_periods', function (Blueprint $table) {
+        Schema::create('vacancy_periods', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -391,22 +391,22 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('re_vacancy_periods');
-        Schema::dropIfExists('re_service_charge_items');
-        Schema::dropIfExists('re_service_charge_allocations');
-        Schema::dropIfExists('re_service_charge_settlements');
-        Schema::dropIfExists('re_security_deposits');
-        Schema::dropIfExists('re_posting_run_items');
-        Schema::dropIfExists('re_ifrs16_schedules');
-        Schema::dropIfExists('re_contract_options');
-        Schema::dropIfExists('re_contract_conditions');
-        Schema::dropIfExists('re_contracts');
-        Schema::dropIfExists('re_rental_units');
-        Schema::dropIfExists('re_floors');
-        Schema::dropIfExists('re_buildings');
-        Schema::dropIfExists('re_properties');
-        Schema::dropIfExists('re_posting_runs');
-        Schema::dropIfExists('re_portfolios');
-        Schema::dropIfExists('re_occupancy_snapshots');
+        Schema::dropIfExists('vacancy_periods');
+        Schema::dropIfExists('service_charge_items');
+        Schema::dropIfExists('service_charge_allocations');
+        Schema::dropIfExists('service_charge_settlements');
+        Schema::dropIfExists('security_deposits');
+        Schema::dropIfExists('posting_run_items');
+        Schema::dropIfExists('ifrs16_schedules');
+        Schema::dropIfExists('contract_options');
+        Schema::dropIfExists('contract_conditions');
+        Schema::dropIfExists('rental_contracts');
+        Schema::dropIfExists('rental_units');
+        Schema::dropIfExists('floors');
+        Schema::dropIfExists('buildings');
+        Schema::dropIfExists('properties');
+        Schema::dropIfExists('posting_runs');
+        Schema::dropIfExists('portfolios');
+        Schema::dropIfExists('occupancy_snapshots');
     }
 };

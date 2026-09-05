@@ -9,12 +9,12 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class IcReconciliationSession extends Model
+class IntercompanyReconciliationSession extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
 
-    protected $table = 'ic_reconciliation_sessions';
+    protected $table = 'intercompany_reconciliation_sessions';
 
     protected $guarded = ['id'];
 
@@ -33,11 +33,11 @@ class IcReconciliationSession extends Model
 
     public function items(): HasMany
     {
-        return $this->hasMany(IcReconciliationItem::class, 'session_id');
+        return $this->hasMany(IntercompanyReconciliationItem::class, 'session_id');
     }
 
     public function matches(): HasMany
     {
-        return $this->hasMany(IcReconciliationMatch::class, 'session_id');
+        return $this->hasMany(IntercompanyReconciliationMatch::class, 'session_id');
     }
 }

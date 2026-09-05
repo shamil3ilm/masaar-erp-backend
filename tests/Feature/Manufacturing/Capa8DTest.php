@@ -44,7 +44,7 @@ class Capa8DTest extends TestCase
         );
 
         $response->assertCreated()->assertJsonPath('success', true);
-        $this->assertDatabaseHas('qm_capa_8d', [
+        $this->assertDatabaseHas('capa_8d', [
             'organization_id' => $this->organization->id,
         ]);
     }
@@ -94,7 +94,7 @@ class Capa8DTest extends TestCase
         );
 
         $response->assertOk()->assertJsonPath('success', true);
-        $this->assertDatabaseHas('qm_capa_8d', [
+        $this->assertDatabaseHas('capa_8d', [
             'id'                    => $record->id,
             'd0_emergency_response' => 'Quarantine affected batch',
         ]);
@@ -116,7 +116,7 @@ class Capa8DTest extends TestCase
         );
 
         $response->assertOk()->assertJsonPath('success', true);
-        $this->assertDatabaseHas('qm_capa_8d', [
+        $this->assertDatabaseHas('capa_8d', [
             'id'     => $record->id,
             'status' => CapaEightD::STATUS_D8_CLOSED,
         ]);

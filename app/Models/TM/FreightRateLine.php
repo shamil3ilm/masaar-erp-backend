@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class FreightRateLine extends Model
 {
-    protected $table = 'tm_freight_rate_lines';
+    protected $table = 'freight_rate_lines';
 
     protected $fillable = [
         'rate_table_id',

@@ -9,7 +9,7 @@ use App\Models\Purchase\PurchaseOrder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class IcPurchaseOrderLink extends Model
+class IntercompanyPurchaseOrderLink extends Model
 {
     protected $fillable = [
         'intercompany_sales_order_id',

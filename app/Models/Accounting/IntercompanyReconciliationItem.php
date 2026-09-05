@@ -9,12 +9,12 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class IcReconciliationItem extends Model
+class IntercompanyReconciliationItem extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
 
-    protected $table = 'ic_reconciliation_items';
+    protected $table = 'intercompany_reconciliation_items';
 
     protected $guarded = ['id'];
 
@@ -28,11 +28,11 @@ class IcReconciliationItem extends Model
 
     public function session(): BelongsTo
     {
-        return $this->belongsTo(IcReconciliationSession::class, 'session_id');
+        return $this->belongsTo(IntercompanyReconciliationSession::class, 'session_id');
     }
 
     public function match(): BelongsTo
     {
-        return $this->belongsTo(IcReconciliationMatch::class, 'match_id');
+        return $this->belongsTo(IntercompanyReconciliationMatch::class, 'match_id');
     }
 }

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContractOption extends Model
 {
-    protected $table = 're_contract_options';
+    protected $table = 'contract_options';
 
     protected $fillable = [
         'contract_id',
@@ -35,7 +35,7 @@ class ContractOption extends Model
 
     public function contract(): BelongsTo
     {
-        return $this->belongsTo(LeaseContract::class, 'contract_id');
+        return $this->belongsTo(RentalContract::class, 'contract_id');
     }
 
     public function isExercisable(): bool

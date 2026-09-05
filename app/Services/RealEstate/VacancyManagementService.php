@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\RealEstate;
 
 use App\Models\RealEstate\Building;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\OccupancySnapshot;
 use App\Models\RealEstate\Portfolio;
 use App\Models\RealEstate\RentalUnit;
@@ -85,7 +85,7 @@ class VacancyManagementService
         $occupancyRate = $units->count() > 0 ? round($occupied->count() / $units->count() * 100, 2) : 0.0;
         $areaRate      = $totalArea > 0 ? round($occupiedArea / $totalArea * 100, 2) : 0.0;
 
-        $potentialRent = (float) LeaseContract::whereIn('rental_unit_id', $units->pluck('id'))
+        $potentialRent = (float) RentalContract::whereIn('rental_unit_id', $units->pluck('id'))
             ->where('status', 'active')
             ->orWhere(function ($q) use ($units) {
                 $q->whereIn('rental_unit_id', $units->pluck('id'));

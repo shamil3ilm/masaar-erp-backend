@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\IcReconciliationItem;
-use App\Models\Accounting\IcReconciliationMatch;
-use App\Models\Accounting\IcReconciliationSession;
+use App\Models\Accounting\IntercompanyReconciliationItem;
+use App\Models\Accounting\IntercompanyReconciliationMatch;
+use App\Models\Accounting\IntercompanyReconciliationSession;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -37,11 +37,11 @@ class IntercompanyReconciliationService
         string $fiscalYear,
         int $period,
         int $runByUserId,
-    ): IcReconciliationSession {
+    ): IntercompanyReconciliationSession {
         $sessionNumber = 'ICR-' . $fiscalYear . '-' . str_pad((string) $period, 2, '0', STR_PAD_LEFT)
             . '-' . strtoupper(substr(uniqid(), -4));
 
-        return IcReconciliationSession::create([
+        return IntercompanyReconciliationSession::create([
             'organization_id' => $organizationId,
             'session_number'  => $sessionNumber,
             'fiscal_year'     => $fiscalYear,
@@ -58,11 +58,11 @@ class IntercompanyReconciliationService
      *                          amount: float, currency: string, transaction_date: string,
      *                          item_type: string, counterparty_organization_id?: int}>  $items
      */
-    public function loadItems(IcReconciliationSession $session, array $items): void
+    public function loadItems(IntercompanyReconciliationSession $session, array $items): void
     {
         DB::transaction(function () use ($session, $items): void {
             foreach ($items as $item) {
-                IcReconciliationItem::create([
+                IntercompanyReconciliationItem::create([
                     'session_id'                     => $session->id,
                     'organization_id'                => $session->organization_id,
                     'source_type'                    => $item['source_type'],
@@ -93,7 +93,7 @@ class IntercompanyReconciliationService
      *
      * @return array{matched: int, unmatched: int}
      */
-    public function autoMatch(IcReconciliationSession $session): array
+    public function autoMatch(IntercompanyReconciliationSession $session): array
     {
         $receivables = $session->items()
             ->where('item_type', 'receivable')
@@ -110,7 +110,7 @@ class IntercompanyReconciliationService
 
         DB::transaction(function () use ($receivables, $payables, $session, &$matched): void {
             foreach ($payables as $payable) {
-                /** @var IcReconciliationItem|null $receivable */
+                /** @var IntercompanyReconciliationItem|null $receivable */
                 $receivable = $receivables->get($payable->reference_number);
 
                 if (! $receivable || $receivable->currency !== $payable->currency) {
@@ -123,7 +123,7 @@ class IntercompanyReconciliationService
 
                 $difference = (float) $payable->amount - (float) $receivable->amount;
 
-                $match = IcReconciliationMatch::create([
+                $match = IntercompanyReconciliationMatch::create([
                     'session_id'        => $session->id,
                     'receivable_item_id' => $receivable->id,
                     'payable_item_id'   => $payable->id,
@@ -157,15 +157,15 @@ class IntercompanyReconciliationService
      * Manually match two specific items.
      */
     public function manualMatch(
-        IcReconciliationSession $session,
-        IcReconciliationItem $receivable,
-        IcReconciliationItem $payable,
+        IntercompanyReconciliationSession $session,
+        IntercompanyReconciliationItem $receivable,
+        IntercompanyReconciliationItem $payable,
         ?string $notes = null,
-    ): IcReconciliationMatch {
-        return DB::transaction(function () use ($session, $receivable, $payable, $notes): IcReconciliationMatch {
+    ): IntercompanyReconciliationMatch {
+        return DB::transaction(function () use ($session, $receivable, $payable, $notes): IntercompanyReconciliationMatch {
             $difference = (float) $payable->amount - (float) $receivable->amount;
 
-            $match = IcReconciliationMatch::create([
+            $match = IntercompanyReconciliationMatch::create([
                 'session_id'         => $session->id,
                 'receivable_item_id' => $receivable->id,
                 'payable_item_id'    => $payable->id,
@@ -190,7 +190,7 @@ class IntercompanyReconciliationService
     /**
      * Close the session — no further changes allowed.
      */
-    public function closeSession(IcReconciliationSession $session): IcReconciliationSession
+    public function closeSession(IntercompanyReconciliationSession $session): IntercompanyReconciliationSession
     {
         $this->refreshSessionSummary($session);
 
@@ -204,7 +204,7 @@ class IntercompanyReconciliationService
 
     // ----------------------------------------------------------------
 
-    private function refreshSessionSummary(IcReconciliationSession $session): void
+    private function refreshSessionSummary(IntercompanyReconciliationSession $session): void
     {
         $matchedCount   = $session->items()->where('match_status', 'matched')->count();
         $unmatchedCount = $session->items()->where('match_status', 'unmatched')->count();

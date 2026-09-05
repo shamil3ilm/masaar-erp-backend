@@ -13,7 +13,7 @@ class Portfolio extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_portfolios';
+    protected $table = 'portfolios';
 
     protected $fillable = [
         'organization_id',

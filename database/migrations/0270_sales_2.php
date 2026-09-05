@@ -346,7 +346,7 @@ return new class extends Migration
             $table->unique(['selling_organization_id', 'order_number'], 'icso_org_order_number_unq');
         });
 
-        Schema::create('ic_billing_documents', function (Blueprint $table) {
+        Schema::create('intercompany_billing_documents', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
 
@@ -979,7 +979,7 @@ return new class extends Migration
         Schema::dropIfExists('commission_calculations');
         Schema::dropIfExists('cash_sales');
         Schema::dropIfExists('invoices');
-        Schema::dropIfExists('ic_billing_documents');
+        Schema::dropIfExists('intercompany_billing_documents');
         Schema::dropIfExists('intercompany_sales_orders');
         Schema::dropIfExists('delivery_documents');
         Schema::dropIfExists('sales_orders');

@@ -12,7 +12,7 @@ class FreightSurcharge extends Model
 {
     use HasUuid;
 
-    protected $table = 'tm_freight_surcharges';
+    protected $table = 'freight_surcharges';
 
     protected $fillable = [
         'organization_id',

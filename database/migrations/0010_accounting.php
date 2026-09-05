@@ -198,12 +198,12 @@ return new class extends Migration
             $table->foreign('fx_forward_id')->references('id')->on('fx_forwards')->cascadeOnDelete();
         });
 
-        Schema::create('ic_reconciliation_matches', function (Blueprint $table) {
+        Schema::create('intercompany_reconciliation_matches', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('session_id');
-            $table->unsignedBigInteger('receivable_item_id');  // -> ic_reconciliation_items
-            $table->unsignedBigInteger('payable_item_id');     // -> ic_reconciliation_items
+            $table->unsignedBigInteger('receivable_item_id');  // -> intercompany_reconciliation_items
+            $table->unsignedBigInteger('payable_item_id');     // -> intercompany_reconciliation_items
             $table->decimal('receivable_amount', 18, 4);
             $table->decimal('payable_amount', 18, 4);
             $table->decimal('difference', 18, 4)->default(0);  // payable - receivable
@@ -216,7 +216,7 @@ return new class extends Migration
             $table->index(['session_id', 'status']);
         });
 
-        Schema::create('ic_reconciliation_sessions', function (Blueprint $table) {
+        Schema::create('intercompany_reconciliation_sessions', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');   // initiating org
@@ -236,7 +236,7 @@ return new class extends Migration
             $table->index(['organization_id', 'fiscal_year', 'period'], 'ic_recon_sessions_org_fy_period_idx');
         });
 
-        Schema::create('ic_reconciliation_items', function (Blueprint $table) {
+        Schema::create('intercompany_reconciliation_items', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('session_id');
@@ -256,13 +256,13 @@ return new class extends Migration
 
             $table->enum('item_type', ['payable', 'receivable']);
             $table->enum('match_status', ['unmatched', 'matched', 'disputed', 'excluded'])->default('unmatched');
-            $table->unsignedBigInteger('match_id')->nullable();  // -> ic_reconciliation_matches
+            $table->unsignedBigInteger('match_id')->nullable();  // -> intercompany_reconciliation_matches
 
             $table->timestamps();
 
             $table->index(['session_id', 'match_status']);
             $table->index(['organization_id', 'reference_number']);
-            $table->foreign('session_id')->references('id')->on('ic_reconciliation_sessions')->cascadeOnDelete();
+            $table->foreign('session_id')->references('id')->on('intercompany_reconciliation_sessions')->cascadeOnDelete();
         });
 
         Schema::create('material_ledger_closing_entries', function (Blueprint $table) {
@@ -428,9 +428,9 @@ return new class extends Migration
         Schema::dropIfExists('material_ledger_price_differences');
         Schema::dropIfExists('material_ledger_documents');
         Schema::dropIfExists('material_ledger_closing_entries');
-        Schema::dropIfExists('ic_reconciliation_items');
-        Schema::dropIfExists('ic_reconciliation_sessions');
-        Schema::dropIfExists('ic_reconciliation_matches');
+        Schema::dropIfExists('intercompany_reconciliation_items');
+        Schema::dropIfExists('intercompany_reconciliation_sessions');
+        Schema::dropIfExists('intercompany_reconciliation_matches');
         Schema::dropIfExists('fx_valuations');
         Schema::dropIfExists('fx_hedge_relations');
         Schema::dropIfExists('fx_forwards');

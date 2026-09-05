@@ -12,7 +12,7 @@ class FreightTenderBid extends Model
 {
     use HasUuid;
 
-    protected $table = 'tm_freight_tender_bids';
+    protected $table = 'freight_tender_bids';
 
     protected $fillable = [
         'tender_request_id',

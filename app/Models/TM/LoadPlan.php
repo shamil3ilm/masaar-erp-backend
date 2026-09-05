@@ -15,7 +15,7 @@ class LoadPlan extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 'tm_load_plans';
+    protected $table = 'load_plans';
 
     protected $fillable = [
         'organization_id',

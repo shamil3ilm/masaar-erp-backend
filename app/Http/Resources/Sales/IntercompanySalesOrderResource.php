@@ -57,7 +57,7 @@ class IntercompanySalesOrderResource extends JsonResource
             ]),
 
             'billing_documents' => $this->whenLoaded('billingDocuments', fn () =>
-                IcBillingDocumentResource::collection($this->billingDocuments)
+                IntercompanyBillingDocumentResource::collection($this->billingDocuments)
             ),
         ];
     }

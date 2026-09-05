@@ -49,7 +49,7 @@ class DynamicModificationTest extends TestCase
         );
 
         $response->assertCreated()->assertJsonPath('success', true);
-        $this->assertDatabaseHas('qm_dynamic_modification_rules', [
+        $this->assertDatabaseHas('dynamic_modification_rules', [
             'rule_code'       => 'DMR-001',
             'organization_id' => $this->organization->id,
         ]);

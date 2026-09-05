@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Journeys;
 
 use App\Models\Core\OrganizationModule;
-use App\Models\RealEstate\LeaseContract;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\Portfolio;
 use App\Models\RealEstate\Property;
 use App\Models\RealEstate\Building;
@@ -68,7 +68,7 @@ class RealEstateJourneyTest extends TestCase
         $portfolioId = $portfolioResponse->json('data.id');
         $this->assertNotNull($portfolioId);
 
-        $this->assertDatabaseHas('re_portfolios', [
+        $this->assertDatabaseHas('portfolios', [
             'id'              => $portfolioId,
             'organization_id' => $this->organization->id,
             'type'            => 'commercial',
@@ -89,7 +89,7 @@ class RealEstateJourneyTest extends TestCase
         $propertyResponse->assertStatus(201);
         $propertyId = $propertyResponse->json('data.id');
 
-        $this->assertDatabaseHas('re_properties', [
+        $this->assertDatabaseHas('properties', [
             'id'           => $propertyId,
             'portfolio_id' => $portfolioId,
         ]);
@@ -108,7 +108,7 @@ class RealEstateJourneyTest extends TestCase
         $buildingResponse->assertStatus(201);
         $buildingId = $buildingResponse->json('data.id');
 
-        $this->assertDatabaseHas('re_buildings', ['id' => $buildingId]);
+        $this->assertDatabaseHas('buildings', ['id' => $buildingId]);
 
         // Floor
         $floorResponse = $this->apiPost("/real-estate/buildings/{$buildingId}/floors", [
@@ -120,7 +120,7 @@ class RealEstateJourneyTest extends TestCase
         $floorResponse->assertStatus(201);
         $floorId = $floorResponse->json('data.id');
 
-        $this->assertDatabaseHas('re_floors', ['id' => $floorId, 'building_id' => $buildingId]);
+        $this->assertDatabaseHas('floors', ['id' => $floorId, 'building_id' => $buildingId]);
 
         // Rental Unit
         $unitResponse = $this->apiPost("/real-estate/buildings/{$buildingId}/units", [
@@ -134,7 +134,7 @@ class RealEstateJourneyTest extends TestCase
         $unitResponse->assertStatus(201);
         $unitId = $unitResponse->json('data.id');
 
-        $this->assertDatabaseHas('re_rental_units', [
+        $this->assertDatabaseHas('rental_units', [
             'id'          => $unitId,
             'building_id' => $buildingId,
             'floor_id'    => $floorId,
@@ -177,14 +177,14 @@ class RealEstateJourneyTest extends TestCase
         $contractId = $contractResponse->json('data.id');
         $this->assertNotNull($contractId);
 
-        $this->assertDatabaseHas('re_contracts', [
+        $this->assertDatabaseHas('rental_contracts', [
             'id'              => $contractId,
             'organization_id' => $this->organization->id,
             'contract_type'   => 'lease_out',
         ]);
 
         // Verify initial status is draft
-        $contract = LeaseContract::find($contractId);
+        $contract = RentalContract::find($contractId);
         $this->assertContains($contract->status, ['draft', 'pending', 'active'],
             "Contract must be in a valid initial state"
         );
@@ -195,7 +195,7 @@ class RealEstateJourneyTest extends TestCase
 
         $contract->refresh();
         $this->assertEquals('active', $contract->status);
-        $this->assertDatabaseHas('re_contracts', [
+        $this->assertDatabaseHas('rental_contracts', [
             'id'     => $contractId,
             'status' => 'active',
         ]);

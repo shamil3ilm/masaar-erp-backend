@@ -14,7 +14,7 @@ class Building extends Model
 {
     use HasUuid, SoftDeletes;
 
-    protected $table = 're_buildings';
+    protected $table = 'buildings';
 
     protected $fillable = [
         'organization_id',
