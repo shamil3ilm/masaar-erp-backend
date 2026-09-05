@@ -34,11 +34,22 @@ Route::middleware(['auth:api'])->group(function (): void {
 // do NOT require JWT — the portal uses its own session token mechanism.
 // -------------------------------------------------------------------------
 Route::prefix('portal')->name('portal.')->group(function (): void {
-    // Public
-    Route::post('/register', [CustomerPortalController::class, 'register'])->name('register');
-    Route::post('/login', [CustomerPortalController::class, 'login'])->name('login');
-    Route::post('/forgot-password', [CustomerPortalController::class, 'forgotPassword'])->name('forgot-password');
-    Route::post('/reset-password', [CustomerPortalController::class, 'resetPassword'])->name('reset-password');
+    // Public, and rate limited because they are.
+    //
+    // Unthrottled, login is a credential brute force, forgot-password tells an
+    // attacker which addresses are customers, and its organization_id rule -
+    // exists:organizations,id - answers the same question about organizations.
+    // These four are the only portal endpoints reachable without a token, so
+    // they are the only ones where the limit does the work.
+    Route::middleware('throttle:5,1')->group(function (): void {
+        Route::post('/register', [CustomerPortalController::class, 'register'])->name('register');
+        Route::post('/login', [CustomerPortalController::class, 'login'])->name('login');
+        Route::post('/reset-password', [CustomerPortalController::class, 'resetPassword'])->name('reset-password');
+    });
+
+    Route::post('/forgot-password', [CustomerPortalController::class, 'forgotPassword'])
+        ->middleware('throttle:3,1')
+        ->name('forgot-password');
 
     // Portal-token-authenticated (bearer token is the portal session token)
     Route::group([], function (): void {
