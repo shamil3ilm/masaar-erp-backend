@@ -23,7 +23,7 @@ class Tds194QTest extends TestCase
         $this->service = app(Tds194QService::class);
 
         // Run the migration that seeds 194Q section
-        $this->artisan('migrate', ['--path' => 'database/migrations/2026_04_13_000010_add_194q_to_tds_sections.php']);
+        $this->artisan('migrate', ['--path' => 'database/migrations/0490_reference_data.php']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
