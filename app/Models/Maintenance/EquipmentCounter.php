@@ -30,7 +30,7 @@ class EquipmentCounter extends Model
 
     public function equipment(): BelongsTo
     {
-        return $this->belongsTo(FlocEquipment::class, 'equipment_id');
+        return $this->belongsTo(LocationEquipment::class, 'equipment_id');
     }
 
     public function functionalLocation(): BelongsTo

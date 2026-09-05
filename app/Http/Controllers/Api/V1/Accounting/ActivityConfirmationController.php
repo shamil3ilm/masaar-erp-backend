@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CoActivityConfirmation;
+use App\Models\Accounting\ActivityConfirmation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +21,7 @@ class ActivityConfirmationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CoActivityConfirmation::with([
+        $query = ActivityConfirmation::with([
             'costCenter:id,code,name',
             'activityType:id,code,name',
             'workOrder:id,order_number',
@@ -67,14 +67,14 @@ class ActivityConfirmationController extends Controller
         $data['organization_id']     = $this->organizationId($request);
         $data['confirmation_number'] = 'CONF-' . strtoupper(Str::random(8));
         $data['confirmed_by']        = $request->user()->id;
-        $data['status']              = CoActivityConfirmation::STATUS_CONFIRMED;
+        $data['status']              = ActivityConfirmation::STATUS_CONFIRMED;
 
         // Derive actual_cost = confirmed_quantity * actual_rate
         if (isset($data['actual_rate'])) {
             $data['actual_cost'] = round((float) $data['confirmed_quantity'] * (float) $data['actual_rate'], 4);
         }
 
-        $confirmation = CoActivityConfirmation::create($data);
+        $confirmation = ActivityConfirmation::create($data);
 
         return $this->created(
             $confirmation->load(['costCenter:id,code,name', 'activityType:id,code,name']),
@@ -87,7 +87,7 @@ class ActivityConfirmationController extends Controller
      *
      * GET /controlling/activity-confirmations/{confirmation}
      */
-    public function show(CoActivityConfirmation $activityConfirmation): JsonResponse
+    public function show(ActivityConfirmation $activityConfirmation): JsonResponse
     {
         $activityConfirmation->load([
             'costCenter:id,code,name',
@@ -107,14 +107,14 @@ class ActivityConfirmationController extends Controller
      *
      * POST /controlling/activity-confirmations/{confirmation}/reverse
      */
-    public function reverse(Request $request, CoActivityConfirmation $activityConfirmation): JsonResponse
+    public function reverse(Request $request, ActivityConfirmation $activityConfirmation): JsonResponse
     {
         if (! $activityConfirmation->isConfirmed()) {
             return $this->error('Only confirmed records can be reversed.', 'ALREADY_REVERSED', 422);
         }
 
-        $reversal = DB::transaction(function () use ($activityConfirmation, $request): CoActivityConfirmation {
-            $reversal = CoActivityConfirmation::create([
+        $reversal = DB::transaction(function () use ($activityConfirmation, $request): ActivityConfirmation {
+            $reversal = ActivityConfirmation::create([
                 'organization_id'     => $activityConfirmation->organization_id,
                 'confirmation_number' => 'REV-' . strtoupper(Str::random(8)),
                 'work_order_id'       => $activityConfirmation->work_order_id,
@@ -135,13 +135,13 @@ class ActivityConfirmationController extends Controller
                 'period'              => $activityConfirmation->period,
                 'confirmation_date'   => now()->toDateString(),
                 'confirmed_by'        => $request->user()->id,
-                'status'              => CoActivityConfirmation::STATUS_CONFIRMED,
+                'status'              => ActivityConfirmation::STATUS_CONFIRMED,
                 'reversal_id'         => $activityConfirmation->id,
                 'notes'               => 'Reversal of ' . $activityConfirmation->confirmation_number,
             ]);
 
             $activityConfirmation->update([
-                'status'     => CoActivityConfirmation::STATUS_REVERSED,
+                'status'     => ActivityConfirmation::STATUS_REVERSED,
                 'reversal_id' => $reversal->id,
             ]);
 

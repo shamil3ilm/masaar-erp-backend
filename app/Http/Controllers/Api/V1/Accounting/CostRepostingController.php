@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CoReposting;
-use App\Services\Accounting\CoRepostingService;
+use App\Models\Accounting\CostReposting;
+use App\Services\Accounting\CostRepostingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-class CoRepostingController extends Controller
+class CostRepostingController extends Controller
 {
     public function __construct(
-        private readonly CoRepostingService $service
+        private readonly CostRepostingService $service
     ) {}
 
     /**
@@ -47,15 +47,15 @@ class CoRepostingController extends Controller
             'period'          => ['required', 'integer', 'min:1', 'max:12'],
             'fiscal_year'     => ['required', 'integer', 'min:2000', 'max:2100'],
             'from_type'       => ['required', Rule::in([
-                CoReposting::FROM_COST_CENTER,
-                CoReposting::FROM_INTERNAL_ORDER,
-                CoReposting::FROM_PROFIT_CENTER,
+                CostReposting::FROM_COST_CENTER,
+                CostReposting::FROM_INTERNAL_ORDER,
+                CostReposting::FROM_PROFIT_CENTER,
             ])],
             'from_id'         => ['required', 'integer', 'min:1'],
             'to_type'         => ['required', Rule::in([
-                CoReposting::FROM_COST_CENTER,
-                CoReposting::FROM_INTERNAL_ORDER,
-                CoReposting::FROM_PROFIT_CENTER,
+                CostReposting::FROM_COST_CENTER,
+                CostReposting::FROM_INTERNAL_ORDER,
+                CostReposting::FROM_PROFIT_CENTER,
             ])],
             'to_id'           => ['required', 'integer', 'min:1'],
             'cost_element_id' => ['required', 'integer', 'exists:cost_elements,id'],
@@ -77,7 +77,7 @@ class CoRepostingController extends Controller
      *
      * GET /co-repostings/{coReposting}
      */
-    public function show(CoReposting $coReposting): JsonResponse
+    public function show(CostReposting $coReposting): JsonResponse
     {
         $coReposting->load(['costElement:id,code,name', 'postedBy:id,name', 'reversedBy:id,reposting_number']);
 
@@ -89,7 +89,7 @@ class CoRepostingController extends Controller
      *
      * DELETE /co-repostings/{coReposting}
      */
-    public function destroy(CoReposting $coReposting): JsonResponse
+    public function destroy(CostReposting $coReposting): JsonResponse
     {
         if ($coReposting->isReversed()) {
             return $this->error('Reversed repostings cannot be deleted.', 'DELETE_BLOCKED', 422);
@@ -105,7 +105,7 @@ class CoRepostingController extends Controller
      *
      * POST /co-repostings/{coReposting}/reverse
      */
-    public function reverse(CoReposting $coReposting): JsonResponse
+    public function reverse(CostReposting $coReposting): JsonResponse
     {
         return $this->tryAction(fn() => $this->service->reverse($coReposting));
     }

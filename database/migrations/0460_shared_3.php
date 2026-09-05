@@ -96,7 +96,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
-            $table->foreign('equipment_id', 'pm_ctr_eq_fk')->references('id')->on('floc_equipment')->nullOnDelete();
+            $table->foreign('equipment_id', 'pm_ctr_eq_fk')->references('id')->on('location_equipment')->nullOnDelete();
             $table->foreign('floc_id', 'pm_ctr_floc_fk')->references('id')->on('functional_locations')->nullOnDelete();
         });
 

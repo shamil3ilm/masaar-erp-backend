@@ -45,7 +45,7 @@ class ProductionResourceTool extends Model
 
     public function assignments(): HasMany
     {
-        return $this->hasMany(PrtOperationAssignment::class);
+        return $this->hasMany(ToolOperationAssignment::class);
     }
 
     // Scopes

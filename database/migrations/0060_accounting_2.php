@@ -520,7 +520,7 @@ return new class extends Migration
             $table->unique(['organization_id', 'check_book_number'], 'cb_org_number_unq');
         });
 
-        Schema::create('co_distribution_cycles', function (Blueprint $table) {
+        Schema::create('distribution_cycles', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -624,7 +624,7 @@ return new class extends Migration
             $table->unique(['organization_id', 'code'], 'at_org_code_unique');
         });
 
-        Schema::create('co_repostings', function (Blueprint $table) {
+        Schema::create('cost_repostings', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -651,7 +651,7 @@ return new class extends Migration
             $table->text('narration')->nullable();
 
             $table->enum('status', ['posted', 'reversed'])->default('posted');
-            $table->foreignId('reversed_by_id')->nullable()->constrained('co_repostings')->nullOnDelete();
+            $table->foreignId('reversed_by_id')->nullable()->constrained('cost_repostings')->nullOnDelete();
 
             $table->foreignId('posted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('reversed_at')->nullable();
@@ -912,14 +912,14 @@ return new class extends Migration
         Schema::dropIfExists('costing_sheet_runs');
         Schema::dropIfExists('costing_sheets');
         Schema::dropIfExists('cost_splitting_rules');
-        Schema::dropIfExists('co_repostings');
+        Schema::dropIfExists('cost_repostings');
         Schema::dropIfExists('activity_types');
         Schema::dropIfExists('cost_elements');
         Schema::dropIfExists('copa_dimensions');
         Schema::dropIfExists('consolidation_entities');
         Schema::dropIfExists('consolidation_groups');
         Schema::dropIfExists('collections_worklist');
-        Schema::dropIfExists('co_distribution_cycles');
+        Schema::dropIfExists('distribution_cycles');
         Schema::dropIfExists('check_books');
         Schema::dropIfExists('bank_reconciliation_items');
         Schema::dropIfExists('bank_transactions');

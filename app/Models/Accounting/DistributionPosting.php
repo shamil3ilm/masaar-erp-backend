@@ -9,14 +9,14 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class CoAssessmentPosting extends Model
+class DistributionPosting extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
 
     protected $fillable = [
         'organization_id',
-        'assessment_cycle_id',
+        'distribution_cycle_id',
         'fiscal_year',
         'period',
         'sender_cost_center_id',
@@ -24,7 +24,6 @@ class CoAssessmentPosting extends Model
         'cost_element_id',
         'amount',
         'currency',
-        'reversal_id',
     ];
 
     protected function casts(): array
@@ -40,9 +39,9 @@ class CoAssessmentPosting extends Model
     // Relationships
     // ----------------------------------------------------------------
 
-    public function assessmentCycle(): BelongsTo
+    public function distributionCycle(): BelongsTo
     {
-        return $this->belongsTo(CoAssessmentCycle::class, 'assessment_cycle_id');
+        return $this->belongsTo(DistributionCycle::class, 'distribution_cycle_id');
     }
 
     public function senderCostCenter(): BelongsTo
@@ -58,19 +57,5 @@ class CoAssessmentPosting extends Model
     public function costElement(): BelongsTo
     {
         return $this->belongsTo(CostElement::class, 'cost_element_id');
-    }
-
-    public function reversal(): BelongsTo
-    {
-        return $this->belongsTo(CoAssessmentPosting::class, 'reversal_id');
-    }
-
-    // ----------------------------------------------------------------
-    // Helpers
-    // ----------------------------------------------------------------
-
-    public function isReversal(): bool
-    {
-        return $this->reversal_id !== null;
     }
 }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\CoAssessmentCycle;
+use App\Models\Accounting\AssessmentCycle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -31,16 +31,16 @@ class AssessmentCycleTest extends TestCase
     // Helpers
     // -------------------------------------------------------------------------
 
-    private function makeCycle(array $overrides = []): CoAssessmentCycle
+    private function makeCycle(array $overrides = []): AssessmentCycle
     {
-        return CoAssessmentCycle::create(array_merge([
+        return AssessmentCycle::create(array_merge([
             'organization_id' => $this->organization->id,
             'name'            => 'Q1 Overhead Assessment',
-            'cycle_type'      => CoAssessmentCycle::TYPE_ASSESSMENT,
+            'cycle_type'      => AssessmentCycle::TYPE_ASSESSMENT,
             'fiscal_year'     => 2026,
             'period_from'     => 1,
             'period_to'       => 3,
-            'status'          => CoAssessmentCycle::STATUS_OPEN,
+            'status'          => AssessmentCycle::STATUS_OPEN,
         ], $overrides));
     }
 
@@ -75,8 +75,8 @@ class AssessmentCycleTest extends TestCase
 
     public function test_index_filters_by_status(): void
     {
-        $this->makeCycle(['status' => CoAssessmentCycle::STATUS_OPEN]);
-        $this->makeCycle(['name' => 'Executed', 'status' => CoAssessmentCycle::STATUS_EXECUTED]);
+        $this->makeCycle(['status' => AssessmentCycle::STATUS_OPEN]);
+        $this->makeCycle(['name' => 'Executed', 'status' => AssessmentCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->getJson('/api/v1/controlling/assessment-cycles?status=open');
@@ -88,14 +88,14 @@ class AssessmentCycleTest extends TestCase
     public function test_index_only_returns_own_organization_cycles(): void
     {
         $otherOrg = \App\Models\Core\Organization::factory()->create();
-        CoAssessmentCycle::create([
+        AssessmentCycle::create([
             'organization_id' => $otherOrg->id,
             'name'            => 'Other Org Cycle',
-            'cycle_type'      => CoAssessmentCycle::TYPE_ASSESSMENT,
+            'cycle_type'      => AssessmentCycle::TYPE_ASSESSMENT,
             'fiscal_year'     => 2026,
             'period_from'     => 1,
             'period_to'       => 3,
-            'status'          => CoAssessmentCycle::STATUS_OPEN,
+            'status'          => AssessmentCycle::STATUS_OPEN,
         ]);
 
         $response = $this->withToken($this->token)
@@ -123,7 +123,7 @@ class AssessmentCycleTest extends TestCase
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.name', 'New Cycle')
-            ->assertJsonPath('data.status', CoAssessmentCycle::STATUS_OPEN);
+            ->assertJsonPath('data.status', AssessmentCycle::STATUS_OPEN);
     }
 
     public function test_store_validates_required_fields(): void
@@ -189,7 +189,7 @@ class AssessmentCycleTest extends TestCase
 
     public function test_update_rejects_non_open_cycle(): void
     {
-        $cycle = $this->makeCycle(['status' => CoAssessmentCycle::STATUS_EXECUTED]);
+        $cycle = $this->makeCycle(['status' => AssessmentCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->putJson('/api/v1/controlling/assessment-cycles/' . $cycle->uuid, [
@@ -211,12 +211,12 @@ class AssessmentCycleTest extends TestCase
             ->deleteJson('/api/v1/controlling/assessment-cycles/' . $cycle->uuid);
 
         $response->assertStatus(200);
-        $this->assertSoftDeleted('co_assessment_cycles', ['id' => $cycle->id]);
+        $this->assertSoftDeleted('assessment_cycles', ['id' => $cycle->id]);
     }
 
     public function test_destroy_rejects_non_open_cycle(): void
     {
-        $cycle = $this->makeCycle(['status' => CoAssessmentCycle::STATUS_EXECUTED]);
+        $cycle = $this->makeCycle(['status' => AssessmentCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->deleteJson('/api/v1/controlling/assessment-cycles/' . $cycle->uuid);
@@ -242,7 +242,7 @@ class AssessmentCycleTest extends TestCase
 
     public function test_execute_rejects_non_open_cycle(): void
     {
-        $cycle = $this->makeCycle(['status' => CoAssessmentCycle::STATUS_EXECUTED]);
+        $cycle = $this->makeCycle(['status' => AssessmentCycle::STATUS_EXECUTED]);
 
         $response = $this->withToken($this->token)
             ->postJson('/api/v1/controlling/assessment-cycles/' . $cycle->uuid . '/execute', [

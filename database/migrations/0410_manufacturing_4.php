@@ -354,7 +354,7 @@ return new class extends Migration
             $table->foreign('work_center_id')->references('id')->on('work_centers')->nullOnDelete();
         });
 
-        Schema::create('co_activity_confirmations', function (Blueprint $table) {
+        Schema::create('activity_confirmations', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -397,7 +397,7 @@ return new class extends Migration
 
             $table->foreign('reversal_id', 'co_act_conf_reversal_fk')
                 ->references('id')
-                ->on('co_activity_confirmations')
+                ->on('activity_confirmations')
                 ->nullOnDelete();
 
             $table->index(['organization_id', 'fiscal_year', 'period'], 'co_act_conf_org_fy_period_idx');
@@ -409,7 +409,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('co_activity_confirmations');
+        Schema::dropIfExists('activity_confirmations');
         Schema::dropIfExists('work_order_operations');
         Schema::dropIfExists('material_transactions');
         Schema::dropIfExists('work_order_materials');

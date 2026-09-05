@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
-use App\Models\Manufacturing\EcmAffectedObject;
+use App\Models\Manufacturing\EngineeringChangeObject;
 use App\Models\Manufacturing\EngineeringChange;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -98,7 +98,7 @@ class EngineeringChangeService
         return $ec->fresh();
     }
 
-    public function addAffectedObject(EngineeringChange $ec, array $data): EcmAffectedObject
+    public function addAffectedObject(EngineeringChange $ec, array $data): EngineeringChangeObject
     {
         return $ec->affectedObjects()->create([
             'organization_id' => $ec->organization_id,

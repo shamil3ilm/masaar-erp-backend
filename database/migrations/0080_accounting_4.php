@@ -84,7 +84,7 @@ return new class extends Migration
             $table->index(['organization_id'], 'ps_org_idx');
         });
 
-        Schema::create('co_assessment_cycles', function (Blueprint $table) {
+        Schema::create('assessment_cycles', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
             $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
@@ -434,7 +434,7 @@ return new class extends Migration
         Schema::dropIfExists('special_ledger_mapping_rules');
         Schema::dropIfExists('special_ledger_entries');
         Schema::dropIfExists('special_ledgers');
-        Schema::dropIfExists('co_assessment_cycles');
+        Schema::dropIfExists('assessment_cycles');
         Schema::dropIfExists('profitability_segments');
         Schema::dropIfExists('posting_validation_rules');
         Schema::dropIfExists('period_lock_overrides');

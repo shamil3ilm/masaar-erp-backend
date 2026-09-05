@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class FlocEquipment extends Model
+class LocationEquipment extends Model
 {
     use HasUuid;
     use BelongsToOrganization;

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CoReconciliationRun;
-use App\Services\Accounting\CoReconciliationService;
+use App\Models\Accounting\CostReconciliationRun;
+use App\Services\Accounting\CostReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,10 +18,10 @@ use Illuminate\Http\Request;
  * POST /accounting/co-reconciliation/reconcile-assessment  run reconciliation for assessment
  * POST /accounting/co-reconciliation/reconcile-distribution run reconciliation for distribution
  */
-class CoReconciliationController extends Controller
+class CostReconciliationController extends Controller
 {
     public function __construct(
-        private readonly CoReconciliationService $service,
+        private readonly CostReconciliationService $service,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -36,7 +36,7 @@ class CoReconciliationController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $run = CoReconciliationRun::with(['entries.senderCostCenter', 'entries.receiverCostCenter', 'entries.costElement', 'postedBy:id,name'])->findOrFail($id);
+        $run = CostReconciliationRun::with(['entries.senderCostCenter', 'entries.receiverCostCenter', 'entries.costElement', 'postedBy:id,name'])->findOrFail($id);
 
         return $this->success($run);
     }
@@ -44,7 +44,7 @@ class CoReconciliationController extends Controller
     public function reconcileAssessment(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'assessment_cycle_id' => 'required|integer|exists:co_assessment_cycles,id',
+            'assessment_cycle_id' => 'required|integer|exists:assessment_cycles,id',
             'fiscal_year'         => 'required|string|size:4',
             'period'              => 'required|string|size:2',
         ]);
@@ -66,7 +66,7 @@ class CoReconciliationController extends Controller
     public function reconcileDistribution(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'distribution_cycle_id' => 'required|integer|exists:co_distribution_cycles,id',
+            'distribution_cycle_id' => 'required|integer|exists:distribution_cycles,id',
             'fiscal_year'           => 'required|string|size:4',
             'period'                => 'required|string|size:2',
         ]);

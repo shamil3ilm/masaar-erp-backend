@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\CoDistributionCycle;
-use App\Models\Accounting\CoDistributionPosting;
-use App\Models\Accounting\CoDistributionSegment;
+use App\Models\Accounting\DistributionCycle;
+use App\Models\Accounting\DistributionPosting;
+use App\Models\Accounting\DistributionSegment;
 use App\Models\Accounting\StatisticalKeyFigureValue;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,9 +23,9 @@ class DistributionCycleService
      *
      * @throws InvalidArgumentException if the cycle is not open or period is out of range
      *
-     * @return array{postings: CoDistributionPosting[]}
+     * @return array{postings: DistributionPosting[]}
      */
-    public function execute(CoDistributionCycle $cycle, int $period): array
+    public function execute(DistributionCycle $cycle, int $period): array
     {
         if (! $cycle->isOpen()) {
             throw new InvalidArgumentException(
@@ -42,7 +42,7 @@ class DistributionCycleService
         $postings = DB::transaction(function () use ($cycle, $period): array {
             $created = [];
 
-            /** @var Collection<int, CoDistributionSegment> $segments */
+            /** @var Collection<int, DistributionSegment> $segments */
             $segments = $cycle->segments()->with(['receivers', 'statisticalKeyFigure'])->get();
 
             foreach ($segments as $segment) {
@@ -78,8 +78,8 @@ class DistributionCycleService
                             continue;
                         }
 
-                        /** @var CoDistributionPosting $posting */
-                        $posting = CoDistributionPosting::create([
+                        /** @var DistributionPosting $posting */
+                        $posting = DistributionPosting::create([
                             'uuid'                    => Str::uuid()->toString(),
                             'organization_id'         => $cycle->organization_id,
                             'distribution_cycle_id'   => $cycle->id,
@@ -98,7 +98,7 @@ class DistributionCycleService
             }
 
             $cycle->update([
-                'status'      => CoDistributionCycle::STATUS_EXECUTED,
+                'status'      => DistributionCycle::STATUS_EXECUTED,
                 'executed_at' => now(),
             ]);
 
@@ -113,7 +113,7 @@ class DistributionCycleService
      *
      * @throws InvalidArgumentException if the cycle is not executed
      */
-    public function reverse(CoDistributionCycle $cycle, int $period): void
+    public function reverse(DistributionCycle $cycle, int $period): void
     {
         if (! $cycle->isExecuted()) {
             throw new InvalidArgumentException(
@@ -124,11 +124,11 @@ class DistributionCycleService
         DB::transaction(function () use ($cycle, $period): void {
             // Delete postings for the period (distribution postings have no reversal_id column,
             // so we simply delete them and reset cycle status to open)
-            CoDistributionPosting::where('distribution_cycle_id', $cycle->id)
+            DistributionPosting::where('distribution_cycle_id', $cycle->id)
                 ->where('period', $period)
                 ->delete();
 
-            $cycle->update(['status' => CoDistributionCycle::STATUS_REVERSED]);
+            $cycle->update(['status' => DistributionCycle::STATUS_REVERSED]);
         });
     }
 
@@ -137,14 +137,14 @@ class DistributionCycleService
     // ----------------------------------------------------------------
 
     private function resolveSenderBalance(
-        CoDistributionCycle $cycle,
-        CoDistributionSegment $segment,
+        DistributionCycle $cycle,
+        DistributionSegment $segment,
         int $costElementId,
         int $period
     ): float {
         // Aggregate existing distribution postings as a proxy for the sender balance.
         // A full implementation would query from the primary CO actual costs table.
-        return (float) DB::table('co_distribution_postings')
+        return (float) DB::table('distribution_postings')
             ->where('organization_id', $cycle->organization_id)
             ->where('fiscal_year', $cycle->fiscal_year)
             ->where('period', $period)
@@ -154,15 +154,15 @@ class DistributionCycleService
     }
 
     private function resolveReceiverWeights(
-        CoDistributionSegment $segment,
+        DistributionSegment $segment,
         int $fiscalYear,
         int $period
     ): float {
-        if ($segment->tracing_factor === CoDistributionSegment::TRACING_FIXED_PERCENTAGES) {
+        if ($segment->tracing_factor === DistributionSegment::TRACING_FIXED_PERCENTAGES) {
             return (float) $segment->receivers->sum('fixed_percentage') ?: 100.0;
         }
 
-        if ($segment->tracing_factor === CoDistributionSegment::TRACING_STATISTICAL_KEY_FIGURE) {
+        if ($segment->tracing_factor === DistributionSegment::TRACING_STATISTICAL_KEY_FIGURE) {
             return (float) StatisticalKeyFigureValue::where('statistical_key_figure_id', $segment->skf_id)
                 ->where('fiscal_year', $fiscalYear)
                 ->where('period', $period)
@@ -173,7 +173,7 @@ class DistributionCycleService
     }
 
     private function calculateShare(
-        CoDistributionSegment $segment,
+        DistributionSegment $segment,
         ?float $receiverWeight,
         float $senderBalance,
         float $totalWeight

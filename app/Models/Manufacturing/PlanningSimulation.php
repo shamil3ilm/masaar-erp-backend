@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class LtpSimulation extends Model
+class PlanningSimulation extends Model
 {
     use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
@@ -55,12 +55,12 @@ class LtpSimulation extends Model
 
     public function plannedOrders(): HasMany
     {
-        return $this->hasMany(LtpPlannedOrder::class);
+        return $this->hasMany(LongTermPlannedOrder::class);
     }
 
     public function capacityRequirements(): HasMany
     {
-        return $this->hasMany(LtpCapacityRequirement::class);
+        return $this->hasMany(PlanningCapacityRequirement::class);
     }
 
     // ── Scopes ────────────────────────────────────────────────────────────────

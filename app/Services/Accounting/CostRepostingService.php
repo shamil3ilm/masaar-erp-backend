@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\CoReposting;
+use App\Models\Accounting\CostReposting;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\CostElement;
 use App\Models\Accounting\InternalOrder;
@@ -14,7 +14,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
-class CoRepostingService
+class CostRepostingService
 {
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
@@ -27,7 +27,7 @@ class CoRepostingService
 
     public function list(array $filters): LengthAwarePaginator
     {
-        $query = CoReposting::with([
+        $query = CostReposting::with([
             'costElement:id,code,name',
             'postedBy:id,name',
         ])->orderByDesc('posting_date');
@@ -69,9 +69,9 @@ class CoRepostingService
     // Create
     // ----------------------------------------------------------------
 
-    public function create(array $data): CoReposting
+    public function create(array $data): CostReposting
     {
-        return DB::transaction(function () use ($data): CoReposting {
+        return DB::transaction(function () use ($data): CostReposting {
             $orgId = (int) $data['organization_id'];
 
             // Validate sender
@@ -88,12 +88,12 @@ class CoRepostingService
             $amount = (float) $data['amount'];
 
             if ($amount <= 0) {
-                throw new InvalidArgumentException('Reposting amount must be greater than zero.');
+                throw new InvalidArgumentException('CostReposting amount must be greater than zero.');
             }
 
             $repostingNumber = $this->numberGenerator->generate('REPO', null, $orgId);
 
-            $reposting = CoReposting::create([
+            $reposting = CostReposting::create([
                 'organization_id'  => $orgId,
                 'reposting_number' => $repostingNumber,
                 'posting_date'     => $data['posting_date'],
@@ -108,7 +108,7 @@ class CoRepostingService
                 'amount'           => $amount,
                 'currency_code'    => $data['currency_code'] ?? 'SAR',
                 'narration'        => $data['narration'] ?? null,
-                'status'           => CoReposting::STATUS_POSTED,
+                'status'           => CostReposting::STATUS_POSTED,
                 'posted_by'        => $data['posted_by'] ?? auth()->id(),
             ]);
 
@@ -126,12 +126,12 @@ class CoRepostingService
     // Reverse
     // ----------------------------------------------------------------
 
-    public function reverse(CoReposting $reposting): CoReposting
+    public function reverse(CostReposting $reposting): CostReposting
     {
-        return DB::transaction(function () use ($reposting): CoReposting {
+        return DB::transaction(function () use ($reposting): CostReposting {
             if ($reposting->isReversed()) {
                 throw new InvalidArgumentException(
-                    "Reposting [{$reposting->reposting_number}] is already reversed."
+                    "CostReposting [{$reposting->reposting_number}] is already reversed."
                 );
             }
 
@@ -139,7 +139,7 @@ class CoRepostingService
             $mirrorNumber  = $this->numberGenerator->generate('REPO-REV', null, $orgId);
 
             // Create mirror reposting (swap from/to, same amount)
-            $mirror = CoReposting::create([
+            $mirror = CostReposting::create([
                 'organization_id'  => $orgId,
                 'reposting_number' => $mirrorNumber,
                 'posting_date'     => now()->toDateString(),
@@ -154,7 +154,7 @@ class CoRepostingService
                 'amount'           => $reposting->amount,
                 'currency_code'    => $reposting->currency_code,
                 'narration'        => "Reversal of [{$reposting->reposting_number}]",
-                'status'           => CoReposting::STATUS_POSTED,
+                'status'           => CostReposting::STATUS_POSTED,
                 'reversed_by_id'   => $reposting->id,
                 'posted_by'        => auth()->id(),
             ]);
@@ -166,7 +166,7 @@ class CoRepostingService
 
             // Mark original as reversed
             $reposting->update([
-                'status'         => CoReposting::STATUS_REVERSED,
+                'status'         => CostReposting::STATUS_REVERSED,
                 'reversed_by_id' => $mirror->id,
                 'reversed_at'    => now(),
             ]);
@@ -185,11 +185,11 @@ class CoRepostingService
     private function validateObject(int $orgId, string $type, int $id, string $role): void
     {
         $exists = match ($type) {
-            CoReposting::FROM_COST_CENTER    => CostCenter::withoutGlobalScopes()
+            CostReposting::FROM_COST_CENTER    => CostCenter::withoutGlobalScopes()
                 ->where('organization_id', $orgId)->where('id', $id)->exists(),
-            CoReposting::FROM_INTERNAL_ORDER => InternalOrder::withoutGlobalScopes()
+            CostReposting::FROM_INTERNAL_ORDER => InternalOrder::withoutGlobalScopes()
                 ->where('organization_id', $orgId)->where('id', $id)->exists(),
-            CoReposting::FROM_PROFIT_CENTER  => ProfitCenter::withoutGlobalScopes()
+            CostReposting::FROM_PROFIT_CENTER  => ProfitCenter::withoutGlobalScopes()
                 ->where('organization_id', $orgId)->where('id', $id)->exists(),
             default => throw new InvalidArgumentException("Unknown type [{$type}] for {$role}."),
         };
@@ -211,9 +211,9 @@ class CoRepostingService
     private function adjustActualAmount(string $type, int $id, float $delta): void
     {
         $model = match ($type) {
-            CoReposting::FROM_COST_CENTER    => null,   // CC tracks actuals via journal lines; skip direct update
-            CoReposting::FROM_INTERNAL_ORDER => InternalOrder::withoutGlobalScopes()->find($id),
-            CoReposting::FROM_PROFIT_CENTER  => null,   // PC tracks via journal lines; skip direct update
+            CostReposting::FROM_COST_CENTER    => null,   // CC tracks actuals via journal lines; skip direct update
+            CostReposting::FROM_INTERNAL_ORDER => InternalOrder::withoutGlobalScopes()->find($id),
+            CostReposting::FROM_PROFIT_CENTER  => null,   // PC tracks via journal lines; skip direct update
             default => null,
         };
 

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\LtpPlannedOrder;
-use App\Models\Manufacturing\LtpSimulation;
+use App\Models\Manufacturing\LongTermPlannedOrder;
+use App\Models\Manufacturing\PlanningSimulation;
 use App\Services\Manufacturing\LongTermPlanningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +22,7 @@ class LongTermPlanningController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = LtpSimulation::with(['createdBy', 'mrpRun'])
+        $query = PlanningSimulation::with(['createdBy', 'mrpRun'])
             ->when($request->status, fn($q, $v) => $q->where('status', $v))
             ->when($request->search, fn($q, $v) => $q->where('name', 'like', "%{$v}%"))
             ->orderByDesc('created_at');
@@ -55,7 +55,7 @@ class LongTermPlanningController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $simulation = LtpSimulation::with(['createdBy', 'mrpRun'])
+        $simulation = PlanningSimulation::with(['createdBy', 'mrpRun'])
             ->withCount(['plannedOrders', 'capacityRequirements'])
             ->find($id);
 
@@ -71,7 +71,7 @@ class LongTermPlanningController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -99,7 +99,7 @@ class LongTermPlanningController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -115,7 +115,7 @@ class LongTermPlanningController extends Controller
      */
     public function run(int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -131,7 +131,7 @@ class LongTermPlanningController extends Controller
      */
     public function capacity(int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -147,13 +147,13 @@ class LongTermPlanningController extends Controller
      */
     public function plannedOrders(Request $request, int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
         }
 
-        $query = LtpPlannedOrder::where('ltp_simulation_id', $id)
+        $query = LongTermPlannedOrder::where('planning_simulation_id', $id)
             ->with(['product', 'unit', 'productionVersion', 'vendor'])
             ->when($request->product_id, fn($q, $v) => $q->where('product_id', $v))
             ->when($request->order_type, fn($q, $v) => $q->where('planned_order_type', $v))
@@ -169,7 +169,7 @@ class LongTermPlanningController extends Controller
      */
     public function compare(int $id): JsonResponse
     {
-        $simulation = LtpSimulation::find($id);
+        $simulation = PlanningSimulation::find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');

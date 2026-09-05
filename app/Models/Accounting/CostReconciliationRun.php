@@ -18,12 +18,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * The run holds the generated FI reconciliation entries that bring FI into
  * balance with CO.
  */
-class CoReconciliationRun extends Model
+class CostReconciliationRun extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
 
-    protected $table = 'co_reconciliation_runs';
+    protected $table = 'cost_reconciliation_runs';
 
     protected $guarded = ['id'];
 
@@ -41,7 +41,7 @@ class CoReconciliationRun extends Model
 
     public function entries(): HasMany
     {
-        return $this->hasMany(CoReconciliationEntry::class, 'reconciliation_run_id');
+        return $this->hasMany(CostReconciliationEntry::class, 'reconciliation_run_id');
     }
 
     public function postedBy(): BelongsTo

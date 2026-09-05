@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
-use App\Models\Accounting\CoActivityConfirmation;
+use App\Models\Accounting\ActivityConfirmation;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\ActivityType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -50,9 +50,9 @@ class ActivityConfirmationTest extends TestCase
         ]);
     }
 
-    private function makeConfirmation(CostCenter $cc, ActivityType $at, array $overrides = []): CoActivityConfirmation
+    private function makeConfirmation(CostCenter $cc, ActivityType $at, array $overrides = []): ActivityConfirmation
     {
-        return CoActivityConfirmation::create(array_merge([
+        return ActivityConfirmation::create(array_merge([
             'organization_id'     => $this->organization->id,
             'confirmation_number' => 'CONF-' . fake()->unique()->numerify('########'),
             'cost_center_id'      => $cc->id,
@@ -62,7 +62,7 @@ class ActivityConfirmationTest extends TestCase
             'period'              => 3,
             'confirmation_date'   => '2025-03-31',
             'confirmed_by'        => $this->user->id,
-            'status'              => CoActivityConfirmation::STATUS_CONFIRMED,
+            'status'              => ActivityConfirmation::STATUS_CONFIRMED,
         ], $overrides));
     }
 
@@ -160,7 +160,7 @@ class ActivityConfirmationTest extends TestCase
     {
         $cc   = $this->makeCostCenter();
         $at   = $this->makeActivityType();
-        $conf = $this->makeConfirmation($cc, $at, ['status' => CoActivityConfirmation::STATUS_REVERSED]);
+        $conf = $this->makeConfirmation($cc, $at, ['status' => ActivityConfirmation::STATUS_REVERSED]);
 
         $response = $this->withToken($this->token)
             ->postJson('/api/v1/controlling/activity-confirmations/' . $conf->uuid . '/reverse');

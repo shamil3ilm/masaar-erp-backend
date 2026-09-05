@@ -804,11 +804,11 @@ return new class extends Migration
             $table->index(['product_id', 'is_default'], 'pv_product_default_idx');
         });
 
-        Schema::create('ltp_planned_orders', function (Blueprint $table) {
+        Schema::create('long_term_planned_orders', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->foreignId('ltp_simulation_id')
-                ->constrained('ltp_simulations')
+            $table->foreignId('planning_simulation_id')
+                ->constrained('planning_simulations')
                 ->cascadeOnDelete();
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
             $table->string('planned_order_type', 20);
@@ -997,7 +997,7 @@ return new class extends Migration
         Schema::dropIfExists('process_order_resources');
         Schema::dropIfExists('process_order_phases');
         Schema::dropIfExists('process_orders');
-        Schema::dropIfExists('ltp_planned_orders');
+        Schema::dropIfExists('long_term_planned_orders');
         Schema::dropIfExists('production_versions');
         Schema::dropIfExists('routing_headers');
         Schema::dropIfExists('returns_inspection_defects');

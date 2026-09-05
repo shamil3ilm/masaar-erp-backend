@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Accounting\ActivityConfirmationController;
 use App\Http\Controllers\Api\V1\Accounting\AssessmentCycleController;
-use App\Http\Controllers\Api\V1\Accounting\CoRepostingController;
+use App\Http\Controllers\Api\V1\Accounting\CostRepostingController;
 use App\Http\Controllers\Api\V1\Accounting\CostCenterController;
 use App\Http\Controllers\Api\V1\Accounting\DistributionCycleController;
 use App\Http\Controllers\Api\V1\Accounting\ProfitCenterController;
@@ -187,12 +187,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     // CO Manual Repostings (KB11N equivalent)
     // ================================================================
 
-    Route::apiResource('co-repostings', CoRepostingController::class)
+    Route::apiResource('co-repostings', CostRepostingController::class)
         ->only(['index', 'store', 'show', 'destroy'])
         ->names('controlling.repostings')
         ->middleware('check.permission:accounting.controlling.reposting.view');
 
-    Route::post('co-repostings/{coReposting}/reverse', [CoRepostingController::class, 'reverse'])
+    Route::post('co-repostings/{coReposting}/reverse', [CostRepostingController::class, 'reverse'])
         ->middleware('check.permission:accounting.controlling.reposting.create')
         ->name('controlling.repostings.reverse');
 

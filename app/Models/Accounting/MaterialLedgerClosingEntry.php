@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class MlClosingEntry extends Model
+class MaterialLedgerClosingEntry extends Model
 {
     use BelongsToOrganization;
     use HasFactory;
@@ -44,6 +44,6 @@ class MlClosingEntry extends Model
 
     public function priceDifferences(): HasMany
     {
-        return $this->hasMany(MlPriceDifference::class);
+        return $this->hasMany(MaterialLedgerPriceDifference::class);
     }
 }

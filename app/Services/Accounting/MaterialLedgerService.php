@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\MlClosingEntry;
-use App\Models\Accounting\MlDocument;
-use App\Models\Accounting\MlPriceDifference;
+use App\Models\Accounting\MaterialLedgerClosingEntry;
+use App\Models\Accounting\MaterialLedgerDocument;
+use App\Models\Accounting\MaterialLedgerPriceDifference;
 use App\Models\Accounting\MaterialLedgerRecord;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -88,14 +88,14 @@ class MaterialLedgerService
      * Post a document (goods movement, invoice, etc.) to a material ledger record.
      * Updates cumulative totals on the record in the same transaction.
      */
-    public function postDocument(MaterialLedgerRecord $record, array $documentData): MlDocument
+    public function postDocument(MaterialLedgerRecord $record, array $documentData): MaterialLedgerDocument
     {
         if ($record->status === MaterialLedgerRecord::STATUS_CLOSED) {
             throw new RuntimeException('Cannot post to a closed material ledger record.');
         }
 
-        return DB::transaction(function () use ($record, $documentData): MlDocument {
-            $document = MlDocument::create([
+        return DB::transaction(function () use ($record, $documentData): MaterialLedgerDocument {
+            $document = MaterialLedgerDocument::create([
                 'organization_id'           => $record->organization_id,
                 'material_ledger_record_id' => $record->id,
                 'document_type'             => $documentData['document_type'],
@@ -112,8 +112,8 @@ class MaterialLedgerService
             $standardValue = (float) $documentData['standard_value'];
 
             $isReceipt = in_array($documentData['document_type'], [
-                MlDocument::TYPE_GOODS_RECEIPT,
-                MlDocument::TYPE_INVOICE,
+                MaterialLedgerDocument::TYPE_GOODS_RECEIPT,
+                MaterialLedgerDocument::TYPE_INVOICE,
             ], true);
 
             if ($isReceipt) {
@@ -159,7 +159,7 @@ class MaterialLedgerService
 
                 $closingValue = round($closingQty * ($actualPrice / max(1, (int) $record->price_unit)), 4);
 
-                $entry = MlClosingEntry::create([
+                $entry = MaterialLedgerClosingEntry::create([
                     'organization_id'           => $record->organization_id,
                     'material_ledger_record_id' => $record->id,
                     'period'                    => $period,
@@ -197,7 +197,7 @@ class MaterialLedgerService
     /**
      * Create price difference breakdown entries for a closing entry.
      */
-    public function revalueInventory(MlClosingEntry $entry): void
+    public function revalueInventory(MaterialLedgerClosingEntry $entry): void
     {
         $record = $entry->materialLedgerRecord;
 
@@ -214,11 +214,11 @@ class MaterialLedgerService
         // Post the full difference as a purchase price variance by default.
         // In a full implementation this would be split across categories
         // based on invoice matching and exchange rate data.
-        MlPriceDifference::create([
+        MaterialLedgerPriceDifference::create([
             'organization_id'      => $entry->organization_id,
             'ml_closing_entry_id'  => $entry->id,
             'product_id'           => $record->product_id,
-            'category'             => MlPriceDifference::CATEGORY_PURCHASE_PRICE_VARIANCE,
+            'category'             => MaterialLedgerPriceDifference::CATEGORY_PURCHASE_PRICE_VARIANCE,
             'amount'               => $totalDiff,
             'quantity_affected'    => $record->closing_stock_qty,
         ]);
@@ -254,7 +254,7 @@ class MaterialLedgerService
      */
     public function getClosingEntries(array $filters): LengthAwarePaginator
     {
-        $query = MlClosingEntry::with([
+        $query = MaterialLedgerClosingEntry::with([
             'materialLedgerRecord.product:id,name,sku',
             'runBy:id,name',
         ])->orderByDesc('run_at');

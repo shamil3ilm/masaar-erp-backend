@@ -40,7 +40,7 @@ return new class extends Migration
             $table->index(['check_date'], 'cre_check_date_idx');
         });
 
-        Schema::create('co_reconciliation_runs', function (Blueprint $table) {
+        Schema::create('cost_reconciliation_runs', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -60,7 +60,7 @@ return new class extends Migration
             $table->index(['source_type', 'source_id']);
         });
 
-        Schema::create('co_reconciliation_entries', function (Blueprint $table) {
+        Schema::create('cost_reconciliation_entries', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
@@ -77,7 +77,7 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->timestamps();
 
-            $table->foreign('reconciliation_run_id')->references('id')->on('co_reconciliation_runs')->cascadeOnDelete();
+            $table->foreign('reconciliation_run_id')->references('id')->on('cost_reconciliation_runs')->cascadeOnDelete();
             $table->index(['organization_id', 'reconciliation_run_id'], 'co_recon_entries_org_run_idx');
         });
 
@@ -265,7 +265,7 @@ return new class extends Migration
             $table->foreign('session_id')->references('id')->on('ic_reconciliation_sessions')->cascadeOnDelete();
         });
 
-        Schema::create('ml_closing_entries', function (Blueprint $table) {
+        Schema::create('material_ledger_closing_entries', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations')->name('mlce_org_fk');
@@ -284,7 +284,7 @@ return new class extends Migration
             $table->index(['organization_id', 'period', 'fiscal_year'], 'mlce_org_period_fy_idx');
         });
 
-        Schema::create('ml_documents', function (Blueprint $table) {
+        Schema::create('material_ledger_documents', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained('organizations')->name('mld_org_fk');
@@ -311,11 +311,11 @@ return new class extends Migration
             $table->index(['material_ledger_record_id'], 'mld_mlr_idx');
         });
 
-        Schema::create('ml_price_differences', function (Blueprint $table) {
+        Schema::create('material_ledger_price_differences', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained('organizations')->name('mlpd_org_fk');
             $table->foreignId('ml_closing_entry_id')
-                ->constrained('ml_closing_entries')
+                ->constrained('material_ledger_closing_entries')
                 ->name('mlpd_ce_fk');
             $table->foreignId('product_id')->constrained('products')->name('mlpd_product_fk');
             $table->enum('category', [
@@ -425,9 +425,9 @@ return new class extends Migration
         Schema::dropIfExists('variance_analysis_items');
         Schema::dropIfExists('statistical_key_figure_values');
         Schema::dropIfExists('profitability_segment_values');
-        Schema::dropIfExists('ml_price_differences');
-        Schema::dropIfExists('ml_documents');
-        Schema::dropIfExists('ml_closing_entries');
+        Schema::dropIfExists('material_ledger_price_differences');
+        Schema::dropIfExists('material_ledger_documents');
+        Schema::dropIfExists('material_ledger_closing_entries');
         Schema::dropIfExists('ic_reconciliation_items');
         Schema::dropIfExists('ic_reconciliation_sessions');
         Schema::dropIfExists('ic_reconciliation_matches');
@@ -437,8 +437,8 @@ return new class extends Migration
         Schema::dropIfExists('direct_debit_collections');
         Schema::dropIfExists('currencies');
         Schema::dropIfExists('cost_splitting_results');
-        Schema::dropIfExists('co_reconciliation_entries');
-        Schema::dropIfExists('co_reconciliation_runs');
+        Schema::dropIfExists('cost_reconciliation_entries');
+        Schema::dropIfExists('cost_reconciliation_runs');
         Schema::dropIfExists('check_register_entries');
     }
 };

@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class LtpPlannedOrder extends Model
+class LongTermPlannedOrder extends Model
 {
     use HasFactory, HasUuid;
 
@@ -20,7 +20,7 @@ class LtpPlannedOrder extends Model
     public const TYPE_PURCHASE   = 'purchase';
 
     protected $fillable = [
-        'ltp_simulation_id',
+        'planning_simulation_id',
         'product_id',
         'planned_order_type',
         'quantity',
@@ -41,7 +41,7 @@ class LtpPlannedOrder extends Model
 
     public function simulation(): BelongsTo
     {
-        return $this->belongsTo(LtpSimulation::class, 'ltp_simulation_id');
+        return $this->belongsTo(PlanningSimulation::class, 'planning_simulation_id');
     }
 
     public function product(): BelongsTo
