@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Crypt;
 
 class Branch extends Model
 {
@@ -30,7 +29,6 @@ class Branch extends Model
         'phone',
         'email',
         'tax_number',
-        'compliance_credentials',
         'compliance_status',
         'is_default',
         'is_active',
@@ -45,45 +43,12 @@ class Branch extends Model
         'zatca_certificate_expires_at' => 'datetime',
     ];
 
-    protected $hidden = [
-        'compliance_credentials',
-    ];
-
-    // Fields to exclude from audit trail
-    protected array $auditExclude = [
-        'compliance_credentials',
-    ];
-
     // Relationships
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'user_branches')
             ->withPivot('is_default')
             ->withTimestamps();
-    }
-
-    // Accessors & Mutators for encrypted compliance credentials
-    public function getComplianceCredentialsAttribute(?string $value): ?array
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        try {
-            return json_decode(Crypt::decryptString($value), true);
-        } catch (\Exception) {
-            return null;
-        }
-    }
-
-    public function setComplianceCredentialsAttribute(?array $value): void
-    {
-        if ($value === null) {
-            $this->attributes['compliance_credentials'] = null;
-            return;
-        }
-
-        $this->attributes['compliance_credentials'] = Crypt::encryptString(json_encode($value));
     }
 
     // Methods
@@ -104,19 +69,6 @@ class Branch extends Model
     public function isComplianceActive(): bool
     {
         return $this->compliance_status === 'active';
-    }
-
-    public function getComplianceCredential(string $key): ?string
-    {
-        return $this->compliance_credentials[$key] ?? null;
-    }
-
-    public function setComplianceCredential(string $key, string $value): void
-    {
-        $credentials = $this->compliance_credentials ?? [];
-        $credentials[$key] = $value;
-        $this->compliance_credentials = $credentials;
-        $this->save();
     }
 
     public function markAsDefault(): void
