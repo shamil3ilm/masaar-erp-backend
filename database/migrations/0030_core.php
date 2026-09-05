@@ -369,9 +369,6 @@ return new class extends Migration
             // Tax Number (for branches with separate tax registration)
             $table->string('tax_number', 50)->nullable();
 
-            // Compliance Credentials (encrypted JSON)
-            // For ZATCA: CCSID, PCSID, etc.
-            $table->text('compliance_credentials')->nullable();
             $table->string('compliance_status', 20)->default('pending'); // pending, active, suspended
 
             // Status
