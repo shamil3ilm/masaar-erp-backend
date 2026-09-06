@@ -20,7 +20,9 @@ class KanbanTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.planning.manage',
+        ]);
 
         $this->warehouse = Warehouse::factory()->create([
             'organization_id' => $this->organization->id,

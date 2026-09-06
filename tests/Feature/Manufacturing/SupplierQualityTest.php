@@ -19,7 +19,9 @@ class SupplierQualityTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.quality.manage',
+        ]);
 
         $this->supplier = Contact::factory()->create([
             'organization_id' => $this->organization->id,

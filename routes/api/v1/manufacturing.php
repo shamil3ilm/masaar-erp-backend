@@ -176,20 +176,20 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('calibration')->name('manufacturing.calibration.')->group(function (): void {
         Route::get('/equipment', [CalibrationController::class, 'equipment'])->name('equipment');
-        Route::post('/equipment', [CalibrationController::class, 'storeEquipment'])->name('equipment.store');
+        Route::post('/equipment', [CalibrationController::class, 'storeEquipment'])->name('equipment.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/equipment/{id}', [CalibrationController::class, 'showEquipment'])->name('equipment.show');
-        Route::put('/equipment/{id}', [CalibrationController::class, 'updateEquipment'])->name('equipment.update');
+        Route::put('/equipment/{id}', [CalibrationController::class, 'updateEquipment'])->name('equipment.update')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/plans', [CalibrationController::class, 'plans'])->name('plans');
-        Route::post('/plans', [CalibrationController::class, 'storePlan'])->name('plans.store');
+        Route::post('/plans', [CalibrationController::class, 'storePlan'])->name('plans.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/plans/{id}', [CalibrationController::class, 'showPlan'])->name('plans.show');
         Route::get('/orders', [CalibrationController::class, 'orders'])->name('orders');
-        Route::post('/orders', [CalibrationController::class, 'storeOrder'])->name('orders.store');
+        Route::post('/orders', [CalibrationController::class, 'storeOrder'])->name('orders.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/orders/{id}', [CalibrationController::class, 'showOrder'])->name('orders.show');
-        Route::post('/orders/{id}/complete', [CalibrationController::class, 'completeOrder'])->name('orders.complete');
+        Route::post('/orders/{id}/complete', [CalibrationController::class, 'completeOrder'])->name('orders.complete')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/orders/{id}/certificates', [CalibrationController::class, 'certificates'])->name('orders.certificates');
         Route::get('/overdue', [CalibrationController::class, 'overdue'])->name('overdue');
         Route::get('/upcoming', [CalibrationController::class, 'upcoming'])->name('upcoming');
-        Route::post('/generate-orders', [CalibrationController::class, 'generateOrders'])->name('generate-orders');
+        Route::post('/generate-orders', [CalibrationController::class, 'generateOrders'])->name('generate-orders')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -199,14 +199,14 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('procurement-inspection')->name('manufacturing.procurement-inspection.')->group(function (): void {
         Route::get('/configs', [ProcurementInspectionController::class, 'configs'])->name('configs');
-        Route::post('/configs', [ProcurementInspectionController::class, 'storeConfig'])->name('configs.store');
-        Route::put('/configs/{id}', [ProcurementInspectionController::class, 'updateConfig'])->name('configs.update');
+        Route::post('/configs', [ProcurementInspectionController::class, 'storeConfig'])->name('configs.store')->middleware('check.permission:manufacturing.quality.manage');
+        Route::put('/configs/{id}', [ProcurementInspectionController::class, 'updateConfig'])->name('configs.update')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/inspections', [ProcurementInspectionController::class, 'inspections'])->name('inspections');
-        Route::post('/inspections', [ProcurementInspectionController::class, 'createInspection'])->name('inspections.store');
+        Route::post('/inspections', [ProcurementInspectionController::class, 'createInspection'])->name('inspections.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/inspections/{id}', [ProcurementInspectionController::class, 'showInspection'])->name('inspections.show');
-        Route::post('/inspections/{id}/results', [ProcurementInspectionController::class, 'recordResults'])->name('inspections.results');
-        Route::post('/inspections/{id}/approve', [ProcurementInspectionController::class, 'approve'])->name('inspections.approve');
-        Route::post('/inspections/{id}/reject', [ProcurementInspectionController::class, 'reject'])->name('inspections.reject');
+        Route::post('/inspections/{id}/results', [ProcurementInspectionController::class, 'recordResults'])->name('inspections.results')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/inspections/{id}/approve', [ProcurementInspectionController::class, 'approve'])->name('inspections.approve')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/inspections/{id}/reject', [ProcurementInspectionController::class, 'reject'])->name('inspections.reject')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/vendor/{vendorId}/quality-score', [ProcurementInspectionController::class, 'vendorQualityScore'])->name('vendor-quality-score');
     });
 
@@ -217,12 +217,12 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('production-versions')->name('manufacturing.production-versions.')->group(function (): void {
         Route::get('/', [ProductionVersionController::class, 'index'])->name('index');
-        Route::post('/', [ProductionVersionController::class, 'store'])->name('store');
+        Route::post('/', [ProductionVersionController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
         Route::get('/product/{productId}', [ProductionVersionController::class, 'forProduct'])->name('for-product');
         Route::get('/{id}', [ProductionVersionController::class, 'show'])->name('show');
-        Route::put('/{id}', [ProductionVersionController::class, 'update'])->name('update');
-        Route::delete('/{id}', [ProductionVersionController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/set-default', [ProductionVersionController::class, 'setDefault'])->name('set-default');
+        Route::put('/{id}', [ProductionVersionController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+        Route::delete('/{id}', [ProductionVersionController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/{id}/set-default', [ProductionVersionController::class, 'setDefault'])->name('set-default')->middleware('check.permission:manufacturing.planning.manage');
     });
 
     /*
@@ -232,13 +232,13 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('repetitive-manufacturing')->name('manufacturing.repetitive.')->group(function (): void {
         Route::get('/lines', [RepetitiveManufacturingController::class, 'lines'])->name('lines');
-        Route::post('/lines', [RepetitiveManufacturingController::class, 'storeLine'])->name('lines.store');
+        Route::post('/lines', [RepetitiveManufacturingController::class, 'storeLine'])->name('lines.store')->middleware('check.permission:manufacturing.production.manage');
         Route::get('/schedules', [RepetitiveManufacturingController::class, 'schedules'])->name('schedules');
-        Route::post('/schedules', [RepetitiveManufacturingController::class, 'storeSchedule'])->name('schedules.store');
+        Route::post('/schedules', [RepetitiveManufacturingController::class, 'storeSchedule'])->name('schedules.store')->middleware('check.permission:manufacturing.production.manage');
         Route::get('/schedules/{id}', [RepetitiveManufacturingController::class, 'showSchedule'])->name('schedules.show');
         Route::get('/schedules/{id}/progress', [RepetitiveManufacturingController::class, 'progress'])->name('schedules.progress');
-        Route::post('/schedule-lines/{lineId}/confirm', [RepetitiveManufacturingController::class, 'confirmLine'])->name('lines.confirm');
-        Route::post('/backflush', [RepetitiveManufacturingController::class, 'backflush'])->name('backflush');
+        Route::post('/schedule-lines/{lineId}/confirm', [RepetitiveManufacturingController::class, 'confirmLine'])->name('lines.confirm')->middleware('check.permission:manufacturing.production.manage');
+        Route::post('/backflush', [RepetitiveManufacturingController::class, 'backflush'])->name('backflush')->middleware('check.permission:manufacturing.production.manage');
     });
 
     /*
@@ -248,15 +248,15 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('process')->name('manufacturing.process.')->group(function (): void {
         Route::get('/recipes', [ProcessOrderController::class, 'recipes'])->name('recipes');
-        Route::post('/recipes', [ProcessOrderController::class, 'storeRecipe'])->name('recipes.store');
+        Route::post('/recipes', [ProcessOrderController::class, 'storeRecipe'])->name('recipes.store')->middleware('check.permission:manufacturing.production.manage');
         Route::get('/recipes/{id}', [ProcessOrderController::class, 'showRecipe'])->name('recipes.show');
         Route::get('/orders', [ProcessOrderController::class, 'orders'])->name('orders');
-        Route::post('/orders', [ProcessOrderController::class, 'storeOrder'])->name('orders.store');
+        Route::post('/orders', [ProcessOrderController::class, 'storeOrder'])->name('orders.store')->middleware('check.permission:manufacturing.production.manage');
         Route::get('/orders/{id}', [ProcessOrderController::class, 'showOrder'])->name('orders.show');
-        Route::post('/orders/{id}/release', [ProcessOrderController::class, 'releaseOrder'])->name('orders.release');
-        Route::post('/orders/{id}/complete', [ProcessOrderController::class, 'completeOrder'])->name('orders.complete');
-        Route::post('/phases/{phaseId}/start', [ProcessOrderController::class, 'startPhase'])->name('phases.start');
-        Route::post('/phases/{phaseId}/complete', [ProcessOrderController::class, 'completePhase'])->name('phases.complete');
+        Route::post('/orders/{id}/release', [ProcessOrderController::class, 'releaseOrder'])->name('orders.release')->middleware('check.permission:manufacturing.production.manage');
+        Route::post('/orders/{id}/complete', [ProcessOrderController::class, 'completeOrder'])->name('orders.complete')->middleware('check.permission:manufacturing.production.manage');
+        Route::post('/phases/{phaseId}/start', [ProcessOrderController::class, 'startPhase'])->name('phases.start')->middleware('check.permission:manufacturing.production.manage');
+        Route::post('/phases/{phaseId}/complete', [ProcessOrderController::class, 'completePhase'])->name('phases.complete')->middleware('check.permission:manufacturing.production.manage');
     });
 
     /*
@@ -266,11 +266,11 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('long-term-planning')->name('manufacturing.ltp.')->group(function (): void {
         Route::get('/', [LongTermPlanningController::class, 'index'])->name('index');
-        Route::post('/', [LongTermPlanningController::class, 'store'])->name('store');
+        Route::post('/', [LongTermPlanningController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
         Route::get('/{id}', [LongTermPlanningController::class, 'show'])->name('show');
-        Route::put('/{id}', [LongTermPlanningController::class, 'update'])->name('update');
-        Route::delete('/{id}', [LongTermPlanningController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/run', [LongTermPlanningController::class, 'run'])->name('run');
+        Route::put('/{id}', [LongTermPlanningController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+        Route::delete('/{id}', [LongTermPlanningController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/{id}/run', [LongTermPlanningController::class, 'run'])->name('run')->middleware('check.permission:manufacturing.planning.manage');
         Route::get('/{id}/capacity', [LongTermPlanningController::class, 'capacity'])->name('capacity');
         Route::get('/{id}/planned-orders', [LongTermPlanningController::class, 'plannedOrders'])->name('planned-orders');
         Route::get('/{id}/compare', [LongTermPlanningController::class, 'compare'])->name('compare');
@@ -301,13 +301,13 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('detailed-scheduling')->name('manufacturing.scheduling.')->group(function (): void {
         Route::get('/boards', [DetailedSchedulingController::class, 'boards'])->name('boards');
-        Route::post('/boards', [DetailedSchedulingController::class, 'storeBoard'])->name('boards.store');
+        Route::post('/boards', [DetailedSchedulingController::class, 'storeBoard'])->name('boards.store')->middleware('check.permission:manufacturing.planning.manage');
         Route::get('/boards/{id}/data', [DetailedSchedulingController::class, 'boardData'])->name('boards.data');
         Route::get('/operations', [DetailedSchedulingController::class, 'operations'])->name('operations');
-        Route::post('/operations', [DetailedSchedulingController::class, 'storeOperation'])->name('operations.store');
-        Route::put('/operations/{id}', [DetailedSchedulingController::class, 'updateOperation'])->name('operations.update');
-        Route::post('/operations/{id}/reschedule', [DetailedSchedulingController::class, 'reschedule'])->name('operations.reschedule');
-        Route::post('/optimize', [DetailedSchedulingController::class, 'optimize'])->name('optimize');
+        Route::post('/operations', [DetailedSchedulingController::class, 'storeOperation'])->name('operations.store')->middleware('check.permission:manufacturing.planning.manage');
+        Route::put('/operations/{id}', [DetailedSchedulingController::class, 'updateOperation'])->name('operations.update')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/operations/{id}/reschedule', [DetailedSchedulingController::class, 'reschedule'])->name('operations.reschedule')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/optimize', [DetailedSchedulingController::class, 'optimize'])->name('optimize')->middleware('check.permission:manufacturing.planning.manage');
         Route::get('/conflicts', [DetailedSchedulingController::class, 'conflicts'])->name('conflicts');
     });
 });
@@ -316,70 +316,70 @@ Route::middleware(['auth:api'])->group(function () {
 Route::middleware(['auth:api'])->prefix('cost-collectors')->name('pp.cost-collectors.')->group(function () {
     Route::get('/', [ProductCostCollectorController::class, 'index'])->name('index');
     Route::get('/{id}', [ProductCostCollectorController::class, 'show'])->name('show');
-    Route::post('/{id}/post-cost', [ProductCostCollectorController::class, 'postCost'])->name('post-cost');
-    Route::post('/{id}/recalculate', [ProductCostCollectorController::class, 'recalculate'])->name('recalculate');
-    Route::post('/{id}/close', [ProductCostCollectorController::class, 'close'])->name('close');
+    Route::post('/{id}/post-cost', [ProductCostCollectorController::class, 'postCost'])->name('post-cost')->middleware('check.permission:manufacturing.production.manage');
+    Route::post('/{id}/recalculate', [ProductCostCollectorController::class, 'recalculate'])->name('recalculate')->middleware('check.permission:manufacturing.production.manage');
+    Route::post('/{id}/close', [ProductCostCollectorController::class, 'close'])->name('close')->middleware('check.permission:manufacturing.production.manage');
 });
 
 // BOM Alternatives
 Route::middleware(['auth:api'])->prefix('bom-alternatives')->name('pp.bom-alternatives.')->group(function () {
     Route::get('/{productId}', [BomAlternativeController::class, 'index'])->name('index');
-    Route::post('/{productId}', [BomAlternativeController::class, 'store'])->name('store');
+    Route::post('/{productId}', [BomAlternativeController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('/{productId}/{id}', [BomAlternativeController::class, 'show'])->name('show');
-    Route::put('/{productId}/{id}', [BomAlternativeController::class, 'update'])->name('update');
-    Route::delete('/{productId}/{id}', [BomAlternativeController::class, 'destroy'])->name('destroy');
-    Route::post('/{productId}/{id}/set-default', [BomAlternativeController::class, 'setDefault'])->name('set-default');
-    Route::post('/determine', [BomAlternativeController::class, 'determine'])->name('determine');
+    Route::put('/{productId}/{id}', [BomAlternativeController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+    Route::delete('/{productId}/{id}', [BomAlternativeController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{productId}/{id}/set-default', [BomAlternativeController::class, 'setDefault'])->name('set-default')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/determine', [BomAlternativeController::class, 'determine'])->name('determine')->middleware('check.permission:manufacturing.planning.manage');
 });
 
 // Engineering Change Management
 Route::middleware(['auth:api'])->prefix('engineering-changes')->name('pp.ecm.')->group(function () {
     Route::get('/', [EngineeringChangeController::class, 'index'])->name('index');
-    Route::post('/', [EngineeringChangeController::class, 'store'])->name('store');
+    Route::post('/', [EngineeringChangeController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('/for-object', [EngineeringChangeController::class, 'getForObject'])->name('for-object');
     Route::get('/{id}', [EngineeringChangeController::class, 'show'])->name('show');
-    Route::put('/{id}', [EngineeringChangeController::class, 'update'])->name('update');
-    Route::delete('/{id}', [EngineeringChangeController::class, 'destroy'])->name('destroy');
-    Route::post('/{id}/submit', [EngineeringChangeController::class, 'submit'])->name('submit');
-    Route::post('/{id}/approve', [EngineeringChangeController::class, 'approve'])->name('approve');
-    Route::post('/{id}/reject', [EngineeringChangeController::class, 'reject'])->name('reject');
-    Route::post('/{id}/implement', [EngineeringChangeController::class, 'implement'])->name('implement');
-    Route::post('/{id}/affected-objects', [EngineeringChangeController::class, 'addAffectedObject'])->name('affected-objects.add');
+    Route::put('/{id}', [EngineeringChangeController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+    Route::delete('/{id}', [EngineeringChangeController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/submit', [EngineeringChangeController::class, 'submit'])->name('submit')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/approve', [EngineeringChangeController::class, 'approve'])->name('approve')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/reject', [EngineeringChangeController::class, 'reject'])->name('reject')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/implement', [EngineeringChangeController::class, 'implement'])->name('implement')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/affected-objects', [EngineeringChangeController::class, 'addAffectedObject'])->name('affected-objects.add')->middleware('check.permission:manufacturing.planning.manage');
 });
 
 // Production Resource Tools
 Route::middleware(['auth:api'])->prefix('production-resources')->name('pp.prt.')->group(function () {
     Route::get('/', [ProductionResourceToolController::class, 'index'])->name('index');
-    Route::post('/', [ProductionResourceToolController::class, 'store'])->name('store');
+    Route::post('/', [ProductionResourceToolController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('/available', [ProductionResourceToolController::class, 'getAvailable'])->name('available');
     Route::get('/for-work-order/{workOrderId}', [ProductionResourceToolController::class, 'getForWorkOrder'])->name('for-work-order');
     Route::get('/{id}', [ProductionResourceToolController::class, 'show'])->name('show');
-    Route::put('/{id}', [ProductionResourceToolController::class, 'update'])->name('update');
-    Route::delete('/{id}', [ProductionResourceToolController::class, 'destroy'])->name('destroy');
-    Route::post('/{id}/assign', [ProductionResourceToolController::class, 'assign'])->name('assign');
-    Route::post('/{id}/assignments/{assignmentId}/release', [ProductionResourceToolController::class, 'release'])->name('release');
+    Route::put('/{id}', [ProductionResourceToolController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+    Route::delete('/{id}', [ProductionResourceToolController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/assign', [ProductionResourceToolController::class, 'assign'])->name('assign')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/{id}/assignments/{assignmentId}/release', [ProductionResourceToolController::class, 'release'])->name('release')->middleware('check.permission:manufacturing.planning.manage');
 });
 
 // Co-Products & By-Products
 Route::middleware(['auth:api'])->prefix('co-products')->name('pp.co-products.')->group(function () {
     Route::get('/bom/{bomId}', [CoProductController::class, 'indexForBom'])->name('bom-index');
-    Route::post('/bom/{bomId}', [CoProductController::class, 'addToBom'])->name('bom-add');
-    Route::put('/bom/{bomId}/{id}', [CoProductController::class, 'updateCoProduct'])->name('update');
-    Route::delete('/bom/{bomId}/{id}', [CoProductController::class, 'removeFromBom'])->name('remove');
+    Route::post('/bom/{bomId}', [CoProductController::class, 'addToBom'])->name('bom-add')->middleware('check.permission:manufacturing.planning.manage');
+    Route::put('/bom/{bomId}/{id}', [CoProductController::class, 'updateCoProduct'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+    Route::delete('/bom/{bomId}/{id}', [CoProductController::class, 'removeFromBom'])->name('remove')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('/work-order/{workOrderId}', [CoProductController::class, 'indexForWorkOrder'])->name('wo-index');
-    Route::post('/work-order/{workOrderId}/actuals', [CoProductController::class, 'postActuals'])->name('wo-actuals');
-    Route::post('/work-order/{workOrderId}/actuals/{actualId}/post-stock', [CoProductController::class, 'postToStock'])->name('wo-post-stock');
+    Route::post('/work-order/{workOrderId}/actuals', [CoProductController::class, 'postActuals'])->name('wo-actuals')->middleware('check.permission:manufacturing.planning.manage');
+    Route::post('/work-order/{workOrderId}/actuals/{actualId}/post-stock', [CoProductController::class, 'postToStock'])->name('wo-post-stock')->middleware('check.permission:manufacturing.planning.manage');
 });
 
 // Scrap Reporting
 Route::middleware(['auth:api'])->prefix('scrap-reports')->name('pp.scrap.')->group(function () {
     Route::get('/', [ScrapReportingController::class, 'index'])->name('index');
-    Route::post('/', [ScrapReportingController::class, 'store'])->name('store');
+    Route::post('/', [ScrapReportingController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.production.manage');
     Route::get('/summary', [ScrapReportingController::class, 'summary'])->name('summary');
     Route::get('/{id}', [ScrapReportingController::class, 'show'])->name('show');
-    Route::put('/{id}', [ScrapReportingController::class, 'update'])->name('update');
-    Route::delete('/{id}', [ScrapReportingController::class, 'destroy'])->name('destroy');
-    Route::post('/{id}/post-gl', [ScrapReportingController::class, 'postToGL'])->name('post-gl');
+    Route::put('/{id}', [ScrapReportingController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.production.manage');
+    Route::delete('/{id}', [ScrapReportingController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.production.manage');
+    Route::post('/{id}/post-gl', [ScrapReportingController::class, 'postToGL'])->name('post-gl')->middleware('check.permission:manufacturing.production.manage');
 });
 
 /*
@@ -390,16 +390,16 @@ Route::middleware(['auth:api'])->prefix('scrap-reports')->name('pp.scrap.')->gro
 Route::middleware(['auth:api'])->group(function (): void {
     Route::prefix('skip-lot-plans')->name('qm.skip-lot.')->group(function (): void {
         Route::get('/', [SkipLotController::class, 'index'])->name('index');
-        Route::post('/', [SkipLotController::class, 'store'])->name('store');
+        Route::post('/', [SkipLotController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}', [SkipLotController::class, 'show'])->name('show');
-        Route::put('/{id}', [SkipLotController::class, 'update'])->name('update');
-        Route::delete('/{id}', [SkipLotController::class, 'destroy'])->name('destroy');
+        Route::put('/{id}', [SkipLotController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::delete('/{id}', [SkipLotController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     Route::prefix('skip-lot-decisions')->name('qm.skip-lot-decisions.')->group(function (): void {
         Route::get('/', [SkipLotController::class, 'decisions'])->name('index');
-        Route::post('/should-inspect', [SkipLotController::class, 'shouldInspect'])->name('should-inspect');
-        Route::post('/{id}/record-result', [SkipLotController::class, 'recordResult'])->name('record-result');
+        Route::post('/should-inspect', [SkipLotController::class, 'shouldInspect'])->name('should-inspect')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/record-result', [SkipLotController::class, 'recordResult'])->name('record-result')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -409,12 +409,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('quality-costs')->name('qm.quality-costs.')->group(function (): void {
         Route::get('/', [QualityCostController::class, 'index'])->name('index');
-        Route::post('/', [QualityCostController::class, 'store'])->name('store');
+        Route::post('/', [QualityCostController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/summary', [QualityCostController::class, 'summary'])->name('summary');
         Route::get('/trend', [QualityCostController::class, 'trend'])->name('trend');
         Route::get('/{id}', [QualityCostController::class, 'show'])->name('show');
-        Route::put('/{id}', [QualityCostController::class, 'update'])->name('update');
-        Route::delete('/{id}', [QualityCostController::class, 'destroy'])->name('destroy');
+        Route::put('/{id}', [QualityCostController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::delete('/{id}', [QualityCostController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -424,11 +424,11 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('q-info-records')->name('qm.q-info.')->group(function (): void {
         Route::get('/', [QInfoRecordController::class, 'index'])->name('index');
-        Route::post('/', [QInfoRecordController::class, 'store'])->name('store');
+        Route::post('/', [QInfoRecordController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/due-for-inspection', [QInfoRecordController::class, 'dueForInspection'])->name('due');
         Route::get('/{id}', [QInfoRecordController::class, 'show'])->name('show');
-        Route::put('/{id}', [QInfoRecordController::class, 'update'])->name('update');
-        Route::delete('/{id}', [QInfoRecordController::class, 'destroy'])->name('destroy');
+        Route::put('/{id}', [QInfoRecordController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::delete('/{id}', [QInfoRecordController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -438,15 +438,15 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('maintenance-permits')->name('pm.permits.')->group(function (): void {
         Route::get('/', [MaintenancePermitController::class, 'index'])->name('index');
-        Route::post('/', [MaintenancePermitController::class, 'store'])->name('store');
+        Route::post('/', [MaintenancePermitController::class, 'store'])->name('store')->middleware('check.permission:maintenance.permits.manage');
         Route::get('/{id}', [MaintenancePermitController::class, 'show'])->name('show');
-        Route::put('/{id}', [MaintenancePermitController::class, 'update'])->name('update');
-        Route::post('/{id}/approve', [MaintenancePermitController::class, 'approve'])->name('approve');
-        Route::post('/{id}/activate', [MaintenancePermitController::class, 'activate'])->name('activate');
-        Route::post('/{id}/suspend', [MaintenancePermitController::class, 'suspend'])->name('suspend');
-        Route::post('/{id}/close', [MaintenancePermitController::class, 'close'])->name('close');
-        Route::post('/{id}/safety-checks', [MaintenancePermitController::class, 'addSafetyCheck'])->name('checks.add');
-        Route::post('/{id}/safety-checks/{checkId}/complete', [MaintenancePermitController::class, 'completeSafetyCheck'])->name('checks.complete');
+        Route::put('/{id}', [MaintenancePermitController::class, 'update'])->name('update')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/approve', [MaintenancePermitController::class, 'approve'])->name('approve')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/activate', [MaintenancePermitController::class, 'activate'])->name('activate')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/suspend', [MaintenancePermitController::class, 'suspend'])->name('suspend')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/close', [MaintenancePermitController::class, 'close'])->name('close')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/safety-checks', [MaintenancePermitController::class, 'addSafetyCheck'])->name('checks.add')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/safety-checks/{checkId}/complete', [MaintenancePermitController::class, 'completeSafetyCheck'])->name('checks.complete')->middleware('check.permission:maintenance.permits.manage');
     });
 
     /*
@@ -456,15 +456,15 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('stability-studies')->name('qm.stability.')->group(function (): void {
         Route::get('/', [StabilityStudyController::class, 'index'])->name('index');
-        Route::post('/', [StabilityStudyController::class, 'store'])->name('store');
+        Route::post('/', [StabilityStudyController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}', [StabilityStudyController::class, 'show'])->name('show');
-        Route::put('/{id}', [StabilityStudyController::class, 'update'])->name('update');
+        Route::put('/{id}', [StabilityStudyController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}/summary', [StabilityStudyController::class, 'summary'])->name('summary');
-        Route::post('/{id}/activate', [StabilityStudyController::class, 'activate'])->name('activate');
-        Route::post('/{id}/complete', [StabilityStudyController::class, 'complete'])->name('complete');
-        Route::post('/{id}/time-points', [StabilityStudyController::class, 'addTimePoint'])->name('timepoints.add');
-        Route::put('/{id}/time-points/{tpId}', [StabilityStudyController::class, 'updateTimePoint'])->name('timepoints.update');
-        Route::post('/{id}/time-points/{tpId}/results', [StabilityStudyController::class, 'addResult'])->name('results.add');
+        Route::post('/{id}/activate', [StabilityStudyController::class, 'activate'])->name('activate')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/complete', [StabilityStudyController::class, 'complete'])->name('complete')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/time-points', [StabilityStudyController::class, 'addTimePoint'])->name('timepoints.add')->middleware('check.permission:manufacturing.quality.manage');
+        Route::put('/{id}/time-points/{tpId}', [StabilityStudyController::class, 'updateTimePoint'])->name('timepoints.update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/time-points/{tpId}/results', [StabilityStudyController::class, 'addResult'])->name('results.add')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -474,13 +474,13 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('audit-plans')->name('qm.audits.')->group(function (): void {
         Route::get('/', [AuditManagementController::class, 'index'])->name('index');
-        Route::post('/', [AuditManagementController::class, 'store'])->name('store');
+        Route::post('/', [AuditManagementController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}', [AuditManagementController::class, 'show'])->name('show');
-        Route::post('/{id}/checklists', [AuditManagementController::class, 'addChecklist'])->name('checklists.add');
-        Route::put('/{id}/checklists/{checklistId}', [AuditManagementController::class, 'updateChecklist'])->name('checklists.update');
-        Route::post('/{id}/findings', [AuditManagementController::class, 'addFinding'])->name('findings.add');
-        Route::post('/{id}/findings/{findingId}/close', [AuditManagementController::class, 'closeFinding'])->name('findings.close');
-        Route::post('/{id}/report', [AuditManagementController::class, 'createReport'])->name('report.create');
+        Route::post('/{id}/checklists', [AuditManagementController::class, 'addChecklist'])->name('checklists.add')->middleware('check.permission:manufacturing.quality.manage');
+        Route::put('/{id}/checklists/{checklistId}', [AuditManagementController::class, 'updateChecklist'])->name('checklists.update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/findings', [AuditManagementController::class, 'addFinding'])->name('findings.add')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/findings/{findingId}/close', [AuditManagementController::class, 'closeFinding'])->name('findings.close')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/report', [AuditManagementController::class, 'createReport'])->name('report.create')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -490,11 +490,11 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('capas')->name('qm.capas.')->group(function (): void {
         Route::get('/', [CapaController::class, 'index'])->name('index');
-        Route::post('/', [CapaController::class, 'store'])->name('store');
+        Route::post('/', [CapaController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}', [CapaController::class, 'show'])->name('show');
-        Route::post('/{id}/actions', [CapaController::class, 'addAction'])->name('actions.add');
-        Route::post('/{id}/actions/{actionId}/complete', [CapaController::class, 'completeAction'])->name('actions.complete');
-        Route::post('/{id}/effectiveness-reviews', [CapaController::class, 'addEffectivenessReview'])->name('effectiveness.add');
+        Route::post('/{id}/actions', [CapaController::class, 'addAction'])->name('actions.add')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/actions/{actionId}/complete', [CapaController::class, 'completeAction'])->name('actions.complete')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/effectiveness-reviews', [CapaController::class, 'addEffectivenessReview'])->name('effectiveness.add')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -504,10 +504,10 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('complaints')->name('qm.complaints.')->group(function (): void {
         Route::get('/', [ComplaintController::class, 'index'])->name('index');
-        Route::post('/', [ComplaintController::class, 'store'])->name('store');
+        Route::post('/', [ComplaintController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{id}', [ComplaintController::class, 'show'])->name('show');
-        Route::post('/{id}/communications', [ComplaintController::class, 'addCommunication'])->name('comms.add');
-        Route::post('/{id}/resolve', [ComplaintController::class, 'resolve'])->name('resolve');
+        Route::post('/{id}/communications', [ComplaintController::class, 'addCommunication'])->name('comms.add')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{id}/resolve', [ComplaintController::class, 'resolve'])->name('resolve')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -517,12 +517,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('supplier-quality')->name('qm.sq.')->group(function (): void {
         Route::get('/ratings', [SupplierQualityController::class, 'ratings'])->name('ratings');
-        Route::post('/ratings', [SupplierQualityController::class, 'storeRating'])->name('ratings.store');
+        Route::post('/ratings', [SupplierQualityController::class, 'storeRating'])->name('ratings.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/avl', [SupplierQualityController::class, 'avl'])->name('avl');
-        Route::post('/avl', [SupplierQualityController::class, 'storeAvl'])->name('avl.store');
+        Route::post('/avl', [SupplierQualityController::class, 'storeAvl'])->name('avl.store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/ncrs', [SupplierQualityController::class, 'ncrs'])->name('ncrs');
-        Route::post('/ncrs', [SupplierQualityController::class, 'storeNcr'])->name('ncrs.store');
-        Route::post('/ncrs/{id}/close', [SupplierQualityController::class, 'closeNcr'])->name('ncrs.close');
+        Route::post('/ncrs', [SupplierQualityController::class, 'storeNcr'])->name('ncrs.store')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/ncrs/{id}/close', [SupplierQualityController::class, 'closeNcr'])->name('ncrs.close')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -532,10 +532,10 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('dynamic-modification-rules')->name('qm.dmr.')->group(function (): void {
         Route::get('/', [DynamicModificationController::class, 'index'])->name('index');
-        Route::post('/', [DynamicModificationController::class, 'store'])->name('store');
+        Route::post('/', [DynamicModificationController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{uuid}', [DynamicModificationController::class, 'show'])->name('show');
         Route::get('/{uuid}/stage', [DynamicModificationController::class, 'currentStage'])->name('stage');
-        Route::post('/{uuid}/evaluate', [DynamicModificationController::class, 'evaluate'])->name('evaluate');
+        Route::post('/{uuid}/evaluate', [DynamicModificationController::class, 'evaluate'])->name('evaluate')->middleware('check.permission:manufacturing.quality.manage');
     });
 
     /*
@@ -545,9 +545,9 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('capa-8d')->name('qm.capa8d.')->group(function (): void {
         Route::get('/', [Capa8DController::class, 'index'])->name('index');
-        Route::post('/', [Capa8DController::class, 'store'])->name('store');
+        Route::post('/', [Capa8DController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.quality.manage');
         Route::get('/{uuid}', [Capa8DController::class, 'show'])->name('show');
-        Route::post('/{uuid}/steps/{step}', [Capa8DController::class, 'updateStep'])->name('steps.update');
-        Route::post('/{uuid}/close', [Capa8DController::class, 'close'])->name('close');
+        Route::post('/{uuid}/steps/{step}', [Capa8DController::class, 'updateStep'])->name('steps.update')->middleware('check.permission:manufacturing.quality.manage');
+        Route::post('/{uuid}/close', [Capa8DController::class, 'close'])->name('close')->middleware('check.permission:manufacturing.quality.manage');
     });
 });
