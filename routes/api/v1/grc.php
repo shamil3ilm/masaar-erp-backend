@@ -82,5 +82,5 @@ Route::prefix('rm')->group(function (): void {
 
 // GRC — Control Library (SAP GRC-PC)
 Route::prefix('pc')->group(function (): void {
-    Route::apiResource('controls', ControlLibraryController::class)->names('grc.pc.controls');
+    Route::apiResource('controls', ControlLibraryController::class)->names('grc.pc.controls')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:compliance.process-control.manage');
 });

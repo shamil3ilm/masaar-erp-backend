@@ -16,17 +16,17 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth:api', 'deny.readonly.writes'])->group(function (): void {
     Route::prefix('compliance/dps')->name('compliance.dps.')->group(function (): void {
         Route::get('/lists', [DeniedPartyScreeningController::class, 'lists'])->name('lists');
-        Route::post('/lists', [DeniedPartyScreeningController::class, 'storeList'])->name('lists.store');
+        Route::post('/lists', [DeniedPartyScreeningController::class, 'storeList'])->name('lists.store')->middleware('check.permission:compliance.dps.manage');
         Route::get('/lists/{id}', [DeniedPartyScreeningController::class, 'showList'])->name('lists.show');
-        Route::put('/lists/{id}', [DeniedPartyScreeningController::class, 'updateList'])->name('lists.update');
+        Route::put('/lists/{id}', [DeniedPartyScreeningController::class, 'updateList'])->name('lists.update')->middleware('check.permission:compliance.dps.manage');
         Route::get('/lists/{listId}/entries', [DeniedPartyScreeningController::class, 'listEntries'])->name('entries');
-        Route::post('/lists/{listId}/entries', [DeniedPartyScreeningController::class, 'storeEntry'])->name('entries.store');
-        Route::post('/lists/{listId}/import', [DeniedPartyScreeningController::class, 'importEntries'])->name('entries.import');
-        Route::post('/screen-contact', [DeniedPartyScreeningController::class, 'screenContact'])->name('screen-contact');
-        Route::post('/screen-all', [DeniedPartyScreeningController::class, 'screenAll'])->name('screen-all');
+        Route::post('/lists/{listId}/entries', [DeniedPartyScreeningController::class, 'storeEntry'])->name('entries.store')->middleware('check.permission:compliance.dps.manage');
+        Route::post('/lists/{listId}/import', [DeniedPartyScreeningController::class, 'importEntries'])->name('entries.import')->middleware('check.permission:compliance.dps.manage');
+        Route::post('/screen-contact', [DeniedPartyScreeningController::class, 'screenContact'])->name('screen-contact')->middleware('check.permission:compliance.dps.manage');
+        Route::post('/screen-all', [DeniedPartyScreeningController::class, 'screenAll'])->name('screen-all')->middleware('check.permission:compliance.dps.manage');
         Route::get('/runs', [DeniedPartyScreeningController::class, 'runs'])->name('runs');
         Route::get('/runs/{id}', [DeniedPartyScreeningController::class, 'showRun'])->name('runs.show');
-        Route::post('/runs/{id}/clear', [DeniedPartyScreeningController::class, 'clearRun'])->name('runs.clear');
+        Route::post('/runs/{id}/clear', [DeniedPartyScreeningController::class, 'clearRun'])->name('runs.clear')->middleware('check.permission:compliance.dps.manage');
         Route::get('/pending-reviews', [DeniedPartyScreeningController::class, 'pendingReviews'])->name('pending-reviews');
         Route::get('/contacts/{contactId}/status', [DeniedPartyScreeningController::class, 'checkContact'])->name('contacts.status');
     });

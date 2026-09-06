@@ -352,7 +352,7 @@ Route::prefix('dashboard')->group(function () {
 
     Route::post('/layouts', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'createLayout'])
         
-        ->name('dashboard.layouts.create');
+        ->name('dashboard.layouts.create')->middleware('check.permission:core.dashboards.manage');
 
     Route::get('/layouts/{id}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'layout'])
         
@@ -360,29 +360,29 @@ Route::prefix('dashboard')->group(function () {
 
     Route::put('/layouts/{id}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'updateLayout'])
         
-        ->name('dashboard.layouts.update');
+        ->name('dashboard.layouts.update')->middleware('check.permission:core.dashboards.manage');
 
     Route::delete('/layouts/{id}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'deleteLayout'])
         
-        ->name('dashboard.layouts.delete');
+        ->name('dashboard.layouts.delete')->middleware('check.permission:core.dashboards.manage');
 
     // Widget management in layouts
     Route::post('/layouts/{layoutId}/widgets', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'addWidget'])
         
-        ->name('dashboard.layouts.add-widget');
+        ->name('dashboard.layouts.add-widget')->middleware('check.permission:core.dashboards.manage');
 
     Route::delete('/layouts/{layoutId}/widgets/{widgetCode}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'removeWidget'])
         
-        ->name('dashboard.layouts.remove-widget');
+        ->name('dashboard.layouts.remove-widget')->middleware('check.permission:core.dashboards.manage');
 
     Route::put('/layouts/{layoutId}/widgets/{widgetCode}/position', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'updateWidgetPosition'])
         
-        ->name('dashboard.layouts.widget-position');
+        ->name('dashboard.layouts.widget-position')->middleware('check.permission:core.dashboards.manage');
 
     // Reset layout to default
     Route::post('/layouts/{type}/reset', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'resetLayout'])
         
-        ->name('dashboard.layouts.reset');
+        ->name('dashboard.layouts.reset')->middleware('check.permission:core.dashboards.manage');
 });
 
 // Module Management routes
@@ -496,11 +496,11 @@ Route::prefix('imports')->group(function () {
         ->name('imports.templates.index');
 
     Route::post('/templates', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'saveTemplate'])
-        ->name('imports.templates.store');
+        ->name('imports.templates.store')->middleware('check.permission:core.imports.manage');
 
     // Upload file for import
     Route::post('/upload', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'upload'])
-        ->name('imports.upload');
+        ->name('imports.upload')->middleware('check.permission:core.imports.manage');
 
     // Import job operations
     Route::get('/{uuid}', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'status'])
@@ -510,13 +510,13 @@ Route::prefix('imports')->group(function () {
         ->name('imports.preview');
 
     Route::post('/{uuid}/configure', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'configure'])
-        ->name('imports.configure');
+        ->name('imports.configure')->middleware('check.permission:core.imports.manage');
 
     Route::post('/{uuid}/process', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'process'])
-        ->name('imports.process');
+        ->name('imports.process')->middleware('check.permission:core.imports.manage');
 
     Route::post('/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'cancel'])
-        ->name('imports.cancel');
+        ->name('imports.cancel')->middleware('check.permission:core.imports.manage');
 });
 
 // Export routes
@@ -531,11 +531,11 @@ Route::prefix('exports')->group(function () {
 
     // Create export job
     Route::post('/', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'create'])
-        ->name('exports.create');
+        ->name('exports.create')->middleware('check.permission:core.exports.manage');
 
     // Quick export (immediate download)
     Route::post('/quick', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'quickExport'])
-        ->name('exports.quick');
+        ->name('exports.quick')->middleware('check.permission:core.exports.manage');
 
     // Export job operations
     Route::get('/{uuid}', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'status'])
@@ -664,15 +664,15 @@ Route::prefix('sensitive-access')->group(function () {
 // Change Transport (SAP CTS equivalent)
 Route::prefix('change-transport')->name('core.change-transport.')->group(function () {
     Route::get('/', [ChangeTransportController::class, 'index'])->name('index');
-    Route::post('/', [ChangeTransportController::class, 'store'])->name('store');
+    Route::post('/', [ChangeTransportController::class, 'store'])->name('store')->middleware('check.permission:core.change-transport.manage');
     Route::get('/open', [ChangeTransportController::class, 'openRequests'])->name('open');
     Route::get('/{id}', [ChangeTransportController::class, 'show'])->name('show');
-    Route::put('/{id}', [ChangeTransportController::class, 'update'])->name('update');
+    Route::put('/{id}', [ChangeTransportController::class, 'update'])->name('update')->middleware('check.permission:core.change-transport.manage');
     Route::get('/{id}/objects', [ChangeTransportController::class, 'objects'])->name('objects');
-    Route::post('/{id}/objects', [ChangeTransportController::class, 'addObject'])->name('objects.add');
-    Route::post('/{id}/release', [ChangeTransportController::class, 'release'])->name('release');
-    Route::post('/{id}/import', [ChangeTransportController::class, 'import'])->name('import');
-    Route::post('/{id}/rollback', [ChangeTransportController::class, 'rollback'])->name('rollback');
+    Route::post('/{id}/objects', [ChangeTransportController::class, 'addObject'])->name('objects.add')->middleware('check.permission:core.change-transport.manage');
+    Route::post('/{id}/release', [ChangeTransportController::class, 'release'])->name('release')->middleware('check.permission:core.change-transport.manage');
+    Route::post('/{id}/import', [ChangeTransportController::class, 'import'])->name('import')->middleware('check.permission:core.change-transport.manage');
+    Route::post('/{id}/rollback', [ChangeTransportController::class, 'rollback'])->name('rollback')->middleware('check.permission:core.change-transport.manage');
     Route::get('/{id}/history', [ChangeTransportController::class, 'history'])->name('history');
 });
 
@@ -682,10 +682,10 @@ Route::prefix('job-monitor')->name('core.job-monitor.')->group(function () {
     Route::get('/stats', [JobMonitorController::class, 'stats'])->name('stats');
     Route::get('/running', [JobMonitorController::class, 'running'])->name('running');
     Route::get('/failed', [JobMonitorController::class, 'failed'])->name('failed');
-    Route::post('/cleanup', [JobMonitorController::class, 'cleanup'])->name('cleanup');
+    Route::post('/cleanup', [JobMonitorController::class, 'cleanup'])->name('cleanup')->middleware('check.permission:core.job-monitor.manage');
     Route::get('/{id}', [JobMonitorController::class, 'show'])->name('show');
     Route::get('/{id}/logs', [JobMonitorController::class, 'logs'])->name('logs');
-    Route::post('/{id}/retry', [JobMonitorController::class, 'retry'])->name('retry');
+    Route::post('/{id}/retry', [JobMonitorController::class, 'retry'])->name('retry')->middleware('check.permission:core.job-monitor.manage');
 });
 
 /*
@@ -695,12 +695,12 @@ Route::prefix('job-monitor')->name('core.job-monitor.')->group(function () {
 */
 Route::prefix('gdpr')->name('core.gdpr.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/requests', [GdprController::class, 'requests'])->name('requests.index');
-    Route::post('/requests', [GdprController::class, 'submitRequest'])->name('requests.store');
-    Route::put('/requests/{id}/process', [GdprController::class, 'processRequest'])->name('requests.process');
+    Route::post('/requests', [GdprController::class, 'submitRequest'])->name('requests.store')->middleware('check.permission:core.gdpr.manage');
+    Route::put('/requests/{id}/process', [GdprController::class, 'processRequest'])->name('requests.process')->middleware('check.permission:core.gdpr.manage');
     Route::get('/processing-register', [GdprController::class, 'processingRegister'])->name('register');
-    Route::post('/processing-register', [GdprController::class, 'storeActivity'])->name('register.store');
-    Route::post('/consent', [GdprController::class, 'recordConsent'])->name('consent.store');
-    Route::delete('/consent/{id}', [GdprController::class, 'withdrawConsent'])->name('consent.withdraw');
+    Route::post('/processing-register', [GdprController::class, 'storeActivity'])->name('register.store')->middleware('check.permission:core.gdpr.manage');
+    Route::post('/consent', [GdprController::class, 'recordConsent'])->name('consent.store')->middleware('check.permission:core.gdpr.manage');
+    Route::delete('/consent/{id}', [GdprController::class, 'withdrawConsent'])->name('consent.withdraw')->middleware('check.permission:core.gdpr.manage');
 });
 
 /*
@@ -711,9 +711,9 @@ Route::prefix('gdpr')->name('core.gdpr.')->middleware(['auth:api'])->group(funct
 Route::prefix('webhooks/dlq')->name('core.webhooks.dlq.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [WebhookDlqController::class, 'index'])->name('index');
     Route::get('/summary', [WebhookDlqController::class, 'summary'])->name('summary');
-    Route::post('/{id}/replay', [WebhookDlqController::class, 'replay'])->name('replay');
-    Route::post('/bulk-replay', [WebhookDlqController::class, 'bulkReplay'])->name('bulk-replay');
-    Route::delete('/{id}', [WebhookDlqController::class, 'destroy'])->name('destroy');
+    Route::post('/{id}/replay', [WebhookDlqController::class, 'replay'])->name('replay')->middleware('check.permission:core.webhooks.manage');
+    Route::post('/bulk-replay', [WebhookDlqController::class, 'bulkReplay'])->name('bulk-replay')->middleware('check.permission:core.webhooks.manage');
+    Route::delete('/{id}', [WebhookDlqController::class, 'destroy'])->name('destroy')->middleware('check.permission:core.webhooks.manage');
 });
 
 /*
@@ -723,10 +723,10 @@ Route::prefix('webhooks/dlq')->name('core.webhooks.dlq.')->middleware(['auth:api
 */
 Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [IpAllowlistController::class, 'index'])->name('index');
-    Route::post('/', [IpAllowlistController::class, 'store'])->name('store');
-    Route::put('/{id}', [IpAllowlistController::class, 'update'])->name('update');
-    Route::delete('/{id}', [IpAllowlistController::class, 'destroy'])->name('destroy');
-    Route::post('/check', [IpAllowlistController::class, 'check'])->name('check');
+    Route::post('/', [IpAllowlistController::class, 'store'])->name('store')->middleware('check.permission:core.ip-allowlist.manage');
+    Route::put('/{id}', [IpAllowlistController::class, 'update'])->name('update')->middleware('check.permission:core.ip-allowlist.manage');
+    Route::delete('/{id}', [IpAllowlistController::class, 'destroy'])->name('destroy')->middleware('check.permission:core.ip-allowlist.manage');
+    Route::post('/check', [IpAllowlistController::class, 'check'])->name('check')->middleware('check.permission:core.ip-allowlist.manage');
 });
 
 /*
@@ -736,7 +736,7 @@ Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware([
 */
 Route::prefix('rate-limits')->name('core.rate-limits.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [TenantRateLimitController::class, 'show'])->name('show');
-    Route::put('/', [TenantRateLimitController::class, 'update'])->name('update');
+    Route::put('/', [TenantRateLimitController::class, 'update'])->name('update')->middleware('check.permission:core.rate-limits.manage');
     Route::get('/stats', [TenantRateLimitController::class, 'stats'])->name('stats');
 });
 
@@ -747,10 +747,10 @@ Route::prefix('rate-limits')->name('core.rate-limits.')->middleware(['auth:api']
 */
 Route::prefix('business-partners')->name('core.bp.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [BusinessPartnerController::class, 'index'])->name('index');
-    Route::post('/', [BusinessPartnerController::class, 'store'])->name('store');
+    Route::post('/', [BusinessPartnerController::class, 'store'])->name('store')->middleware('check.permission:core.business-partners.manage');
     Route::get('/{businessPartner}', [BusinessPartnerController::class, 'show'])->name('show');
-    Route::put('/{businessPartner}', [BusinessPartnerController::class, 'update'])->name('update');
-    Route::post('/{businessPartner}/roles', [BusinessPartnerController::class, 'assignRole'])->name('roles.assign');
-    Route::delete('/{businessPartner}/roles/{roleCode}', [BusinessPartnerController::class, 'revokeRole'])->name('roles.revoke');
-    Route::post('/{businessPartner}/merge', [BusinessPartnerController::class, 'merge'])->name('merge');
+    Route::put('/{businessPartner}', [BusinessPartnerController::class, 'update'])->name('update')->middleware('check.permission:core.business-partners.manage');
+    Route::post('/{businessPartner}/roles', [BusinessPartnerController::class, 'assignRole'])->name('roles.assign')->middleware('check.permission:core.business-partners.manage');
+    Route::delete('/{businessPartner}/roles/{roleCode}', [BusinessPartnerController::class, 'revokeRole'])->name('roles.revoke')->middleware('check.permission:core.business-partners.manage');
+    Route::post('/{businessPartner}/merge', [BusinessPartnerController::class, 'merge'])->name('merge')->middleware('check.permission:core.business-partners.manage');
 });

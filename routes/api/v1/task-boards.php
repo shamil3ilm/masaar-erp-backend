@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\V1\TaskBoard\TaskBoardController;
 use Illuminate\Support\Facades\Route;
 
     // Boards
-    Route::apiResource('boards', TaskBoardController::class)->except(['store']);
+    Route::apiResource('boards', TaskBoardController::class)->except(['store'])
+        ->middlewareFor(['update'], 'check.permission:taskboard.boards.edit')
+        ->middlewareFor(['destroy'], 'check.permission:taskboard.boards.delete');
     Route::post('boards', [TaskBoardController::class, 'store'])->middleware('check.permission:taskboard.boards.create')->name('boards.store');
     Route::post('boards/{board}/members', [TaskBoardController::class, 'addMember']);
     Route::delete('boards/{board}/members/{member}', [TaskBoardController::class, 'removeMember']);

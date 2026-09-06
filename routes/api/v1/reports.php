@@ -143,7 +143,7 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
         // Export & Download
         // ==========================================
         Route::post('/export', [ReportsController::class, 'export'])
-            ->name('api.v1.reports.export');
+            ->name('api.v1.reports.export')->middleware('check.permission:reports.exports.manage');
 
         Route::get('/download/{executionId}', [ReportsController::class, 'download'])
             ->name('api.v1.reports.download');
@@ -159,16 +159,16 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
                 ->name('api.v1.reports.saved.index');
 
             Route::post('/', [ReportsController::class, 'createSavedReport'])
-                ->name('api.v1.reports.saved.store');
+                ->name('api.v1.reports.saved.store')->middleware('check.permission:reports.exports.manage');
 
             Route::put('/{id}', [ReportsController::class, 'updateSavedReport'])
-                ->name('api.v1.reports.saved.update');
+                ->name('api.v1.reports.saved.update')->middleware('check.permission:reports.exports.manage');
 
             Route::delete('/{id}', [ReportsController::class, 'deleteSavedReport'])
-                ->name('api.v1.reports.saved.destroy');
+                ->name('api.v1.reports.saved.destroy')->middleware('check.permission:reports.exports.manage');
 
             Route::post('/{id}/run', [ReportsController::class, 'runSavedReport'])
-                ->name('api.v1.reports.saved.run');
+                ->name('api.v1.reports.saved.run')->middleware('check.permission:reports.exports.manage');
         });
     });
 

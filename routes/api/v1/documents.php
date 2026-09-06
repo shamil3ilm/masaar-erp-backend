@@ -27,10 +27,10 @@ Route::prefix('document-folders')->group(function () {
         ->name('document-folders.show');
 
     Route::put('/{documentFolder}', [DocumentFolderController::class, 'update'])
-        ->name('document-folders.update');
+        ->name('document-folders.update')->middleware('check.permission:documents.folders.manage');
 
     Route::delete('/{documentFolder}', [DocumentFolderController::class, 'destroy'])
-        ->name('document-folders.destroy');
+        ->name('document-folders.destroy')->middleware('check.permission:documents.folders.manage');
 });
 
 // Documents
@@ -44,16 +44,16 @@ Route::prefix('documents')->group(function () {
 
     // Signature verification (does not require a specific document)
     Route::post('/verify-signature', [DocumentController::class, 'verifySignature'])
-        ->name('documents.verify-signature');
+        ->name('documents.verify-signature')->middleware('check.permission:documents.files.manage');
 
     Route::get('/{document}', [DocumentController::class, 'show'])
         ->name('documents.show');
 
     Route::put('/{document}', [DocumentController::class, 'update'])
-        ->name('documents.update');
+        ->name('documents.update')->middleware('check.permission:documents.files.manage');
 
     Route::delete('/{document}', [DocumentController::class, 'destroy'])
-        ->name('documents.destroy');
+        ->name('documents.destroy')->middleware('check.permission:documents.files.manage');
 
     // Download
     Route::get('/{document}/download', [DocumentController::class, 'download'])
@@ -64,24 +64,24 @@ Route::prefix('documents')->group(function () {
         ->name('documents.versions');
 
     Route::post('/{document}/versions', [DocumentController::class, 'uploadVersion'])
-        ->name('documents.versions.store');
+        ->name('documents.versions.store')->middleware('check.permission:documents.versions.manage');
 
     // Sharing
     Route::get('/{document}/shares', [DocumentController::class, 'shares'])
         ->name('documents.shares');
 
     Route::post('/{document}/shares', [DocumentController::class, 'share'])
-        ->name('documents.shares.store');
+        ->name('documents.shares.store')->middleware('check.permission:documents.shares.manage');
 
     Route::post('/{document}/shares/{share}/revoke', [DocumentController::class, 'revokeShare'])
-        ->name('documents.shares.revoke');
+        ->name('documents.shares.revoke')->middleware('check.permission:documents.shares.manage');
 
     // Signatures
     Route::get('/{document}/signatures', [DocumentController::class, 'signatures'])
         ->name('documents.signatures');
 
     Route::post('/{document}/signatures', [DocumentController::class, 'sign'])
-        ->name('documents.signatures.store');
+        ->name('documents.signatures.store')->middleware('check.permission:documents.signatures.manage');
 
     // Activity log
     Route::get('/{document}/activities', [DocumentController::class, 'activities'])
@@ -89,5 +89,5 @@ Route::prefix('documents')->group(function () {
 
     // Move to folder
     Route::post('/{document}/move', [DocumentController::class, 'move'])
-        ->name('documents.move');
+        ->name('documents.move')->middleware('check.permission:documents.files.manage');
 });
