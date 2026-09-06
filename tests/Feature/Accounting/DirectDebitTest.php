@@ -22,6 +22,7 @@ class DirectDebitTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.direct-debit.manage',
+            'accounting.direct-debit.view',
         ]);
     }
 

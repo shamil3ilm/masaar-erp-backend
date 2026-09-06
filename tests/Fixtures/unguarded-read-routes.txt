@@ -1,0 +1,67 @@
+# Read endpoints with no authorization guard beyond authentication and
+# organization scoping.
+#
+# Half the reads in this API were in this state, which made the .view
+# permissions decorative: an organization could not build a role that reads
+# less than everything, because the permission it would withhold was never
+# consulted. What is left is deliberate.
+#
+#   api/v1/auth/me, /branches, /organization, /module-access/{menu,modules,
+#   organization-modules} - what the UI reads to render itself. Gating these
+#   blanks the navigation for everyone.
+#
+#   api/v1/hr/me/*, /notifications*, /events* - the caller's own record.
+#
+#   api/v1/portal/* - the customer portal, which authenticates with its own
+#   session token rather than a staff JWT.
+#
+#   api/v1/hr/directory, /hr/holidays, /trade/incoterms - who works here, when
+#   the office is shut, and a published list of trade terms.
+#
+#   api/v1/sensitive/{type}/{id}/reveal - guarded by a step-up token from a
+#   re-authentication, checked against the resource and audited. Stronger than
+#   a permission, and not visible as middleware.
+#
+# A ratchet: adding a route here is how a new ungated read gets past the build.
+
+GET api/v1/auth/me
+GET api/v1/branches
+GET api/v1/events
+GET api/v1/events/summary
+GET api/v1/hr/directory
+GET api/v1/hr/holidays
+GET api/v1/hr/me/attendance
+GET api/v1/hr/me/documents
+GET api/v1/hr/me/leave-balances
+GET api/v1/hr/me/leave-requests
+GET api/v1/hr/me/loans
+GET api/v1/hr/me/payslips
+GET api/v1/hr/me/payslips/{id}
+GET api/v1/hr/me/payslips/{id}/download
+GET api/v1/hr/me/profile
+GET api/v1/hr/me/salary-breakdown
+GET api/v1/module-access/menu
+GET api/v1/module-access/modules
+GET api/v1/module-access/organization-modules
+GET api/v1/notifications
+GET api/v1/notifications/preferences
+GET api/v1/notifications/types
+GET api/v1/notifications/unread-count
+GET api/v1/organization
+GET api/v1/portal/dashboard
+GET api/v1/portal/invoices
+GET api/v1/portal/invoices-list
+GET api/v1/portal/invoices/{id}
+GET api/v1/portal/invoices/{invoice}/detail
+GET api/v1/portal/orders
+GET api/v1/portal/orders-list
+GET api/v1/portal/orders/{salesOrder}/detail
+GET api/v1/portal/outstanding-balance
+GET api/v1/portal/payments
+GET api/v1/portal/profile
+GET api/v1/portal/quotations
+GET api/v1/portal/quotations-list
+GET api/v1/portal/statement
+GET api/v1/sensitive/{resourceType}/{resourceId}/reveal
+GET api/v1/trade/incoterms
+GET api/v1/trade/incoterms/{incoterm}

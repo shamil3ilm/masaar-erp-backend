@@ -8,19 +8,19 @@ use Illuminate\Support\Facades\Route;
 
 // Customs Tariff Codes
 Route::prefix('tariff-codes')->group(function () {
-    Route::get('/', [CustomsTariffController::class, 'index']);
+    Route::get('/', [CustomsTariffController::class, 'index'])->middleware('check.permission:customs.tariff-codes.view');
     Route::post('/', [CustomsTariffController::class, 'store'])->middleware('check.permission:customs.tariff-codes.create');
-    Route::get('/lookup/{code}', [CustomsTariffController::class, 'lookup']);
-    Route::get('/{tariffCode}', [CustomsTariffController::class, 'show']);
+    Route::get('/lookup/{code}', [CustomsTariffController::class, 'lookup'])->middleware('check.permission:customs.tariff-codes.view');
+    Route::get('/{tariffCode}', [CustomsTariffController::class, 'show'])->middleware('check.permission:customs.tariff-codes.view');
     Route::put('/{tariffCode}', [CustomsTariffController::class, 'update'])->middleware('check.permission:customs.tariff-codes.manage');
     Route::delete('/{tariffCode}', [CustomsTariffController::class, 'destroy'])->middleware('check.permission:customs.tariff-codes.manage');
 });
 
 // Customs Declarations
 Route::prefix('declarations')->group(function () {
-    Route::get('/', [CustomsDeclarationController::class, 'index']);
+    Route::get('/', [CustomsDeclarationController::class, 'index'])->middleware('check.permission:customs.declarations.view');
     Route::post('/', [CustomsDeclarationController::class, 'store'])->middleware('check.permission:customs.declarations.create');
-    Route::get('/{declaration}', [CustomsDeclarationController::class, 'show']);
+    Route::get('/{declaration}', [CustomsDeclarationController::class, 'show'])->middleware('check.permission:customs.declarations.view');
     Route::put('/{declaration}', [CustomsDeclarationController::class, 'update'])->middleware('check.permission:customs.declarations.manage');
     Route::delete('/{declaration}', [CustomsDeclarationController::class, 'destroy'])->middleware('check.permission:customs.declarations.manage');
     Route::post('/{declaration}/submit', [CustomsDeclarationController::class, 'submit'])->middleware('check.permission:customs.declarations.manage');
@@ -32,9 +32,9 @@ Route::prefix('declarations')->group(function () {
 
 // Excise Categories
 Route::prefix('excise-categories')->group(function () {
-    Route::get('/', [ExciseCategoryController::class, 'index']);
+    Route::get('/', [ExciseCategoryController::class, 'index'])->middleware('check.permission:customs.excise-categories.view');
     Route::post('/', [ExciseCategoryController::class, 'store'])->middleware('check.permission:customs.excise-categories.create');
-    Route::get('/{category}', [ExciseCategoryController::class, 'show']);
+    Route::get('/{category}', [ExciseCategoryController::class, 'show'])->middleware('check.permission:customs.excise-categories.view');
     Route::put('/{category}', [ExciseCategoryController::class, 'update'])->middleware('check.permission:customs.excise-categories.manage');
     Route::delete('/{category}', [ExciseCategoryController::class, 'destroy'])->middleware('check.permission:customs.excise-categories.manage');
     Route::post('/{category}/rates', [ExciseCategoryController::class, 'addRate'])->middleware('check.permission:customs.excise-categories.manage');
@@ -43,9 +43,9 @@ Route::prefix('excise-categories')->group(function () {
 
 // Excise Declarations
 Route::prefix('excise-declarations')->group(function () {
-    Route::get('/', [ExciseDeclarationController::class, 'index']);
+    Route::get('/', [ExciseDeclarationController::class, 'index'])->middleware('check.permission:customs.excise-declarations.view');
     Route::post('/', [ExciseDeclarationController::class, 'store'])->middleware('check.permission:customs.excise-declarations.manage');
-    Route::get('/{declaration}', [ExciseDeclarationController::class, 'show']);
+    Route::get('/{declaration}', [ExciseDeclarationController::class, 'show'])->middleware('check.permission:customs.excise-declarations.view');
     Route::put('/{declaration}', [ExciseDeclarationController::class, 'update'])->middleware('check.permission:customs.excise-declarations.manage');
     Route::delete('/{declaration}', [ExciseDeclarationController::class, 'destroy'])->middleware('check.permission:customs.excise-declarations.manage');
     Route::post('/{declaration}/submit', [ExciseDeclarationController::class, 'submit'])->middleware('check.permission:customs.excise-declarations.manage');

@@ -19,6 +19,7 @@ class InternalOrderTest extends TestCase
         parent::setUp();
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
+            'accounting.internal-orders.view',
             'accounting.internal-orders.manage',
         ]);
     }

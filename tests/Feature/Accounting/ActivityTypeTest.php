@@ -22,6 +22,7 @@ class ActivityTypeTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.activity-types.manage',
+            'accounting.activity-types.view',
         ]);
     }
 

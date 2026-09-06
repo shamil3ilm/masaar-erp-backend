@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('modules/{module}')->group(function () {
     // List all registered checks for the module
     Route::get('/checks', [ModuleReadinessController::class, 'listChecks'])
-        ->name('module-readiness.checks.index');
+        ->name('module-readiness.checks.index')->middleware('check.permission:core.settings.view');
 
     // Run checks and persist result
     Route::post('/run-checks', [ModuleReadinessController::class, 'runChecks'])

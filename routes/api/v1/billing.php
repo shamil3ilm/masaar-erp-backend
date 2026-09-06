@@ -50,8 +50,8 @@ Route::prefix('invoices')->group(function () {
 Route::prefix('usage')->group(function () {
     Route::get('/', [UsageController::class, 'index'])
         ->middleware('check.permission:billing.usage.view');
-    Route::get('/summary', [UsageController::class, 'summary']);
-    Route::get('/history', [UsageController::class, 'history']);
+    Route::get('/summary', [UsageController::class, 'summary'])->middleware('check.permission:billing.usage.view');
+    Route::get('/history', [UsageController::class, 'history'])->middleware('check.permission:billing.usage.view');
     Route::get('/alerts', [UsageController::class, 'alerts'])
         ->middleware('check.permission:billing.usage.view');
 });

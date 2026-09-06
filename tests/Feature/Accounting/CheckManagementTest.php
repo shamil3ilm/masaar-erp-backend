@@ -23,6 +23,7 @@ class CheckManagementTest extends TestCase
         $this->setUpAuthenticatedUser([
             'accounting.check-books.manage',
             'accounting.checks.manage',
+            'accounting.check-books.view',
         ]);
     }
 

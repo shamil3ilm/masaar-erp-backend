@@ -20,6 +20,7 @@ class BankGuaranteeTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.bank-guarantees.manage',
+            'accounting.bank-guarantees.view',
         ]);
     }
 

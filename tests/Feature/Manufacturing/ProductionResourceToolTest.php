@@ -19,6 +19,7 @@ class ProductionResourceToolTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser([
             'manufacturing.planning.manage',
+            'manufacturing.planning.view',
         ]);
     }
 

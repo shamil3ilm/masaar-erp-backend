@@ -102,7 +102,7 @@ Route::prefix('settings')->group(function () {
         ->name('settings.index');
 
     Route::get('/definitions', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'getDefinitions'])
-        ->name('settings.definitions');
+        ->name('settings.definitions')->middleware('check.permission:core.settings.view');
 
     Route::put('/bulk', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'updateMany'])
         ->middleware('check.permission:core.settings.edit')
@@ -154,13 +154,13 @@ Route::prefix('settings')->group(function () {
 // User preferences routes (personal settings)
 Route::prefix('preferences')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'getUserPreferences'])
-        ->name('preferences.index');
+        ->name('preferences.index')->middleware('check.permission:core.settings.view');
 
     Route::put('/bulk', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'setUserPreferences'])
         ->name('preferences.update-many');
 
     Route::get('/{key}', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'getUserPreference'])
-        ->name('preferences.show');
+        ->name('preferences.show')->middleware('check.permission:core.settings.view');
 
     Route::put('/{key}', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'setUserPreference'])
         ->name('preferences.update');
@@ -180,7 +180,7 @@ Route::prefix('features')->group(function () {
         ->name('features.available');
 
     Route::get('/{feature}', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'checkFeature'])
-        ->name('features.check');
+        ->name('features.check')->middleware('check.permission:core.settings.view');
 
     Route::post('/{feature}/enable', [\App\Http\Controllers\Api\V1\Core\SettingsController::class, 'enableFeature'])
         ->middleware('check.permission:core.settings.edit')
@@ -281,11 +281,11 @@ Route::prefix('print')->group(function () {
 Route::prefix('localization')->group(function () {
     // Get all localization data for frontend
     Route::get('/', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'index'])
-        ->name('localization.index');
+        ->name('localization.index')->middleware('check.permission:core.settings.view');
 
     // Languages
     Route::get('/languages', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'languages'])
-        ->name('localization.languages');
+        ->name('localization.languages')->middleware('check.permission:core.settings.view');
 
     // Set user language preference
     Route::post('/language', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'setUserLanguage'])
@@ -293,10 +293,10 @@ Route::prefix('localization')->group(function () {
 
     // Translations
     Route::get('/translations/{languageCode}', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'translations'])
-        ->name('localization.translations');
+        ->name('localization.translations')->middleware('check.permission:core.settings.view');
 
     Route::get('/translations/{languageCode}/{group}', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'translationGroup'])
-        ->name('localization.translations.group');
+        ->name('localization.translations.group')->middleware('check.permission:core.settings.view');
 
     Route::post('/translations', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'updateTranslation'])
         ->middleware('check.permission:core.settings.edit')
@@ -307,7 +307,7 @@ Route::prefix('localization')->group(function () {
         ->name('localization.translations.update-bulk');
 
     Route::get('/translation-groups', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'translationGroups'])
-        ->name('localization.translation-groups');
+        ->name('localization.translation-groups')->middleware('check.permission:core.settings.view');
 
     // Branding
     Route::get('/branding', [\App\Http\Controllers\Api\V1\Core\LocalizationController::class, 'getBranding'])
@@ -328,27 +328,27 @@ Route::prefix('dashboard')->group(function () {
     // Main dashboard data
     Route::get('/', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'index'])
         
-        ->name('dashboard.index');
+        ->name('dashboard.index')->middleware('check.permission:core.dashboards.view');
 
     // Quick stats (combined overview from all modules)
     Route::get('/quick-stats', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'quickStats'])
         
-        ->name('dashboard.quick-stats');
+        ->name('dashboard.quick-stats')->middleware('check.permission:core.dashboards.view');
 
     // Available widgets
     Route::get('/widgets', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'widgets'])
         
-        ->name('dashboard.widgets');
+        ->name('dashboard.widgets')->middleware('check.permission:core.dashboards.view');
 
     // Single widget data
     Route::get('/widgets/{widgetCode}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'widget'])
         
-        ->name('dashboard.widget');
+        ->name('dashboard.widget')->middleware('check.permission:core.dashboards.view');
 
     // Layouts
     Route::get('/layouts', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'layouts'])
         
-        ->name('dashboard.layouts');
+        ->name('dashboard.layouts')->middleware('check.permission:core.dashboards.view');
 
     Route::post('/layouts', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'createLayout'])
         
@@ -356,7 +356,7 @@ Route::prefix('dashboard')->group(function () {
 
     Route::get('/layouts/{id}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'layout'])
         
-        ->name('dashboard.layouts.show');
+        ->name('dashboard.layouts.show')->middleware('check.permission:core.dashboards.view');
 
     Route::put('/layouts/{id}', [\App\Http\Controllers\Api\V1\Core\DashboardController::class, 'updateLayout'])
         
@@ -390,31 +390,31 @@ Route::prefix('modules')->group(function () {
     // Get all available modules and their status
     Route::get('/', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'index'])
         
-        ->name('modules.index');
+        ->name('modules.index')->middleware('check.permission:core.users.view');
 
     // Get enabled modules for current user (for navigation)
     Route::get('/user', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'userModules'])
         
-        ->name('modules.user');
+        ->name('modules.user')->middleware('check.permission:core.users.view');
 
     // Get module summary for dashboard
     Route::get('/summary', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'summary'])
         
-        ->name('modules.summary');
+        ->name('modules.summary')->middleware('check.permission:core.users.view');
 
     // Get subscription tiers
     Route::get('/tiers', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'tiers'])
         
-        ->name('modules.tiers');
+        ->name('modules.tiers')->middleware('check.permission:core.users.view');
 
     // Check if module is enabled
     Route::get('/check/{moduleCode}', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'check'])
         
-        ->name('modules.check');
+        ->name('modules.check')->middleware('check.permission:core.users.view');
 
     // Check if feature is enabled
     Route::get('/check/{moduleCode}/{feature}', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'checkFeature'])
-        ->name('modules.check-feature');
+        ->name('modules.check-feature')->middleware('check.permission:core.users.view');
 
     Route::patch('/{moduleCode}/active', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'setActive'])
         ->middleware('check.permission:core.settings.edit')
@@ -427,7 +427,7 @@ Route::prefix('modules')->group(function () {
 
     // User-specific module access
     Route::get('/users/{userId}/access', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'getUserAccess'])
-        ->name('modules.user-access.show');
+        ->name('modules.user-access.show')->middleware('check.permission:core.users.view');
 
     Route::put('/users/{userId}/access', [\App\Http\Controllers\Api\V1\Core\ModuleController::class, 'setUserAccess'])
         ->middleware('check.permission:core.users.edit')
@@ -481,19 +481,19 @@ Route::prefix('notifications')->group(function () {
 Route::prefix('imports')->group(function () {
     // Get available entity types for import
     Route::get('/entity-types', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'entityTypes'])
-        ->name('imports.entity-types');
+        ->name('imports.entity-types')->middleware('check.permission:core.imports.view');
 
     // Get import history
     Route::get('/history', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'history'])
-        ->name('imports.history');
+        ->name('imports.history')->middleware('check.permission:core.imports.view');
 
     // Download sample import template
     Route::get('/sample/{entityType}', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'sampleTemplate'])
-        ->name('imports.sample-template');
+        ->name('imports.sample-template')->middleware('check.permission:core.imports.view');
 
     // Import templates management
     Route::get('/templates', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'templates'])
-        ->name('imports.templates.index');
+        ->name('imports.templates.index')->middleware('check.permission:core.imports.view');
 
     Route::post('/templates', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'saveTemplate'])
         ->name('imports.templates.store')->middleware('check.permission:core.imports.manage');
@@ -504,10 +504,10 @@ Route::prefix('imports')->group(function () {
 
     // Import job operations
     Route::get('/{uuid}', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'status'])
-        ->name('imports.status');
+        ->name('imports.status')->middleware('check.permission:core.imports.view');
 
     Route::get('/{uuid}/preview', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'preview'])
-        ->name('imports.preview');
+        ->name('imports.preview')->middleware('check.permission:core.imports.view');
 
     Route::post('/{uuid}/configure', [\App\Http\Controllers\Api\V1\Core\ImportController::class, 'configure'])
         ->name('imports.configure')->middleware('check.permission:core.imports.manage');
@@ -523,11 +523,11 @@ Route::prefix('imports')->group(function () {
 Route::prefix('exports')->group(function () {
     // Get available entity types for export
     Route::get('/entity-types', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'entityTypes'])
-        ->name('exports.entity-types');
+        ->name('exports.entity-types')->middleware('check.permission:core.exports.view');
 
     // Get export history
     Route::get('/history', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'history'])
-        ->name('exports.history');
+        ->name('exports.history')->middleware('check.permission:core.exports.view');
 
     // Create export job
     Route::post('/', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'create'])
@@ -539,21 +539,21 @@ Route::prefix('exports')->group(function () {
 
     // Export job operations
     Route::get('/{uuid}', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'status'])
-        ->name('exports.status');
+        ->name('exports.status')->middleware('check.permission:core.exports.view');
 
     Route::get('/{uuid}/download', [\App\Http\Controllers\Api\V1\Core\ExportController::class, 'download'])
-        ->name('api.v1.exports.download');
+        ->name('api.v1.exports.download')->middleware('check.permission:core.exports.view');
 });
 
 // Webhook routes
 Route::prefix('webhooks')->group(function () {
     // Get available webhook events
     Route::get('/events', [\App\Http\Controllers\Api\V1\Core\WebhookController::class, 'events'])
-        ->name('webhooks.events');
+        ->name('webhooks.events')->middleware('check.permission:core.settings.view');
 
     // Get recent event history
     Route::get('/events/history', [\App\Http\Controllers\Api\V1\Core\WebhookController::class, 'events_history'])
-        ->name('webhooks.events.history');
+        ->name('webhooks.events.history')->middleware('check.permission:core.settings.view');
 
     // List webhooks
     Route::get('/', [\App\Http\Controllers\Api\V1\Core\WebhookController::class, 'index'])
@@ -663,28 +663,28 @@ Route::prefix('sensitive-access')->group(function () {
 
 // Change Transport (SAP CTS equivalent)
 Route::prefix('change-transport')->name('core.change-transport.')->group(function () {
-    Route::get('/', [ChangeTransportController::class, 'index'])->name('index');
+    Route::get('/', [ChangeTransportController::class, 'index'])->name('index')->middleware('super.admin');
     Route::post('/', [ChangeTransportController::class, 'store'])->name('store')->middleware('super.admin');
-    Route::get('/open', [ChangeTransportController::class, 'openRequests'])->name('open');
-    Route::get('/{id}', [ChangeTransportController::class, 'show'])->name('show');
+    Route::get('/open', [ChangeTransportController::class, 'openRequests'])->name('open')->middleware('super.admin');
+    Route::get('/{id}', [ChangeTransportController::class, 'show'])->name('show')->middleware('super.admin');
     Route::put('/{id}', [ChangeTransportController::class, 'update'])->name('update')->middleware('super.admin');
-    Route::get('/{id}/objects', [ChangeTransportController::class, 'objects'])->name('objects');
+    Route::get('/{id}/objects', [ChangeTransportController::class, 'objects'])->name('objects')->middleware('super.admin');
     Route::post('/{id}/objects', [ChangeTransportController::class, 'addObject'])->name('objects.add')->middleware('super.admin');
     Route::post('/{id}/release', [ChangeTransportController::class, 'release'])->name('release')->middleware('super.admin');
     Route::post('/{id}/import', [ChangeTransportController::class, 'import'])->name('import')->middleware('super.admin');
     Route::post('/{id}/rollback', [ChangeTransportController::class, 'rollback'])->name('rollback')->middleware('super.admin');
-    Route::get('/{id}/history', [ChangeTransportController::class, 'history'])->name('history');
+    Route::get('/{id}/history', [ChangeTransportController::class, 'history'])->name('history')->middleware('super.admin');
 });
 
 // Job Monitor (SAP SM37 equivalent)
 Route::prefix('job-monitor')->name('core.job-monitor.')->group(function () {
-    Route::get('/', [JobMonitorController::class, 'index'])->name('index');
-    Route::get('/stats', [JobMonitorController::class, 'stats'])->name('stats');
-    Route::get('/running', [JobMonitorController::class, 'running'])->name('running');
-    Route::get('/failed', [JobMonitorController::class, 'failed'])->name('failed');
+    Route::get('/', [JobMonitorController::class, 'index'])->name('index')->middleware('super.admin');
+    Route::get('/stats', [JobMonitorController::class, 'stats'])->name('stats')->middleware('super.admin');
+    Route::get('/running', [JobMonitorController::class, 'running'])->name('running')->middleware('super.admin');
+    Route::get('/failed', [JobMonitorController::class, 'failed'])->name('failed')->middleware('super.admin');
     Route::post('/cleanup', [JobMonitorController::class, 'cleanup'])->name('cleanup')->middleware('super.admin');
-    Route::get('/{id}', [JobMonitorController::class, 'show'])->name('show');
-    Route::get('/{id}/logs', [JobMonitorController::class, 'logs'])->name('logs');
+    Route::get('/{id}', [JobMonitorController::class, 'show'])->name('show')->middleware('super.admin');
+    Route::get('/{id}/logs', [JobMonitorController::class, 'logs'])->name('logs')->middleware('super.admin');
     Route::post('/{id}/retry', [JobMonitorController::class, 'retry'])->name('retry')->middleware('super.admin');
 });
 
@@ -694,10 +694,10 @@ Route::prefix('job-monitor')->name('core.job-monitor.')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('gdpr')->name('core.gdpr.')->middleware(['auth:api'])->group(function (): void {
-    Route::get('/requests', [GdprController::class, 'requests'])->name('requests.index');
+    Route::get('/requests', [GdprController::class, 'requests'])->name('requests.index')->middleware('check.permission:core.gdpr.view');
     Route::post('/requests', [GdprController::class, 'submitRequest'])->name('requests.store')->middleware('check.permission:core.gdpr.manage');
     Route::put('/requests/{id}/process', [GdprController::class, 'processRequest'])->name('requests.process')->middleware('check.permission:core.gdpr.manage');
-    Route::get('/processing-register', [GdprController::class, 'processingRegister'])->name('register');
+    Route::get('/processing-register', [GdprController::class, 'processingRegister'])->name('register')->middleware('check.permission:core.gdpr.view');
     Route::post('/processing-register', [GdprController::class, 'storeActivity'])->name('register.store')->middleware('check.permission:core.gdpr.manage');
     Route::post('/consent', [GdprController::class, 'recordConsent'])->name('consent.store')->middleware('check.permission:core.gdpr.manage');
     Route::delete('/consent/{id}', [GdprController::class, 'withdrawConsent'])->name('consent.withdraw')->middleware('check.permission:core.gdpr.manage');
@@ -709,8 +709,8 @@ Route::prefix('gdpr')->name('core.gdpr.')->middleware(['auth:api'])->group(funct
 |--------------------------------------------------------------------------
 */
 Route::prefix('webhooks/dlq')->name('core.webhooks.dlq.')->middleware(['auth:api'])->group(function (): void {
-    Route::get('/', [WebhookDlqController::class, 'index'])->name('index');
-    Route::get('/summary', [WebhookDlqController::class, 'summary'])->name('summary');
+    Route::get('/', [WebhookDlqController::class, 'index'])->name('index')->middleware('check.permission:core.webhooks.view');
+    Route::get('/summary', [WebhookDlqController::class, 'summary'])->name('summary')->middleware('check.permission:core.webhooks.view');
     Route::post('/{id}/replay', [WebhookDlqController::class, 'replay'])->name('replay')->middleware('check.permission:core.webhooks.manage');
     Route::post('/bulk-replay', [WebhookDlqController::class, 'bulkReplay'])->name('bulk-replay')->middleware('check.permission:core.webhooks.manage');
     Route::delete('/{id}', [WebhookDlqController::class, 'destroy'])->name('destroy')->middleware('check.permission:core.webhooks.manage');
@@ -722,7 +722,7 @@ Route::prefix('webhooks/dlq')->name('core.webhooks.dlq.')->middleware(['auth:api
 |--------------------------------------------------------------------------
 */
 Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware(['auth:api'])->group(function (): void {
-    Route::get('/', [IpAllowlistController::class, 'index'])->name('index');
+    Route::get('/', [IpAllowlistController::class, 'index'])->name('index')->middleware('super.admin');
     Route::post('/', [IpAllowlistController::class, 'store'])->name('store')->middleware('super.admin');
     Route::put('/{id}', [IpAllowlistController::class, 'update'])->name('update')->middleware('super.admin');
     Route::delete('/{id}', [IpAllowlistController::class, 'destroy'])->name('destroy')->middleware('super.admin');
@@ -735,9 +735,9 @@ Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware([
 |--------------------------------------------------------------------------
 */
 Route::prefix('rate-limits')->name('core.rate-limits.')->middleware(['auth:api'])->group(function (): void {
-    Route::get('/', [TenantRateLimitController::class, 'show'])->name('show');
+    Route::get('/', [TenantRateLimitController::class, 'show'])->name('show')->middleware('super.admin');
     Route::put('/', [TenantRateLimitController::class, 'update'])->name('update')->middleware('super.admin');
-    Route::get('/stats', [TenantRateLimitController::class, 'stats'])->name('stats');
+    Route::get('/stats', [TenantRateLimitController::class, 'stats'])->name('stats')->middleware('super.admin');
 });
 
 /*
@@ -746,9 +746,9 @@ Route::prefix('rate-limits')->name('core.rate-limits.')->middleware(['auth:api']
 |--------------------------------------------------------------------------
 */
 Route::prefix('business-partners')->name('core.bp.')->middleware(['auth:api'])->group(function (): void {
-    Route::get('/', [BusinessPartnerController::class, 'index'])->name('index');
+    Route::get('/', [BusinessPartnerController::class, 'index'])->name('index')->middleware('check.permission:core.business-partners.view');
     Route::post('/', [BusinessPartnerController::class, 'store'])->name('store')->middleware('check.permission:core.business-partners.manage');
-    Route::get('/{businessPartner}', [BusinessPartnerController::class, 'show'])->name('show');
+    Route::get('/{businessPartner}', [BusinessPartnerController::class, 'show'])->name('show')->middleware('check.permission:core.business-partners.view');
     Route::put('/{businessPartner}', [BusinessPartnerController::class, 'update'])->name('update')->middleware('check.permission:core.business-partners.manage');
     Route::post('/{businessPartner}/roles', [BusinessPartnerController::class, 'assignRole'])->name('roles.assign')->middleware('check.permission:core.business-partners.manage');
     Route::delete('/{businessPartner}/roles/{roleCode}', [BusinessPartnerController::class, 'revokeRole'])->name('roles.revoke')->middleware('check.permission:core.business-partners.manage');

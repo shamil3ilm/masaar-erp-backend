@@ -13,12 +13,12 @@ use Illuminate\Support\Facades\Route;
 
 // GRC — Audit Finding Lifecycle (SAP GRC-IA)
 Route::prefix('audit')->group(function (): void {
-    Route::get('engagements', [AuditFindingController::class, 'indexEngagements']);
+    Route::get('engagements', [AuditFindingController::class, 'indexEngagements'])->middleware('check.permission:compliance.audit.view');
     Route::post('engagements', [AuditFindingController::class, 'storeEngagement'])->middleware('check.permission:compliance.audit.manage');
-    Route::get('findings/dashboard', [AuditFindingController::class, 'dashboard']);
-    Route::get('findings', [AuditFindingController::class, 'index']);
+    Route::get('findings/dashboard', [AuditFindingController::class, 'dashboard'])->middleware('check.permission:compliance.audit.view');
+    Route::get('findings', [AuditFindingController::class, 'index'])->middleware('check.permission:compliance.audit.view');
     Route::post('findings', [AuditFindingController::class, 'store'])->middleware('check.permission:compliance.audit.manage');
-    Route::get('findings/{uuid}', [AuditFindingController::class, 'show']);
+    Route::get('findings/{uuid}', [AuditFindingController::class, 'show'])->middleware('check.permission:compliance.audit.view');
     Route::post('findings/{uuid}/assign', [AuditFindingController::class, 'assign'])->middleware('check.permission:compliance.audit.manage');
     Route::post('findings/{uuid}/remediate', [AuditFindingController::class, 'submitRemediation'])->middleware('check.permission:compliance.audit.manage');
     Route::post('findings/{uuid}/verify', [AuditFindingController::class, 'verify'])->middleware('check.permission:compliance.audit.manage');
@@ -27,60 +27,60 @@ Route::prefix('audit')->group(function (): void {
 
 // GRC — Segregation of Duties (SAP GRC-AC)
 Route::prefix('sod')->group(function (): void {
-    Route::get('functions', [SodController::class, 'indexFunctions']);
+    Route::get('functions', [SodController::class, 'indexFunctions'])->middleware('check.permission:compliance.sod.view');
     Route::post('functions', [SodController::class, 'storeFunction'])->middleware('check.permission:compliance.sod.manage');
-    Route::get('conflicts', [SodController::class, 'indexConflicts']);
+    Route::get('conflicts', [SodController::class, 'indexConflicts'])->middleware('check.permission:compliance.sod.view');
     Route::post('conflicts', [SodController::class, 'storeConflict'])->middleware('check.permission:compliance.sod.manage');
-    Route::get('violations', [SodController::class, 'indexViolations']);
+    Route::get('violations', [SodController::class, 'indexViolations'])->middleware('check.permission:compliance.sod.view');
     Route::post('scan', [SodController::class, 'runScan'])->middleware('check.permission:compliance.sod.manage');
-    Route::get('users/{userId}/review', [SodController::class, 'reviewUser']);
+    Route::get('users/{userId}/review', [SodController::class, 'reviewUser'])->middleware('check.permission:compliance.sod.view');
     Route::post('violations/{uuid}/accept-risk', [SodController::class, 'acceptRisk'])->middleware('check.permission:compliance.sod.manage');
 });
 
 // GRC — Control Self-Assessment (SAP GRC-PC)
 Route::prefix('csa')->group(function (): void {
-    Route::get('questionnaires', [CsaController::class, 'index']);
+    Route::get('questionnaires', [CsaController::class, 'index'])->middleware('check.permission:compliance.csa.view');
     Route::post('questionnaires', [CsaController::class, 'store'])->middleware('check.permission:compliance.csa.manage');
-    Route::get('questionnaires/{uuid}', [CsaController::class, 'show']);
+    Route::get('questionnaires/{uuid}', [CsaController::class, 'show'])->middleware('check.permission:compliance.csa.view');
     Route::post('questionnaires/{uuid}/publish', [CsaController::class, 'publish'])->middleware('check.permission:compliance.csa.manage');
     Route::post('questionnaires/{uuid}/responses', [CsaController::class, 'respond'])->middleware('check.permission:compliance.csa.manage');
-    Route::get('questionnaires/{uuid}/completion', [CsaController::class, 'completion']);
+    Route::get('questionnaires/{uuid}/completion', [CsaController::class, 'completion'])->middleware('check.permission:compliance.csa.view');
     Route::post('questionnaires/{uuid}/review', [CsaController::class, 'review'])->middleware('check.permission:compliance.csa.manage');
 });
 
 // GRC — Continuous Controls Monitoring (SAP GRC-PC CCM)
 Route::prefix('ccm')->group(function (): void {
-    Route::get('monitors', [CcmController::class, 'indexMonitors']);
+    Route::get('monitors', [CcmController::class, 'indexMonitors'])->middleware('check.permission:compliance.ccm.view');
     Route::post('monitors', [CcmController::class, 'storeMonitor'])->middleware('check.permission:compliance.ccm.manage');
     Route::post('monitors/{uuid}/run', [CcmController::class, 'runMonitor'])->middleware('check.permission:compliance.ccm.manage');
-    Route::get('exceptions', [CcmController::class, 'indexExceptions']);
+    Route::get('exceptions', [CcmController::class, 'indexExceptions'])->middleware('check.permission:compliance.ccm.view');
     Route::post('exceptions/{uuid}/resolve', [CcmController::class, 'resolveException'])->middleware('check.permission:compliance.ccm.manage');
-    Route::get('dashboard', [CcmController::class, 'dashboard']);
+    Route::get('dashboard', [CcmController::class, 'dashboard'])->middleware('check.permission:compliance.ccm.view');
 });
 
 // GRC — Risk Management (SAP GRC-RM)
 Route::prefix('rm')->group(function (): void {
-    Route::get('dashboard', [RiskManagementController::class, 'dashboard']);
-    Route::get('heat-map', [RiskManagementController::class, 'heatMap']);
+    Route::get('dashboard', [RiskManagementController::class, 'dashboard'])->middleware('check.permission:compliance.risk.view');
+    Route::get('heat-map', [RiskManagementController::class, 'heatMap'])->middleware('check.permission:compliance.risk.view');
 
-    Route::get('categories', [RiskManagementController::class, 'indexCategories']);
+    Route::get('categories', [RiskManagementController::class, 'indexCategories'])->middleware('check.permission:compliance.risk.view');
     Route::post('categories', [RiskManagementController::class, 'storeCategory'])->middleware('check.permission:compliance.risk.manage');
 
-    Route::get('risks', [RiskManagementController::class, 'index']);
+    Route::get('risks', [RiskManagementController::class, 'index'])->middleware('check.permission:compliance.risk.view');
     Route::post('risks', [RiskManagementController::class, 'store'])->middleware('check.permission:compliance.risk.manage');
-    Route::get('risks/{uuid}', [RiskManagementController::class, 'show']);
+    Route::get('risks/{uuid}', [RiskManagementController::class, 'show'])->middleware('check.permission:compliance.risk.view');
     Route::post('risks/{uuid}/assess', [RiskManagementController::class, 'assess'])->middleware('check.permission:compliance.risk.manage');
     Route::post('risks/{uuid}/treatments', [RiskManagementController::class, 'addTreatment'])->middleware('check.permission:compliance.risk.manage');
     Route::put('treatments/{treatmentUuid}', [RiskManagementController::class, 'updateTreatment'])->middleware('check.permission:compliance.risk.manage');
 
-    Route::get('kris', [KriController::class, 'index']);
+    Route::get('kris', [KriController::class, 'index'])->middleware('check.permission:compliance.risk.view');
     Route::post('kris', [KriController::class, 'store'])->middleware('check.permission:compliance.risk.manage');
-    Route::get('kris/{uuid}', [KriController::class, 'show']);
+    Route::get('kris/{uuid}', [KriController::class, 'show'])->middleware('check.permission:compliance.risk.view');
     Route::post('kris/{uuid}/readings', [KriController::class, 'recordReading'])->middleware('check.permission:compliance.risk.manage');
-    Route::get('kris/{uuid}/readings', [KriController::class, 'readings']);
+    Route::get('kris/{uuid}/readings', [KriController::class, 'readings'])->middleware('check.permission:compliance.risk.view');
 });
 
 // GRC — Control Library (SAP GRC-PC)
 Route::prefix('pc')->group(function (): void {
-    Route::apiResource('controls', ControlLibraryController::class)->names('grc.pc.controls')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:compliance.process-control.manage');
+    Route::apiResource('controls', ControlLibraryController::class)->names('grc.pc.controls')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:compliance.process-control.manage')->middlewareFor(['index', 'show'], 'check.permission:compliance.process-control.view');
 });

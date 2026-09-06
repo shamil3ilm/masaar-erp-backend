@@ -20,6 +20,7 @@ class VarianceAnalysisTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.variance.manage',
+            'accounting.variance.view',
         ]);
     }
 

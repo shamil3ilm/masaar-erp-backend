@@ -21,6 +21,7 @@ class CostSplittingTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.cost-splitting.manage',
+            'accounting.cost-splitting.view',
         ]);
     }
 

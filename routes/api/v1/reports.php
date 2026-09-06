@@ -19,15 +19,15 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
     |--------------------------------------------------------------------------
     */
     Route::prefix('reports/dashboard')->middleware('check.permission:reports.dashboard.view')->group(function () {
-        Route::get('/', [DashboardController::class, 'index']);
-        Route::get('/sales', [DashboardController::class, 'sales']);
-        Route::get('/purchase', [DashboardController::class, 'purchase']);
-        Route::get('/inventory', [DashboardController::class, 'inventory']);
-        Route::get('/hr', [DashboardController::class, 'hr']);
-        Route::get('/crm', [DashboardController::class, 'crm']);
-        Route::get('/manufacturing', [DashboardController::class, 'manufacturing']);
-        Route::get('/recent-activity', [DashboardController::class, 'recentActivity']);
-        Route::get('/alerts', [DashboardController::class, 'alerts']);
+        Route::get('/', [DashboardController::class, 'index'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/sales', [DashboardController::class, 'sales'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/purchase', [DashboardController::class, 'purchase'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/inventory', [DashboardController::class, 'inventory'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/hr', [DashboardController::class, 'hr'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/crm', [DashboardController::class, 'crm'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/manufacturing', [DashboardController::class, 'manufacturing'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/recent-activity', [DashboardController::class, 'recentActivity'])->middleware('check.permission:core.dashboards.view');
+        Route::get('/alerts', [DashboardController::class, 'alerts'])->middleware('check.permission:core.dashboards.view');
     });
 
     /*
@@ -39,7 +39,7 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
 
         // Report types and metadata
         Route::get('/types', [ReportsController::class, 'types'])
-            ->name('api.v1.reports.types');
+            ->name('api.v1.reports.types')->middleware('check.permission:reports.exports.view');
 
         // ==========================================
         // Financial Reports
@@ -146,17 +146,17 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
             ->name('api.v1.reports.export')->middleware('check.permission:reports.exports.manage');
 
         Route::get('/download/{executionId}', [ReportsController::class, 'download'])
-            ->name('api.v1.reports.download');
+            ->name('api.v1.reports.download')->middleware('check.permission:reports.exports.view');
 
         Route::get('/history', [ReportsController::class, 'executionHistory'])
-            ->name('api.v1.reports.history');
+            ->name('api.v1.reports.history')->middleware('check.permission:reports.exports.view');
 
         // ==========================================
         // Saved Reports
         // ==========================================
         Route::prefix('saved')->group(function () {
             Route::get('/', [ReportsController::class, 'savedReports'])
-                ->name('api.v1.reports.saved.index');
+                ->name('api.v1.reports.saved.index')->middleware('check.permission:reports.exports.view');
 
             Route::post('/', [ReportsController::class, 'createSavedReport'])
                 ->name('api.v1.reports.saved.store')->middleware('check.permission:reports.exports.manage');
@@ -178,11 +178,11 @@ Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'query.budg
     |--------------------------------------------------------------------------
     */
     Route::prefix('export')->group(function () {
-        Route::get('/invoices', [ExportController::class, 'exportInvoices']);
-        Route::get('/invoices/{invoice}/pdf', [ExportController::class, 'exportInvoicePdf']);
-        Route::get('/trial-balance', [ExportController::class, 'exportTrialBalance']);
-        Route::get('/profit-loss', [ExportController::class, 'exportProfitLoss']);
-        Route::get('/receivable-aging', [ExportController::class, 'exportReceivableAging']);
-        Route::get('/payable-aging', [ExportController::class, 'exportPayableAging']);
+        Route::get('/invoices', [ExportController::class, 'exportInvoices'])->middleware('check.permission:core.exports.view');
+        Route::get('/invoices/{invoice}/pdf', [ExportController::class, 'exportInvoicePdf'])->middleware('check.permission:core.exports.view');
+        Route::get('/trial-balance', [ExportController::class, 'exportTrialBalance'])->middleware('check.permission:core.exports.view');
+        Route::get('/profit-loss', [ExportController::class, 'exportProfitLoss'])->middleware('check.permission:core.exports.view');
+        Route::get('/receivable-aging', [ExportController::class, 'exportReceivableAging'])->middleware('check.permission:core.exports.view');
+        Route::get('/payable-aging', [ExportController::class, 'exportPayableAging'])->middleware('check.permission:core.exports.view');
     });
 });

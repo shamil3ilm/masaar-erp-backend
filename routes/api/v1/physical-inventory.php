@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\V1\Inventory\PhysicalInventoryController;
 use Illuminate\Support\Facades\Route;
 
 Route::apiResource('physical-inventory', PhysicalInventoryController::class)
-    ->names('inventory.physical-inventory')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:inventory.physical-inventory.manage');
+    ->names('inventory.physical-inventory')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:inventory.physical-inventory.manage')->middlewareFor(['index', 'show'], 'check.permission:inventory.physical-inventory.view');
 
 Route::post('physical-inventory/{physicalInventoryDocument}/counts', [PhysicalInventoryController::class, 'enterCounts'])
     ->name('inventory.physical-inventory.enter-counts')->middleware('check.permission:inventory.physical-inventory.manage');

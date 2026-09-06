@@ -16,7 +16,9 @@ class ProductCostCollectorTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.production.view',
+        ]);
     }
 
     // ─── index ────────────────────────────────────────────────────────────────

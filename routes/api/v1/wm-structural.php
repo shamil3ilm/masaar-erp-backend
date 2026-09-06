@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Inventory\WarehouseTransferOrderController;
 use Illuminate\Support\Facades\Route;
 
-Route::apiResource('transfer-orders', WarehouseTransferOrderController::class)->names('inventory.transfer-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:inventory.transfer-orders.manage');
+Route::apiResource('transfer-orders', WarehouseTransferOrderController::class)->names('inventory.transfer-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:inventory.transfer-orders.manage')->middlewareFor(['index', 'show'], 'check.permission:inventory.transfer-orders.view');
 Route::post('transfer-orders/{warehouseTransferOrder}/start', [WarehouseTransferOrderController::class, 'startTransfer'])->name('inventory.transfer-orders.start')->middleware('check.permission:inventory.transfer-orders.manage');
 Route::post('transfer-orders/{warehouseTransferOrder}/confirm', [WarehouseTransferOrderController::class, 'confirmTransfer'])->name('inventory.transfer-orders.confirm')->middleware('check.permission:inventory.transfer-orders.manage');
 Route::post('transfer-orders/{warehouseTransferOrder}/cancel', [WarehouseTransferOrderController::class, 'cancel'])->name('inventory.transfer-orders.cancel')->middleware('check.permission:inventory.transfer-orders.manage');

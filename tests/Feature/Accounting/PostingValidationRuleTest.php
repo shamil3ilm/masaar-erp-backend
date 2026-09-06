@@ -20,6 +20,7 @@ class PostingValidationRuleTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.posting-validation-rules.manage',
+            'accounting.posting-validation-rules.view',
         ]);
     }
 

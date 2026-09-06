@@ -19,6 +19,7 @@ class RepetitiveManufacturingTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser([
             'manufacturing.production.manage',
+            'manufacturing.production.view',
         ]);
     }
 

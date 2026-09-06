@@ -32,9 +32,9 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('/{lead}/convert', [LeadController::class, 'convert'])->middleware('check.permission:crm.leads.convert')->name('crm.leads.convert');
 
         Route::middleware('check.permission:crm.leads.view')->group(function () {
-            Route::get('/', [LeadController::class, 'index'])->name('crm.leads.index');
-            Route::get('/statistics', [LeadController::class, 'statistics'])->name('crm.leads.statistics');
-            Route::get('/{lead}', [LeadController::class, 'show'])->name('crm.leads.show');
+            Route::get('/', [LeadController::class, 'index'])->name('crm.leads.index')->middleware('check.permission:crm.leads.view');
+            Route::get('/statistics', [LeadController::class, 'statistics'])->name('crm.leads.statistics')->middleware('check.permission:crm.leads.view');
+            Route::get('/{lead}', [LeadController::class, 'show'])->name('crm.leads.show')->middleware('check.permission:crm.leads.view');
         });
 
         Route::middleware('check.permission:crm.leads.edit')->group(function () {
@@ -139,10 +139,10 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('reports')->name('crm.reports.')->middleware('check.permission:crm.reports.view')->group(function (): void {
-        Route::get('pipeline', [CrmReportController::class, 'pipeline'])->name('pipeline');
-        Route::get('win-loss', [CrmReportController::class, 'winLoss'])->name('win-loss');
-        Route::get('activities', [CrmReportController::class, 'activities'])->name('activities');
-        Route::get('lead-funnel', [CrmReportController::class, 'leadFunnel'])->name('lead-funnel');
+        Route::get('pipeline', [CrmReportController::class, 'pipeline'])->name('pipeline')->middleware('check.permission:crm.reports.view');
+        Route::get('win-loss', [CrmReportController::class, 'winLoss'])->name('win-loss')->middleware('check.permission:crm.reports.view');
+        Route::get('activities', [CrmReportController::class, 'activities'])->name('activities')->middleware('check.permission:crm.reports.view');
+        Route::get('lead-funnel', [CrmReportController::class, 'leadFunnel'])->name('lead-funnel')->middleware('check.permission:crm.reports.view');
     });
 
     Route::prefix('sla-policies')->group(function (): void {
@@ -160,8 +160,8 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('contacts')->middleware('check.permission:crm.contacts.view')->group(function (): void {
-        Route::get('/', [ContactController::class, 'index'])->name('crm.contacts.index');
-        Route::get('/{uuid}', [ContactController::class, 'show'])->name('crm.contacts.show');
+        Route::get('/', [ContactController::class, 'index'])->name('crm.contacts.index')->middleware('check.permission:crm.contacts.view');
+        Route::get('/{uuid}', [ContactController::class, 'show'])->name('crm.contacts.show')->middleware('check.permission:crm.contacts.view');
         // 360° profile is available at crm/customers/{contactId}/360
     });
 
@@ -184,8 +184,8 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('campaigns')->middleware('check.permission:crm.campaigns.view')->group(function (): void {
-        Route::get('/', [CampaignController::class, 'index'])->name('crm.campaigns.index');
-        Route::get('/{id}', [CampaignController::class, 'show'])->name('crm.campaigns.show');
+        Route::get('/', [CampaignController::class, 'index'])->name('crm.campaigns.index')->middleware('check.permission:crm.campaigns.view');
+        Route::get('/{id}', [CampaignController::class, 'show'])->name('crm.campaigns.show')->middleware('check.permission:crm.campaigns.view');
         Route::post('/', [CampaignController::class, 'store'])
             ->withoutMiddleware('check.permission:crm.campaigns.view')
             ->middleware('check.permission:crm.campaigns.create')

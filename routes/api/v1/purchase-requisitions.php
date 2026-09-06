@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\V1\Purchase\PurchaseRequisitionController;
 use Illuminate\Support\Facades\Route;
 
 Route::apiResource('requisitions', PurchaseRequisitionController::class)
-    ->names('purchase.requisitions')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:purchase.requisitions.manage');
+    ->names('purchase.requisitions')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:purchase.requisitions.manage')->middlewareFor(['index', 'show'], 'check.permission:purchase.requisitions.view');
 
 Route::post('requisitions/{purchaseRequisition}/submit', [PurchaseRequisitionController::class, 'submit'])
     ->name('purchase.requisitions.submit')->middleware('check.permission:purchase.requisitions.manage');

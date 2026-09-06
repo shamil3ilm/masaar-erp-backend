@@ -48,11 +48,14 @@ class PermissionModuleTest extends TestCase
     /** Permissions that name the data rather than the controller's folder. */
     private const ACCEPTED = [
         'accounting.reports.view on Reports',
+        'compliance.onboarding.view on Core',
+        'core.dashboards.view on Reports',
+        'core.exports.view on Reports',
         'crm.contacts.view on Sales',
         'documents.files.manage on Core',
+        'documents.files.view on Core',
         'features.view on Core',
         'inventory.reports.view on Reports',
-        'modules.manage on Core',
         'purchase.orders.view on Core',
         'sales.invoices.view on Core',
         'sales.payments.view on Core',

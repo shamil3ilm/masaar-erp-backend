@@ -210,16 +210,16 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('batch-classes')->name('mm.batch-classes.')->group(function () {
-        Route::get('/', [BatchClassificationController::class, 'index'])->name('index');
+        Route::get('/', [BatchClassificationController::class, 'index'])->name('index')->middleware('check.permission:inventory.batch-classes.view');
         Route::post('/', [BatchClassificationController::class, 'store'])->name('store')->middleware('check.permission:inventory.batch-classes.manage');
-        Route::get('/{id}', [BatchClassificationController::class, 'show'])->name('show');
+        Route::get('/{id}', [BatchClassificationController::class, 'show'])->name('show')->middleware('check.permission:inventory.batch-classes.view');
         Route::put('/{id}', [BatchClassificationController::class, 'update'])->name('update')->middleware('check.permission:inventory.batch-classes.manage');
         Route::delete('/{id}', [BatchClassificationController::class, 'destroy'])->name('destroy')->middleware('check.permission:inventory.batch-classes.manage');
         Route::post('/{id}/characteristics', [BatchClassificationController::class, 'addCharacteristic'])->name('chars.add')->middleware('check.permission:inventory.batch-classes.manage');
-        Route::get('/{id}/characteristics', [BatchClassificationController::class, 'getCharacteristics'])->name('chars');
+        Route::get('/{id}/characteristics', [BatchClassificationController::class, 'getCharacteristics'])->name('chars')->middleware('check.permission:inventory.batch-classes.view');
     });
 
-    Route::get('batch-classes/search-by-characteristic', [BatchClassificationController::class, 'searchByCharacteristic'])->name('mm.batch-classes.search-by-char');
+    Route::get('batch-classes/search-by-characteristic', [BatchClassificationController::class, 'searchByCharacteristic'])->name('mm.batch-classes.search-by-char')->middleware('check.permission:inventory.batch-classes.view');
 
     /*
     |--------------------------------------------------------------------------
@@ -228,13 +228,13 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('batches')->name('mm.batches.')->group(function () {
         Route::post('/{batchId}/classification-values', [BatchClassificationController::class, 'setBatchValues'])->name('values.set')->middleware('check.permission:inventory.batches.manage');
-        Route::get('/{batchId}/classification-values', [BatchClassificationController::class, 'getBatchValues'])->name('values');
-        Route::get('/{batchId}/where-used', [BatchWhereUsedController::class, 'getForBatch'])->name('where-used');
-        Route::get('/{batchId}/where-used-tree', [BatchWhereUsedController::class, 'whereUsedTree'])->name('where-used-tree');
+        Route::get('/{batchId}/classification-values', [BatchClassificationController::class, 'getBatchValues'])->name('values')->middleware('check.permission:inventory.batch-classes.view');
+        Route::get('/{batchId}/where-used', [BatchWhereUsedController::class, 'getForBatch'])->name('where-used')->middleware('check.permission:inventory.batch-where-used.view');
+        Route::get('/{batchId}/where-used-tree', [BatchWhereUsedController::class, 'whereUsedTree'])->name('where-used-tree')->middleware('check.permission:inventory.batch-where-used.view');
     });
 
     Route::post('batch-where-used/record', [BatchWhereUsedController::class, 'record'])->name('mm.batch-where-used.record')->middleware('check.permission:inventory.batch-where-used.manage');
-    Route::get('batch-where-used/by-reference', [BatchWhereUsedController::class, 'searchByReference'])->name('mm.batch-where-used.by-reference');
+    Route::get('batch-where-used/by-reference', [BatchWhereUsedController::class, 'searchByReference'])->name('mm.batch-where-used.by-reference')->middleware('check.permission:inventory.batch-where-used.view');
 
     /*
     |--------------------------------------------------------------------------
@@ -242,10 +242,10 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('storage-types')->name('wm.storage-types.')->group(function (): void {
-        Route::get('/', [StorageTypeController::class, 'index'])->name('index');
+        Route::get('/', [StorageTypeController::class, 'index'])->name('index')->middleware('check.permission:inventory.storage-types.view');
         Route::post('/', [StorageTypeController::class, 'store'])->name('store')->middleware('check.permission:inventory.storage-types.manage');
         Route::post('/determine', [StorageTypeController::class, 'determine'])->name('determine')->middleware('check.permission:inventory.storage-types.manage');
-        Route::get('/{id}', [StorageTypeController::class, 'show'])->name('show');
+        Route::get('/{id}', [StorageTypeController::class, 'show'])->name('show')->middleware('check.permission:inventory.storage-types.view');
         Route::put('/{id}', [StorageTypeController::class, 'update'])->name('update')->middleware('check.permission:inventory.storage-types.manage');
         Route::delete('/{id}', [StorageTypeController::class, 'destroy'])->name('destroy')->middleware('check.permission:inventory.storage-types.manage');
         Route::post('/{id}/rules', [StorageTypeController::class, 'addRule'])->name('rules.add')->middleware('check.permission:inventory.storage-types.manage');
@@ -259,13 +259,13 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('cycle-counts')->name('inventory.cycle-counts.')->group(function (): void {
-        Route::get('/plans', [CycleCountController::class, 'plans'])->name('plans.index');
+        Route::get('/plans', [CycleCountController::class, 'plans'])->name('plans.index')->middleware('check.permission:inventory.cycle-counts.view');
         Route::post('/plans', [CycleCountController::class, 'storePlan'])->name('plans.store')->middleware('check.permission:inventory.cycle-counts.manage');
         Route::post('/sessions', [CycleCountController::class, 'createSession'])->name('sessions.store')->middleware('check.permission:inventory.cycle-counts.manage');
-        Route::get('/sessions/{id}', [CycleCountController::class, 'showSession'])->name('sessions.show');
+        Route::get('/sessions/{id}', [CycleCountController::class, 'showSession'])->name('sessions.show')->middleware('check.permission:inventory.cycle-counts.view');
         Route::put('/sessions/{sessionId}/lines/{lineId}', [CycleCountController::class, 'recordCount'])->name('lines.update')->middleware('check.permission:inventory.cycle-counts.manage');
         Route::post('/sessions/{id}/post', [CycleCountController::class, 'postAdjustments'])->name('sessions.post')->middleware('check.permission:inventory.cycle-counts.manage');
-        Route::get('/warehouses/{warehouseId}/abc', [CycleCountController::class, 'abcAnalysis'])->name('abc-analysis');
+        Route::get('/warehouses/{warehouseId}/abc', [CycleCountController::class, 'abcAnalysis'])->name('abc-analysis')->middleware('check.permission:inventory.cycle-counts.view');
     });
 
     /*
@@ -275,7 +275,7 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::apiResource('serial-numbers', SerialNumberController::class)
         ->only(['index', 'store', 'show', 'destroy'])
-        ->names('inventory.serial-numbers')->middlewareFor(['store', 'destroy'], 'check.permission:inventory.serial-numbers.manage');
+        ->names('inventory.serial-numbers')->middlewareFor(['store', 'destroy'], 'check.permission:inventory.serial-numbers.manage')->middlewareFor(['index', 'show'], 'check.permission:inventory.serial-numbers.view');
     Route::post('serial-numbers/bulk-create', [SerialNumberController::class, 'bulkCreate'])
         ->name('inventory.serial-numbers.bulk-create')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/{serialNumber}/receive', [SerialNumberController::class, 'receive'])
@@ -287,7 +287,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('serial-numbers/{serialNumber}/scrap', [SerialNumberController::class, 'scrap'])
         ->name('inventory.serial-numbers.scrap')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::get('serial-numbers/{serialNumber}/history', [SerialNumberController::class, 'history'])
-        ->name('inventory.serial-numbers.history');
+        ->name('inventory.serial-numbers.history')->middleware('check.permission:inventory.serial-numbers.view');
 
     /*
     |--------------------------------------------------------------------------
@@ -317,7 +317,7 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('split-valuation')->name('inventory.split-valuation.')->group(function (): void {
-        Route::get('/', [SplitValuationController::class, 'index'])->name('index');
+        Route::get('/', [SplitValuationController::class, 'index'])->name('index')->middleware('check.permission:inventory.split-valuation.view');
         Route::post('/goods-receipt', [SplitValuationController::class, 'goodsReceipt'])->name('goods-receipt')->middleware('check.permission:inventory.split-valuation.manage');
         Route::post('/goods-issue', [SplitValuationController::class, 'goodsIssue'])->name('goods-issue')->middleware('check.permission:inventory.split-valuation.manage');
         Route::post('/revaluate', [SplitValuationController::class, 'revaluate'])->name('revaluate')->middleware('check.permission:inventory.split-valuation.manage');

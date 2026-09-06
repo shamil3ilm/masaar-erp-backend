@@ -22,6 +22,7 @@ class ArInterestRunTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.ar-interest-runs.manage',
+            'accounting.ar-interest-runs.view',
         ]);
     }
 

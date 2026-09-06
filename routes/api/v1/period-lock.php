@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth:api'])->group(function () {
     // Check whether a given date falls within a locked period
     Route::get('/check', [PeriodLockController::class, 'checkPeriod'])
-        ->name('accounting.period-lock.check');
+        ->name('accounting.period-lock.check')->middleware('check.permission:accounting.period-lock.view');
 
     // List active overrides
     Route::get('/', [PeriodLockController::class, 'index'])

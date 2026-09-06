@@ -20,6 +20,7 @@ class PaymentRunTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.payment-runs.manage',
+            'accounting.payment-runs.view',
         ]);
     }
 

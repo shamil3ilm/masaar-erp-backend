@@ -16,7 +16,9 @@ class ProductionSchedulingTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.planning.view',
+        ]);
     }
 
     // ─── gantt ────────────────────────────────────────────────────────────────

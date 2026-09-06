@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\Route;
 
 // Training Providers
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/providers', [TrainingController::class, 'indexProviders'])->name('hr.training.providers.index');
-    Route::get('/providers/{id}', [TrainingController::class, 'showProvider'])->name('hr.training.providers.show');
+    Route::get('/providers', [TrainingController::class, 'indexProviders'])->name('hr.training.providers.index')->middleware('check.permission:hr.training.view');
+    Route::get('/providers/{id}', [TrainingController::class, 'showProvider'])->name('hr.training.providers.show')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -28,8 +28,8 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Training Courses
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/courses', [TrainingController::class, 'indexCourses'])->name('hr.training.courses.index');
-    Route::get('/courses/{id}', [TrainingController::class, 'showCourse'])->name('hr.training.courses.show');
+    Route::get('/courses', [TrainingController::class, 'indexCourses'])->name('hr.training.courses.index')->middleware('check.permission:hr.training.view');
+    Route::get('/courses/{id}', [TrainingController::class, 'showCourse'])->name('hr.training.courses.show')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -40,8 +40,8 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Training Sessions
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/sessions', [TrainingController::class, 'indexSessions'])->name('hr.training.sessions.index');
-    Route::get('/sessions/{id}', [TrainingController::class, 'showSession'])->name('hr.training.sessions.show');
+    Route::get('/sessions', [TrainingController::class, 'indexSessions'])->name('hr.training.sessions.index')->middleware('check.permission:hr.training.view');
+    Route::get('/sessions/{id}', [TrainingController::class, 'showSession'])->name('hr.training.sessions.show')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -57,7 +57,7 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Enrollments
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/enrollments', [TrainingController::class, 'indexEnrollments'])->name('hr.training.enrollments.index');
+    Route::get('/enrollments', [TrainingController::class, 'indexEnrollments'])->name('hr.training.enrollments.index')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -66,8 +66,8 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Certifications
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/certifications', [TrainingController::class, 'indexCertifications'])->name('hr.training.certifications.index');
-    Route::get('/certifications/expiring', [TrainingController::class, 'expiringCertifications'])->name('hr.training.certifications.expiring');
+    Route::get('/certifications', [TrainingController::class, 'indexCertifications'])->name('hr.training.certifications.index')->middleware('check.permission:hr.training.view');
+    Route::get('/certifications/expiring', [TrainingController::class, 'expiringCertifications'])->name('hr.training.certifications.expiring')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -77,7 +77,7 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Training Needs
 Route::middleware(['check.permission:hr.training.view'])->group(function () {
-    Route::get('/needs', [TrainingController::class, 'indexNeeds'])->name('hr.training.needs.index');
+    Route::get('/needs', [TrainingController::class, 'indexNeeds'])->name('hr.training.needs.index')->middleware('check.permission:hr.training.view');
 });
 
 Route::middleware(['check.permission:hr.training.manage'])->group(function () {
@@ -88,6 +88,6 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
 
 // Reports
 Route::middleware(['check.permission:hr.training.reports'])->group(function () {
-    Route::get('/reports/compliance', [TrainingController::class, 'mandatoryComplianceReport'])->name('hr.training.reports.compliance');
-    Route::get('/reports/calendar', [TrainingController::class, 'trainingCalendar'])->name('hr.training.reports.calendar');
+    Route::get('/reports/compliance', [TrainingController::class, 'mandatoryComplianceReport'])->name('hr.training.reports.compliance')->middleware('check.permission:hr.training.view');
+    Route::get('/reports/calendar', [TrainingController::class, 'trainingCalendar'])->name('hr.training.reports.calendar')->middleware('check.permission:hr.training.view');
 });

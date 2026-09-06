@@ -22,6 +22,7 @@ class TreasuryTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.treasury.manage',
+            'accounting.treasury.view',
         ]);
     }
 

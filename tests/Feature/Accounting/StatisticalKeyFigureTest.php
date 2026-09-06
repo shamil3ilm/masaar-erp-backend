@@ -20,6 +20,7 @@ class StatisticalKeyFigureTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.skf.manage',
+            'accounting.skf.view',
         ]);
     }
 

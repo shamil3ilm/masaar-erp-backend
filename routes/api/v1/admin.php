@@ -74,10 +74,10 @@ Route::prefix('impersonation-sessions')->group(function () {
 
 // Feature flags
 Route::prefix('feature-flags')->group(function () {
-    Route::get('/', [FeatureFlagController::class, 'index']);
+    Route::get('/', [FeatureFlagController::class, 'index'])->middleware('check.permission:core.feature-flags.view');
     Route::post('/', [FeatureFlagController::class, 'store']);
-    Route::get('/check/{code}', [FeatureFlagController::class, 'checkFlag']);
-    Route::get('/{flag}', [FeatureFlagController::class, 'show']);
+    Route::get('/check/{code}', [FeatureFlagController::class, 'checkFlag'])->middleware('check.permission:core.feature-flags.view');
+    Route::get('/{flag}', [FeatureFlagController::class, 'show'])->middleware('check.permission:core.feature-flags.view');
     Route::put('/{flag}', [FeatureFlagController::class, 'update']);
     Route::post('/{flag}/toggle', [FeatureFlagController::class, 'toggle']);
 });

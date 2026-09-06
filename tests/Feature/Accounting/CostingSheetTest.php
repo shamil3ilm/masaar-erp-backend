@@ -20,6 +20,7 @@ class CostingSheetTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.costing-sheets.manage',
+            'accounting.costing-sheets.view',
         ]);
     }
 

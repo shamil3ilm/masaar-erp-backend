@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 
 // Putaway Rules
 Route::middleware('check.permission:inventory.warehouse-mgmt.view')->group(function () {
-    Route::get('/putaway-rules', [WaveController::class, 'putawayIndex']);
+    Route::get('/putaway-rules', [WaveController::class, 'putawayIndex'])->middleware('check.permission:inventory.warehouse-mgmt.view');
 });
 
 Route::middleware('check.permission:inventory.warehouse-mgmt.manage')->group(function () {
@@ -26,8 +26,8 @@ Route::middleware('check.permission:inventory.warehouse-mgmt.manage')->group(fun
 
 // Wave Plans
 Route::middleware('check.permission:inventory.warehouse-mgmt.view')->group(function () {
-    Route::get('/waves', [WaveController::class, 'waveIndex']);
-    Route::get('/waves/{id}', [WaveController::class, 'waveShow']);
+    Route::get('/waves', [WaveController::class, 'waveIndex'])->middleware('check.permission:inventory.warehouse-mgmt.view');
+    Route::get('/waves/{id}', [WaveController::class, 'waveShow'])->middleware('check.permission:inventory.warehouse-mgmt.view');
 });
 
 Route::middleware('check.permission:inventory.warehouse-mgmt.manage')->group(function () {
@@ -38,8 +38,8 @@ Route::middleware('check.permission:inventory.warehouse-mgmt.manage')->group(fun
 
 // Picking Lists
 Route::middleware('check.permission:inventory.warehouse-mgmt.view')->group(function () {
-    Route::get('/picking-lists', [WaveController::class, 'pickingListIndex']);
-    Route::get('/picking-lists/{id}', [WaveController::class, 'pickingListShow']);
+    Route::get('/picking-lists', [WaveController::class, 'pickingListIndex'])->middleware('check.permission:inventory.warehouse-mgmt.view');
+    Route::get('/picking-lists/{id}', [WaveController::class, 'pickingListShow'])->middleware('check.permission:inventory.warehouse-mgmt.view');
 });
 
 Route::middleware('check.permission:inventory.warehouse-mgmt.pick')->group(function () {
@@ -51,5 +51,5 @@ Route::middleware('check.permission:inventory.warehouse-mgmt.pick')->group(funct
 
 // Stats
 Route::middleware('check.permission:inventory.warehouse-mgmt.view')->group(function () {
-    Route::get('/stats', [WaveController::class, 'stats']);
+    Route::get('/stats', [WaveController::class, 'stats'])->middleware('check.permission:inventory.warehouse-mgmt.view');
 });

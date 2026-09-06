@@ -20,6 +20,7 @@ class TransferPricingTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.transfer-pricing.manage',
+            'accounting.transfer-pricing.view',
         ]);
     }
 

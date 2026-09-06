@@ -21,6 +21,7 @@ class CarryForwardTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.carry-forward.manage',
+            'accounting.carry-forward.view',
         ]);
     }
 

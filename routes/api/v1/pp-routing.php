@@ -9,13 +9,13 @@ use App\Http\Controllers\Api\V1\Manufacturing\RoutingController;
 use Illuminate\Support\Facades\Route;
 
 Route::apiResource('routings', RoutingController::class)
-    ->names('manufacturing.routings')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:manufacturing.planning.manage');
+    ->names('manufacturing.routings')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:manufacturing.planning.manage')->middlewareFor(['index', 'show'], 'check.permission:manufacturing.planning.view');
 
 Route::post('routings/{routingHeader}/operations', [RoutingController::class, 'addOperation'])
     ->name('manufacturing.routings.add-operation')->middleware('check.permission:manufacturing.planning.manage');
 
 Route::get('routings/{productId}/lead-time', [RoutingController::class, 'calculateLeadTime'])
-    ->name('manufacturing.routings.lead-time');
+    ->name('manufacturing.routings.lead-time')->middleware('check.permission:manufacturing.planning.view');
 
 // ── Gap 3: Production Scheduling ─────────────────────────────────────────────
 
@@ -37,18 +37,18 @@ Route::post(
 Route::get(
     'schedule/gantt',
     [ProductionSchedulingController::class, 'gantt']
-)->name('manufacturing.schedule.gantt');
+)->name('manufacturing.schedule.gantt')->middleware('check.permission:manufacturing.planning.view');
 
 // ── Gap 4: Kanban / Pull-Based Production ─────────────────────────────────────
 
 Route::prefix('kanban')->name('manufacturing.kanban.')->group(function () {
     // Supply areas
     Route::get('supply-areas', [KanbanController::class, 'indexSupplyAreas'])
-        ->name('supply-areas.index');
+        ->name('supply-areas.index')->middleware('check.permission:manufacturing.planning.view');
     Route::post('supply-areas', [KanbanController::class, 'storeSupplyArea'])
         ->name('supply-areas.store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'showSupplyArea'])
-        ->name('supply-areas.show');
+        ->name('supply-areas.show')->middleware('check.permission:manufacturing.planning.view');
     Route::put('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'updateSupplyArea'])
         ->name('supply-areas.update')->middleware('check.permission:manufacturing.planning.manage');
     Route::delete('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'destroySupplyArea'])
@@ -56,11 +56,11 @@ Route::prefix('kanban')->name('manufacturing.kanban.')->group(function () {
 
     // Control cycles
     Route::get('control-cycles', [KanbanController::class, 'indexControlCycles'])
-        ->name('cycles.index');
+        ->name('cycles.index')->middleware('check.permission:manufacturing.planning.view');
     Route::post('control-cycles', [KanbanController::class, 'storeControlCycle'])
         ->name('cycles.store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'showControlCycle'])
-        ->name('cycles.show');
+        ->name('cycles.show')->middleware('check.permission:manufacturing.planning.view');
     Route::put('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'updateControlCycle'])
         ->name('cycles.update')->middleware('check.permission:manufacturing.planning.manage');
     Route::delete('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'destroyControlCycle'])
@@ -68,7 +68,7 @@ Route::prefix('kanban')->name('manufacturing.kanban.')->group(function () {
 
     // Cards
     Route::get('control-cycles/{kanbanControlCycle}/cards', [KanbanController::class, 'cards'])
-        ->name('cards');
+        ->name('cards')->middleware('check.permission:manufacturing.planning.view');
     Route::post('cards/{kanbanCard}/empty', [KanbanController::class, 'signalEmpty'])
         ->name('empty')->middleware('check.permission:manufacturing.planning.manage');
     Route::post('cards/{kanbanCard}/full', [KanbanController::class, 'signalFull'])
@@ -76,18 +76,18 @@ Route::prefix('kanban')->name('manufacturing.kanban.')->group(function () {
 
     // Board view
     Route::get('board', [KanbanController::class, 'board'])
-        ->name('board');
+        ->name('board')->middleware('check.permission:manufacturing.planning.view');
 });
 
 // ── Gap 17: Capacity Leveling ─────────────────────────────────────────────────
 
 Route::prefix('capacity-leveling')->name('manufacturing.capacity-leveling.')->group(function () {
     Route::get('suggest', [CapacityLevelingController::class, 'suggest'])
-        ->name('suggest');
+        ->name('suggest')->middleware('check.permission:manufacturing.capacity.view');
     Route::post('apply', [CapacityLevelingController::class, 'apply'])
         ->name('apply')->middleware('check.permission:manufacturing.capacity.manage');
     Route::get(
         'work-orders/{workOrder}/alternative-work-centers',
         [CapacityLevelingController::class, 'alternativeWorkCenters']
-    )->name('alternative-wc');
+    )->name('alternative-wc')->middleware('check.permission:manufacturing.capacity.view');
 });

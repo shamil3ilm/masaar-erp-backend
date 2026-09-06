@@ -16,30 +16,30 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('activity-logs')->group(function () {
     // Activity logs listing with filters
     Route::get('/', [ActivityLogController::class, 'index'])
-        ->name('activity-logs.index');
+        ->name('activity-logs.index')->middleware('check.permission:core.entity-views.view');
 
     // Activity logs for a specific entity
     Route::get('/entity', [ActivityLogController::class, 'getForEntity'])
-        ->name('activity-logs.entity');
+        ->name('activity-logs.entity')->middleware('check.permission:core.entity-views.view');
 
     // Activity logs for a specific user
     Route::get('/user/{userId}', [ActivityLogController::class, 'getForUser'])
-        ->name('activity-logs.user');
+        ->name('activity-logs.user')->middleware('check.permission:core.entity-views.view');
 
     // Activity statistics
     Route::get('/statistics', [ActivityLogController::class, 'statistics'])
-        ->name('activity-logs.statistics');
+        ->name('activity-logs.statistics')->middleware('check.permission:core.entity-views.view');
 
     // Popular entities
     Route::get('/popular-entities', [ActivityLogController::class, 'popularEntities'])
-        ->name('activity-logs.popular-entities');
+        ->name('activity-logs.popular-entities')->middleware('check.permission:core.entity-views.view');
 });
 
 // User sessions
 Route::prefix('sessions')->group(function () {
     // Current user's sessions
     Route::get('/', [ActivityLogController::class, 'sessions'])
-        ->name('sessions.index');
+        ->name('sessions.index')->middleware('check.permission:core.entity-views.view');
 
     // All active sessions (admin)
     Route::get('/all', [ActivityLogController::class, 'allSessions'])
@@ -54,14 +54,14 @@ Route::prefix('sessions')->group(function () {
 // Login history
 Route::prefix('login-history')->group(function () {
     Route::get('/', [ActivityLogController::class, 'loginHistory'])
-        ->name('login-history.index');
+        ->name('login-history.index')->middleware('check.permission:core.entity-views.view');
 });
 
 // Entity views (recently viewed)
 Route::prefix('entity-views')->group(function () {
     // Get recently viewed entities
     Route::get('/recent', [ActivityLogController::class, 'recentlyViewed'])
-        ->name('entity-views.recent');
+        ->name('entity-views.recent')->middleware('check.permission:core.entity-views.view');
 
     // Record a view
     Route::post('/', [ActivityLogController::class, 'recordView'])

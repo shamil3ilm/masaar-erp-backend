@@ -50,9 +50,9 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('templates')->group(function () {
-        Route::get('/', [MessageTemplateController::class, 'index'])->name('messaging.templates.index');
+        Route::get('/', [MessageTemplateController::class, 'index'])->name('messaging.templates.index')->middleware('check.permission:messaging.templates.view');
         Route::post('/', [MessageTemplateController::class, 'store'])->name('messaging.templates.store')->middleware('check.permission:messaging.templates.manage');
-        Route::get('/{messageTemplate}', [MessageTemplateController::class, 'show'])->name('messaging.templates.show');
+        Route::get('/{messageTemplate}', [MessageTemplateController::class, 'show'])->name('messaging.templates.show')->middleware('check.permission:messaging.templates.view');
         Route::put('/{messageTemplate}', [MessageTemplateController::class, 'update'])->name('messaging.templates.update')->middleware('check.permission:messaging.templates.manage');
         Route::delete('/{messageTemplate}', [MessageTemplateController::class, 'destroy'])->name('messaging.templates.destroy')->middleware('check.permission:messaging.templates.manage');
         Route::post('/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])->name('messaging.templates.preview')->middleware('check.permission:messaging.templates.manage');
@@ -65,16 +65,16 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('campaigns')->group(function () {
-        Route::get('/', [MessageCampaignController::class, 'index'])->name('messaging.campaigns.index');
+        Route::get('/', [MessageCampaignController::class, 'index'])->name('messaging.campaigns.index')->middleware('check.permission:messaging.campaigns.view');
         Route::post('/', [MessageCampaignController::class, 'store'])->name('messaging.campaigns.store')->middleware('check.permission:messaging.campaigns.manage');
-        Route::get('/{messageCampaign}', [MessageCampaignController::class, 'show'])->name('messaging.campaigns.show');
+        Route::get('/{messageCampaign}', [MessageCampaignController::class, 'show'])->name('messaging.campaigns.show')->middleware('check.permission:messaging.campaigns.view');
         Route::put('/{messageCampaign}', [MessageCampaignController::class, 'update'])->name('messaging.campaigns.update')->middleware('check.permission:messaging.campaigns.manage');
         Route::delete('/{messageCampaign}', [MessageCampaignController::class, 'destroy'])->name('messaging.campaigns.destroy')->middleware('check.permission:messaging.campaigns.manage');
         Route::post('/{messageCampaign}/launch', [MessageCampaignController::class, 'launch'])->name('messaging.campaigns.launch')->middleware('check.permission:messaging.campaigns.manage');
         Route::patch('/{messageCampaign}/state', [MessageCampaignController::class, 'setState'])->name('messaging.campaigns.state')->middleware('check.permission:messaging.campaigns.manage');
         Route::post('/{messageCampaign}/cancel', [MessageCampaignController::class, 'cancel'])->name('messaging.campaigns.cancel')->middleware('check.permission:messaging.campaigns.manage');
-        Route::get('/{messageCampaign}/stats', [MessageCampaignController::class, 'stats'])->name('messaging.campaigns.stats');
-        Route::get('/{messageCampaign}/recipients', [MessageCampaignController::class, 'recipients'])->name('messaging.campaigns.recipients');
+        Route::get('/{messageCampaign}/stats', [MessageCampaignController::class, 'stats'])->name('messaging.campaigns.stats')->middleware('check.permission:messaging.campaigns.view');
+        Route::get('/{messageCampaign}/recipients', [MessageCampaignController::class, 'recipients'])->name('messaging.campaigns.recipients')->middleware('check.permission:messaging.campaigns.view');
         Route::post('/{messageCampaign}/recipients', [MessageCampaignController::class, 'addRecipients'])->name('messaging.campaigns.add-recipients')->middleware('check.permission:messaging.campaigns.manage');
     });
 
@@ -84,9 +84,9 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('configurations')->group(function () {
-        Route::get('/', [MessagingConfigurationController::class, 'index'])->name('messaging.configurations.index');
+        Route::get('/', [MessagingConfigurationController::class, 'index'])->name('messaging.configurations.index')->middleware('check.permission:messaging.configurations.view');
         Route::post('/', [MessagingConfigurationController::class, 'store'])->name('messaging.configurations.store')->middleware('check.permission:messaging.configurations.manage');
-        Route::get('/{messagingConfiguration}', [MessagingConfigurationController::class, 'show'])->name('messaging.configurations.show');
+        Route::get('/{messagingConfiguration}', [MessagingConfigurationController::class, 'show'])->name('messaging.configurations.show')->middleware('check.permission:messaging.configurations.view');
         Route::put('/{messagingConfiguration}', [MessagingConfigurationController::class, 'update'])->name('messaging.configurations.update')->middleware('check.permission:messaging.configurations.manage');
         Route::delete('/{messagingConfiguration}', [MessagingConfigurationController::class, 'destroy'])->name('messaging.configurations.destroy')->middleware('check.permission:messaging.configurations.manage');
     });
@@ -97,7 +97,7 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('preferences')->group(function () {
-        Route::get('/contacts/{contactId}', [NotificationPreferenceController::class, 'show'])->name('messaging.preferences.show');
+        Route::get('/contacts/{contactId}', [NotificationPreferenceController::class, 'show'])->name('messaging.preferences.show')->middleware('check.permission:messaging.preferences.view');
         Route::put('/contacts/{contactId}', [NotificationPreferenceController::class, 'update'])->name('messaging.preferences.update')->middleware('check.permission:messaging.preferences.manage');
         Route::post('/contacts/{contactId}/unsubscribe', [NotificationPreferenceController::class, 'unsubscribe'])->name('messaging.preferences.unsubscribe')->middleware('check.permission:messaging.preferences.manage');
         Route::post('/contacts/{contactId}/resubscribe', [NotificationPreferenceController::class, 'resubscribe'])->name('messaging.preferences.resubscribe')->middleware('check.permission:messaging.preferences.manage');

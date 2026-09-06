@@ -20,6 +20,7 @@ class DisputeManagementTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.disputes.manage',
+            'accounting.disputes.view',
         ]);
     }
 
