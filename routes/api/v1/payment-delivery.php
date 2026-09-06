@@ -8,20 +8,20 @@ use Illuminate\Support\Facades\Route;
 // Payment Modes
 Route::prefix('payment-modes')->group(function () {
     Route::get('/', [PaymentModeController::class, 'index']);
-    Route::post('/', [PaymentModeController::class, 'store']);
+    Route::post('/', [PaymentModeController::class, 'store'])->middleware('check.permission:sales.payment-modes.manage');
     Route::get('/{mode}', [PaymentModeController::class, 'show']);
-    Route::put('/{mode}', [PaymentModeController::class, 'update']);
-    Route::delete('/{mode}', [PaymentModeController::class, 'destroy']);
+    Route::put('/{mode}', [PaymentModeController::class, 'update'])->middleware('check.permission:sales.payment-modes.manage');
+    Route::delete('/{mode}', [PaymentModeController::class, 'destroy'])->middleware('check.permission:sales.payment-modes.manage');
 });
 
 // Delivery Modes
 Route::prefix('delivery-modes')->group(function () {
     Route::get('/', [DeliveryModeController::class, 'index']);
-    Route::post('/', [DeliveryModeController::class, 'store']);
+    Route::post('/', [DeliveryModeController::class, 'store'])->middleware('check.permission:sales.delivery-modes.manage');
     Route::get('/{mode}', [DeliveryModeController::class, 'show']);
-    Route::put('/{mode}', [DeliveryModeController::class, 'update']);
-    Route::delete('/{mode}', [DeliveryModeController::class, 'destroy']);
-    Route::post('/calculate-shipping', [DeliveryModeController::class, 'calculateShipping']);
+    Route::put('/{mode}', [DeliveryModeController::class, 'update'])->middleware('check.permission:sales.delivery-modes.manage');
+    Route::delete('/{mode}', [DeliveryModeController::class, 'destroy'])->middleware('check.permission:sales.delivery-modes.manage');
+    Route::post('/calculate-shipping', [DeliveryModeController::class, 'calculateShipping'])->middleware('check.permission:sales.delivery-modes.manage');
 });
 
 // Shipments
@@ -29,5 +29,5 @@ Route::apiResource('shipments', ShipmentController::class)
     ->middlewareFor(['store'], 'check.permission:sales.shipments.create')
     ->middlewareFor(['update'], 'check.permission:sales.shipments.update')
     ->middlewareFor(['destroy'], 'check.permission:sales.shipments.delete');
-Route::post('shipments/{shipment}/status', [ShipmentController::class, 'updateStatus']);
+Route::post('shipments/{shipment}/status', [ShipmentController::class, 'updateStatus'])->middleware('check.permission:sales.shipments.update');
 Route::get('shipments/{shipment}/tracking', [ShipmentController::class, 'tracking']);

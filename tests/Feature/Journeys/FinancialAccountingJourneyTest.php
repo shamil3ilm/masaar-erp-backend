@@ -89,6 +89,7 @@ class FinancialAccountingJourneyTest extends TestCase
             'accounting.housebank.view',
             'accounting.housebank.create',
             'accounting.housebank.manage',
+            'accounting.multi-currency.manage',
         ]);
 
         $this->setUpOpenFiscalPeriod();

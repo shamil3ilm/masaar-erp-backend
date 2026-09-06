@@ -7,20 +7,20 @@ use Illuminate\Support\Facades\Route;
 // Product Bundles
 Route::prefix('bundles')->group(function () {
     Route::get('/', [ProductBundleController::class, 'index']);
-    Route::post('/', [ProductBundleController::class, 'store']);
+    Route::post('/', [ProductBundleController::class, 'store'])->middleware('check.permission:sales.offers.manage');
     Route::get('/{bundle}', [ProductBundleController::class, 'show']);
-    Route::put('/{bundle}', [ProductBundleController::class, 'update']);
-    Route::delete('/{bundle}', [ProductBundleController::class, 'destroy']);
-    Route::post('/{bundle}/calculate', [ProductBundleController::class, 'calculatePrice']);
+    Route::put('/{bundle}', [ProductBundleController::class, 'update'])->middleware('check.permission:sales.offers.manage');
+    Route::delete('/{bundle}', [ProductBundleController::class, 'destroy'])->middleware('check.permission:sales.offers.manage');
+    Route::post('/{bundle}/calculate', [ProductBundleController::class, 'calculatePrice'])->middleware('check.permission:sales.offers.manage');
 });
 
 // Seasonal Campaigns
 Route::prefix('campaigns')->group(function () {
     Route::get('/', [SeasonalCampaignController::class, 'index']);
     Route::get('/active', [SeasonalCampaignController::class, 'active']);
-    Route::post('/', [SeasonalCampaignController::class, 'store']);
+    Route::post('/', [SeasonalCampaignController::class, 'store'])->middleware('check.permission:sales.offers.manage');
     Route::get('/{campaign}', [SeasonalCampaignController::class, 'show']);
-    Route::put('/{campaign}', [SeasonalCampaignController::class, 'update']);
-    Route::delete('/{campaign}', [SeasonalCampaignController::class, 'destroy']);
-    Route::post('/{campaign}/tier-offers', [SeasonalCampaignController::class, 'addTierOffer']);
+    Route::put('/{campaign}', [SeasonalCampaignController::class, 'update'])->middleware('check.permission:sales.offers.manage');
+    Route::delete('/{campaign}', [SeasonalCampaignController::class, 'destroy'])->middleware('check.permission:sales.offers.manage');
+    Route::post('/{campaign}/tier-offers', [SeasonalCampaignController::class, 'addTierOffer'])->middleware('check.permission:sales.offers.manage');
 });

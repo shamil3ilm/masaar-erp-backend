@@ -20,33 +20,21 @@
 #   api/v1/portal/* — the customer portal, which authenticates with its own
 #   session token rather than a staff JWT. Staff permissions do not apply.
 #
+#   api/v1/auth/impersonate/{user} — guarded, but by ImpersonationService
+#   rather than by middleware, which is why it shows up here. It refuses
+#   anyone who is neither a super admin nor a holder of 'impersonate_users',
+#   and that permission is deliberately seeded nowhere: the seeder syncs every
+#   permission to the admin role, so seeding it would hand impersonation to
+#   every tenant administrator.
+#
 #   Anything else acting only on the caller: their notifications, preferences,
 #   language, sessions, onboarding progress, default branch, and a request for
 #   access to sensitive data (asking is open; granting is not).
 #
 # Everything else is unfinished.
 
-DELETE api/v1/customs/declarations/{declaration}
-DELETE api/v1/customs/excise-categories/{category}
-DELETE api/v1/customs/excise-declarations/{declaration}
-DELETE api/v1/customs/tariff-codes/{tariffCode}
-DELETE api/v1/inventory/products/{product}/documents/{document}
-DELETE api/v1/inventory/products/{product}/images/{image}
-DELETE api/v1/inventory/products/{product}/videos/{video}
-DELETE api/v1/loyalty/rewards/{reward}
-DELETE api/v1/module-access/users/{user}/overrides/{moduleId}
-DELETE api/v1/multi-currency/currencies/{currencyCode}
 DELETE api/v1/notifications/{id}
 DELETE api/v1/preferences/{key}
-DELETE api/v1/sales/offers/bundles/{bundle}
-DELETE api/v1/sales/offers/campaigns/{campaign}
-DELETE api/v1/sales/payment-delivery/delivery-modes/{mode}
-DELETE api/v1/sales/payment-delivery/payment-modes/{mode}
-DELETE api/v1/task-boards/boards/{board}/columns/{column}
-DELETE api/v1/task-boards/boards/{board}/members/{member}
-DELETE api/v1/task-boards/boards/{board}/tasks/{task}
-DELETE api/v1/task-boards/sprints/{sprint}
-DELETE api/v1/task-boards/sprints/{sprint}/tasks
 POST api/v1/auth/2fa/disable
 POST api/v1/auth/2fa/enable
 POST api/v1/auth/2fa/recovery-codes/regenerate
@@ -64,61 +52,11 @@ POST api/v1/auth/refresh
 POST api/v1/auth/register
 POST api/v1/auth/reset-password
 POST api/v1/branches/{branch}/set-default
-POST api/v1/customs/declarations/{declaration}/assess
-POST api/v1/customs/declarations/{declaration}/clear
-POST api/v1/customs/declarations/{declaration}/pay-duty
-POST api/v1/customs/declarations/{declaration}/reject
-POST api/v1/customs/declarations/{declaration}/submit
-POST api/v1/customs/excise-categories/{category}/map-product
-POST api/v1/customs/excise-categories/{category}/rates
-POST api/v1/customs/excise-declarations
-POST api/v1/customs/excise-declarations/{declaration}/pay
-POST api/v1/customs/excise-declarations/{declaration}/submit
-POST api/v1/grc/audit/engagements
-POST api/v1/grc/audit/findings
-POST api/v1/grc/audit/findings/{uuid}/assign
-POST api/v1/grc/audit/findings/{uuid}/close
-POST api/v1/grc/audit/findings/{uuid}/remediate
-POST api/v1/grc/audit/findings/{uuid}/verify
-POST api/v1/grc/ccm/exceptions/{uuid}/resolve
-POST api/v1/grc/ccm/monitors
-POST api/v1/grc/ccm/monitors/{uuid}/run
-POST api/v1/grc/csa/questionnaires
-POST api/v1/grc/csa/questionnaires/{uuid}/publish
-POST api/v1/grc/csa/questionnaires/{uuid}/responses
-POST api/v1/grc/csa/questionnaires/{uuid}/review
-POST api/v1/grc/rm/categories
-POST api/v1/grc/rm/kris
-POST api/v1/grc/rm/kris/{uuid}/readings
-POST api/v1/grc/rm/risks
-POST api/v1/grc/rm/risks/{uuid}/assess
-POST api/v1/grc/rm/risks/{uuid}/treatments
-POST api/v1/grc/sod/conflicts
-POST api/v1/grc/sod/functions
-POST api/v1/grc/sod/scan
-POST api/v1/grc/sod/violations/{uuid}/accept-risk
 POST api/v1/hr/me/check-in
 POST api/v1/hr/me/check-out
 POST api/v1/hr/me/leave-requests
 POST api/v1/hr/me/leave-requests/{id}/cancel
-POST api/v1/inventory/barcode/products/{product}/barcodes
-POST api/v1/inventory/products/{product}/certifications
-POST api/v1/inventory/products/{product}/documents
-POST api/v1/inventory/products/{product}/images
-POST api/v1/inventory/products/{product}/reviews
-POST api/v1/inventory/products/{product}/reviews/{review}/approve
-POST api/v1/inventory/products/{product}/reviews/{review}/reject
-POST api/v1/inventory/products/{product}/videos
 POST api/v1/localization/language
-POST api/v1/loyalty/accounts/{account}/earn
-POST api/v1/loyalty/accounts/{account}/redeem
-POST api/v1/loyalty/programs/{program}/earning-rules
-POST api/v1/loyalty/programs/{program}/tiers
-POST api/v1/multi-currency/currencies
-POST api/v1/multi-currency/revaluations
-POST api/v1/multi-currency/revaluations/auto-run
-POST api/v1/multi-currency/revaluations/{currencyRevaluation}/post
-POST api/v1/multi-currency/revaluations/{currencyRevaluation}/reverse
 POST api/v1/notifications/mark-all-read
 POST api/v1/notifications/preferences/initialize
 POST api/v1/notifications/{id}/read
@@ -132,58 +70,9 @@ POST api/v1/portal/quotations/{quotation}/accept
 POST api/v1/portal/quotations/{quotation}/decline
 POST api/v1/portal/register
 POST api/v1/portal/reset-password
-POST api/v1/sales/offers/bundles
-POST api/v1/sales/offers/bundles/{bundle}/calculate
-POST api/v1/sales/offers/campaigns
-POST api/v1/sales/offers/campaigns/{campaign}/tier-offers
-POST api/v1/sales/payment-delivery/delivery-modes
-POST api/v1/sales/payment-delivery/delivery-modes/calculate-shipping
-POST api/v1/sales/payment-delivery/payment-modes
-POST api/v1/sales/payment-delivery/shipments/{shipment}/status
-POST api/v1/sales/price-overrides
-POST api/v1/sales/price-overrides/policies
-POST api/v1/sales/price-overrides/{override}/approve
-POST api/v1/sales/price-overrides/{override}/reject
 POST api/v1/sensitive/request-access
 POST api/v1/sessions/{session}/terminate
-POST api/v1/task-boards/boards/{board}/columns
-POST api/v1/task-boards/boards/{board}/labels
-POST api/v1/task-boards/boards/{board}/members
-POST api/v1/task-boards/boards/{board}/tasks/{task}/assign
-POST api/v1/task-boards/boards/{board}/tasks/{task}/attachments
-POST api/v1/task-boards/boards/{board}/tasks/{task}/checklists
-POST api/v1/task-boards/boards/{board}/tasks/{task}/comments
-POST api/v1/task-boards/boards/{board}/tasks/{task}/dependencies
-POST api/v1/task-boards/boards/{board}/tasks/{task}/labels
-POST api/v1/task-boards/boards/{board}/tasks/{task}/move
-POST api/v1/task-boards/boards/{board}/tasks/{task}/time-entries
-POST api/v1/task-boards/boards/{board}/tasks/{task}/watchers
-POST api/v1/task-boards/sprints/{sprint}/complete
-POST api/v1/task-boards/sprints/{sprint}/start
-POST api/v1/task-boards/sprints/{sprint}/tasks
-POST api/v1/webhooks/zatca
-PUT api/v1/customs/declarations/{declaration}
-PUT api/v1/customs/excise-categories/{category}
-PUT api/v1/customs/excise-declarations/{declaration}
-PUT api/v1/customs/tariff-codes/{tariffCode}
-PUT api/v1/grc/rm/treatments/{treatmentUuid}
-PUT api/v1/inventory/products/{product}/certifications/{certification}
-PUT api/v1/inventory/products/{product}/images/reorder
-PUT api/v1/inventory/products/{product}/relations
-PUT api/v1/inventory/products/{product}/specifications
-PUT api/v1/loyalty/programs/{program}
-PUT api/v1/loyalty/rewards/{reward}
-PUT api/v1/module-access/roles/{role}/permissions/{moduleId}
-PUT api/v1/module-access/users/{user}/overrides/{moduleId}
 PUT api/v1/notifications/preferences
 PUT api/v1/notifications/preferences/{type}
 PUT api/v1/preferences/bulk
 PUT api/v1/preferences/{key}
-PUT api/v1/sales/offers/bundles/{bundle}
-PUT api/v1/sales/offers/campaigns/{campaign}
-PUT api/v1/sales/payment-delivery/delivery-modes/{mode}
-PUT api/v1/sales/payment-delivery/payment-modes/{mode}
-PUT api/v1/sales/price-overrides/policies/{policy}
-PUT api/v1/task-boards/boards/{board}/columns/{column}
-PUT api/v1/task-boards/boards/{board}/tasks/{task}
-PUT api/v1/task-boards/sprints/{sprint}

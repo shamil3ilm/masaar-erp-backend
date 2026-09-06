@@ -30,8 +30,17 @@ class WriteAuthorizationTest extends TestCase
 {
     private const BASELINE = __DIR__.'/../../Fixtures/unguarded-write-routes.txt';
 
-    /** Middleware that answers "may they do this", by any mechanism. */
-    private const AUTHORIZATION = ['permission', 'super.admin', 'check.branch', 'ip.allowlist', 'can:'];
+    /**
+     * Middleware that answers "may they do this", by any mechanism.
+     *
+     * verify.zatca.webhook belongs here: the caller is the tax authority, not
+     * a user, and a signature it cannot forge is what authorizes the request.
+     * There is no role to check and no permission that could be granted.
+     */
+    private const AUTHORIZATION = [
+        'permission', 'super.admin', 'check.branch', 'ip.allowlist', 'can:',
+        'verify.zatca.webhook',
+    ];
 
     public function test_no_new_unguarded_write_endpoints(): void
     {
