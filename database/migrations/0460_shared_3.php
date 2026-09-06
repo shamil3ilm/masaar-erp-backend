@@ -10,21 +10,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('wage_type_rules', function (Blueprint $table) {
-            $table->id();
-            $table->uuid()->unique();
-            $table->unsignedBigInteger('organization_id');
-            $table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade');
-            $table->unsignedBigInteger('wage_type_id');
-            $table->foreign('wage_type_id', 'wt_rule_wt_fk')->references('id')->on('wage_type_catalog')->onDelete('cascade');
-            $table->enum('rule_type', ['amount', 'percentage', 'formula']);
-            $table->json('base_wage_types')->nullable();
-            $table->decimal('calculation_factor', 8, 6)->default(1.0);
-            $table->string('formula')->nullable();
-            $table->unsignedSmallInteger('priority');
-            $table->timestamps();
-        });
-
         Schema::create('work_schedule_rules', function (Blueprint $table) {
             $table->id();
             $table->uuid()->unique();
@@ -41,44 +26,6 @@ return new class extends Migration
             $table->decimal('overtime_threshold_weekly', 5, 2)->nullable();
             $table->timestamps();
             $table->softDeletes();
-        });
-
-        Schema::create('employee_work_schedules', function (Blueprint $table) {
-            $table->id();
-            $table->uuid()->unique();
-            $table->unsignedBigInteger('organization_id');
-            $table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade');
-            $table->unsignedBigInteger('employee_id');
-            $table->foreign('employee_id', 'emp_ws_emp_fk')->references('id')->on('employees')->onDelete('cascade');
-            $table->unsignedBigInteger('work_schedule_rule_id');
-            $table->foreign('work_schedule_rule_id', 'emp_ws_rule_fk')->references('id')->on('work_schedule_rules')->onDelete('restrict');
-            $table->date('valid_from');
-            $table->date('valid_to')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('yearly_summaries', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
-            $table->unsignedSmallInteger('year');
-            $table->string('metric_type', 50);
-            $table->string('currency_code', 3)->default('SAR');
-
-            $table->decimal('value', 20, 4)->default(0);
-            $table->decimal('count', 15, 0)->default(0);
-            $table->decimal('monthly_average', 20, 4)->nullable();
-            $table->decimal('previous_value', 20, 4)->nullable();
-            $table->decimal('yoy_change_percent', 10, 2)->nullable();
-
-            $table->json('monthly_breakdown')->nullable();
-            $table->json('quarterly_breakdown')->nullable();
-
-            $table->timestamp('calculated_at');
-            $table->timestamps();
-
-            $table->unique(['organization_id', 'branch_id', 'year', 'metric_type', 'currency_code'], 'yearly_summary_unique');
-            $table->index(['organization_id', 'metric_type', 'year']);
         });
 
         Schema::create('equipment_counters', function (Blueprint $table) {
@@ -316,9 +263,6 @@ return new class extends Migration
         Schema::dropIfExists('counter_based_orders');
         Schema::dropIfExists('counter_based_plans');
         Schema::dropIfExists('equipment_counters');
-        Schema::dropIfExists('yearly_summaries');
-        Schema::dropIfExists('employee_work_schedules');
         Schema::dropIfExists('work_schedule_rules');
-        Schema::dropIfExists('wage_type_rules');
     }
 };
