@@ -9,7 +9,11 @@ use Illuminate\Support\Facades\Route;
 // -------------------------------------------------------------------------
 // Denied Party Screening — requires standard JWT auth
 // -------------------------------------------------------------------------
-Route::middleware(['auth:api'])->group(function (): void {
+// Denied-party screening writes: lists, entries, imports and screening runs.
+// deny.readonly.writes keeps a read-only role out of them; without it these
+// sat behind auth:api alone, outside both the permission checks and the
+// organization group that carries the guard.
+Route::middleware(['auth:api', 'deny.readonly.writes'])->group(function (): void {
     Route::prefix('compliance/dps')->name('compliance.dps.')->group(function (): void {
         Route::get('/lists', [DeniedPartyScreeningController::class, 'lists'])->name('lists');
         Route::post('/lists', [DeniedPartyScreeningController::class, 'storeList'])->name('lists.store');

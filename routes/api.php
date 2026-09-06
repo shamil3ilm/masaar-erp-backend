@@ -24,7 +24,11 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
     require __DIR__.'/api/v1/auth.php';
 
     // Protected routes
-    Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'throttle:api', 'track.activity'])->group(function () {
+    // deny.readonly.writes refuses POST/PUT/PATCH/DELETE from a role holding
+    // no permission other than .view. check.permission covers 895 of the write
+    // endpoints; on the rest this is what stops the Viewer role, seeded as
+    // read-only, from creating records.
+    Route::middleware(['auth:api', 'validate.jwt', 'check.organization', 'deny.readonly.writes', 'throttle:api', 'track.activity'])->group(function () {
         // Core module routes (always enabled)
         require __DIR__.'/api/v1/core.php';
 

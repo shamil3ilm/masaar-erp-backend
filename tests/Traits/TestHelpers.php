@@ -70,6 +70,16 @@ trait TestHelpers
             'slug' => 'test-role-' . Str::random(6),
         ]);
 
+        // A role holding nothing is read-only: DenyReadOnlyWrites refuses writes
+        // from a user granted no permission that is not a view. Tests calling
+        // this without arguments want "an authenticated user who can act", not
+        // a viewer, so give them one capability that is not a view. It satisfies
+        // no check.permission, so tests asserting a specific permission is
+        // required still get their 403.
+        if (empty($permissions)) {
+            $permissions = ['core.test.act'];
+        }
+
         if (!empty($permissions)) {
             foreach ($permissions as $permSlug) {
                 $parts = explode('.', $permSlug);
