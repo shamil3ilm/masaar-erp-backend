@@ -185,7 +185,7 @@ trait TestHelpers
      * Ensure an open fiscal year and accounting period exist for the given date (defaults to today).
      * This prevents PeriodLockService from rejecting financial transactions in tests.
      */
-    protected function setUpOpenFiscalPeriod(string $date = null, string $orgId = null): void
+    protected function setUpOpenFiscalPeriod(?string $date = null, ?string $orgId = null): void
     {
         $date = $date ?? now()->format('Y-m-d');
         $year = (int) substr($date, 0, 4);

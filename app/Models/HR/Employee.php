@@ -287,7 +287,7 @@ class Employee extends Model
             ->exists();
     }
 
-    public function getLeaveBalance(int $leaveTypeId, int $year = null): float
+    public function getLeaveBalance(int $leaveTypeId, ?int $year = null): float
     {
         $year = $year ?? now()->year;
 
