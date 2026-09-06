@@ -20,7 +20,9 @@ class ScrapReportTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.production.manage',
+        ]);
 
         $this->product = Product::factory()->create([
             'organization_id' => $this->organization->id,

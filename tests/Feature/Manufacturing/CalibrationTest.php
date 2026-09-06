@@ -17,7 +17,9 @@ class CalibrationTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.quality.manage',
+        ]);
     }
 
     // ─── equipment ────────────────────────────────────────────────────────────

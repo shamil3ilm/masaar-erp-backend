@@ -21,7 +21,9 @@ class CoProductTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.planning.manage',
+        ]);
 
         $this->bom = BomTemplate::factory()->create([
             'organization_id' => $this->organization->id,

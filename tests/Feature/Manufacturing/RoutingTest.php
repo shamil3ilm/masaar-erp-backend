@@ -20,7 +20,9 @@ class RoutingTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'manufacturing.planning.manage',
+        ]);
 
         $this->product = Product::factory()->create([
             'organization_id' => $this->organization->id,

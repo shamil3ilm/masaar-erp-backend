@@ -9,10 +9,10 @@ use App\Http\Controllers\Api\V1\Manufacturing\RoutingController;
 use Illuminate\Support\Facades\Route;
 
 Route::apiResource('routings', RoutingController::class)
-    ->names('manufacturing.routings');
+    ->names('manufacturing.routings')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:manufacturing.planning.manage');
 
 Route::post('routings/{routingHeader}/operations', [RoutingController::class, 'addOperation'])
-    ->name('manufacturing.routings.add-operation');
+    ->name('manufacturing.routings.add-operation')->middleware('check.permission:manufacturing.planning.manage');
 
 Route::get('routings/{productId}/lead-time', [RoutingController::class, 'calculateLeadTime'])
     ->name('manufacturing.routings.lead-time');
@@ -22,17 +22,17 @@ Route::get('routings/{productId}/lead-time', [RoutingController::class, 'calcula
 Route::post(
     'work-orders/{workOrder}/schedule/forward',
     [ProductionSchedulingController::class, 'scheduleForward']
-)->name('manufacturing.schedule.forward');
+)->name('manufacturing.schedule.forward')->middleware('check.permission:manufacturing.planning.manage');
 
 Route::post(
     'work-orders/{workOrder}/schedule/backward',
     [ProductionSchedulingController::class, 'scheduleBackward']
-)->name('manufacturing.schedule.backward');
+)->name('manufacturing.schedule.backward')->middleware('check.permission:manufacturing.planning.manage');
 
 Route::post(
     'schedule/reschedule-all',
     [ProductionSchedulingController::class, 'rescheduleAll']
-)->name('manufacturing.schedule.reschedule-all');
+)->name('manufacturing.schedule.reschedule-all')->middleware('check.permission:manufacturing.planning.manage');
 
 Route::get(
     'schedule/gantt',
@@ -46,33 +46,33 @@ Route::prefix('kanban')->name('manufacturing.kanban.')->group(function () {
     Route::get('supply-areas', [KanbanController::class, 'indexSupplyAreas'])
         ->name('supply-areas.index');
     Route::post('supply-areas', [KanbanController::class, 'storeSupplyArea'])
-        ->name('supply-areas.store');
+        ->name('supply-areas.store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'showSupplyArea'])
         ->name('supply-areas.show');
     Route::put('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'updateSupplyArea'])
-        ->name('supply-areas.update');
+        ->name('supply-areas.update')->middleware('check.permission:manufacturing.planning.manage');
     Route::delete('supply-areas/{kanbanSupplyArea}', [KanbanController::class, 'destroySupplyArea'])
-        ->name('supply-areas.destroy');
+        ->name('supply-areas.destroy')->middleware('check.permission:manufacturing.planning.manage');
 
     // Control cycles
     Route::get('control-cycles', [KanbanController::class, 'indexControlCycles'])
         ->name('cycles.index');
     Route::post('control-cycles', [KanbanController::class, 'storeControlCycle'])
-        ->name('cycles.store');
+        ->name('cycles.store')->middleware('check.permission:manufacturing.planning.manage');
     Route::get('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'showControlCycle'])
         ->name('cycles.show');
     Route::put('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'updateControlCycle'])
-        ->name('cycles.update');
+        ->name('cycles.update')->middleware('check.permission:manufacturing.planning.manage');
     Route::delete('control-cycles/{kanbanControlCycle}', [KanbanController::class, 'destroyControlCycle'])
-        ->name('cycles.destroy');
+        ->name('cycles.destroy')->middleware('check.permission:manufacturing.planning.manage');
 
     // Cards
     Route::get('control-cycles/{kanbanControlCycle}/cards', [KanbanController::class, 'cards'])
         ->name('cards');
     Route::post('cards/{kanbanCard}/empty', [KanbanController::class, 'signalEmpty'])
-        ->name('empty');
+        ->name('empty')->middleware('check.permission:manufacturing.planning.manage');
     Route::post('cards/{kanbanCard}/full', [KanbanController::class, 'signalFull'])
-        ->name('full');
+        ->name('full')->middleware('check.permission:manufacturing.planning.manage');
 
     // Board view
     Route::get('board', [KanbanController::class, 'board'])
@@ -85,7 +85,7 @@ Route::prefix('capacity-leveling')->name('manufacturing.capacity-leveling.')->gr
     Route::get('suggest', [CapacityLevelingController::class, 'suggest'])
         ->name('suggest');
     Route::post('apply', [CapacityLevelingController::class, 'apply'])
-        ->name('apply');
+        ->name('apply')->middleware('check.permission:manufacturing.capacity.manage');
     Route::get(
         'work-orders/{workOrder}/alternative-work-centers',
         [CapacityLevelingController::class, 'alternativeWorkCenters']

@@ -38,7 +38,7 @@ class CrossModuleWriteTest extends TestCase
         // endpoints below. This is the escalation being tested.
         $this->setUpAuthenticatedUser(['sales.orders.create']);
 
-        foreach (['real_estate', 'tm', 'ecommerce'] as $module) {
+        foreach (['real_estate', 'tm', 'ecommerce', 'manufacturing'] as $module) {
             OrganizationModule::updateOrCreate(
                 ['organization_id' => $this->organization->id, 'module_code' => $module],
                 ['is_enabled' => true, 'enabled_at' => now()],
@@ -73,6 +73,13 @@ class CrossModuleWriteTest extends TestCase
             'fraud rule creation' => ['/fraud/rules'],
             'suspicious activity report' => ['/aml/sar'],
             'warehouse load' => ['/analytics/warehouse/sync'],
+            'engineering change' => ['/manufacturing/engineering-changes'],
+            'routing creation' => ['/manufacturing/routings'],
+            'corrective action' => ['/manufacturing/capas'],
+            'audit plan' => ['/manufacturing/audit-plans'],
+            'scrap report' => ['/manufacturing/scrap-reports'],
+            'process order' => ['/manufacturing/process/orders'],
+            'work permit' => ['/manufacturing/maintenance-permits'],
         ];
     }
 

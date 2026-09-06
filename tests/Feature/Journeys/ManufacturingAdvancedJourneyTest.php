@@ -39,6 +39,9 @@ class ManufacturingAdvancedJourneyTest extends TestCase
 
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
+            // Planning master data and production execution
+            'manufacturing.planning.manage',
+            'manufacturing.production.manage',
             // BOM
             'manufacturing.bom.view',
             'manufacturing.bom.create',
