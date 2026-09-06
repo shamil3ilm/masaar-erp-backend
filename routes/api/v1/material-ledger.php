@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('material-ledger')->name('mm.ml.')->group(function (): void {
     Route::get('/records', [MaterialLedgerController::class, 'index'])->name('records.index');
     Route::get('/records/{productId}', [MaterialLedgerController::class, 'show'])->name('records.show');
-    Route::post('/period-close', [MaterialLedgerController::class, 'runPeriodClose'])->name('period-close');
+    Route::post('/period-close', [MaterialLedgerController::class, 'runPeriodClose'])->name('period-close')->middleware('check.permission:accounting.material-ledger.manage');
     Route::get('/period-report', [MaterialLedgerController::class, 'periodReport'])->name('period-report');
     Route::get('/closing-entries', [MaterialLedgerController::class, 'closingEntries'])->name('closing-entries');
 });
