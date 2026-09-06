@@ -664,15 +664,15 @@ Route::prefix('sensitive-access')->group(function () {
 // Change Transport (SAP CTS equivalent)
 Route::prefix('change-transport')->name('core.change-transport.')->group(function () {
     Route::get('/', [ChangeTransportController::class, 'index'])->name('index');
-    Route::post('/', [ChangeTransportController::class, 'store'])->name('store')->middleware('check.permission:core.change-transport.manage');
+    Route::post('/', [ChangeTransportController::class, 'store'])->name('store')->middleware('super.admin');
     Route::get('/open', [ChangeTransportController::class, 'openRequests'])->name('open');
     Route::get('/{id}', [ChangeTransportController::class, 'show'])->name('show');
-    Route::put('/{id}', [ChangeTransportController::class, 'update'])->name('update')->middleware('check.permission:core.change-transport.manage');
+    Route::put('/{id}', [ChangeTransportController::class, 'update'])->name('update')->middleware('super.admin');
     Route::get('/{id}/objects', [ChangeTransportController::class, 'objects'])->name('objects');
-    Route::post('/{id}/objects', [ChangeTransportController::class, 'addObject'])->name('objects.add')->middleware('check.permission:core.change-transport.manage');
-    Route::post('/{id}/release', [ChangeTransportController::class, 'release'])->name('release')->middleware('check.permission:core.change-transport.manage');
-    Route::post('/{id}/import', [ChangeTransportController::class, 'import'])->name('import')->middleware('check.permission:core.change-transport.manage');
-    Route::post('/{id}/rollback', [ChangeTransportController::class, 'rollback'])->name('rollback')->middleware('check.permission:core.change-transport.manage');
+    Route::post('/{id}/objects', [ChangeTransportController::class, 'addObject'])->name('objects.add')->middleware('super.admin');
+    Route::post('/{id}/release', [ChangeTransportController::class, 'release'])->name('release')->middleware('super.admin');
+    Route::post('/{id}/import', [ChangeTransportController::class, 'import'])->name('import')->middleware('super.admin');
+    Route::post('/{id}/rollback', [ChangeTransportController::class, 'rollback'])->name('rollback')->middleware('super.admin');
     Route::get('/{id}/history', [ChangeTransportController::class, 'history'])->name('history');
 });
 
@@ -682,10 +682,10 @@ Route::prefix('job-monitor')->name('core.job-monitor.')->group(function () {
     Route::get('/stats', [JobMonitorController::class, 'stats'])->name('stats');
     Route::get('/running', [JobMonitorController::class, 'running'])->name('running');
     Route::get('/failed', [JobMonitorController::class, 'failed'])->name('failed');
-    Route::post('/cleanup', [JobMonitorController::class, 'cleanup'])->name('cleanup')->middleware('check.permission:core.job-monitor.manage');
+    Route::post('/cleanup', [JobMonitorController::class, 'cleanup'])->name('cleanup')->middleware('super.admin');
     Route::get('/{id}', [JobMonitorController::class, 'show'])->name('show');
     Route::get('/{id}/logs', [JobMonitorController::class, 'logs'])->name('logs');
-    Route::post('/{id}/retry', [JobMonitorController::class, 'retry'])->name('retry')->middleware('check.permission:core.job-monitor.manage');
+    Route::post('/{id}/retry', [JobMonitorController::class, 'retry'])->name('retry')->middleware('super.admin');
 });
 
 /*
@@ -723,10 +723,10 @@ Route::prefix('webhooks/dlq')->name('core.webhooks.dlq.')->middleware(['auth:api
 */
 Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [IpAllowlistController::class, 'index'])->name('index');
-    Route::post('/', [IpAllowlistController::class, 'store'])->name('store')->middleware('check.permission:core.ip-allowlist.manage');
-    Route::put('/{id}', [IpAllowlistController::class, 'update'])->name('update')->middleware('check.permission:core.ip-allowlist.manage');
-    Route::delete('/{id}', [IpAllowlistController::class, 'destroy'])->name('destroy')->middleware('check.permission:core.ip-allowlist.manage');
-    Route::post('/check', [IpAllowlistController::class, 'check'])->name('check')->middleware('check.permission:core.ip-allowlist.manage');
+    Route::post('/', [IpAllowlistController::class, 'store'])->name('store')->middleware('super.admin');
+    Route::put('/{id}', [IpAllowlistController::class, 'update'])->name('update')->middleware('super.admin');
+    Route::delete('/{id}', [IpAllowlistController::class, 'destroy'])->name('destroy')->middleware('super.admin');
+    Route::post('/check', [IpAllowlistController::class, 'check'])->name('check')->middleware('super.admin');
 });
 
 /*
@@ -736,7 +736,7 @@ Route::prefix('security/ip-allowlist')->name('core.ip-allowlist.')->middleware([
 */
 Route::prefix('rate-limits')->name('core.rate-limits.')->middleware(['auth:api'])->group(function (): void {
     Route::get('/', [TenantRateLimitController::class, 'show'])->name('show');
-    Route::put('/', [TenantRateLimitController::class, 'update'])->name('update')->middleware('check.permission:core.rate-limits.manage');
+    Route::put('/', [TenantRateLimitController::class, 'update'])->name('update')->middleware('super.admin');
     Route::get('/stats', [TenantRateLimitController::class, 'stats'])->name('stats');
 });
 

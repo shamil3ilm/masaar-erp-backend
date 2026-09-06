@@ -35,9 +35,7 @@ class PermissionsSeeder extends Seeder
     {
         return [
             'core' => [
-                'core.modules.manage' => 'Grant Module Access',
                 'core.business-partners.manage'   => 'Manage Business Partners',
-                'core.change-transport.manage'    => 'Move Configuration Between Systems',
                 'core.classification.manage'      => 'Manage Classification',
                 'core.custom-fields.manage'       => 'Manage Custom Fields',
                 'core.dashboards.manage'          => 'Manage Dashboard Layouts',
@@ -46,9 +44,6 @@ class PermissionsSeeder extends Seeder
                 'core.exports.manage'             => 'Export Data in Bulk',
                 'core.gdpr.manage'                => 'Act on Data-Protection Requests',
                 'core.imports.manage'             => 'Import Data in Bulk',
-                'core.ip-allowlist.manage'        => 'Manage the IP Allowlist',
-                'core.job-monitor.manage'         => 'Manage Queued Jobs',
-                'core.rate-limits.manage'         => 'Manage Rate Limits',
                 'core.webhooks.manage'            => 'Manage Webhooks',
                 'core.workflow-escalation.manage' => 'Manage Workflow Escalation',
                 'core.users.view'           => 'View Users',
