@@ -1506,27 +1506,6 @@
 
 ---
 
-### daily_summaries
-| Column | Type | Key | Description |
-|--------|------|-----|-------------|
-| id | bigint | PK | |
-| organization_id | bigint | FK → organizations | |
-| branch_id | bigint | FK → branches | Nullable |
-| summary_date | date | IDX | |
-| metric_type | varchar | IDX | sales_total, invoice_count, etc. |
-| currency_code | varchar(3) | | |
-| value | decimal(20,4) | | |
-| count | decimal(15,0) | | |
-
-**Indexes:** `(organization_id, branch_id, summary_date, metric_type, currency_code)` UNIQUE
-
----
-
-### monthly_summaries / yearly_summaries
-Similar structure to daily_summaries with year/month columns.
-
----
-
 ## 18. Automation Module
 
 ### automation_rules
