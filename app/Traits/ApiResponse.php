@@ -147,7 +147,7 @@ trait ApiResponse
 
     protected function paginated(
         $paginator,
-        string $resourceClass = null,
+        ?string $resourceClass = null,
         string $message = 'Success'
     ): JsonResponse {
         $data = $paginator->items();
