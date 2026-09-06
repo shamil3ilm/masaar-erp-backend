@@ -30,9 +30,16 @@ class EnvExampleTest extends TestCase
 {
     private const ROOT = __DIR__.'/../../..';
 
-    /** Config files that come with the framework, not with this application. */
+    /**
+     * Config files that come with the framework, not with this application.
+     *
+     * cors.php is deliberately absent. Laravel ships it with no env() calls at
+     * all; this one reads CORS_ALLOWED_ORIGINS and fails closed without it, so
+     * a deployment that has not set it rejects every browser request. That is
+     * exactly the kind of setting this test exists to keep discoverable.
+     */
     private const FRAMEWORK_CONFIG = [
-        'app', 'auth', 'broadcasting', 'cache', 'cors', 'database', 'filesystems',
+        'app', 'auth', 'broadcasting', 'cache', 'database', 'filesystems',
         'hashing', 'logging', 'mail', 'queue', 'sanctum', 'services', 'session',
         'view', 'telescope',
     ];
