@@ -43,7 +43,7 @@ Route::middleware(['auth:api'])->group(function () {
 
     // Product-scoped barcode routes
     Route::get('products/{product}/barcodes', [BarcodeController::class, 'listForProduct']);
-    Route::post('products/{product}/barcodes', [BarcodeController::class, 'storeForProduct']);
+    Route::post('products/{product}/barcodes', [BarcodeController::class, 'storeForProduct'])->middleware('check.permission:inventory.barcodes.manage');
 
     /*
     |--------------------------------------------------------------------------

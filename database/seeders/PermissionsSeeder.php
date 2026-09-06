@@ -35,6 +35,7 @@ class PermissionsSeeder extends Seeder
     {
         return [
             'core' => [
+                'core.modules.manage' => 'Grant Module Access',
                 'core.business-partners.manage'   => 'Manage Business Partners',
                 'core.change-transport.manage'    => 'Move Configuration Between Systems',
                 'core.classification.manage'      => 'Manage Classification',
@@ -73,6 +74,7 @@ class PermissionsSeeder extends Seeder
                 'features.view'             => 'View Feature Flags',
             ],
             'accounting' => [
+                'accounting.multi-currency.manage' => 'Manage Currencies and Rates',
                 'accounting.account-groups.manage'           => 'Manage Account Groups',
                 'accounting.accruals.manage'                 => 'Manage Accruals',
                 'accounting.activity-types.manage'           => 'Manage Activity Types',
@@ -302,6 +304,10 @@ class PermissionsSeeder extends Seeder
                 'inventory.yard.view'                   => 'View Yard',
             ],
             'sales' => [
+                'sales.delivery-modes.manage'  => 'Manage Delivery Modes',
+                'sales.offers.manage'          => 'Manage Bundles and Seasonal Campaigns',
+                'sales.payment-modes.manage'   => 'Manage Payment Modes',
+                'sales.price-overrides.manage' => 'Approve Price Overrides',
                 'sales.intercompany-orders.manage' => 'Manage Intercompany Sales Orders',
                 'sales.third-party-orders.manage' => 'Manage Third-Party Orders',
                 'sales.backdated-transactions.manage' => 'Manage Backdated Transactions',
@@ -693,12 +699,21 @@ class PermissionsSeeder extends Seeder
                 'tax.tds.manage' => 'Manage TDS Returns',
             ],
             'compliance' => [
+                'compliance.audit.manage' => 'Manage Internal Audit',
+                'compliance.ccm.manage'   => 'Manage Continuous Control Monitoring',
+                'compliance.csa.manage'   => 'Manage Control Self-Assessments',
+                'compliance.risk.manage'  => 'Manage Risks and Key Risk Indicators',
+                'compliance.sod.manage'   => 'Manage Segregation-of-Duties Conflicts',
                 'compliance.dps.manage'             => 'Manage Denied-Party Screening',
                 'compliance.process-control.manage' => 'Manage Process Controls',
                 'compliance.onboarding.view'   => 'View Compliance Onboarding',
                 'compliance.onboarding.manage' => 'Manage Compliance Onboarding',
             ],
             'customs' => [
+                'customs.declarations.manage'        => 'Manage Declarations',
+                'customs.excise-categories.manage'   => 'Manage Excise Categories',
+                'customs.excise-declarations.manage' => 'Manage Excise Declarations',
+                'customs.tariff-codes.manage'        => 'Manage Tariff Codes',
                 'customs.tariff-codes.view'        => 'View Tariff Codes',
                 'customs.tariff-codes.create'      => 'Create Tariff Codes',
                 'customs.excise-categories.view'   => 'View Excise Categories',
@@ -860,6 +875,8 @@ class PermissionsSeeder extends Seeder
                 'calendar.events.create'    => 'Create Events',
             ],
             'taskboard' => [
+                'taskboard.sprints.manage' => 'Manage Sprints',
+                'taskboard.tasks.manage'   => 'Manage Tasks',
                 'taskboard.boards.view'    => 'View Task Boards',
                 'taskboard.boards.edit'   => 'Edit Boards',
                 'taskboard.boards.delete' => 'Delete Boards',
@@ -882,6 +899,9 @@ class PermissionsSeeder extends Seeder
                 'billing.usage.view'            => 'View Usage Metrics',
             ],
             'loyalty' => [
+                'loyalty.accounts.manage' => 'Manage Accounts',
+                'loyalty.programs.manage' => 'Manage Programs',
+                'loyalty.rewards.manage'  => 'Manage Rewards',
                 'loyalty.programs.view'    => 'View Loyalty Programs',
                 'loyalty.programs.create'  => 'Create Loyalty Programs',
                 'loyalty.programs.delete'  => 'Delete Loyalty Programs',
