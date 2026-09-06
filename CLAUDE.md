@@ -6,7 +6,7 @@ A comprehensive multi-tenant Enterprise Resource Planning (ERP) backend built wi
 
 - **Framework:** Laravel 12
 - **Language:** PHP 8.2+
-- **Authentication:** JWT (via `phpopensourcesaver/jwt-auth`)
+- **Authentication:** JWT (via `php-open-source-saver/jwt-auth`)
 - **Database:** MySQL/PostgreSQL (production), SQLite (testing)
 - **API:** RESTful, versioned (`/api/v1`)
 
@@ -29,7 +29,8 @@ php artisan test
 
 ## Project Structure
 
-The codebase is organized into domain modules:
+The codebase is organized into domain modules. `ls app/Http/Controllers/Api/V1/`
+is the current list — there are 34, and the core business ones are:
 
 | Module | Path prefix | Description |
 |---|---|---|
@@ -41,6 +42,11 @@ The codebase is organized into domain modules:
 | **CRM** | `CRM/` | Leads, opportunities, activities, pipeline |
 | **Manufacturing** | `Manufacturing/` | BOMs, work orders, production logs |
 | **Core** | `Core/` | Organizations, settings, notifications, dashboards, webhooks, approvals |
+
+The rest, which this table used to omit entirely: Admin, Aml, Analytics, Auth,
+Automation, Billing, Budget, Calendar, Campaign, Compliance, Customs, Document,
+Ecommerce, Expense, Fraud, Loyalty, Maintenance, Messaging, Projects,
+RealEstate, Reports, TM, TaskBoard, Tax, Trade.
 
 Each module follows the same layered structure:
 - `app/Models/{Module}/` -- Eloquent models

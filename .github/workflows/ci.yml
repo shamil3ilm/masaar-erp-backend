@@ -1,8 +1,10 @@
 # Continuous integration for the Masaar ERP backend.
 #
-# This repository ran 2157 tests that nothing executed automatically. They were
+# This repository ran a full suite that nothing executed automatically. It was
 # green whenever someone remembered to check, which is not the same as being
 # green — a refactor could land red and stay red until the next person looked.
+# The count is deliberately not written here; `php artisan test` reports it, and
+# a number in a comment is wrong the week after it is written.
 #
 # PHP 8.2 matches the "php" constraint in composer.json. Keep the two in step:
 # the compliance platform this ERP talks to requires 8.4, and the version drift
