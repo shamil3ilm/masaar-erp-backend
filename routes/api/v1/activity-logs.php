@@ -65,5 +65,5 @@ Route::prefix('entity-views')->group(function () {
 
     // Record a view
     Route::post('/', [ActivityLogController::class, 'recordView'])
-        ->name('entity-views.record');
+        ->name('entity-views.record')->middleware('check.permission:core.entity-views.manage');
 });

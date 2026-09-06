@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Route;
 // The simulate endpoint must come before apiResource so it is not treated
 // as a {taxDeterminationRule} parameter.
 Route::post('tax-determination-rules/simulate', [TaxDeterminationController::class, 'simulate'])
-    ->name('tax.determination-rules.simulate');
+    ->name('tax.determination-rules.simulate')->middleware('check.permission:tax.determination-rules.manage');
 
 Route::apiResource('tax-determination-rules', TaxDeterminationController::class)
-    ->names('tax.determination-rules');
+    ->names('tax.determination-rules')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:tax.determination-rules.manage');

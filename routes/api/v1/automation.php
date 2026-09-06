@@ -23,12 +23,12 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('rules')->group(function () {
         Route::get('/', [AutomationRuleController::class, 'index'])->name('automation.rules.index');
-        Route::post('/', [AutomationRuleController::class, 'store'])->name('automation.rules.store');
+        Route::post('/', [AutomationRuleController::class, 'store'])->name('automation.rules.store')->middleware('check.permission:automation.rules.manage');
         Route::get('/{automationRule}', [AutomationRuleController::class, 'show'])->name('automation.rules.show');
-        Route::put('/{automationRule}', [AutomationRuleController::class, 'update'])->name('automation.rules.update');
-        Route::delete('/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('automation.rules.destroy');
-        Route::patch('/{automationRule}/active', [AutomationRuleController::class, 'setActive'])->name('automation.rules.active');
-        Route::post('/{automationRule}/test', [AutomationRuleController::class, 'test'])->name('automation.rules.test');
+        Route::put('/{automationRule}', [AutomationRuleController::class, 'update'])->name('automation.rules.update')->middleware('check.permission:automation.rules.manage');
+        Route::delete('/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('automation.rules.destroy')->middleware('check.permission:automation.rules.manage');
+        Route::patch('/{automationRule}/active', [AutomationRuleController::class, 'setActive'])->name('automation.rules.active')->middleware('check.permission:automation.rules.manage');
+        Route::post('/{automationRule}/test', [AutomationRuleController::class, 'test'])->name('automation.rules.test')->middleware('check.permission:automation.rules.manage');
         Route::get('/{automationRule}/logs', [AutomationRuleController::class, 'logs'])->name('automation.rules.logs');
     });
 
@@ -79,10 +79,10 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('email-templates')->group(function () {
         Route::get('/', [AutomationEmailTemplateController::class, 'index'])->name('automation.email-templates.index');
-        Route::post('/', [AutomationEmailTemplateController::class, 'store'])->name('automation.email-templates.store');
+        Route::post('/', [AutomationEmailTemplateController::class, 'store'])->name('automation.email-templates.store')->middleware('check.permission:automation.email-templates.manage');
         Route::get('/{automationEmailTemplate}', [AutomationEmailTemplateController::class, 'show'])->name('automation.email-templates.show');
-        Route::put('/{automationEmailTemplate}', [AutomationEmailTemplateController::class, 'update'])->name('automation.email-templates.update');
-        Route::delete('/{automationEmailTemplate}', [AutomationEmailTemplateController::class, 'destroy'])->name('automation.email-templates.destroy');
-        Route::post('/{automationEmailTemplate}/preview', [AutomationEmailTemplateController::class, 'preview'])->name('automation.email-templates.preview');
+        Route::put('/{automationEmailTemplate}', [AutomationEmailTemplateController::class, 'update'])->name('automation.email-templates.update')->middleware('check.permission:automation.email-templates.manage');
+        Route::delete('/{automationEmailTemplate}', [AutomationEmailTemplateController::class, 'destroy'])->name('automation.email-templates.destroy')->middleware('check.permission:automation.email-templates.manage');
+        Route::post('/{automationEmailTemplate}/preview', [AutomationEmailTemplateController::class, 'preview'])->name('automation.email-templates.preview')->middleware('check.permission:automation.email-templates.manage');
     });
 });

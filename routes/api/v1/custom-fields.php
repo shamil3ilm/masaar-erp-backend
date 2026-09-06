@@ -30,7 +30,7 @@ Route::prefix('custom-fields')->group(function () {
         ->name('custom-fields.entity.values');
 
     Route::post('/entity/values', [CustomFieldController::class, 'setEntityFields'])
-        ->name('custom-fields.entity.values.set');
+        ->name('custom-fields.entity.values.set')->middleware('check.permission:core.custom-fields.manage');
 
     // Field Definition CRUD (wildcard routes last)
     Route::get('/{customFieldDefinition}', [CustomFieldController::class, 'show'])

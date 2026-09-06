@@ -35,6 +35,21 @@ class PermissionsSeeder extends Seeder
     {
         return [
             'core' => [
+                'core.business-partners.manage'   => 'Manage Business Partners',
+                'core.change-transport.manage'    => 'Move Configuration Between Systems',
+                'core.classification.manage'      => 'Manage Classification',
+                'core.custom-fields.manage'       => 'Manage Custom Fields',
+                'core.dashboards.manage'          => 'Manage Dashboard Layouts',
+                'core.edi.manage'                 => 'Manage EDI Messages',
+                'core.entity-views.manage'        => 'Manage Entity Views',
+                'core.exports.manage'             => 'Export Data in Bulk',
+                'core.gdpr.manage'                => 'Act on Data-Protection Requests',
+                'core.imports.manage'             => 'Import Data in Bulk',
+                'core.ip-allowlist.manage'        => 'Manage the IP Allowlist',
+                'core.job-monitor.manage'         => 'Manage Queued Jobs',
+                'core.rate-limits.manage'         => 'Manage Rate Limits',
+                'core.webhooks.manage'            => 'Manage Webhooks',
+                'core.workflow-escalation.manage' => 'Manage Workflow Escalation',
                 'core.users.view'           => 'View Users',
                 'core.users.create'         => 'Create Users',
                 'core.users.update'         => 'Update Users',
@@ -287,6 +302,7 @@ class PermissionsSeeder extends Seeder
                 'inventory.yard.view'                   => 'View Yard',
             ],
             'sales' => [
+                'sales.intercompany-orders.manage' => 'Manage Intercompany Sales Orders',
                 'sales.third-party-orders.manage' => 'Manage Third-Party Orders',
                 'sales.backdated-transactions.manage' => 'Manage Backdated Transactions',
                 'sales.backorders.manage'             => 'Manage Backorders',
@@ -359,6 +375,7 @@ class PermissionsSeeder extends Seeder
                 'sales.refunds.cancel'                  => 'Cancel Refunds',
                 'sales.shipments.view'                  => 'View Shipments',
                 'sales.shipments.create'                => 'Create Shipments',
+                'sales.shipments.delete'          => 'Delete Shipments',
                 'sales.shipments.update'                => 'Update Shipments',
                 'sales.promotions.view'                 => 'View Promotions',
                 'sales.promotions.create'               => 'Create Promotions',
@@ -667,6 +684,7 @@ class PermissionsSeeder extends Seeder
                 'manufacturing.quality.manage'  => 'Manage Quality',
             ],
             'tax' => [
+                'tax.determination-rules.manage' => 'Manage Determination Rules',
                 'tax.vat.view'   => 'View VAT Compliance',
                 'tax.vat.manage' => 'Manage VAT Returns',
                 'tax.gst.view'   => 'View GST Compliance',
@@ -675,6 +693,8 @@ class PermissionsSeeder extends Seeder
                 'tax.tds.manage' => 'Manage TDS Returns',
             ],
             'compliance' => [
+                'compliance.dps.manage'             => 'Manage Denied-Party Screening',
+                'compliance.process-control.manage' => 'Manage Process Controls',
                 'compliance.onboarding.view'   => 'View Compliance Onboarding',
                 'compliance.onboarding.manage' => 'Manage Compliance Onboarding',
             ],
@@ -821,6 +841,11 @@ class PermissionsSeeder extends Seeder
                 'expenses.recurring.process'=> 'Process Recurring Expenses',
             ],
             'documents' => [
+                'documents.files.manage'      => 'Manage Documents',
+                'documents.folders.manage'    => 'Manage Folders',
+                'documents.shares.manage'     => 'Manage Shares',
+                'documents.signatures.manage' => 'Manage Signatures',
+                'documents.versions.manage'   => 'Manage Versions',
                 'documents.folders.view'   => 'View Document Folders',
                 'documents.folders.create' => 'Create Document Folders',
                 'documents.files.view'     => 'View Documents',
@@ -828,6 +853,7 @@ class PermissionsSeeder extends Seeder
                 'documents.files.delete'   => 'Delete Documents',
             ],
             'calendar' => [
+                'calendar.tasks.manage' => 'Manage Tasks',
                 'calendar.calendars.view'   => 'View Calendars',
                 'calendar.calendars.create' => 'Create Calendars',
                 'calendar.events.view'      => 'View Events',
@@ -835,6 +861,8 @@ class PermissionsSeeder extends Seeder
             ],
             'taskboard' => [
                 'taskboard.boards.view'    => 'View Task Boards',
+                'taskboard.boards.edit'   => 'Edit Boards',
+                'taskboard.boards.delete' => 'Delete Boards',
                 'taskboard.boards.create'  => 'Create Task Boards',
                 'taskboard.sprints.view'   => 'View Sprints',
                 'taskboard.sprints.create' => 'Create Sprints',
@@ -863,6 +891,8 @@ class PermissionsSeeder extends Seeder
                 'loyalty.rewards.create'   => 'Create Rewards',
             ],
             'automation' => [
+                'automation.email-templates.manage' => 'Manage Email Templates',
+                'automation.rules.manage'           => 'Manage Rules',
                 'automation.workflows.view'    => 'View Automation Workflows',
                 'automation.workflows.create'  => 'Create Automation Workflows',
                 'automation.workflows.update'  => 'Update Automation Workflows',
@@ -870,6 +900,10 @@ class PermissionsSeeder extends Seeder
                 'automation.approvals.approve' => 'Approve Workflow Steps',
             ],
             'messaging' => [
+                'messaging.campaigns.manage'      => 'Manage Campaigns',
+                'messaging.configurations.manage' => 'Manage Configurations',
+                'messaging.preferences.manage'    => 'Manage Preferences',
+                'messaging.templates.manage'      => 'Manage Templates',
                 'messaging.conversations.view'   => 'View Conversations',
                 'messaging.conversations.create' => 'Create Conversations',
                 'messaging.messages.create'      => 'Send Messages',
@@ -912,6 +946,7 @@ class PermissionsSeeder extends Seeder
                 'analytics.warehouse.manage' => 'Run Data Warehouse Loads',
             ],
             'reports' => [
+                'reports.exports.manage' => 'Export Reports',
                 'reports.dashboard.view' => 'View Reports Dashboard',
             ],
         ];

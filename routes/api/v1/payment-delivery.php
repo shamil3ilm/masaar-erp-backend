@@ -25,6 +25,9 @@ Route::prefix('delivery-modes')->group(function () {
 });
 
 // Shipments
-Route::apiResource('shipments', ShipmentController::class);
+Route::apiResource('shipments', ShipmentController::class)
+    ->middlewareFor(['store'], 'check.permission:sales.shipments.create')
+    ->middlewareFor(['update'], 'check.permission:sales.shipments.update')
+    ->middlewareFor(['destroy'], 'check.permission:sales.shipments.delete');
 Route::post('shipments/{shipment}/status', [ShipmentController::class, 'updateStatus']);
 Route::get('shipments/{shipment}/tracking', [ShipmentController::class, 'tracking']);

@@ -36,7 +36,7 @@ Route::prefix('compliance')->group(function (): void {
 Route::prefix('documents')->name('documents.secure.')->group(function (): void {
     // Authenticated: generate a signed download link.
     Route::post('/generate-link', [DocumentDownloadController::class, 'generate'])
-        ->name('generate');
+        ->name('generate')->middleware('check.permission:documents.files.manage');
 
     // Public: stream the PDF. Exempt from the standard auth middleware stack.
     Route::get('/download/{token}', [DocumentDownloadController::class, 'download'])
