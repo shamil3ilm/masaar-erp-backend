@@ -56,6 +56,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'track.response.time'    => TrackResponseTime::class,
             'simulation'             => SimulationMode::class,
             'query.budget'           => \App\Http\Middleware\QueryBudget::class,
+            'deny.readonly.writes'   => \App\Http\Middleware\DenyReadOnlyWrites::class,
         ]);
 
         // Security headers on every response
