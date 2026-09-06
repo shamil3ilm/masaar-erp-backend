@@ -211,11 +211,11 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('batch-classes')->name('mm.batch-classes.')->group(function () {
         Route::get('/', [BatchClassificationController::class, 'index'])->name('index');
-        Route::post('/', [BatchClassificationController::class, 'store'])->name('store');
+        Route::post('/', [BatchClassificationController::class, 'store'])->name('store')->middleware('check.permission:inventory.batch-classes.manage');
         Route::get('/{id}', [BatchClassificationController::class, 'show'])->name('show');
-        Route::put('/{id}', [BatchClassificationController::class, 'update'])->name('update');
-        Route::delete('/{id}', [BatchClassificationController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/characteristics', [BatchClassificationController::class, 'addCharacteristic'])->name('chars.add');
+        Route::put('/{id}', [BatchClassificationController::class, 'update'])->name('update')->middleware('check.permission:inventory.batch-classes.manage');
+        Route::delete('/{id}', [BatchClassificationController::class, 'destroy'])->name('destroy')->middleware('check.permission:inventory.batch-classes.manage');
+        Route::post('/{id}/characteristics', [BatchClassificationController::class, 'addCharacteristic'])->name('chars.add')->middleware('check.permission:inventory.batch-classes.manage');
         Route::get('/{id}/characteristics', [BatchClassificationController::class, 'getCharacteristics'])->name('chars');
     });
 
@@ -227,13 +227,13 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('batches')->name('mm.batches.')->group(function () {
-        Route::post('/{batchId}/classification-values', [BatchClassificationController::class, 'setBatchValues'])->name('values.set');
+        Route::post('/{batchId}/classification-values', [BatchClassificationController::class, 'setBatchValues'])->name('values.set')->middleware('check.permission:inventory.batches.manage');
         Route::get('/{batchId}/classification-values', [BatchClassificationController::class, 'getBatchValues'])->name('values');
         Route::get('/{batchId}/where-used', [BatchWhereUsedController::class, 'getForBatch'])->name('where-used');
         Route::get('/{batchId}/where-used-tree', [BatchWhereUsedController::class, 'whereUsedTree'])->name('where-used-tree');
     });
 
-    Route::post('batch-where-used/record', [BatchWhereUsedController::class, 'record'])->name('mm.batch-where-used.record');
+    Route::post('batch-where-used/record', [BatchWhereUsedController::class, 'record'])->name('mm.batch-where-used.record')->middleware('check.permission:inventory.batch-where-used.manage');
     Route::get('batch-where-used/by-reference', [BatchWhereUsedController::class, 'searchByReference'])->name('mm.batch-where-used.by-reference');
 
     /*
@@ -243,14 +243,14 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('storage-types')->name('wm.storage-types.')->group(function (): void {
         Route::get('/', [StorageTypeController::class, 'index'])->name('index');
-        Route::post('/', [StorageTypeController::class, 'store'])->name('store');
-        Route::post('/determine', [StorageTypeController::class, 'determine'])->name('determine');
+        Route::post('/', [StorageTypeController::class, 'store'])->name('store')->middleware('check.permission:inventory.storage-types.manage');
+        Route::post('/determine', [StorageTypeController::class, 'determine'])->name('determine')->middleware('check.permission:inventory.storage-types.manage');
         Route::get('/{id}', [StorageTypeController::class, 'show'])->name('show');
-        Route::put('/{id}', [StorageTypeController::class, 'update'])->name('update');
-        Route::delete('/{id}', [StorageTypeController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/rules', [StorageTypeController::class, 'addRule'])->name('rules.add');
-        Route::put('/{id}/rules/{ruleId}', [StorageTypeController::class, 'updateRule'])->name('rules.update');
-        Route::delete('/{id}/rules/{ruleId}', [StorageTypeController::class, 'removeRule'])->name('rules.remove');
+        Route::put('/{id}', [StorageTypeController::class, 'update'])->name('update')->middleware('check.permission:inventory.storage-types.manage');
+        Route::delete('/{id}', [StorageTypeController::class, 'destroy'])->name('destroy')->middleware('check.permission:inventory.storage-types.manage');
+        Route::post('/{id}/rules', [StorageTypeController::class, 'addRule'])->name('rules.add')->middleware('check.permission:inventory.storage-types.manage');
+        Route::put('/{id}/rules/{ruleId}', [StorageTypeController::class, 'updateRule'])->name('rules.update')->middleware('check.permission:inventory.storage-types.manage');
+        Route::delete('/{id}/rules/{ruleId}', [StorageTypeController::class, 'removeRule'])->name('rules.remove')->middleware('check.permission:inventory.storage-types.manage');
     });
 
     /*
@@ -260,11 +260,11 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('cycle-counts')->name('inventory.cycle-counts.')->group(function (): void {
         Route::get('/plans', [CycleCountController::class, 'plans'])->name('plans.index');
-        Route::post('/plans', [CycleCountController::class, 'storePlan'])->name('plans.store');
-        Route::post('/sessions', [CycleCountController::class, 'createSession'])->name('sessions.store');
+        Route::post('/plans', [CycleCountController::class, 'storePlan'])->name('plans.store')->middleware('check.permission:inventory.cycle-counts.manage');
+        Route::post('/sessions', [CycleCountController::class, 'createSession'])->name('sessions.store')->middleware('check.permission:inventory.cycle-counts.manage');
         Route::get('/sessions/{id}', [CycleCountController::class, 'showSession'])->name('sessions.show');
-        Route::put('/sessions/{sessionId}/lines/{lineId}', [CycleCountController::class, 'recordCount'])->name('lines.update');
-        Route::post('/sessions/{id}/post', [CycleCountController::class, 'postAdjustments'])->name('sessions.post');
+        Route::put('/sessions/{sessionId}/lines/{lineId}', [CycleCountController::class, 'recordCount'])->name('lines.update')->middleware('check.permission:inventory.cycle-counts.manage');
+        Route::post('/sessions/{id}/post', [CycleCountController::class, 'postAdjustments'])->name('sessions.post')->middleware('check.permission:inventory.cycle-counts.manage');
         Route::get('/warehouses/{warehouseId}/abc', [CycleCountController::class, 'abcAnalysis'])->name('abc-analysis');
     });
 
@@ -275,17 +275,17 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::apiResource('serial-numbers', SerialNumberController::class)
         ->only(['index', 'store', 'show', 'destroy'])
-        ->names('inventory.serial-numbers');
+        ->names('inventory.serial-numbers')->middlewareFor(['store', 'destroy'], 'check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/bulk-create', [SerialNumberController::class, 'bulkCreate'])
-        ->name('inventory.serial-numbers.bulk-create');
+        ->name('inventory.serial-numbers.bulk-create')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/{serialNumber}/receive', [SerialNumberController::class, 'receive'])
-        ->name('inventory.serial-numbers.receive');
+        ->name('inventory.serial-numbers.receive')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/{serialNumber}/issue', [SerialNumberController::class, 'issue'])
-        ->name('inventory.serial-numbers.issue');
+        ->name('inventory.serial-numbers.issue')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/{serialNumber}/transfer', [SerialNumberController::class, 'transfer'])
-        ->name('inventory.serial-numbers.transfer');
+        ->name('inventory.serial-numbers.transfer')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::post('serial-numbers/{serialNumber}/scrap', [SerialNumberController::class, 'scrap'])
-        ->name('inventory.serial-numbers.scrap');
+        ->name('inventory.serial-numbers.scrap')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::get('serial-numbers/{serialNumber}/history', [SerialNumberController::class, 'history'])
         ->name('inventory.serial-numbers.history');
 
@@ -318,10 +318,10 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('split-valuation')->name('inventory.split-valuation.')->group(function (): void {
         Route::get('/', [SplitValuationController::class, 'index'])->name('index');
-        Route::post('/goods-receipt', [SplitValuationController::class, 'goodsReceipt'])->name('goods-receipt');
-        Route::post('/goods-issue', [SplitValuationController::class, 'goodsIssue'])->name('goods-issue');
-        Route::post('/revaluate', [SplitValuationController::class, 'revaluate'])->name('revaluate');
-        Route::post('/categories', [SplitValuationController::class, 'createCategory'])->name('categories.store');
-        Route::post('/categories/{category}/types', [SplitValuationController::class, 'createType'])->name('types.store');
+        Route::post('/goods-receipt', [SplitValuationController::class, 'goodsReceipt'])->name('goods-receipt')->middleware('check.permission:inventory.split-valuation.manage');
+        Route::post('/goods-issue', [SplitValuationController::class, 'goodsIssue'])->name('goods-issue')->middleware('check.permission:inventory.split-valuation.manage');
+        Route::post('/revaluate', [SplitValuationController::class, 'revaluate'])->name('revaluate')->middleware('check.permission:inventory.split-valuation.manage');
+        Route::post('/categories', [SplitValuationController::class, 'createCategory'])->name('categories.store')->middleware('check.permission:inventory.split-valuation.manage');
+        Route::post('/categories/{category}/types', [SplitValuationController::class, 'createType'])->name('types.store')->middleware('check.permission:inventory.split-valuation.manage');
     });
 });

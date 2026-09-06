@@ -231,16 +231,16 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('outline-agreements')->name('mm.outline-agreements.')->group(function () {
         Route::get('/', [OutlineAgreementController::class, 'index'])->name('index');
-        Route::post('/', [OutlineAgreementController::class, 'store'])->name('store');
+        Route::post('/', [OutlineAgreementController::class, 'store'])->name('store')->middleware('check.permission:purchase.outline-agreements.manage');
         Route::get('/{id}', [OutlineAgreementController::class, 'show'])->name('show');
-        Route::put('/{id}', [OutlineAgreementController::class, 'update'])->name('update');
-        Route::delete('/{id}', [OutlineAgreementController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/items', [OutlineAgreementController::class, 'addItem'])->name('items.add');
-        Route::put('/{id}/items/{itemId}', [OutlineAgreementController::class, 'updateItem'])->name('items.update');
-        Route::post('/{id}/releases', [OutlineAgreementController::class, 'createRelease'])->name('releases.create');
+        Route::put('/{id}', [OutlineAgreementController::class, 'update'])->name('update')->middleware('check.permission:purchase.outline-agreements.manage');
+        Route::delete('/{id}', [OutlineAgreementController::class, 'destroy'])->name('destroy')->middleware('check.permission:purchase.outline-agreements.manage');
+        Route::post('/{id}/items', [OutlineAgreementController::class, 'addItem'])->name('items.add')->middleware('check.permission:purchase.outline-agreements.manage');
+        Route::put('/{id}/items/{itemId}', [OutlineAgreementController::class, 'updateItem'])->name('items.update')->middleware('check.permission:purchase.outline-agreements.manage');
+        Route::post('/{id}/releases', [OutlineAgreementController::class, 'createRelease'])->name('releases.create')->middleware('check.permission:purchase.outline-agreements.manage');
         Route::get('/{id}/releases', [OutlineAgreementController::class, 'getReleases'])->name('releases.index');
-        Route::post('/{id}/activate', [OutlineAgreementController::class, 'activate'])->name('activate');
-        Route::post('/{id}/cancel', [OutlineAgreementController::class, 'cancel'])->name('cancel');
+        Route::post('/{id}/activate', [OutlineAgreementController::class, 'activate'])->name('activate')->middleware('check.permission:purchase.outline-agreements.manage');
+        Route::post('/{id}/cancel', [OutlineAgreementController::class, 'cancel'])->name('cancel')->middleware('check.permission:purchase.outline-agreements.manage');
     });
 
     /*
@@ -250,13 +250,13 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('scheduling-agreements')->name('mm.scheduling-agreements.')->group(function () {
         Route::get('/', [SchedulingAgreementController::class, 'index'])->name('index');
-        Route::post('/', [SchedulingAgreementController::class, 'store'])->name('store');
+        Route::post('/', [SchedulingAgreementController::class, 'store'])->name('store')->middleware('check.permission:purchase.scheduling-agreements.manage');
         Route::get('/{id}', [SchedulingAgreementController::class, 'show'])->name('show');
-        Route::put('/{id}', [SchedulingAgreementController::class, 'update'])->name('update');
-        Route::delete('/{id}', [SchedulingAgreementController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/schedule', [SchedulingAgreementController::class, 'addSchedule'])->name('schedule.add');
-        Route::put('/{id}/schedule/{lineId}', [SchedulingAgreementController::class, 'updateSchedule'])->name('schedule.update');
-        Route::post('/{id}/schedule/{lineId}/receive', [SchedulingAgreementController::class, 'receiveDelivery'])->name('receive');
+        Route::put('/{id}', [SchedulingAgreementController::class, 'update'])->name('update')->middleware('check.permission:purchase.scheduling-agreements.manage');
+        Route::delete('/{id}', [SchedulingAgreementController::class, 'destroy'])->name('destroy')->middleware('check.permission:purchase.scheduling-agreements.manage');
+        Route::post('/{id}/schedule', [SchedulingAgreementController::class, 'addSchedule'])->name('schedule.add')->middleware('check.permission:purchase.scheduling-agreements.manage');
+        Route::put('/{id}/schedule/{lineId}', [SchedulingAgreementController::class, 'updateSchedule'])->name('schedule.update')->middleware('check.permission:purchase.scheduling-agreements.manage');
+        Route::post('/{id}/schedule/{lineId}/receive', [SchedulingAgreementController::class, 'receiveDelivery'])->name('receive')->middleware('check.permission:purchase.scheduling-agreements.manage');
         Route::get('/{id}/schedules', [SchedulingAgreementController::class, 'getSchedules'])->name('schedules');
     });
 
@@ -267,8 +267,8 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('ers')->name('mm.ers.')->group(function () {
         Route::get('/configs', [ErsController::class, 'configs'])->name('configs');
-        Route::post('/configs', [ErsController::class, 'saveConfig'])->name('configs.save');
-        Route::post('/run', [ErsController::class, 'runErs'])->name('run');
+        Route::post('/configs', [ErsController::class, 'saveConfig'])->name('configs.save')->middleware('check.permission:purchase.ers.manage');
+        Route::post('/run', [ErsController::class, 'runErs'])->name('run')->middleware('check.permission:purchase.ers.manage');
         Route::get('/runs', [ErsController::class, 'getRuns'])->name('runs');
         Route::get('/runs/{runId}/items', [ErsController::class, 'getRunItems'])->name('run-items');
     });
@@ -279,17 +279,17 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::apiResource('release-strategies', ReleaseStrategyController::class)
-        ->names('purchase.release-strategies');
+        ->names('purchase.release-strategies')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:purchase.release-strategies.manage');
     Route::post('release-strategies/{releaseStrategy}/levels', [ReleaseStrategyController::class, 'addLevel'])
-        ->name('purchase.release-strategies.levels.add');
+        ->name('purchase.release-strategies.levels.add')->middleware('check.permission:purchase.release-strategies.manage');
     Route::delete('release-strategies/{releaseStrategy}/levels/{level}', [ReleaseStrategyController::class, 'removeLevel'])
-        ->name('purchase.release-strategies.levels.remove');
+        ->name('purchase.release-strategies.levels.remove')->middleware('check.permission:purchase.release-strategies.manage');
     Route::get('release-approval-status', [ReleaseStrategyController::class, 'approvalStatus'])
         ->name('purchase.release-strategies.status');
     Route::post('release-approvals/{approval}/approve', [ReleaseStrategyController::class, 'approve'])
-        ->name('purchase.release-approvals.approve');
+        ->name('purchase.release-approvals.approve')->middleware('check.permission:purchase.release-approvals.manage');
     Route::post('release-approvals/{approval}/reject', [ReleaseStrategyController::class, 'reject'])
-        ->name('purchase.release-approvals.reject');
+        ->name('purchase.release-approvals.reject')->middleware('check.permission:purchase.release-approvals.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -326,14 +326,14 @@ Route::middleware(['auth:api'])->group(function () {
 Route::middleware(['auth:api'])->prefix('vendor-evaluation')->name('purchase.vendor-eval.')->group(function (): void {
     // Criteria
     Route::get('/criteria', [VendorEvaluationController::class, 'criteria'])->name('criteria.index');
-    Route::post('/criteria', [VendorEvaluationController::class, 'storeCriterion'])->name('criteria.store');
+    Route::post('/criteria', [VendorEvaluationController::class, 'storeCriterion'])->name('criteria.store')->middleware('check.permission:purchase.vendor-eval.manage');
 
     // Scorecards
     Route::get('/scorecards', [VendorEvaluationController::class, 'index'])->name('scorecards.index');
-    Route::post('/scorecards', [VendorEvaluationController::class, 'store'])->name('scorecards.store');
+    Route::post('/scorecards', [VendorEvaluationController::class, 'store'])->name('scorecards.store')->middleware('check.permission:purchase.vendor-eval.manage');
     Route::get('/scorecards/{supplierScorecard}', [VendorEvaluationController::class, 'show'])->name('scorecards.show');
-    Route::put('/scorecards/{supplierScorecard}/ratings', [VendorEvaluationController::class, 'updateRatings'])->name('scorecards.ratings');
-    Route::post('/scorecards/{supplierScorecard}/finalize', [VendorEvaluationController::class, 'finalize'])->name('scorecards.finalize');
+    Route::put('/scorecards/{supplierScorecard}/ratings', [VendorEvaluationController::class, 'updateRatings'])->name('scorecards.ratings')->middleware('check.permission:purchase.vendor-eval.manage');
+    Route::post('/scorecards/{supplierScorecard}/finalize', [VendorEvaluationController::class, 'finalize'])->name('scorecards.finalize')->middleware('check.permission:purchase.vendor-eval.manage');
 
     // Reporting
     Route::get('/ranking', [VendorEvaluationController::class, 'ranking'])->name('ranking');
