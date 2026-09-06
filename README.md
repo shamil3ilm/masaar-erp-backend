@@ -47,7 +47,7 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 | Component | Technology |
 |-----------|-----------|
 | Framework | Laravel 12 |
-| Language | PHP 8.2+ with strict types |
+| Language | PHP 8.4+ with strict types |
 | Auth | JWT (`php-open-source-saver/jwt-auth`) |
 | Database | MySQL 8.0+ / PostgreSQL 14+ |
 | Test DB | SQLite (in-memory) |
@@ -62,7 +62,7 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 
 ### Requirements
 
-- PHP 8.2+
+- PHP 8.4+
 - Composer 2
 - MySQL 8+ or PostgreSQL 14+
 - Redis (optional, for queues and cache)
