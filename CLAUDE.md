@@ -5,7 +5,7 @@ A comprehensive multi-tenant Enterprise Resource Planning (ERP) backend built wi
 ## Tech Stack
 
 - **Framework:** Laravel 12
-- **Language:** PHP 8.2+
+- **Language:** PHP 8.4+
 - **Authentication:** JWT (via `php-open-source-saver/jwt-auth`)
 - **Database:** MySQL/PostgreSQL (production), SQLite (testing)
 - **API:** RESTful, versioned (`/api/v1`)

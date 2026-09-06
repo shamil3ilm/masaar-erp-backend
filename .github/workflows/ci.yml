@@ -6,9 +6,14 @@
 # The count is deliberately not written here; `php artisan test` reports it, and
 # a number in a comment is wrong the week after it is written.
 #
-# PHP 8.2 matches the "php" constraint in composer.json. Keep the two in step:
-# the compliance platform this ERP talks to requires 8.4, and the version drift
-# between them is deliberate, not an oversight.
+# PHP 8.4 everywhere: this workflow, the "php" constraint in composer.json, the
+# compliance platform this ERP talks to, and what developers run locally. Keep
+# them in step.
+#
+# 8.2 was the declared floor while the lock file had already moved past it —
+# jwt-auth and pint both require ^8.3 — so composer install failed here on a
+# lock that installs fine on a developer's machine. A constraint no environment
+# actually runs is not a compatibility promise, it is an untested claim.
 
 name: CI
 
@@ -23,7 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PHP_VERSION: '8.2'
+  PHP_VERSION: '8.4'
 
 jobs:
   test:
