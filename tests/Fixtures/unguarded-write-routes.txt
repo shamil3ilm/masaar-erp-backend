@@ -6,9 +6,18 @@
 # unguarded endpoint gets past the build, and it should be rare enough to
 # be argued for. Removing one - by adding check.permission - is the point.
 #
-# The strongest evidence this is unfinished rather than intended is that
-# modules are split: hr has 125 guarded and 120 not, and within it
-# hr/departments is gated while hr/off-cycle-payroll is not.
+# Not everything here is a gap. Two kinds of route belong in this file for
+# good:
+#
+#   api/v1/auth/*  — login, forgot-password, email verification and 2FA setup
+#   run before there is a role to check, or act on the caller's own account.
+#
+#   api/v1/hr/me/* — employee self-service: own check-in, own check-out, own
+#   leave request. These are scoped to the authenticated user by definition,
+#   and a grantable permission on them would lock ordinary employees out of
+#   their own records.
+#
+# Everything else is unfinished.
 
 DELETE api/v1/account-groups/{accountGroup}
 DELETE api/v1/accruals-deferrals/{accrualDeferral}
@@ -42,24 +51,6 @@ DELETE api/v1/financial-statement-versions/{financialStatementVersion}/nodes/{no
 DELETE api/v1/financial-statement-versions/{financial_statement_version}
 DELETE api/v1/gdpr/consent/{id}
 DELETE api/v1/grc/pc/controls/{control}
-DELETE api/v1/hr/employee-transfers/{employee_transfer}
-DELETE api/v1/hr/employees/{employee}/dependents/{dependent}
-DELETE api/v1/hr/leave-management/policies/{leavePolicy}
-DELETE api/v1/hr/leave-management/public-holidays/{publicHoliday}
-DELETE api/v1/hr/leave-management/tiers/{leaveTier}
-DELETE api/v1/hr/manager/delegations/{delegationId}
-DELETE api/v1/hr/off-cycle-payroll/{id}
-DELETE api/v1/hr/off-cycle-payroll/{id}/items/{itemId}
-DELETE api/v1/hr/om-tasks/{omTask}/positions/{assignment}
-DELETE api/v1/hr/om-tasks/{om_task}
-DELETE api/v1/hr/org-units/{org_unit}
-DELETE api/v1/hr/overtime/{overtime}
-DELETE api/v1/hr/positions/{position}
-DELETE api/v1/hr/time-sheets/{time_sheet}
-DELETE api/v1/hr/travel/claims/{claim}
-DELETE api/v1/hr/travel/per-diem-rates/{per_diem_rate}
-DELETE api/v1/hr/travel/requests/{request}
-DELETE api/v1/hr/wage-types/{timeWageType}
 DELETE api/v1/internal-orders/{internal_order}
 DELETE api/v1/inventory/barcode/barcodes/{barcode}
 DELETE api/v1/inventory/barcode/price-check/stations/{station}
@@ -135,17 +126,6 @@ PATCH api/v1/cost-elements/{cost_element}
 PATCH api/v1/document-splitting-rules/{document_splitting_rule}
 PATCH api/v1/financial-statement-versions/{financial_statement_version}
 PATCH api/v1/grc/pc/controls/{control}
-PATCH api/v1/hr/employees/{employee}/dependents/{dependent}
-PATCH api/v1/hr/om-tasks/{om_task}
-PATCH api/v1/hr/onboarding/{onboarding}
-PATCH api/v1/hr/onboarding/{onboarding}/tasks/{taskId}
-PATCH api/v1/hr/org-units/{org_unit}
-PATCH api/v1/hr/overtime/{overtime}
-PATCH api/v1/hr/positions/{position}
-PATCH api/v1/hr/time-sheets/{time_sheet}
-PATCH api/v1/hr/travel/claims/{claim}
-PATCH api/v1/hr/travel/per-diem-rates/{per_diem_rate}
-PATCH api/v1/hr/travel/requests/{request}
 PATCH api/v1/internal-orders/{internal_order}
 PATCH api/v1/inventory/physical-inventory/{physical_inventory}
 PATCH api/v1/inventory/transfer-orders/{transfer_order}
@@ -319,90 +299,10 @@ POST api/v1/grc/sod/functions
 POST api/v1/grc/sod/scan
 POST api/v1/grc/sod/violations/{uuid}/accept-risk
 POST api/v1/grir/clear/{poLineId}
-POST api/v1/hr/compensation
-POST api/v1/hr/compensation/{compensationReview}/apply
-POST api/v1/hr/compensation/{compensationReview}/approve
-POST api/v1/hr/compensation/{compensationReview}/bulk-recommend
-POST api/v1/hr/compensation/{compensationReview}/items
-POST api/v1/hr/employee-transfers
-POST api/v1/hr/employee-transfers/{employeeTransfer}/apply
-POST api/v1/hr/employee-transfers/{employeeTransfer}/approve
-POST api/v1/hr/employee-transfers/{employeeTransfer}/reject
-POST api/v1/hr/employees/{employee}/dependents
-POST api/v1/hr/exit-management
-POST api/v1/hr/exit-management/{id}/approve
-POST api/v1/hr/exit-management/{id}/clearance-items/{itemId}/clear
-POST api/v1/hr/exit-management/{id}/close
-POST api/v1/hr/exit-management/{id}/complete-clearance
-POST api/v1/hr/exit-management/{id}/settle
-POST api/v1/hr/exit-management/{id}/start-clearance
-POST api/v1/hr/leave-management/accruals/process
-POST api/v1/hr/leave-management/adjustments
-POST api/v1/hr/leave-management/encashments
-POST api/v1/hr/leave-management/encashments/{leaveEncashment}/approve
-POST api/v1/hr/leave-management/policies
-POST api/v1/hr/leave-management/policies/{leavePolicy}/leave-types
-POST api/v1/hr/leave-management/public-holidays
-POST api/v1/hr/leave-management/public-holidays/bulk
-POST api/v1/hr/leave-management/tiers/leave-types/{leaveType}/assign
-POST api/v1/hr/manager/delegations
 POST api/v1/hr/me/check-in
 POST api/v1/hr/me/check-out
 POST api/v1/hr/me/leave-requests
 POST api/v1/hr/me/leave-requests/{id}/cancel
-POST api/v1/hr/off-cycle-payroll
-POST api/v1/hr/off-cycle-payroll/{id}/cancel
-POST api/v1/hr/off-cycle-payroll/{id}/items
-POST api/v1/hr/off-cycle-payroll/{id}/process
-POST api/v1/hr/om-tasks
-POST api/v1/hr/om-tasks/{omTask}/assign-position
-POST api/v1/hr/onboarding
-POST api/v1/hr/onboarding/{onboarding}/cancel
-POST api/v1/hr/onboarding/{onboarding}/tasks
-POST api/v1/hr/org-units
-POST api/v1/hr/overtime
-POST api/v1/hr/overtime/{overtimeRequest}/approve
-POST api/v1/hr/overtime/{overtimeRequest}/reject
-POST api/v1/hr/payroll-corrections
-POST api/v1/hr/payroll-corrections/{id}/approve
-POST api/v1/hr/payroll-corrections/{id}/cancel
-POST api/v1/hr/payroll-corrections/{id}/post
-POST api/v1/hr/personnel-actions
-POST api/v1/hr/personnel-actions/{id}/approve
-POST api/v1/hr/personnel-actions/{id}/reject
-POST api/v1/hr/personnel-actions/{id}/reverse
-POST api/v1/hr/personnel-actions/{id}/submit
-POST api/v1/hr/positions
-POST api/v1/hr/positions/{position}/assign
-POST api/v1/hr/positions/{position}/vacate
-POST api/v1/hr/probation
-POST api/v1/hr/probation/{id}/complete
-POST api/v1/hr/probation/{id}/extend
-POST api/v1/hr/probation/{id}/waive
-POST api/v1/hr/time-sheets
-POST api/v1/hr/time-sheets/{timeSheet}/approve
-POST api/v1/hr/time-sheets/{timeSheet}/entries
-POST api/v1/hr/time-sheets/{timeSheet}/evaluate
-POST api/v1/hr/time-sheets/{timeSheet}/reject
-POST api/v1/hr/time-sheets/{timeSheet}/submit
-POST api/v1/hr/time-sheets/{timeSheet}/transfer-payroll
-POST api/v1/hr/travel/claims
-POST api/v1/hr/travel/claims/{travelExpenseClaim}/approve
-POST api/v1/hr/travel/claims/{travelExpenseClaim}/lines
-POST api/v1/hr/travel/claims/{travelExpenseClaim}/process
-POST api/v1/hr/travel/claims/{travelExpenseClaim}/submit
-POST api/v1/hr/travel/expense-reports/{uuid}/approve
-POST api/v1/hr/travel/expense-reports/{uuid}/post
-POST api/v1/hr/travel/expense-types
-POST api/v1/hr/travel/per-diem-rates
-POST api/v1/hr/travel/per-diem-rates/calculate
-POST api/v1/hr/travel/requests
-POST api/v1/hr/travel/requests/{travelRequest}/approve
-POST api/v1/hr/travel/requests/{travelRequest}/reject
-POST api/v1/hr/travel/requests/{travelRequest}/submit
-POST api/v1/hr/travel/requests/{uuid}/approve
-POST api/v1/hr/travel/requests/{uuid}/reports
-POST api/v1/hr/wage-types
 POST api/v1/ic-reconciliation/sessions
 POST api/v1/ic-reconciliation/sessions/{icReconciliationSession}/auto-match
 POST api/v1/ic-reconciliation/sessions/{icReconciliationSession}/close
@@ -747,22 +647,6 @@ PUT api/v1/financial-statement-versions/{financial_statement_version}
 PUT api/v1/gdpr/requests/{id}/process
 PUT api/v1/grc/pc/controls/{control}
 PUT api/v1/grc/rm/treatments/{treatmentUuid}
-PUT api/v1/hr/employees/{employee}/dependents/{dependent}
-PUT api/v1/hr/leave-management/policies/{leavePolicy}
-PUT api/v1/hr/leave-management/public-holidays/{publicHoliday}
-PUT api/v1/hr/leave-management/tiers/{leaveTier}
-PUT api/v1/hr/off-cycle-payroll/{id}
-PUT api/v1/hr/om-tasks/{om_task}
-PUT api/v1/hr/org-units/{org_unit}
-PUT api/v1/hr/overtime/{overtime}
-PUT api/v1/hr/payroll-corrections/{id}
-PUT api/v1/hr/positions/{position}
-PUT api/v1/hr/probation/{id}
-PUT api/v1/hr/time-sheets/{time_sheet}
-PUT api/v1/hr/travel/claims/{claim}
-PUT api/v1/hr/travel/per-diem-rates/{per_diem_rate}
-PUT api/v1/hr/travel/requests/{request}
-PUT api/v1/hr/wage-types/{timeWageType}
 PUT api/v1/intercompany/sales-orders/{id}
 PUT api/v1/internal-orders/{internal_order}
 PUT api/v1/inventory/barcode/barcodes/{barcode}

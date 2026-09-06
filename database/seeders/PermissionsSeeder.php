@@ -422,6 +422,11 @@ class PermissionsSeeder extends Seeder
                 'purchase.wbs-commitments.view'       => 'View Wbs Commitments',
             ],
             'hr' => [
+                'hr.lifecycle.manage'    => 'Manage Joiners, Movers and Leavers',
+                'hr.travel.manage'       => 'Manage Travel and Per Diem',
+                'hr.org.manage'          => 'Manage the Organizational Structure',
+                'hr.compensation.manage' => 'Manage Compensation',
+                'hr.delegations.manage'  => 'Delegate Manager Authority',
                 'hr.employees.view'                     => 'View Employees',
                 'hr.employees.create'                   => 'Create Employees',
                 'hr.employees.update'                   => 'Update Employees',
