@@ -195,20 +195,20 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('fleet')->name('maintenance.fleet.')->group(function (): void {
         Route::get('/', [FleetController::class, 'index'])->name('index');
-        Route::post('/', [FleetController::class, 'store'])->name('store');
+        Route::post('/', [FleetController::class, 'store'])->name('store')->middleware('check.permission:maintenance.fleet.manage');
         Route::get('/requiring-service', [FleetController::class, 'requiringService'])->name('requiring-service');
         Route::get('/cost-summary', [FleetController::class, 'costSummary'])->name('cost-summary');
         Route::get('/{id}', [FleetController::class, 'show'])->name('show');
-        Route::put('/{id}', [FleetController::class, 'update'])->name('update');
-        Route::delete('/{id}', [FleetController::class, 'destroy'])->name('destroy');
-        Route::post('/{vehicleId}/assign', [FleetController::class, 'assign'])->name('assign');
-        Route::post('/{vehicleId}/unassign', [FleetController::class, 'unassign'])->name('unassign');
+        Route::put('/{id}', [FleetController::class, 'update'])->name('update')->middleware('check.permission:maintenance.fleet.manage');
+        Route::delete('/{id}', [FleetController::class, 'destroy'])->name('destroy')->middleware('check.permission:maintenance.fleet.manage');
+        Route::post('/{vehicleId}/assign', [FleetController::class, 'assign'])->name('assign')->middleware('check.permission:maintenance.fleet.manage');
+        Route::post('/{vehicleId}/unassign', [FleetController::class, 'unassign'])->name('unassign')->middleware('check.permission:maintenance.fleet.manage');
         Route::get('/{vehicleId}/mileage-logs', [FleetController::class, 'mileageLogs'])->name('mileage-logs');
-        Route::post('/{vehicleId}/mileage-logs', [FleetController::class, 'logMileage'])->name('mileage-logs.store');
+        Route::post('/{vehicleId}/mileage-logs', [FleetController::class, 'logMileage'])->name('mileage-logs.store')->middleware('check.permission:maintenance.fleet.manage');
         Route::get('/{vehicleId}/fuel-logs', [FleetController::class, 'fuelLogs'])->name('fuel-logs');
-        Route::post('/{vehicleId}/fuel-logs', [FleetController::class, 'logFuel'])->name('fuel-logs.store');
+        Route::post('/{vehicleId}/fuel-logs', [FleetController::class, 'logFuel'])->name('fuel-logs.store')->middleware('check.permission:maintenance.fleet.manage');
         Route::get('/{vehicleId}/maintenance', [FleetController::class, 'maintenanceRecords'])->name('maintenance');
-        Route::post('/{vehicleId}/maintenance', [FleetController::class, 'recordMaintenance'])->name('maintenance.store');
+        Route::post('/{vehicleId}/maintenance', [FleetController::class, 'recordMaintenance'])->name('maintenance.store')->middleware('check.permission:maintenance.fleet.manage');
     });
 
     /*
@@ -221,9 +221,9 @@ Route::middleware(['auth:api'])->group(function (): void {
 
     Route::prefix('maintenance-orders/{orderId}/costs')->name('maintenance.costs.')->group(function (): void {
         Route::get('/', [MaintenanceSettlementController::class, 'costLines'])->name('index');
-        Route::post('/', [MaintenanceSettlementController::class, 'addCostLine'])->name('store');
+        Route::post('/', [MaintenanceSettlementController::class, 'addCostLine'])->name('store')->middleware('check.permission:maintenance.costs.manage');
         Route::get('/total', [MaintenanceSettlementController::class, 'totalCost'])->name('total');
-        Route::post('/settle', [MaintenanceSettlementController::class, 'settle'])->name('settle');
+        Route::post('/settle', [MaintenanceSettlementController::class, 'settle'])->name('settle')->middleware('check.permission:maintenance.costs.manage');
         Route::get('/settlement-history', [MaintenanceSettlementController::class, 'settlementHistory'])->name('history');
     });
 
@@ -234,34 +234,34 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('counters')->name('maintenance.counters.')->group(function (): void {
         Route::get('/', [CounterBasedMaintenanceController::class, 'counters'])->name('index');
-        Route::post('/', [CounterBasedMaintenanceController::class, 'storeCounter'])->name('store');
-        Route::post('/{counterId}/readings', [CounterBasedMaintenanceController::class, 'recordReading'])->name('readings.store');
+        Route::post('/', [CounterBasedMaintenanceController::class, 'storeCounter'])->name('store')->middleware('check.permission:maintenance.counters.manage');
+        Route::post('/{counterId}/readings', [CounterBasedMaintenanceController::class, 'recordReading'])->name('readings.store')->middleware('check.permission:maintenance.counters.manage');
     });
 
     Route::prefix('counter-plans')->name('maintenance.counter-plans.')->group(function (): void {
         Route::get('/', [CounterBasedMaintenanceController::class, 'plans'])->name('index');
-        Route::post('/', [CounterBasedMaintenanceController::class, 'storePlan'])->name('store');
+        Route::post('/', [CounterBasedMaintenanceController::class, 'storePlan'])->name('store')->middleware('check.permission:maintenance.counter-plans.manage');
         Route::get('/due', [CounterBasedMaintenanceController::class, 'dueOrders'])->name('due');
-        Route::post('/{planId}/generate-order', [CounterBasedMaintenanceController::class, 'generateOrder'])->name('generate-order');
+        Route::post('/{planId}/generate-order', [CounterBasedMaintenanceController::class, 'generateOrder'])->name('generate-order')->middleware('check.permission:maintenance.counter-plans.manage');
     });
 
     Route::prefix('counter-orders')->name('maintenance.counter-orders.')->group(function (): void {
         Route::get('/', [CounterBasedMaintenanceController::class, 'orders'])->name('index');
-        Route::post('/{orderId}/complete', [CounterBasedMaintenanceController::class, 'completeOrder'])->name('complete');
+        Route::post('/{orderId}/complete', [CounterBasedMaintenanceController::class, 'completeOrder'])->name('complete')->middleware('check.permission:maintenance.counter-orders.manage');
     });
 
     // Work Permits & Safety Checks (PM-WOC-PTW)
     Route::prefix('permits')->name('maintenance.permits.')->group(function (): void {
         Route::get('/', [MaintenancePermitController::class, 'index'])->name('index');
-        Route::post('/', [MaintenancePermitController::class, 'store'])->name('store');
+        Route::post('/', [MaintenancePermitController::class, 'store'])->name('store')->middleware('check.permission:maintenance.permits.manage');
         Route::get('/{id}', [MaintenancePermitController::class, 'show'])->name('show');
-        Route::put('/{id}', [MaintenancePermitController::class, 'update'])->name('update');
-        Route::post('/{id}/approve', [MaintenancePermitController::class, 'approve'])->name('approve');
-        Route::post('/{id}/activate', [MaintenancePermitController::class, 'activate'])->name('activate');
-        Route::post('/{id}/suspend', [MaintenancePermitController::class, 'suspend'])->name('suspend');
-        Route::post('/{id}/close', [MaintenancePermitController::class, 'close'])->name('close');
-        Route::post('/{id}/safety-checks', [MaintenancePermitController::class, 'addSafetyCheck'])->name('safety-checks.store');
-        Route::post('/{id}/safety-checks/{checkId}/complete', [MaintenancePermitController::class, 'completeSafetyCheck'])->name('safety-checks.complete');
+        Route::put('/{id}', [MaintenancePermitController::class, 'update'])->name('update')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/approve', [MaintenancePermitController::class, 'approve'])->name('approve')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/activate', [MaintenancePermitController::class, 'activate'])->name('activate')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/suspend', [MaintenancePermitController::class, 'suspend'])->name('suspend')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/close', [MaintenancePermitController::class, 'close'])->name('close')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/safety-checks', [MaintenancePermitController::class, 'addSafetyCheck'])->name('safety-checks.store')->middleware('check.permission:maintenance.permits.manage');
+        Route::post('/{id}/safety-checks/{checkId}/complete', [MaintenancePermitController::class, 'completeSafetyCheck'])->name('safety-checks.complete')->middleware('check.permission:maintenance.permits.manage');
     });
 
     /*
@@ -271,12 +271,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('task-lists')->name('maintenance.task-lists.')->group(function (): void {
         Route::get('/', [MaintenanceTaskListController::class, 'index'])->name('index');
-        Route::post('/', [MaintenanceTaskListController::class, 'store'])->name('store');
+        Route::post('/', [MaintenanceTaskListController::class, 'store'])->name('store')->middleware('check.permission:maintenance.task-lists.manage');
         Route::get('/{taskList}', [MaintenanceTaskListController::class, 'show'])->name('show');
-        Route::put('/{taskList}', [MaintenanceTaskListController::class, 'update'])->name('update');
-        Route::delete('/{taskList}', [MaintenanceTaskListController::class, 'destroy'])->name('destroy');
-        Route::post('/{taskList}/operations', [MaintenanceTaskListController::class, 'storeOperation'])->name('operations.store');
-        Route::delete('/{taskList}/operations/{operation}', [MaintenanceTaskListController::class, 'destroyOperation'])->name('operations.destroy');
+        Route::put('/{taskList}', [MaintenanceTaskListController::class, 'update'])->name('update')->middleware('check.permission:maintenance.task-lists.manage');
+        Route::delete('/{taskList}', [MaintenanceTaskListController::class, 'destroy'])->name('destroy')->middleware('check.permission:maintenance.task-lists.manage');
+        Route::post('/{taskList}/operations', [MaintenanceTaskListController::class, 'storeOperation'])->name('operations.store')->middleware('check.permission:maintenance.task-lists.manage');
+        Route::delete('/{taskList}/operations/{operation}', [MaintenanceTaskListController::class, 'destroyOperation'])->name('operations.destroy')->middleware('check.permission:maintenance.task-lists.manage');
     });
 
     /*
@@ -286,7 +286,7 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('maintenance/reports')->name('maintenance.reports.')->group(function (): void {
         Route::get('kpis', [MaintenanceReportController::class, 'kpiDashboard'])->name('kpis');
-        Route::post('kpis/compute', [MaintenanceReportController::class, 'computeKpis'])->name('kpis.compute');
+        Route::post('kpis/compute', [MaintenanceReportController::class, 'computeKpis'])->name('kpis.compute')->middleware('check.permission:maintenance.reports.manage');
         Route::get('cost-analysis', [MaintenanceReportController::class, 'costAnalysis'])->name('cost-analysis');
     });
 
@@ -296,7 +296,7 @@ Route::middleware(['auth:api'])->group(function (): void {
     |--------------------------------------------------------------------------
     */
     Route::apiResource('service-orders', ServiceOrderController::class)
-        ->names('maintenance.service-orders');
+        ->names('maintenance.service-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:maintenance.service-orders.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -304,11 +304,11 @@ Route::middleware(['auth:api'])->group(function (): void {
     |--------------------------------------------------------------------------
     */
     Route::get('fault-codes', [FaultAnalysisController::class, 'indexFaultCodes'])->name('maintenance.fault-codes.index');
-    Route::post('fault-codes', [FaultAnalysisController::class, 'storeFaultCode'])->name('maintenance.fault-codes.store');
+    Route::post('fault-codes', [FaultAnalysisController::class, 'storeFaultCode'])->name('maintenance.fault-codes.store')->middleware('check.permission:maintenance.fault-codes.manage');
 
     Route::get('rca', [FaultAnalysisController::class, 'indexRca'])->name('maintenance.rca.index');
-    Route::post('rca', [FaultAnalysisController::class, 'storeRca'])->name('maintenance.rca.store');
-    Route::put('rca/{rca}', [FaultAnalysisController::class, 'updateRca'])->name('maintenance.rca.update');
+    Route::post('rca', [FaultAnalysisController::class, 'storeRca'])->name('maintenance.rca.store')->middleware('check.permission:maintenance.rca.manage');
+    Route::put('rca/{rca}', [FaultAnalysisController::class, 'updateRca'])->name('maintenance.rca.update')->middleware('check.permission:maintenance.rca.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -354,9 +354,9 @@ Route::middleware(['auth:api'])->group(function (): void {
 Route::middleware(['auth:api'])->prefix('equipment-hierarchy')->name('maintenance.equipment-hierarchy.')->group(function (): void {
     Route::get('/tree', [EquipmentHierarchyController::class, 'tree'])->name('tree');
     Route::get('/utilisation-summary', [EquipmentHierarchyController::class, 'utilisationSummary'])->name('utilisation-summary');
-    Route::post('/install', [EquipmentHierarchyController::class, 'install'])->name('install');
-    Route::post('/deinstall', [EquipmentHierarchyController::class, 'deinstall'])->name('deinstall');
-    Route::post('/relocate', [EquipmentHierarchyController::class, 'relocate'])->name('relocate');
+    Route::post('/install', [EquipmentHierarchyController::class, 'install'])->name('install')->middleware('check.permission:maintenance.equipment-hierarchy.manage');
+    Route::post('/deinstall', [EquipmentHierarchyController::class, 'deinstall'])->name('deinstall')->middleware('check.permission:maintenance.equipment-hierarchy.manage');
+    Route::post('/relocate', [EquipmentHierarchyController::class, 'relocate'])->name('relocate')->middleware('check.permission:maintenance.equipment-hierarchy.manage');
     Route::get('/floc/{functionalLocation}/equipment', [EquipmentHierarchyController::class, 'underFloc'])->name('under-floc');
     Route::get('/where-used/{equipment}', [EquipmentHierarchyController::class, 'whereUsed'])->name('where-used');
 });

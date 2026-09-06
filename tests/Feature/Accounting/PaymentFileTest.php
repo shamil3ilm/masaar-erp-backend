@@ -17,7 +17,9 @@ class PaymentFileTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.payment-files.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

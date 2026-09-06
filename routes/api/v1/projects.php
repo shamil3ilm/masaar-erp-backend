@@ -182,14 +182,14 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('projects/{project}/baselines')->name('projects.baselines.')->group(function (): void {
         Route::get('/', [EvmBaselineController::class, 'index'])->name('index');
-        Route::post('/', [EvmBaselineController::class, 'store'])->name('store');
+        Route::post('/', [EvmBaselineController::class, 'store'])->name('store')->middleware('check.permission:projects.baselines.manage');
         Route::get('/compare', [EvmBaselineController::class, 'compare'])->name('compare');
     });
 
     Route::prefix('baselines')->name('projects.baselines.')->group(function (): void {
         Route::get('/{baseline}', [EvmBaselineController::class, 'show'])->name('show');
-        Route::post('/{baseline}/approve', [EvmBaselineController::class, 'approve'])->name('approve');
-        Route::post('/{baseline}/activate', [EvmBaselineController::class, 'activate'])->name('activate');
+        Route::post('/{baseline}/approve', [EvmBaselineController::class, 'approve'])->name('approve')->middleware('check.permission:projects.baselines.manage');
+        Route::post('/{baseline}/activate', [EvmBaselineController::class, 'activate'])->name('activate')->middleware('check.permission:projects.baselines.manage');
     });
 
     /*
@@ -199,12 +199,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('templates')->name('projects.templates.')->group(function (): void {
         Route::get('/', [ProjectTemplateController::class, 'index'])->name('index');
-        Route::post('/', [ProjectTemplateController::class, 'store'])->name('store');
+        Route::post('/', [ProjectTemplateController::class, 'store'])->name('store')->middleware('check.permission:projects.templates.manage');
         Route::get('/{id}', [ProjectTemplateController::class, 'show'])->name('show');
-        Route::put('/{id}', [ProjectTemplateController::class, 'update'])->name('update');
-        Route::delete('/{id}', [ProjectTemplateController::class, 'destroy'])->name('destroy');
+        Route::put('/{id}', [ProjectTemplateController::class, 'update'])->name('update')->middleware('check.permission:projects.templates.manage');
+        Route::delete('/{id}', [ProjectTemplateController::class, 'destroy'])->name('destroy')->middleware('check.permission:projects.templates.manage');
         Route::get('/{id}/tree', [ProjectTemplateController::class, 'tree'])->name('tree');
-        Route::post('/{id}/create-project', [ProjectTemplateController::class, 'createProject'])->name('create-project');
+        Route::post('/{id}/create-project', [ProjectTemplateController::class, 'createProject'])->name('create-project')->middleware('check.permission:projects.templates.manage');
     });
 
     /*
@@ -214,12 +214,12 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('billing-rules')->name('projects.billing.')->group(function (): void {
         Route::get('/', [ProjectInvoicingController::class, 'billingRules'])->name('index');
-        Route::post('/', [ProjectInvoicingController::class, 'storeBillingRule'])->name('store');
-        Route::post('/{ruleId}/milestones', [ProjectInvoicingController::class, 'addMilestone'])->name('milestones.store');
+        Route::post('/', [ProjectInvoicingController::class, 'storeBillingRule'])->name('store')->middleware('check.permission:projects.billing.manage');
+        Route::post('/{ruleId}/milestones', [ProjectInvoicingController::class, 'addMilestone'])->name('milestones.store')->middleware('check.permission:projects.billing.manage');
     });
 
     Route::post('/revenue-recognitions', [ProjectInvoicingController::class, 'recognizeRevenue'])
-        ->name('projects.revenue-recognition.store');
+        ->name('projects.revenue-recognition.store')->middleware('check.permission:projects.revenue-recognition.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -228,14 +228,14 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('resource-plans')->name('projects.resource-plans.')->group(function (): void {
         Route::get('/', [ProjectResourceController::class, 'resourcePlans'])->name('index');
-        Route::post('/', [ProjectResourceController::class, 'storeResourcePlan'])->name('store');
+        Route::post('/', [ProjectResourceController::class, 'storeResourcePlan'])->name('store')->middleware('check.permission:projects.resource-plans.manage');
         Route::get('/{projectId}/utilization', [ProjectResourceController::class, 'utilization'])->name('utilization');
     });
 
     Route::prefix('timesheets')->name('projects.timesheets.')->group(function (): void {
         Route::get('/', [ProjectResourceController::class, 'timesheets'])->name('index');
-        Route::post('/', [ProjectResourceController::class, 'submitTimesheet'])->name('store');
-        Route::post('/{id}/approve', [ProjectResourceController::class, 'approveTimesheet'])->name('approve');
+        Route::post('/', [ProjectResourceController::class, 'submitTimesheet'])->name('store')->middleware('check.permission:projects.timesheets.manage');
+        Route::post('/{id}/approve', [ProjectResourceController::class, 'approveTimesheet'])->name('approve')->middleware('check.permission:projects.timesheets.manage');
     });
 
     /*
@@ -245,9 +245,9 @@ Route::middleware(['auth:api'])->group(function (): void {
     */
     Route::prefix('revenue-plans')->name('projects.revenue-plans.')->group(function (): void {
         Route::get('/', [ProjectRevenuePlanController::class, 'index'])->name('index');
-        Route::post('/', [ProjectRevenuePlanController::class, 'store'])->name('store');
+        Route::post('/', [ProjectRevenuePlanController::class, 'store'])->name('store')->middleware('check.permission:projects.revenue-plans.manage');
         Route::get('/{id}', [ProjectRevenuePlanController::class, 'show'])->name('show');
-        Route::post('/{id}/approve', [ProjectRevenuePlanController::class, 'approve'])->name('approve');
+        Route::post('/{id}/approve', [ProjectRevenuePlanController::class, 'approve'])->name('approve')->middleware('check.permission:projects.revenue-plans.manage');
         Route::get('/{projectId}/variance', [ProjectRevenuePlanController::class, 'variance'])->name('variance');
     });
 });

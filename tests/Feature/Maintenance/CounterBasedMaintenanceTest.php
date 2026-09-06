@@ -25,7 +25,9 @@ class CounterBasedMaintenanceTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization();
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'maintenance.counters.manage',
+        ]);
 
         OrganizationModule::create([
             'organization_id' => $this->organization->id,

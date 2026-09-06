@@ -168,31 +168,31 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post(
         'recurring-journal-templates/run-due',
         [RecurringJournalController::class, 'runDue']
-    )->name('accounting.recurring-journals.run-due');
+    )->name('accounting.recurring-journals.run-due')->middleware('check.permission:accounting.recurring-journals.manage');
 
     Route::post(
         'recurring-journal-templates/{recurringJournalTemplate}/execute',
         [RecurringJournalController::class, 'execute']
-    )->name('accounting.recurring-journals.execute');
+    )->name('accounting.recurring-journals.execute')->middleware('check.permission:accounting.recurring-journals.manage');
 
     Route::apiResource('recurring-journal-templates', RecurringJournalController::class)
-        ->names('accounting.recurring-journals');
+        ->names('accounting.recurring-journals')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.recurring-journals.manage');
 });
 
 // Financial Statement Versions (FSV)
 Route::middleware(['auth:api'])->group(function () {
     Route::apiResource('financial-statement-versions', FinancialStatementVersionController::class)
-        ->names('accounting.fsv');
+        ->names('accounting.fsv')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.fsv.manage');
 
     Route::post(
         'financial-statement-versions/{financialStatementVersion}/nodes',
         [FinancialStatementVersionController::class, 'addNode']
-    )->name('accounting.fsv.nodes.add');
+    )->name('accounting.fsv.nodes.add')->middleware('check.permission:accounting.fsv.manage');
 
     Route::delete(
         'financial-statement-versions/{financialStatementVersion}/nodes/{node}',
         [FinancialStatementVersionController::class, 'removeNode']
-    )->name('accounting.fsv.nodes.remove');
+    )->name('accounting.fsv.nodes.remove')->middleware('check.permission:accounting.fsv.manage');
 
     Route::get(
         'financial-statement-versions/{financialStatementVersion}/generate',
@@ -203,10 +203,10 @@ Route::middleware(['auth:api'])->group(function () {
 // Special Purpose Ledger (FI-SL)
 Route::middleware(['auth:api'])->prefix('special-ledgers')->name('accounting.special-ledgers.')->group(function () {
     Route::get('/', [SpecialLedgerController::class, 'index'])->name('index');
-    Route::post('/', [SpecialLedgerController::class, 'store'])->name('store');
+    Route::post('/', [SpecialLedgerController::class, 'store'])->name('store')->middleware('check.permission:accounting.special-ledgers.manage');
     Route::get('/{id}', [SpecialLedgerController::class, 'show'])->name('show');
-    Route::put('/{id}', [SpecialLedgerController::class, 'update'])->name('update');
-    Route::delete('/{id}', [SpecialLedgerController::class, 'destroy'])->name('destroy');
+    Route::put('/{id}', [SpecialLedgerController::class, 'update'])->name('update')->middleware('check.permission:accounting.special-ledgers.manage');
+    Route::delete('/{id}', [SpecialLedgerController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.special-ledgers.manage');
     Route::get('/{id}/trial-balance', [SpecialLedgerController::class, 'trialBalance'])->name('trial-balance');
     Route::get('/{id}/entries', [SpecialLedgerController::class, 'entries'])->name('entries');
 });
@@ -215,91 +215,91 @@ Route::middleware(['auth:api'])->prefix('special-ledgers')->name('accounting.spe
 Route::middleware(['auth:api'])->prefix('payment-files')->name('accounting.payment-files.')->group(function () {
     Route::get('/', [PaymentFileController::class, 'index'])->name('index');
     Route::get('/{id}', [PaymentFileController::class, 'show'])->name('show');
-    Route::post('/generate', [PaymentFileController::class, 'generate'])->name('generate');
+    Route::post('/generate', [PaymentFileController::class, 'generate'])->name('generate')->middleware('check.permission:accounting.payment-files.manage');
     Route::get('/{id}/download', [PaymentFileController::class, 'download'])->name('download');
-    Route::post('/{id}/submit', [PaymentFileController::class, 'submit'])->name('submit');
-    Route::post('/{id}/acknowledge', [PaymentFileController::class, 'acknowledge'])->name('acknowledge');
+    Route::post('/{id}/submit', [PaymentFileController::class, 'submit'])->name('submit')->middleware('check.permission:accounting.payment-files.manage');
+    Route::post('/{id}/acknowledge', [PaymentFileController::class, 'acknowledge'])->name('acknowledge')->middleware('check.permission:accounting.payment-files.manage');
 });
 
 // Financial Close Cockpit (FIN-FCCM)
 Route::middleware(['auth:api'])->prefix('financial-close')->name('accounting.financial-close.')->group(function () {
     Route::get('/templates', [FinancialCloseCockpitController::class, 'templates'])->name('templates');
-    Route::post('/templates', [FinancialCloseCockpitController::class, 'storeTemplate'])->name('templates.store');
+    Route::post('/templates', [FinancialCloseCockpitController::class, 'storeTemplate'])->name('templates.store')->middleware('check.permission:accounting.financial-close.manage');
     Route::get('/periods', [FinancialCloseCockpitController::class, 'periods'])->name('periods');
-    Route::post('/periods', [FinancialCloseCockpitController::class, 'storePeriod'])->name('periods.store');
+    Route::post('/periods', [FinancialCloseCockpitController::class, 'storePeriod'])->name('periods.store')->middleware('check.permission:accounting.financial-close.manage');
     Route::get('/periods/{id}', [FinancialCloseCockpitController::class, 'showPeriod'])->name('periods.show');
     Route::get('/periods/{id}/progress', [FinancialCloseCockpitController::class, 'progress'])->name('periods.progress');
-    Route::post('/periods/{id}/close', [FinancialCloseCockpitController::class, 'closePeriod'])->middleware(['throttle:api-financial', 'simulation'])->name('periods.close');
-    Route::post('/tasks/{taskId}/start', [FinancialCloseCockpitController::class, 'startTask'])->name('tasks.start');
-    Route::post('/tasks/{taskId}/complete', [FinancialCloseCockpitController::class, 'completeTask'])->name('tasks.complete');
-    Route::post('/tasks/{taskId}/skip', [FinancialCloseCockpitController::class, 'skipTask'])->name('tasks.skip');
-    Route::put('/tasks/{taskId}/assign', [FinancialCloseCockpitController::class, 'assignTask'])->name('tasks.assign');
-    Route::post('/periods/{id}/sign-off', [FinancialCloseCockpitController::class, 'signOff'])->middleware('throttle:api-financial')->name('periods.sign-off');
+    Route::post('/periods/{id}/close', [FinancialCloseCockpitController::class, 'closePeriod'])->middleware(['throttle:api-financial', 'simulation'])->name('periods.close')->middleware('check.permission:accounting.financial-close.manage');
+    Route::post('/tasks/{taskId}/start', [FinancialCloseCockpitController::class, 'startTask'])->name('tasks.start')->middleware('check.permission:accounting.financial-close.manage');
+    Route::post('/tasks/{taskId}/complete', [FinancialCloseCockpitController::class, 'completeTask'])->name('tasks.complete')->middleware('check.permission:accounting.financial-close.manage');
+    Route::post('/tasks/{taskId}/skip', [FinancialCloseCockpitController::class, 'skipTask'])->name('tasks.skip')->middleware('check.permission:accounting.financial-close.manage');
+    Route::put('/tasks/{taskId}/assign', [FinancialCloseCockpitController::class, 'assignTask'])->name('tasks.assign')->middleware('check.permission:accounting.financial-close.manage');
+    Route::post('/periods/{id}/sign-off', [FinancialCloseCockpitController::class, 'signOff'])->middleware('throttle:api-financial')->name('periods.sign-off')->middleware('check.permission:accounting.financial-close.manage');
 });
 
 // Transfer Pricing (CO-PC-TPC)
 Route::middleware(['auth:api'])->prefix('transfer-pricing')->name('accounting.transfer-pricing.')->group(function () {
     Route::get('/', [TransferPricingController::class, 'index'])->name('index');
-    Route::post('/', [TransferPricingController::class, 'store'])->name('store');
+    Route::post('/', [TransferPricingController::class, 'store'])->name('store')->middleware('check.permission:accounting.transfer-pricing.manage');
     Route::get('/versions', [TransferPricingController::class, 'versions'])->name('versions');
-    Route::post('/versions', [TransferPricingController::class, 'storeVersion'])->name('versions.store');
-    Route::post('/versions/{id}/activate', [TransferPricingController::class, 'activateVersion'])->name('versions.activate');
-    Route::post('/calculate', [TransferPricingController::class, 'calculate'])->name('calculate');
+    Route::post('/versions', [TransferPricingController::class, 'storeVersion'])->name('versions.store')->middleware('check.permission:accounting.transfer-pricing.manage');
+    Route::post('/versions/{id}/activate', [TransferPricingController::class, 'activateVersion'])->name('versions.activate')->middleware('check.permission:accounting.transfer-pricing.manage');
+    Route::post('/calculate', [TransferPricingController::class, 'calculate'])->name('calculate')->middleware('check.permission:accounting.transfer-pricing.manage');
     Route::get('/{id}', [TransferPricingController::class, 'show'])->name('show');
-    Route::put('/{id}', [TransferPricingController::class, 'update'])->name('update');
-    Route::delete('/{id}', [TransferPricingController::class, 'destroy'])->name('destroy');
+    Route::put('/{id}', [TransferPricingController::class, 'update'])->name('update')->middleware('check.permission:accounting.transfer-pricing.manage');
+    Route::delete('/{id}', [TransferPricingController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.transfer-pricing.manage');
 });
 
 // Costing Sheets (CO-PC-OVH)
 Route::middleware(['auth:api'])->prefix('costing-sheets')->name('accounting.costing-sheets.')->group(function () {
     Route::get('/', [CostingSheetController::class, 'index'])->name('index');
-    Route::post('/', [CostingSheetController::class, 'store'])->name('store');
+    Route::post('/', [CostingSheetController::class, 'store'])->name('store')->middleware('check.permission:accounting.costing-sheets.manage');
     Route::get('/{id}', [CostingSheetController::class, 'show'])->name('show');
-    Route::put('/{id}', [CostingSheetController::class, 'update'])->name('update');
-    Route::delete('/{id}', [CostingSheetController::class, 'destroy'])->name('destroy');
+    Route::put('/{id}', [CostingSheetController::class, 'update'])->name('update')->middleware('check.permission:accounting.costing-sheets.manage');
+    Route::delete('/{id}', [CostingSheetController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.costing-sheets.manage');
     Route::get('/{id}/rows', [CostingSheetController::class, 'rows'])->name('rows');
-    Route::post('/{id}/rows', [CostingSheetController::class, 'addRow'])->name('rows.add');
-    Route::post('/{id}/run', [CostingSheetController::class, 'run'])->name('run');
+    Route::post('/{id}/rows', [CostingSheetController::class, 'addRow'])->name('rows.add')->middleware('check.permission:accounting.costing-sheets.manage');
+    Route::post('/{id}/run', [CostingSheetController::class, 'run'])->name('run')->middleware('check.permission:accounting.costing-sheets.manage');
 });
 
 // Overhead Keys (CO-PC-OVH)
 Route::middleware(['auth:api'])->prefix('overhead-keys')->name('accounting.overhead-keys.')->group(function () {
     Route::get('/', [OverheadKeyController::class, 'index'])->name('index');
-    Route::post('/', [OverheadKeyController::class, 'store'])->name('store');
+    Route::post('/', [OverheadKeyController::class, 'store'])->name('store')->middleware('check.permission:accounting.overhead-keys.manage');
     Route::get('/{id}', [OverheadKeyController::class, 'show'])->name('show');
-    Route::put('/{id}', [OverheadKeyController::class, 'update'])->name('update');
-    Route::delete('/{id}', [OverheadKeyController::class, 'destroy'])->name('destroy');
+    Route::put('/{id}', [OverheadKeyController::class, 'update'])->name('update')->middleware('check.permission:accounting.overhead-keys.manage');
+    Route::delete('/{id}', [OverheadKeyController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.overhead-keys.manage');
     Route::get('/{id}/rates', [OverheadKeyController::class, 'rates'])->name('rates');
-    Route::post('/{id}/rates', [OverheadKeyController::class, 'addRate'])->name('rates.add');
+    Route::post('/{id}/rates', [OverheadKeyController::class, 'addRate'])->name('rates.add')->middleware('check.permission:accounting.overhead-keys.manage');
 });
 
 // Statistical Key Figures (CO-OM-SKF)
 Route::middleware(['auth:api'])->prefix('statistical-key-figures')->name('co.skf.')->group(function () {
     Route::get('/period-values', [StatisticalKeyFigureController::class, 'periodValues'])->name('period-values');
     Route::get('/', [StatisticalKeyFigureController::class, 'index'])->name('index');
-    Route::post('/', [StatisticalKeyFigureController::class, 'store'])->name('store');
+    Route::post('/', [StatisticalKeyFigureController::class, 'store'])->name('store')->middleware('check.permission:accounting.skf.manage');
     Route::get('/{id}', [StatisticalKeyFigureController::class, 'show'])->name('show');
-    Route::put('/{id}', [StatisticalKeyFigureController::class, 'update'])->name('update');
-    Route::delete('/{id}', [StatisticalKeyFigureController::class, 'destroy'])->name('destroy');
-    Route::post('/{id}/post-value', [StatisticalKeyFigureController::class, 'postValue'])->name('post-value');
+    Route::put('/{id}', [StatisticalKeyFigureController::class, 'update'])->name('update')->middleware('check.permission:accounting.skf.manage');
+    Route::delete('/{id}', [StatisticalKeyFigureController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.skf.manage');
+    Route::post('/{id}/post-value', [StatisticalKeyFigureController::class, 'postValue'])->name('post-value')->middleware('check.permission:accounting.skf.manage');
 });
 
 // Cost Splitting (CO-OM-CEL)
 Route::middleware(['auth:api'])->prefix('cost-splitting')->name('co.cost-splitting.')->group(function () {
     Route::get('/results', [CostSplittingController::class, 'results'])->name('results');
-    Route::post('/run', [CostSplittingController::class, 'runSplitting'])->name('run');
+    Route::post('/run', [CostSplittingController::class, 'runSplitting'])->name('run')->middleware('check.permission:accounting.cost-splitting.manage');
     Route::get('/rules', [CostSplittingController::class, 'index'])->name('index');
-    Route::post('/rules', [CostSplittingController::class, 'store'])->name('store');
+    Route::post('/rules', [CostSplittingController::class, 'store'])->name('store')->middleware('check.permission:accounting.cost-splitting.manage');
     Route::get('/rules/{id}', [CostSplittingController::class, 'show'])->name('show');
-    Route::put('/rules/{id}', [CostSplittingController::class, 'update'])->name('update');
-    Route::delete('/rules/{id}', [CostSplittingController::class, 'destroy'])->name('destroy');
+    Route::put('/rules/{id}', [CostSplittingController::class, 'update'])->name('update')->middleware('check.permission:accounting.cost-splitting.manage');
+    Route::delete('/rules/{id}', [CostSplittingController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.cost-splitting.manage');
 });
 
 // Variance Analysis (CO-PC-ACT)
 Route::middleware(['auth:api'])->prefix('variance-analysis')->name('co.variance.')->group(function () {
     Route::get('/summary', [VarianceAnalysisController::class, 'summary'])->name('summary');
     Route::get('/', [VarianceAnalysisController::class, 'index'])->name('index');
-    Route::post('/', [VarianceAnalysisController::class, 'store'])->name('store');
+    Route::post('/', [VarianceAnalysisController::class, 'store'])->name('store')->middleware('check.permission:accounting.variance.manage');
     Route::get('/{id}', [VarianceAnalysisController::class, 'show'])->name('show');
     Route::get('/{id}/results', [VarianceAnalysisController::class, 'results'])->name('results');
 });
@@ -308,60 +308,60 @@ Route::middleware(['auth:api'])->prefix('variance-analysis')->name('co.variance.
 Route::middleware(['auth:api'])->prefix('profitability-segments')->name('co.profitability-segments.')->group(function () {
     Route::get('/drill-down', [ProfitabilitySegmentController::class, 'drillDown'])->name('drill-down');
     Route::get('/report', [ProfitabilitySegmentController::class, 'report'])->name('report');
-    Route::post('/post-values', [ProfitabilitySegmentController::class, 'postValues'])->name('post-values');
+    Route::post('/post-values', [ProfitabilitySegmentController::class, 'postValues'])->name('post-values')->middleware('check.permission:accounting.profitability-segments.manage');
     Route::get('/', [ProfitabilitySegmentController::class, 'index'])->name('index');
-    Route::post('/', [ProfitabilitySegmentController::class, 'store'])->name('store');
+    Route::post('/', [ProfitabilitySegmentController::class, 'store'])->name('store')->middleware('check.permission:accounting.profitability-segments.manage');
     Route::get('/{id}', [ProfitabilitySegmentController::class, 'show'])->name('show');
-    Route::put('/{id}', [ProfitabilitySegmentController::class, 'update'])->name('update');
-    Route::delete('/{id}', [ProfitabilitySegmentController::class, 'destroy'])->name('destroy');
+    Route::put('/{id}', [ProfitabilitySegmentController::class, 'update'])->name('update')->middleware('check.permission:accounting.profitability-segments.manage');
+    Route::delete('/{id}', [ProfitabilitySegmentController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.profitability-segments.manage');
 });
 
 // Bank Guarantees (FI-BG)
 Route::prefix('bank-guarantees')->name('fi.bank-guarantees.')->group(function () {
     Route::get('/', [BankGuaranteeController::class, 'index'])->name('index');
-    Route::post('/', [BankGuaranteeController::class, 'store'])->name('store');
+    Route::post('/', [BankGuaranteeController::class, 'store'])->name('store')->middleware('check.permission:accounting.bank-guarantees.manage');
     Route::get('/expiring-soon', [BankGuaranteeController::class, 'expiringSoon'])->name('expiring-soon');
     Route::get('/{id}', [BankGuaranteeController::class, 'show'])->name('show');
-    Route::put('/{id}', [BankGuaranteeController::class, 'update'])->name('update');
-    Route::delete('/{id}', [BankGuaranteeController::class, 'destroy'])->name('destroy');
-    Route::post('/{id}/activate', [BankGuaranteeController::class, 'activate'])->name('activate');
-    Route::post('/{id}/claim', [BankGuaranteeController::class, 'claim'])->name('claim');
-    Route::post('/{id}/return', [BankGuaranteeController::class, 'returnGuarantee'])->name('return');
+    Route::put('/{id}', [BankGuaranteeController::class, 'update'])->name('update')->middleware('check.permission:accounting.bank-guarantees.manage');
+    Route::delete('/{id}', [BankGuaranteeController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.bank-guarantees.manage');
+    Route::post('/{id}/activate', [BankGuaranteeController::class, 'activate'])->name('activate')->middleware('check.permission:accounting.bank-guarantees.manage');
+    Route::post('/{id}/claim', [BankGuaranteeController::class, 'claim'])->name('claim')->middleware('check.permission:accounting.bank-guarantees.manage');
+    Route::post('/{id}/return', [BankGuaranteeController::class, 'returnGuarantee'])->name('return')->middleware('check.permission:accounting.bank-guarantees.manage');
 });
 
 // Check Management (FI-BL)
 Route::prefix('check-books')->name('fi.check-books.')->group(function () {
     Route::get('/', [CheckManagementController::class, 'listBooks'])->name('index');
-    Route::post('/', [CheckManagementController::class, 'createBook'])->name('store');
-    Route::put('/{id}', [CheckManagementController::class, 'updateBook'])->name('update');
-    Route::delete('/{id}', [CheckManagementController::class, 'destroyBook'])->name('destroy');
+    Route::post('/', [CheckManagementController::class, 'createBook'])->name('store')->middleware('check.permission:accounting.check-books.manage');
+    Route::put('/{id}', [CheckManagementController::class, 'updateBook'])->name('update')->middleware('check.permission:accounting.check-books.manage');
+    Route::delete('/{id}', [CheckManagementController::class, 'destroyBook'])->name('destroy')->middleware('check.permission:accounting.check-books.manage');
 });
 
 Route::prefix('checks')->name('fi.checks.')->group(function () {
     Route::get('/', [CheckManagementController::class, 'listChecks'])->name('index');
-    Route::post('/', [CheckManagementController::class, 'createCheck'])->name('store');
+    Route::post('/', [CheckManagementController::class, 'createCheck'])->name('store')->middleware('check.permission:accounting.checks.manage');
     Route::get('/outstanding', [CheckManagementController::class, 'outstanding'])->name('outstanding');
     Route::get('/{id}', [CheckManagementController::class, 'showCheck'])->name('show');
-    Route::post('/{id}/print', [CheckManagementController::class, 'printCheck'])->name('print');
-    Route::post('/{id}/issue', [CheckManagementController::class, 'issue'])->name('issue');
-    Route::post('/{id}/clear', [CheckManagementController::class, 'markCleared'])->name('clear');
-    Route::post('/{id}/bounce', [CheckManagementController::class, 'markBounced'])->name('bounce');
-    Route::post('/{id}/cancel', [CheckManagementController::class, 'cancel'])->name('cancel');
+    Route::post('/{id}/print', [CheckManagementController::class, 'printCheck'])->name('print')->middleware('check.permission:accounting.checks.manage');
+    Route::post('/{id}/issue', [CheckManagementController::class, 'issue'])->name('issue')->middleware('check.permission:accounting.checks.manage');
+    Route::post('/{id}/clear', [CheckManagementController::class, 'markCleared'])->name('clear')->middleware('check.permission:accounting.checks.manage');
+    Route::post('/{id}/bounce', [CheckManagementController::class, 'markBounced'])->name('bounce')->middleware('check.permission:accounting.checks.manage');
+    Route::post('/{id}/cancel', [CheckManagementController::class, 'cancel'])->name('cancel')->middleware('check.permission:accounting.checks.manage');
 });
 
 // Direct Debit & Standing Orders (FI-BL)
 Route::prefix('direct-debit')->name('fi.direct-debit.')->group(function () {
     Route::get('/mandates', [DirectDebitController::class, 'listMandates'])->name('mandates.index');
-    Route::post('/mandates', [DirectDebitController::class, 'createMandate'])->name('mandates.store');
+    Route::post('/mandates', [DirectDebitController::class, 'createMandate'])->name('mandates.store')->middleware('check.permission:accounting.direct-debit.manage');
     Route::get('/mandates/{id}', [DirectDebitController::class, 'showMandate'])->name('mandates.show');
-    Route::put('/mandates/{id}', [DirectDebitController::class, 'updateMandate'])->name('mandates.update');
-    Route::post('/mandates/{id}/activate', [DirectDebitController::class, 'activate'])->name('mandates.activate');
-    Route::post('/mandates/{id}/pause', [DirectDebitController::class, 'pause'])->name('mandates.pause');
-    Route::post('/mandates/{id}/cancel', [DirectDebitController::class, 'cancelMandate'])->name('mandates.cancel');
+    Route::put('/mandates/{id}', [DirectDebitController::class, 'updateMandate'])->name('mandates.update')->middleware('check.permission:accounting.direct-debit.manage');
+    Route::post('/mandates/{id}/activate', [DirectDebitController::class, 'activate'])->name('mandates.activate')->middleware('check.permission:accounting.direct-debit.manage');
+    Route::post('/mandates/{id}/pause', [DirectDebitController::class, 'pause'])->name('mandates.pause')->middleware('check.permission:accounting.direct-debit.manage');
+    Route::post('/mandates/{id}/cancel', [DirectDebitController::class, 'cancelMandate'])->name('mandates.cancel')->middleware('check.permission:accounting.direct-debit.manage');
     Route::get('/mandates/{id}/collections', [DirectDebitController::class, 'collections'])->name('collections');
     Route::get('/due-collections', [DirectDebitController::class, 'dueCollections'])->name('due');
-    Route::post('/generate-collections', [DirectDebitController::class, 'generateCollections'])->name('generate');
-    Route::post('/collections/{collectionId}/process', [DirectDebitController::class, 'processCollection'])->name('process');
+    Route::post('/generate-collections', [DirectDebitController::class, 'generateCollections'])->name('generate')->middleware('check.permission:accounting.direct-debit.manage');
+    Route::post('/collections/{collectionId}/process', [DirectDebitController::class, 'processCollection'])->name('process')->middleware('check.permission:accounting.direct-debit.manage');
 });
 
 // AR/AP Aging Reports (FI-AR/FI-AP)
@@ -377,11 +377,11 @@ Route::middleware(['auth:api'])->group(function (): void {
     Route::get('open-items/ar', [OpenItemClearingController::class, 'arOpenItems'])
         ->name('accounting.open-items.ar');
     Route::post('open-items/ar/clear', [OpenItemClearingController::class, 'clearAr'])
-        ->name('accounting.open-items.ar.clear');
+        ->name('accounting.open-items.ar.clear')->middleware('check.permission:accounting.open-items.manage');
     Route::get('open-items/ap', [OpenItemClearingController::class, 'apOpenItems'])
         ->name('accounting.open-items.ap');
     Route::post('open-items/ap/clear', [OpenItemClearingController::class, 'clearAp'])
-        ->name('accounting.open-items.ap.clear');
+        ->name('accounting.open-items.ap.clear')->middleware('check.permission:accounting.open-items.manage');
 });
 
 // Cash Discounts / Payment Terms (FI-AR)
@@ -389,35 +389,35 @@ Route::middleware(['auth:api'])->group(function (): void {
     Route::get('payment-terms', [CashDiscountController::class, 'indexTerms'])
         ->name('accounting.payment-terms.index');
     Route::post('payment-terms', [CashDiscountController::class, 'storeTerms'])
-        ->name('accounting.payment-terms.store');
+        ->name('accounting.payment-terms.store')->middleware('check.permission:accounting.payment-terms.manage');
     Route::post('cash-discounts/preview', [CashDiscountController::class, 'preview'])
-        ->name('accounting.cash-discounts.preview');
+        ->name('accounting.cash-discounts.preview')->middleware('check.permission:accounting.cash-discounts.manage');
     Route::post('cash-discounts/apply', [CashDiscountController::class, 'apply'])
-        ->name('accounting.cash-discounts.apply');
+        ->name('accounting.cash-discounts.apply')->middleware('check.permission:accounting.cash-discounts.manage');
 });
 
 // Document Types (SAP OBA1)
 Route::middleware(['auth:api'])->prefix('document-types')->name('accounting.document-types.')->group(function () {
     Route::get('/', [DocumentTypeController::class, 'index'])->name('index');
-    Route::post('/', [DocumentTypeController::class, 'store'])->name('store');
+    Route::post('/', [DocumentTypeController::class, 'store'])->name('store')->middleware('check.permission:accounting.document-types.manage');
     Route::get('/{documentType}', [DocumentTypeController::class, 'show'])->name('show');
-    Route::put('/{documentType}', [DocumentTypeController::class, 'update'])->name('update');
-    Route::delete('/{documentType}', [DocumentTypeController::class, 'destroy'])->name('destroy');
+    Route::put('/{documentType}', [DocumentTypeController::class, 'update'])->name('update')->middleware('check.permission:accounting.document-types.manage');
+    Route::delete('/{documentType}', [DocumentTypeController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.document-types.manage');
 });
 
 // Account Groups (SAP GL4 / OBD4)
 Route::middleware(['auth:api'])->prefix('account-groups')->name('accounting.account-groups.')->group(function () {
     Route::get('/', [AccountGroupController::class, 'index'])->name('index');
-    Route::post('/', [AccountGroupController::class, 'store'])->name('store');
+    Route::post('/', [AccountGroupController::class, 'store'])->name('store')->middleware('check.permission:accounting.account-groups.manage');
     Route::get('/{accountGroup}', [AccountGroupController::class, 'show'])->name('show');
-    Route::put('/{accountGroup}', [AccountGroupController::class, 'update'])->name('update');
-    Route::delete('/{accountGroup}', [AccountGroupController::class, 'destroy'])->name('destroy');
+    Route::put('/{accountGroup}', [AccountGroupController::class, 'update'])->name('update')->middleware('check.permission:accounting.account-groups.manage');
+    Route::delete('/{accountGroup}', [AccountGroupController::class, 'destroy'])->name('destroy')->middleware('check.permission:accounting.account-groups.manage');
 });
 
 // GR/IR Account Clearing (SAP MR11)
 Route::middleware(['auth:api'])->prefix('grir')->name('accounting.grir.')->group(function () {
     Route::get('/open-items', [GrIrClearingController::class, 'index'])->name('open-items');
-    Route::post('/clear/{poLineId}', [GrIrClearingController::class, 'clear'])->name('clear');
+    Route::post('/clear/{poLineId}', [GrIrClearingController::class, 'clear'])->name('clear')->middleware('check.permission:accounting.grir.manage');
     Route::get('/report', [GrIrClearingController::class, 'report'])->name('report');
 });
 
@@ -674,12 +674,12 @@ Route::middleware(['auth:api'])->name('fi.housebank.')->group(function () {
 */
 Route::middleware(['auth:api'])->prefix('ic-reconciliation')->name('accounting.ic-rec.')->group(function (): void {
     Route::get('/sessions', [IntercompanyReconciliationController::class, 'index'])->name('index');
-    Route::post('/sessions', [IntercompanyReconciliationController::class, 'createSession'])->name('sessions.store');
+    Route::post('/sessions', [IntercompanyReconciliationController::class, 'createSession'])->name('sessions.store')->middleware('check.permission:accounting.ic-rec.manage');
     Route::get('/sessions/{icReconciliationSession}', [IntercompanyReconciliationController::class, 'show'])->name('sessions.show');
-    Route::post('/sessions/{icReconciliationSession}/load-items', [IntercompanyReconciliationController::class, 'loadItems'])->name('sessions.load-items');
-    Route::post('/sessions/{icReconciliationSession}/auto-match', [IntercompanyReconciliationController::class, 'autoMatch'])->name('sessions.auto-match');
-    Route::post('/sessions/{icReconciliationSession}/manual-match', [IntercompanyReconciliationController::class, 'manualMatch'])->name('sessions.manual-match');
-    Route::post('/sessions/{icReconciliationSession}/close', [IntercompanyReconciliationController::class, 'close'])->name('sessions.close');
+    Route::post('/sessions/{icReconciliationSession}/load-items', [IntercompanyReconciliationController::class, 'loadItems'])->name('sessions.load-items')->middleware('check.permission:accounting.ic-rec.manage');
+    Route::post('/sessions/{icReconciliationSession}/auto-match', [IntercompanyReconciliationController::class, 'autoMatch'])->name('sessions.auto-match')->middleware('check.permission:accounting.ic-rec.manage');
+    Route::post('/sessions/{icReconciliationSession}/manual-match', [IntercompanyReconciliationController::class, 'manualMatch'])->name('sessions.manual-match')->middleware('check.permission:accounting.ic-rec.manage');
+    Route::post('/sessions/{icReconciliationSession}/close', [IntercompanyReconciliationController::class, 'close'])->name('sessions.close')->middleware('check.permission:accounting.ic-rec.manage');
 });
 
 /*
@@ -689,10 +689,10 @@ Route::middleware(['auth:api'])->prefix('ic-reconciliation')->name('accounting.i
 */
 Route::middleware(['auth:api'])->prefix('fx-forwards')->name('accounting.fx.')->group(function (): void {
     Route::get('/', [FxDerivativeController::class, 'index'])->name('index');
-    Route::post('/', [FxDerivativeController::class, 'store'])->name('store');
+    Route::post('/', [FxDerivativeController::class, 'store'])->name('store')->middleware('check.permission:accounting.fx.manage');
     Route::get('/{fxForward}', [FxDerivativeController::class, 'show'])->name('show');
-    Route::post('/{fxForward}/designate-hedge', [FxDerivativeController::class, 'designateHedge'])->name('designate-hedge');
-    Route::post('/{fxForward}/dedesignate-hedge', [FxDerivativeController::class, 'dedesignateHedge'])->name('dedesignate-hedge');
-    Route::post('/{fxForward}/valuate', [FxDerivativeController::class, 'valuate'])->name('valuate');
-    Route::post('/{fxForward}/settle', [FxDerivativeController::class, 'settle'])->name('settle');
+    Route::post('/{fxForward}/designate-hedge', [FxDerivativeController::class, 'designateHedge'])->name('designate-hedge')->middleware('check.permission:accounting.fx.manage');
+    Route::post('/{fxForward}/dedesignate-hedge', [FxDerivativeController::class, 'dedesignateHedge'])->name('dedesignate-hedge')->middleware('check.permission:accounting.fx.manage');
+    Route::post('/{fxForward}/valuate', [FxDerivativeController::class, 'valuate'])->name('valuate')->middleware('check.permission:accounting.fx.manage');
+    Route::post('/{fxForward}/settle', [FxDerivativeController::class, 'settle'])->name('settle')->middleware('check.permission:accounting.fx.manage');
 });

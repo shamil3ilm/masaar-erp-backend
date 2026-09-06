@@ -20,7 +20,10 @@ class CheckManagementTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.check-books.manage',
+            'accounting.checks.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

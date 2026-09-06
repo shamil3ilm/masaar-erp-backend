@@ -20,7 +20,9 @@ class TreasuryTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.treasury.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

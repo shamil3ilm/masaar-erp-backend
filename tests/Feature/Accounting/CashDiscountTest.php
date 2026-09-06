@@ -21,7 +21,10 @@ class CashDiscountTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.cash-discounts.manage',
+            'accounting.payment-terms.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

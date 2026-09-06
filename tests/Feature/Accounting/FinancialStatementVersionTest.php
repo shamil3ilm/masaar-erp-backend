@@ -27,6 +27,7 @@ class FinancialStatementVersionTest extends TestCase
             'accounting.fsv.create',
             'accounting.fsv.edit',
             'accounting.fsv.delete',
+            'accounting.fsv.manage',
         ]);
     }
 

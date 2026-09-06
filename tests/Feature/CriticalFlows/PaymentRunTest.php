@@ -28,6 +28,7 @@ class PaymentRunTest extends TestCase
             'accounting.payment-runs.approve',
             'accounting.payment-runs.post',
             'accounting.payment-runs.cancel',
+            'accounting.payment-runs.manage',
         ]);
         $this->setUpOpenFiscalPeriod();
 

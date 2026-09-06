@@ -18,7 +18,9 @@ class SpecialLedgerTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.special-ledgers.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------
