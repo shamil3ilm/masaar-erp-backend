@@ -17,7 +17,9 @@ class GrIrClearingTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.grir.manage',
+        ]);
     }
 
     // Open Items and Report use raw SQL with MySQL-specific column references

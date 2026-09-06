@@ -19,28 +19,28 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::apiResource('cost-elements', CostElementController::class)
-    ->names('accounting.cost-elements');
+    ->names('accounting.cost-elements')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.cost-elements.manage');
 
 Route::apiResource('activity-types', ActivityTypeController::class)
-    ->names('accounting.activity-types');
+    ->names('accounting.activity-types')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.activity-types.manage');
 
 Route::post('activity-types/{activityType}/rates', [ActivityTypeController::class, 'setRate'])
-    ->name('accounting.activity-types.set-rate');
+    ->name('accounting.activity-types.set-rate')->middleware('check.permission:accounting.activity-types.manage');
 
 Route::apiResource('internal-orders', InternalOrderController::class)
-    ->names('accounting.internal-orders');
+    ->names('accounting.internal-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.internal-orders.manage');
 
 Route::post('internal-orders/{internalOrder}/release', [InternalOrderController::class, 'release'])
-    ->name('accounting.internal-orders.release');
+    ->name('accounting.internal-orders.release')->middleware('check.permission:accounting.internal-orders.manage');
 
 Route::post('internal-orders/{internalOrder}/settle', [InternalOrderController::class, 'settle'])
-    ->name('accounting.internal-orders.settle');
+    ->name('accounting.internal-orders.settle')->middleware('check.permission:accounting.internal-orders.manage');
 
 Route::post('internal-orders/{internalOrder}/technically-complete', [InternalOrderController::class, 'technicallyComplete'])
-    ->name('accounting.internal-orders.technically-complete');
+    ->name('accounting.internal-orders.technically-complete')->middleware('check.permission:accounting.internal-orders.manage');
 
 Route::post('internal-orders/{internalOrder}/close', [InternalOrderController::class, 'close'])
-    ->name('accounting.internal-orders.close');
+    ->name('accounting.internal-orders.close')->middleware('check.permission:accounting.internal-orders.manage');
 
 Route::get('internal-orders/{internalOrder}/budget-status', [InternalOrderController::class, 'budgetStatus'])
     ->name('accounting.internal-orders.budget-status');
@@ -63,10 +63,10 @@ Route::prefix('copa')->group(function (): void {
         ->name('accounting.copa.plan-versions.index');
 
     Route::post('plan-versions', [CopaController::class, 'storePlanVersion'])
-        ->name('accounting.copa.plan-versions.store');
+        ->name('accounting.copa.plan-versions.store')->middleware('check.permission:accounting.copa.manage');
 
     Route::post('plan-versions/{version}/items', [CopaController::class, 'storePlanItems'])
-        ->name('accounting.copa.plan-versions.items.store');
+        ->name('accounting.copa.plan-versions.items.store')->middleware('check.permission:accounting.copa.manage');
 
     Route::get('variance', [CopaController::class, 'varianceReport'])
         ->name('accounting.copa.variance');

@@ -18,7 +18,9 @@ class PostingValidationRuleTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.posting-validation-rules.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

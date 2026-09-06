@@ -18,7 +18,9 @@ class ProfitabilitySegmentTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.profitability-segments.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

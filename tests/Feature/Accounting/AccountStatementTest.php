@@ -18,7 +18,9 @@ class AccountStatementTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.statements.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

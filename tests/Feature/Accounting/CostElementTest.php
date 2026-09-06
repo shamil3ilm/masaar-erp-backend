@@ -18,7 +18,9 @@ class CostElementTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser();
+        $this->setUpAuthenticatedUser([
+            'accounting.cost-elements.manage',
+        ]);
     }
 
     // -------------------------------------------------------------------------

@@ -31,6 +31,7 @@ class RecurringJournalTest extends TestCase
             'accounting.recurring-journals.create',
             'accounting.recurring-journals.edit',
             'accounting.recurring-journals.delete',
+            'accounting.recurring-journals.manage',
         ]);
 
         Currency::firstOrCreate(

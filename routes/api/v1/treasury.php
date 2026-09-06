@@ -13,15 +13,15 @@ Route::prefix('treasury')->group(function (): void {
     Route::get('investments', [TreasuryController::class, 'index'])
         ->name('accounting.treasury.investments.index');
     Route::post('investments', [TreasuryController::class, 'store'])
-        ->name('accounting.treasury.investments.store');
+        ->name('accounting.treasury.investments.store')->middleware('check.permission:accounting.treasury.manage');
     Route::get('investments/{treasuryInvestment}', [TreasuryController::class, 'show'])
         ->name('accounting.treasury.investments.show');
     Route::post('investments/{treasuryInvestment}/accrue', [TreasuryController::class, 'accrueInterest'])
-        ->name('accounting.treasury.accrue');
+        ->name('accounting.treasury.accrue')->middleware('check.permission:accounting.treasury.manage');
     Route::post('investments/{treasuryInvestment}/mature', [TreasuryController::class, 'mature'])
-        ->name('accounting.treasury.mature');
+        ->name('accounting.treasury.mature')->middleware('check.permission:accounting.treasury.manage');
     Route::post('investments/{treasuryInvestment}/pre-liquidate', [TreasuryController::class, 'preLiquidate'])
-        ->name('accounting.treasury.pre-liquidate');
+        ->name('accounting.treasury.pre-liquidate')->middleware('check.permission:accounting.treasury.manage');
 
     // -------------------------------------------------------------------------
     // Bank Positions
@@ -35,11 +35,11 @@ Route::prefix('treasury')->group(function (): void {
     Route::get('liquidity-plans', [TreasuryController::class, 'liquidityPlans'])
         ->name('accounting.treasury.liquidity-plans.index');
     Route::post('liquidity-plans', [TreasuryController::class, 'createLiquidityPlan'])
-        ->name('accounting.treasury.liquidity-plans.store');
+        ->name('accounting.treasury.liquidity-plans.store')->middleware('check.permission:accounting.treasury.manage');
     Route::get('liquidity-plans/{liquidityPlan}', [TreasuryController::class, 'showLiquidityPlan'])
         ->name('accounting.treasury.liquidity-plans.show');
     Route::post('liquidity-plans/{liquidityPlan}/update-actuals', [TreasuryController::class, 'updateActuals'])
-        ->name('accounting.treasury.update-actuals');
+        ->name('accounting.treasury.update-actuals')->middleware('check.permission:accounting.treasury.manage');
 
     // -------------------------------------------------------------------------
     // Summaries
