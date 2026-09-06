@@ -11,9 +11,10 @@ use Tests\TestCase;
  * No new write endpoint may ship without an authorization guard.
  *
  * Authentication answers "who is this". Authorization answers "may they do
- * this". The API has both mechanisms - check.permission against a catalogue of
- * 691 seeded permissions, plus super.admin, check.branch and ip.allowlist -
- * but they are applied to roughly half the write endpoints.
+ * this". The API has both mechanisms - check.permission against the seeded
+ * permission catalogue, plus super.admin, check.branch and ip.allowlist - but
+ * they are applied to only some of the write endpoints. The fixture below is
+ * the current count; a number repeated here would only go stale.
  *
  * On the rest, auth:api and check.organization are the only gates. That makes
  * every authenticated member of an organization equivalent to every other:

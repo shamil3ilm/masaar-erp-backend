@@ -37,7 +37,23 @@ class RealEstateJourneyTest extends TestCase
         parent::setUp();
 
         $this->setUpOrganization('AE');
-        $this->setUpAuthenticatedUser([]);
+
+        // RE-FX writes are permission-gated, so this journey needs a role that
+        // can actually manage property. Passing [] here would exercise the
+        // rejection path, not the flow the test is about.
+        $this->setUpAuthenticatedUser([
+            'real_estate.portfolios.manage',
+            'real_estate.properties.manage',
+            'real_estate.buildings.manage',
+            'real_estate.units.manage',
+            'real_estate.contracts.manage',
+            'real_estate.options.manage',
+            'real_estate.conditions.manage',
+            'real_estate.deposits.manage',
+            'real_estate.posting-runs.manage',
+            'real_estate.settlements.manage',
+        ]);
+
         $this->setUpOpenFiscalPeriod();
 
         // Enable real_estate module (not in default list)
