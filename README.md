@@ -2,7 +2,7 @@
 
 A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait) and **India**. Built to SAP-parity standards — covering Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing, Project System, and Compliance.
 
-**1,064 models · 384 controllers · 386 services · 3,360 API routes · 381 migrations · 1,303 passing tests**
+**1,064 models · 387 controllers · 422 services · 3,338 API routes · 49 migrations · 1,082 tables**
 
 ---
 
@@ -71,8 +71,8 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 
 ```bash
 # Clone and install dependencies
-git clone <repo-url>
-cd erp-backend
+git clone https://github.com/shamil3ilm/masaar-erp-backend.git
+cd masaar-erp-backend
 composer install
 
 # Environment setup
@@ -828,17 +828,43 @@ Key side effects are handled via queued Laravel listeners to keep the main trans
 
 ## Scheduled Tasks
 
+One cron entry drives all of them:
+
+```
+* * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
+```
+
+`php artisan schedule:list` prints the live schedule, which is the only thing
+that cannot drift. What it currently registers:
+
+| When | Task |
+|------|------|
+| Hourly | `invoices:mark-overdue` |
+| Hourly | `bills:mark-overdue` |
+| Hourly | `token-blacklist-cleanup` |
+| Every 5 min | `webhooks:process --retry` |
+| Daily 00:00 | `process-recurring-transactions` |
+| Daily 01:00 | `ReevaluateSegmentMembershipsJob` — customer segmentation |
+| Daily 02:00 | `exports:cleanup` — remove stale export files |
+| Daily 02:00 | `ClusterUsersJob` |
+| Daily 03:00 | `security:cleanup-all` — session/token cleanup |
+| Daily 03:15 | `financial:cleanup-idempotency` |
+| Daily 03:30 | `webhooks:process --cleanup --days=30` |
+| Daily 06:00 | `reports:run-scheduled --schedule=daily` |
+| Weekly Mon 06:00 | `reports:run-scheduled --schedule=weekly` |
+| Weekly Sun 02:00 | `erp:archive` |
+| Weekly Sun 04:00 | `audit-logs:cleanup --days=90` |
+| Monthly 1st 06:00 | `reports:run-scheduled --schedule=monthly` |
+| Quarterly 1st 06:00 | `reports:run-scheduled --schedule=quarterly` |
+
+Segmentation runs as a queued job, not the `segments:reevaluate` command —
+that command exists and is scheduled by nothing, so invoking it by hand is the
+only way it runs.
+
+Not scheduled, run once when connecting a taxpayer:
+
 ```bash
-php artisan security:cleanup-all               # Daily 03:00 — session/token cleanup
-php artisan schedule:run                       # Every minute — recurring invoices, accruals
-php artisan reports:run-scheduled              # Daily/weekly/monthly report generation
-php artisan invoices:mark-overdue              # Daily 01:00
-php artisan bills:mark-overdue                 # Daily 01:00
-php artisan segments:reevaluate                # Daily 02:00 — customer segmentation
-php artisan webhooks:process --retry           # Every 5 minutes
-php artisan zatca:setup                        # One-time — ZATCA connectivity + webhook registration
-php artisan export:cleanup                     # Daily — remove stale export files
-php artisan audit:cleanup                      # Weekly — archive old audit log rows
+php artisan zatca:setup    # ZATCA connectivity + webhook registration
 ```
 
 ---
@@ -846,8 +872,8 @@ php artisan audit:cleanup                      # Weekly — archive old audit lo
 ## Testing
 
 ```bash
-# Run full test suite
-php artisan test                              # 714 tests, 2,846 assertions
+# Run full test suite (~10 minutes; it reports the count)
+php artisan test
 
 # Filter by module
 php artisan test --filter=Accounting
@@ -860,10 +886,11 @@ php artisan test tests/Feature/Journeys/
 
 # Run unit tests only
 php artisan test tests/Unit/
-
-# With coverage report
-php artisan test --coverage
 ```
+
+`--coverage` needs a coverage driver, and neither Xdebug nor PCOV is installed
+here or in CI (`coverage: none` in the workflow). Install one first or the
+command fails on the missing driver rather than on anything about the tests.
 
 Tests use SQLite in-memory for speed. Each test class boots a fresh database via `RefreshDatabase`.
 
