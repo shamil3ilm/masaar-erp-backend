@@ -26,8 +26,8 @@ Route::get('users/{id}/dimensions', [UserAnalyticsController::class, 'dimensions
 
 // Data Warehouse (SAP BW equivalent)
 Route::prefix('warehouse')->name('analytics.warehouse.')->group(function () {
-    Route::post('/sync', [DataWarehouseController::class, 'sync'])->name('sync');
-    Route::post('/load-facts', [DataWarehouseController::class, 'loadFacts'])->name('load-facts');
+    Route::post('/sync', [DataWarehouseController::class, 'sync'])->name('sync')->middleware('check.permission:analytics.warehouse.manage');
+    Route::post('/load-facts', [DataWarehouseController::class, 'loadFacts'])->name('load-facts')->middleware('check.permission:analytics.warehouse.manage');
     Route::get('/sales-cube', [DataWarehouseController::class, 'salesCube'])->name('sales-cube');
     Route::get('/purchase-cube', [DataWarehouseController::class, 'purchaseCube'])->name('purchase-cube');
     Route::get('/inventory-cube', [DataWarehouseController::class, 'inventoryCube'])->name('inventory-cube');

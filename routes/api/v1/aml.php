@@ -20,7 +20,7 @@ Route::get('transactions/flagged',     [AmlController::class, 'transactionFlags'
 
 // Suspicious Activity Reports
 Route::get('sar',                      [AmlController::class, 'suspiciousActivities'])->name('aml.sar.index');
-Route::post('sar',                     [AmlController::class, 'createSar'])->name('aml.sar.store');
+Route::post('sar',                     [AmlController::class, 'createSar'])->name('aml.sar.store')->middleware('check.permission:aml.sar.manage');
 
 // Contact Screening
-Route::post('screen-contact/{contactId}', [AmlController::class, 'screenContact'])->name('aml.screen-contact');
+Route::post('screen-contact/{contactId}', [AmlController::class, 'screenContact'])->name('aml.screen-contact')->middleware('check.permission:aml.screening.manage');

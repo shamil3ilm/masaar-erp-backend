@@ -8,19 +8,19 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('segments')->group(function () {
     Route::get('/', [SegmentController::class, 'index']);
-    Route::post('/', [SegmentController::class, 'store']);
+    Route::post('/', [SegmentController::class, 'store'])->middleware('check.permission:crm.segments.create');
     Route::get('/{id}', [SegmentController::class, 'show']);
-    Route::put('/{id}', [SegmentController::class, 'update']);
-    Route::delete('/{id}', [SegmentController::class, 'destroy']);
+    Route::put('/{id}', [SegmentController::class, 'update'])->middleware('check.permission:crm.segments.edit');
+    Route::delete('/{id}', [SegmentController::class, 'destroy'])->middleware('check.permission:crm.segments.delete');
     Route::get('/{id}/members', [SegmentController::class, 'members']);
 });
 
 Route::prefix('campaigns')->group(function () {
     Route::get('/', [CampaignController::class, 'index']);
-    Route::post('/', [CampaignController::class, 'store']);
+    Route::post('/', [CampaignController::class, 'store'])->middleware('check.permission:crm.campaigns.create');
     Route::get('/{id}', [CampaignController::class, 'show']);
-    Route::put('/{id}', [CampaignController::class, 'update']);
-    Route::delete('/{id}', [CampaignController::class, 'destroy']);
-    Route::post('/{id}/activate', [CampaignController::class, 'activate']);
-    Route::post('/{id}/pause', [CampaignController::class, 'pause']);
+    Route::put('/{id}', [CampaignController::class, 'update'])->middleware('check.permission:crm.campaigns.edit');
+    Route::delete('/{id}', [CampaignController::class, 'destroy'])->middleware('check.permission:crm.campaigns.delete');
+    Route::post('/{id}/activate', [CampaignController::class, 'activate'])->middleware('check.permission:crm.campaigns.edit');
+    Route::post('/{id}/pause', [CampaignController::class, 'pause'])->middleware('check.permission:crm.campaigns.edit');
 });
