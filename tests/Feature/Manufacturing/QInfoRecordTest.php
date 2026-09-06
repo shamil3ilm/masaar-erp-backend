@@ -22,6 +22,7 @@ class QInfoRecordTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser([
             'manufacturing.quality.manage',
+            'manufacturing.quality.view',
         ]);
 
         $this->product = Product::factory()->create([

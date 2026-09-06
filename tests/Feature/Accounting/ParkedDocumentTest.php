@@ -20,6 +20,7 @@ class ParkedDocumentTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.parked-documents.manage',
+            'accounting.parked-documents.view',
         ]);
     }
 

@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('custom-fields')->group(function () {
     // Field Definitions listing
     Route::get('/', [CustomFieldController::class, 'index'])
-        ->name('custom-fields.index');
+        ->name('custom-fields.index')->middleware('check.permission:core.settings.view');
 
     Route::post('/', [CustomFieldController::class, 'store'])
         ->middleware('check.permission:core.settings.edit')
@@ -24,17 +24,17 @@ Route::prefix('custom-fields')->group(function () {
 
     // Entity-related routes (must be before wildcard {customFieldDefinition})
     Route::get('/entity/grouped', [CustomFieldController::class, 'getGroupedFields'])
-        ->name('custom-fields.grouped');
+        ->name('custom-fields.grouped')->middleware('check.permission:core.settings.view');
 
     Route::get('/entity/values', [CustomFieldController::class, 'getEntityFields'])
-        ->name('custom-fields.entity.values');
+        ->name('custom-fields.entity.values')->middleware('check.permission:core.settings.view');
 
     Route::post('/entity/values', [CustomFieldController::class, 'setEntityFields'])
         ->name('custom-fields.entity.values.set')->middleware('check.permission:core.custom-fields.manage');
 
     // Field Definition CRUD (wildcard routes last)
     Route::get('/{customFieldDefinition}', [CustomFieldController::class, 'show'])
-        ->name('custom-fields.show');
+        ->name('custom-fields.show')->middleware('check.permission:core.settings.view');
 
     Route::put('/{customFieldDefinition}', [CustomFieldController::class, 'update'])
         ->middleware('check.permission:core.settings.edit')
@@ -48,7 +48,7 @@ Route::prefix('custom-fields')->group(function () {
 // Custom Field Groups
 Route::prefix('custom-field-groups')->group(function () {
     Route::get('/', [CustomFieldController::class, 'groups'])
-        ->name('custom-field-groups.index');
+        ->name('custom-field-groups.index')->middleware('check.permission:core.settings.view');
 
     Route::post('/', [CustomFieldController::class, 'storeGroup'])
         ->middleware('check.permission:core.settings.edit')

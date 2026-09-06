@@ -28,6 +28,7 @@ class AccrualDeferralTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.accruals.manage',
+            'accounting.accruals.view',
         ]);
 
         Currency::firstOrCreate(

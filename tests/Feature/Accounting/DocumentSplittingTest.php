@@ -20,6 +20,7 @@ class DocumentSplittingTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.document-splitting-rules.manage',
+            'accounting.document-splitting-rules.view',
         ]);
     }
 

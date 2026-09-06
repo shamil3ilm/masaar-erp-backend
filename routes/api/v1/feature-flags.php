@@ -25,11 +25,11 @@ Route::middleware(['auth:api', 'check.permission:core.feature-flags.manage'])
 
         // List all flags with targets for the authenticated org
         Route::get('/', [FeatureFlagController::class, 'index'])
-            ->name('index');
+            ->name('index')->middleware('check.permission:core.feature-flags.view');
 
         // Show a single flag with its targets
         Route::get('/{flagKey}', [FeatureFlagController::class, 'show'])
-            ->name('show');
+            ->name('show')->middleware('check.permission:core.feature-flags.view');
 
         // Add a targeting rule to a flag
         Route::post('/{flagKey}/targets', [FeatureFlagController::class, 'addTarget'])
@@ -45,5 +45,5 @@ Route::middleware(['auth:api', 'check.permission:core.feature-flags.manage'])
 
         // Check whether a flag is active for a specific user
         Route::get('/{flagKey}/check', [FeatureFlagController::class, 'checkForUser'])
-            ->name('check');
+            ->name('check')->middleware('check.permission:core.feature-flags.view');
     });

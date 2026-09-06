@@ -114,7 +114,9 @@ class MultiCurrencyTest extends TestCase
 
     public function test_can_list_organization_currencies(): void
     {
-        $this->setUpAuthenticatedUser(['accounting.multi-currency.view']);
+        $this->setUpAuthenticatedUser(['accounting.multi-currency.view',
+            'accounting.multi-currency.manage',
+        ]);
         $this->setUpMultiCurrencyContext();
 
         $response = $this->apiGet("{$this->baseUrl}/currencies");
@@ -262,7 +264,10 @@ class MultiCurrencyTest extends TestCase
 
     public function test_can_set_exchange_rate(): void
     {
-        $this->setUpAuthenticatedUser(['accounting.multi-currency.manage']);
+        $this->setUpAuthenticatedUser([
+            'accounting.multi-currency.view',
+            'accounting.multi-currency.manage',
+        ]);
         $this->setUpMultiCurrencyContext();
 
         // Exchange rates are typically managed as part of multi-currency operations.

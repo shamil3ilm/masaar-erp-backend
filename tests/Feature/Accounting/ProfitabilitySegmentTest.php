@@ -20,6 +20,7 @@ class ProfitabilitySegmentTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.profitability-segments.manage',
+            'accounting.profitability-segments.view',
         ]);
     }
 

@@ -17,7 +17,9 @@ class MaterialLedgerTest extends TestCase
     {
         parent::setUp();
         $this->setUpOrganization('SA');
-        $this->setUpAuthenticatedUser(['accounting.material-ledger.manage']);
+        $this->setUpAuthenticatedUser(['accounting.material-ledger.manage',
+            'accounting.material-ledger.view',
+        ]);
     }
 
     // -------------------------------------------------------------------------

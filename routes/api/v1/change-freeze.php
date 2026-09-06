@@ -16,13 +16,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:api', 'check.permission:core.change-freeze.manage'])->group(function () {
     Route::get('/', [ChangeFreezeController::class, 'index'])
-        ->name('core.change-freeze.index');
+        ->name('core.change-freeze.index')->middleware('check.permission:core.change-freeze.view');
 
     Route::post('/', [ChangeFreezeController::class, 'store'])
         ->name('core.change-freeze.store');
 
     Route::get('/{id}', [ChangeFreezeController::class, 'show'])
-        ->name('core.change-freeze.show');
+        ->name('core.change-freeze.show')->middleware('check.permission:core.change-freeze.view');
 
     Route::post('/{id}/end', [ChangeFreezeController::class, 'endFreeze'])
         ->name('core.change-freeze.end');

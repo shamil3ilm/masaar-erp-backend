@@ -27,10 +27,10 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('vat-returns')->name('tax.vat.')->group(function () {
 
     Route::middleware('check.permission:tax.vat.view')->group(function () {
-        Route::get('/', [VatReturnController::class, 'index'])->name('index');
-        Route::get('/transactions', [VatReturnController::class, 'indexTransactions'])->name('transactions.index');
-        Route::get('/{vatReturnPeriod}', [VatReturnController::class, 'show'])->name('show');
-        Route::get('/{vatReturnPeriod}/export', [VatReturnController::class, 'exportReturn'])->name('export');
+        Route::get('/', [VatReturnController::class, 'index'])->name('index')->middleware('check.permission:tax.vat.view');
+        Route::get('/transactions', [VatReturnController::class, 'indexTransactions'])->name('transactions.index')->middleware('check.permission:tax.vat.view');
+        Route::get('/{vatReturnPeriod}', [VatReturnController::class, 'show'])->name('show')->middleware('check.permission:tax.vat.view');
+        Route::get('/{vatReturnPeriod}/export', [VatReturnController::class, 'exportReturn'])->name('export')->middleware('check.permission:tax.vat.view');
     });
 
     Route::middleware('check.permission:tax.vat.manage')->group(function () {
@@ -47,10 +47,10 @@ Route::prefix('vat-returns')->name('tax.vat.')->group(function () {
 Route::prefix('gst')->name('tax.gst.')->group(function () {
 
     Route::middleware('check.permission:tax.gst.view')->group(function () {
-        Route::get('/registrations', [GstController::class, 'indexRegistrations'])->name('registrations.index');
-        Route::get('/ewaybills', [GstController::class, 'indexEwayBills'])->name('ewaybills.index');
-        Route::get('/ewaybills/{ewaybill}', [GstController::class, 'showEwayBill'])->name('ewaybills.show');
-        Route::get('/itc-ledger', [GstController::class, 'itcLedger'])->name('itc-ledger');
+        Route::get('/registrations', [GstController::class, 'indexRegistrations'])->name('registrations.index')->middleware('check.permission:tax.gst.view');
+        Route::get('/ewaybills', [GstController::class, 'indexEwayBills'])->name('ewaybills.index')->middleware('check.permission:tax.gst.view');
+        Route::get('/ewaybills/{ewaybill}', [GstController::class, 'showEwayBill'])->name('ewaybills.show')->middleware('check.permission:tax.gst.view');
+        Route::get('/itc-ledger', [GstController::class, 'itcLedger'])->name('itc-ledger')->middleware('check.permission:tax.gst.view');
     });
 
     Route::middleware('check.permission:tax.gst.manage')->group(function () {
@@ -79,13 +79,13 @@ Route::prefix('gst')->name('tax.gst.')->group(function () {
 Route::prefix('tds')->name('tax.tds.')->group(function () {
 
     Route::middleware('check.permission:tax.tds.view')->group(function () {
-        Route::get('/sections', [TdsController::class, 'indexSections'])->name('sections.index');
-        Route::get('/configuration', [TdsController::class, 'getConfiguration'])->name('configuration.show');
-        Route::get('/deductions', [TdsController::class, 'indexDeductions'])->name('deductions.index');
-        Route::get('/certificates', [TdsController::class, 'indexCertificates'])->name('certificates.index');
-        Route::get('/returns', [TdsController::class, 'indexReturns'])->name('returns.index');
-        Route::get('/tcs/configurations', [TdsController::class, 'indexTcsConfigurations'])->name('tcs.configurations.index');
-        Route::get('/tcs/collections', [TdsController::class, 'indexTcsCollections'])->name('tcs.collections.index');
+        Route::get('/sections', [TdsController::class, 'indexSections'])->name('sections.index')->middleware('check.permission:tax.tds.view');
+        Route::get('/configuration', [TdsController::class, 'getConfiguration'])->name('configuration.show')->middleware('check.permission:tax.tds.view');
+        Route::get('/deductions', [TdsController::class, 'indexDeductions'])->name('deductions.index')->middleware('check.permission:tax.tds.view');
+        Route::get('/certificates', [TdsController::class, 'indexCertificates'])->name('certificates.index')->middleware('check.permission:tax.tds.view');
+        Route::get('/returns', [TdsController::class, 'indexReturns'])->name('returns.index')->middleware('check.permission:tax.tds.view');
+        Route::get('/tcs/configurations', [TdsController::class, 'indexTcsConfigurations'])->name('tcs.configurations.index')->middleware('check.permission:tax.tds.view');
+        Route::get('/tcs/collections', [TdsController::class, 'indexTcsCollections'])->name('tcs.collections.index')->middleware('check.permission:tax.tds.view');
     });
 
     Route::middleware('check.permission:tax.tds.manage')->group(function () {
@@ -105,8 +105,8 @@ Route::prefix('tds')->name('tax.tds.')->group(function () {
 // -------------------------------------------------------------------------
 Route::prefix('ewaybills')->name('tax.ewaybills.')->group(function () {
     Route::middleware('check.permission:tax.gst.view')->group(function () {
-        Route::get('/', [EwayBillController::class, 'index'])->name('index');
-        Route::get('/{id}', [EwayBillController::class, 'show'])->name('show');
+        Route::get('/', [EwayBillController::class, 'index'])->name('index')->middleware('check.permission:tax.gst.view');
+        Route::get('/{id}', [EwayBillController::class, 'show'])->name('show')->middleware('check.permission:tax.gst.view');
     });
     Route::middleware('check.permission:tax.gst.manage')->group(function () {
         Route::post('/', [EwayBillController::class, 'store'])->name('store');
@@ -119,8 +119,8 @@ Route::prefix('ewaybills')->name('tax.ewaybills.')->group(function () {
 // -------------------------------------------------------------------------
 Route::prefix('gst-returns')->name('tax.gst-returns.')->group(function () {
     Route::middleware('check.permission:tax.gst.view')->group(function () {
-        Route::get('/', [GstReturnController::class, 'index'])->name('index');
-        Route::get('/{id}', [GstReturnController::class, 'show'])->name('show');
+        Route::get('/', [GstReturnController::class, 'index'])->name('index')->middleware('check.permission:tax.gst.view');
+        Route::get('/{id}', [GstReturnController::class, 'show'])->name('show')->middleware('check.permission:tax.gst.view');
     });
     Route::middleware('check.permission:tax.gst.manage')->group(function () {
         Route::post('/gstr1/generate', [GstReturnController::class, 'generateGstr1'])->name('gstr1.generate');
@@ -134,9 +134,9 @@ Route::prefix('gst-returns')->name('tax.gst-returns.')->group(function () {
 // -------------------------------------------------------------------------
 Route::prefix('tds-compliance')->name('tax.tds-compliance.')->group(function () {
     Route::middleware('check.permission:tax.tds.view')->group(function () {
-        Route::get('/', [TdsComplianceController::class, 'index'])->name('index');
-        Route::get('/deductions', [TdsComplianceController::class, 'listDeductions'])->name('deductions');
-        Route::get('/pending-report', [TdsComplianceController::class, 'pendingReport'])->name('pending-report');
+        Route::get('/', [TdsComplianceController::class, 'index'])->name('index')->middleware('check.permission:tax.tds.view');
+        Route::get('/deductions', [TdsComplianceController::class, 'listDeductions'])->name('deductions')->middleware('check.permission:tax.tds.view');
+        Route::get('/pending-report', [TdsComplianceController::class, 'pendingReport'])->name('pending-report')->middleware('check.permission:tax.tds.view');
     });
     Route::middleware('check.permission:tax.tds.manage')->group(function () {
         Route::post('/', [TdsComplianceController::class, 'store'])->name('store');
@@ -149,8 +149,8 @@ Route::prefix('tds-compliance')->name('tax.tds-compliance.')->group(function () 
 // -------------------------------------------------------------------------
 Route::prefix('vat-compliance')->name('tax.vat-compliance.')->group(function () {
     Route::middleware('check.permission:tax.vat.view')->group(function () {
-        Route::get('/', [VatComplianceController::class, 'index'])->name('index');
-        Route::get('/{id}', [VatComplianceController::class, 'show'])->name('show');
+        Route::get('/', [VatComplianceController::class, 'index'])->name('index')->middleware('check.permission:tax.vat.view');
+        Route::get('/{id}', [VatComplianceController::class, 'show'])->name('show')->middleware('check.permission:tax.vat.view');
     });
     Route::middleware('check.permission:tax.vat.manage')->group(function () {
         Route::post('/generate', [VatComplianceController::class, 'generate'])->name('generate');

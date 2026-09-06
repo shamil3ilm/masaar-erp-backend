@@ -34,7 +34,7 @@ class ReadOnlyRoleTest extends TestCase
 
     public function test_view_only_role_cannot_write(): void
     {
-        $this->setUpAuthenticatedUser(['accounting.account_groups.view']);
+        $this->setUpAuthenticatedUser(['accounting.account-groups.view']);
 
         $this->postJson(self::UNGUARDED_WRITE, [], $this->authHeaders())
             ->assertStatus(403)
@@ -43,7 +43,7 @@ class ReadOnlyRoleTest extends TestCase
 
     public function test_view_only_role_can_still_read(): void
     {
-        $this->setUpAuthenticatedUser(['accounting.account_groups.view']);
+        $this->setUpAuthenticatedUser(['accounting.account-groups.view']);
 
         $this->getJson(self::READABLE, $this->authHeaders())
             ->assertOk();
@@ -58,8 +58,8 @@ class ReadOnlyRoleTest extends TestCase
     public function test_a_role_with_any_write_capability_reaches_the_endpoint(): void
     {
         $this->setUpAuthenticatedUser([
-            'accounting.account_groups.view',
-            'accounting.account_groups.create',
+            'accounting.account-groups.view',
+            'accounting.account-groups.manage',
         ]);
 
         $response = $this->postJson(self::UNGUARDED_WRITE, [], $this->authHeaders());

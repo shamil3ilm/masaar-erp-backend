@@ -14,12 +14,12 @@ use Illuminate\Support\Facades\Route;
 
 // Territories — static paths must come before wildcard /{id}
 Route::middleware('check.permission:crm.territories.view')->group(function () {
-    Route::get('/', [TerritoryController::class, 'index']);
-    Route::get('/routing-rules', [TerritoryController::class, 'routingRuleIndex']);
-    Route::get('/team-workload', [TerritoryController::class, 'teamWorkload']);
-    Route::get('/{id}', [TerritoryController::class, 'show']);
-    Route::get('/{id}/assignments', [TerritoryController::class, 'assignmentIndex']);
-    Route::get('/{id}/performance', [TerritoryController::class, 'performance']);
+    Route::get('/', [TerritoryController::class, 'index'])->middleware('check.permission:crm.territories.view');
+    Route::get('/routing-rules', [TerritoryController::class, 'routingRuleIndex'])->middleware('check.permission:crm.territories.view');
+    Route::get('/team-workload', [TerritoryController::class, 'teamWorkload'])->middleware('check.permission:crm.territories.view');
+    Route::get('/{id}', [TerritoryController::class, 'show'])->middleware('check.permission:crm.territories.view');
+    Route::get('/{id}/assignments', [TerritoryController::class, 'assignmentIndex'])->middleware('check.permission:crm.territories.view');
+    Route::get('/{id}/performance', [TerritoryController::class, 'performance'])->middleware('check.permission:crm.territories.view');
 });
 
 Route::middleware('check.permission:crm.territories.manage')->group(function () {

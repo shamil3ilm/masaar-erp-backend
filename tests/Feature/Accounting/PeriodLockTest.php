@@ -19,6 +19,7 @@ class PeriodLockTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.period-lock.manage',
+            'accounting.period-lock.view',
         ]);
     }
 

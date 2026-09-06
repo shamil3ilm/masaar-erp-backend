@@ -20,6 +20,7 @@ class DocumentTypeTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.document-types.manage',
+            'accounting.document-types.view',
         ]);
     }
 

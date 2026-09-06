@@ -20,6 +20,7 @@ class AccountStatementTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.statements.manage',
+            'accounting.statements.view',
         ]);
     }
 

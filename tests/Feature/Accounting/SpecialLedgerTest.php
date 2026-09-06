@@ -20,6 +20,7 @@ class SpecialLedgerTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.special-ledgers.manage',
+            'accounting.special-ledgers.view',
         ]);
     }
 

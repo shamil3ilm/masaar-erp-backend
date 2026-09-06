@@ -19,6 +19,7 @@ class OpenItemClearingTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.open-items.manage',
+            'accounting.open-items.view',
         ]);
     }
 

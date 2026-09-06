@@ -61,6 +61,8 @@ class ManufacturingAdvancedJourneyTest extends TestCase
             'manufacturing.workorders.start',
             'manufacturing.workorders.produce',
             'manufacturing.workorders.complete',
+            'manufacturing.planning.view',
+            'manufacturing.production.view',
         ]);
         $this->setUpOpenFiscalPeriod();
     }

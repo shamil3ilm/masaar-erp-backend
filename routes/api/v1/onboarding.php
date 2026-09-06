@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 
 // Onboarding templates
 Route::get('/templates', [OnboardingController::class, 'indexTemplates'])
-    ->name('onboarding.templates.index');
+    ->name('onboarding.templates.index')->middleware('check.permission:compliance.onboarding.view');
 
 Route::post('/templates', [OnboardingController::class, 'storeTemplate'])
     ->middleware('check.permission:core.settings.edit')
@@ -29,7 +29,7 @@ Route::post('/templates/{templateId}/steps', [OnboardingController::class, 'addS
 
 // User progress
 Route::get('/progress/{userId}', [OnboardingController::class, 'getUserProgress'])
-    ->name('onboarding.progress.show');
+    ->name('onboarding.progress.show')->middleware('check.permission:compliance.onboarding.view');
 
 // Step actions (for authenticated user's own progress)
 Route::post('/steps/{stepId}/complete', [OnboardingController::class, 'completeStep'])

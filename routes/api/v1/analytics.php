@@ -7,31 +7,31 @@ use App\Http\Controllers\Api\V1\Analytics\UserAnalyticsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('activity', [UserAnalyticsController::class, 'activityLogs'])
-    ->name('analytics.activity.index');
+    ->name('analytics.activity.index')->middleware('check.permission:analytics.users.view');
 
 Route::get('features', [UserAnalyticsController::class, 'featureUsage'])
-    ->name('analytics.features.index');
+    ->name('analytics.features.index')->middleware('check.permission:analytics.users.view');
 
 Route::get('sessions', [UserAnalyticsController::class, 'sessions'])
-    ->name('analytics.sessions.index');
+    ->name('analytics.sessions.index')->middleware('check.permission:analytics.users.view');
 
 Route::get('clusters', [UserAnalyticsController::class, 'clusters'])
-    ->name('analytics.clusters.index');
+    ->name('analytics.clusters.index')->middleware('check.permission:analytics.users.view');
 
 Route::get('users/{id}/clusters', [UserAnalyticsController::class, 'userClusters'])
-    ->name('analytics.users.clusters');
+    ->name('analytics.users.clusters')->middleware('check.permission:analytics.users.view');
 
 Route::get('users/{id}/dimensions', [UserAnalyticsController::class, 'dimensions'])
-    ->name('analytics.users.dimensions');
+    ->name('analytics.users.dimensions')->middleware('check.permission:analytics.users.view');
 
 // Data Warehouse (SAP BW equivalent)
 Route::prefix('warehouse')->name('analytics.warehouse.')->group(function () {
     Route::post('/sync', [DataWarehouseController::class, 'sync'])->name('sync')->middleware('check.permission:analytics.warehouse.manage');
     Route::post('/load-facts', [DataWarehouseController::class, 'loadFacts'])->name('load-facts')->middleware('check.permission:analytics.warehouse.manage');
-    Route::get('/sales-cube', [DataWarehouseController::class, 'salesCube'])->name('sales-cube');
-    Route::get('/purchase-cube', [DataWarehouseController::class, 'purchaseCube'])->name('purchase-cube');
-    Route::get('/inventory-cube', [DataWarehouseController::class, 'inventoryCube'])->name('inventory-cube');
-    Route::get('/top-products', [DataWarehouseController::class, 'topProducts'])->name('top-products');
-    Route::get('/top-customers', [DataWarehouseController::class, 'topCustomers'])->name('top-customers');
-    Route::get('/sales-trend', [DataWarehouseController::class, 'salesTrend'])->name('sales-trend');
+    Route::get('/sales-cube', [DataWarehouseController::class, 'salesCube'])->name('sales-cube')->middleware('check.permission:analytics.warehouse.view');
+    Route::get('/purchase-cube', [DataWarehouseController::class, 'purchaseCube'])->name('purchase-cube')->middleware('check.permission:analytics.warehouse.view');
+    Route::get('/inventory-cube', [DataWarehouseController::class, 'inventoryCube'])->name('inventory-cube')->middleware('check.permission:analytics.warehouse.view');
+    Route::get('/top-products', [DataWarehouseController::class, 'topProducts'])->name('top-products')->middleware('check.permission:analytics.warehouse.view');
+    Route::get('/top-customers', [DataWarehouseController::class, 'topCustomers'])->name('top-customers')->middleware('check.permission:analytics.warehouse.view');
+    Route::get('/sales-trend', [DataWarehouseController::class, 'salesTrend'])->name('sales-trend')->middleware('check.permission:analytics.warehouse.view');
 });

@@ -20,6 +20,7 @@ class AccountGroupTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.account-groups.manage',
+            'accounting.account-groups.view',
         ]);
     }
 

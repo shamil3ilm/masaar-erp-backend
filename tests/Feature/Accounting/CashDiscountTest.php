@@ -24,6 +24,7 @@ class CashDiscountTest extends TestCase
         $this->setUpAuthenticatedUser([
             'accounting.cash-discounts.manage',
             'accounting.payment-terms.manage',
+            'accounting.cash-discounts.view',
         ]);
     }
 

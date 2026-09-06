@@ -19,16 +19,16 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::apiResource('cost-elements', CostElementController::class)
-    ->names('accounting.cost-elements')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.cost-elements.manage');
+    ->names('accounting.cost-elements')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.cost-elements.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.cost-elements.view');
 
 Route::apiResource('activity-types', ActivityTypeController::class)
-    ->names('accounting.activity-types')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.activity-types.manage');
+    ->names('accounting.activity-types')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.activity-types.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.activity-types.view');
 
 Route::post('activity-types/{activityType}/rates', [ActivityTypeController::class, 'setRate'])
     ->name('accounting.activity-types.set-rate')->middleware('check.permission:accounting.activity-types.manage');
 
 Route::apiResource('internal-orders', InternalOrderController::class)
-    ->names('accounting.internal-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.internal-orders.manage');
+    ->names('accounting.internal-orders')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.internal-orders.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.internal-orders.view');
 
 Route::post('internal-orders/{internalOrder}/release', [InternalOrderController::class, 'release'])
     ->name('accounting.internal-orders.release')->middleware('check.permission:accounting.internal-orders.manage');
@@ -43,24 +43,24 @@ Route::post('internal-orders/{internalOrder}/close', [InternalOrderController::c
     ->name('accounting.internal-orders.close')->middleware('check.permission:accounting.internal-orders.manage');
 
 Route::get('internal-orders/{internalOrder}/budget-status', [InternalOrderController::class, 'budgetStatus'])
-    ->name('accounting.internal-orders.budget-status');
+    ->name('accounting.internal-orders.budget-status')->middleware('check.permission:accounting.internal-orders.view');
 
 Route::get('internal-orders/{internalOrder}/variance', [InternalOrderController::class, 'variance'])
-    ->name('accounting.internal-orders.variance');
+    ->name('accounting.internal-orders.variance')->middleware('check.permission:accounting.internal-orders.view');
 
 Route::prefix('copa')->group(function (): void {
     Route::get('profitability', [CopaController::class, 'profitability'])
-        ->name('accounting.copa.profitability');
+        ->name('accounting.copa.profitability')->middleware('check.permission:accounting.copa.view');
 
     Route::get('dimension/{dimension}', [CopaController::class, 'dimensionBreakdown'])
-        ->name('accounting.copa.dimension-breakdown');
+        ->name('accounting.copa.dimension-breakdown')->middleware('check.permission:accounting.copa.view');
 
     // ----------------------------------------------------------------
     // CO-PA Plan Data & Variance — Gap 2
     // ----------------------------------------------------------------
 
     Route::get('plan-versions', [CopaController::class, 'planVersions'])
-        ->name('accounting.copa.plan-versions.index');
+        ->name('accounting.copa.plan-versions.index')->middleware('check.permission:accounting.copa.view');
 
     Route::post('plan-versions', [CopaController::class, 'storePlanVersion'])
         ->name('accounting.copa.plan-versions.store')->middleware('check.permission:accounting.copa.manage');
@@ -69,5 +69,5 @@ Route::prefix('copa')->group(function (): void {
         ->name('accounting.copa.plan-versions.items.store')->middleware('check.permission:accounting.copa.manage');
 
     Route::get('variance', [CopaController::class, 'varianceReport'])
-        ->name('accounting.copa.variance');
+        ->name('accounting.copa.variance')->middleware('check.permission:accounting.copa.view');
 });

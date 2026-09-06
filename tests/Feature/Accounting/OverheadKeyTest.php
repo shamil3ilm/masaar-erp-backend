@@ -20,6 +20,7 @@ class OverheadKeyTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.overhead-keys.manage',
+            'accounting.overhead-keys.view',
         ]);
     }
 

@@ -250,30 +250,30 @@ Route::middleware(['auth:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('cpq')->name('sales.cpq.')->group(function (): void {
-        Route::get('/products', [CpqController::class, 'products'])->name('products');
+        Route::get('/products', [CpqController::class, 'products'])->name('products')->middleware('check.permission:sales.cpq.view');
         Route::post('/products', [CpqController::class, 'storeProduct'])->name('products.store')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/products/{id}', [CpqController::class, 'showProduct'])->name('products.show');
+        Route::get('/products/{id}', [CpqController::class, 'showProduct'])->name('products.show')->middleware('check.permission:sales.cpq.view');
         Route::put('/products/{id}', [CpqController::class, 'updateProduct'])->name('products.update')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/products/{productId}/option-groups', [CpqController::class, 'optionGroups'])->name('option-groups');
+        Route::get('/products/{productId}/option-groups', [CpqController::class, 'optionGroups'])->name('option-groups')->middleware('check.permission:sales.cpq.view');
         Route::post('/products/{productId}/option-groups', [CpqController::class, 'storeOptionGroup'])->name('option-groups.store')->middleware('check.permission:sales.cpq.manage');
         Route::post('/option-groups/{groupId}/options', [CpqController::class, 'storeOption'])->name('options.store')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/products/{productId}/pricing-rules', [CpqController::class, 'pricingRules'])->name('pricing-rules');
+        Route::get('/products/{productId}/pricing-rules', [CpqController::class, 'pricingRules'])->name('pricing-rules')->middleware('check.permission:sales.cpq.view');
         Route::post('/products/{productId}/pricing-rules', [CpqController::class, 'storePricingRule'])->name('pricing-rules.store')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/products/{productId}/constraint-rules', [CpqController::class, 'constraintRules'])->name('constraint-rules');
+        Route::get('/products/{productId}/constraint-rules', [CpqController::class, 'constraintRules'])->name('constraint-rules')->middleware('check.permission:sales.cpq.view');
         Route::post('/products/{productId}/constraint-rules', [CpqController::class, 'storeConstraintRule'])->name('constraint-rules.store')->middleware('check.permission:sales.cpq.manage');
         Route::post('/configure', [CpqController::class, 'configure'])->name('configure')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/configurations', [CpqController::class, 'configurations'])->name('configurations');
+        Route::get('/configurations', [CpqController::class, 'configurations'])->name('configurations')->middleware('check.permission:sales.cpq.view');
         Route::post('/configurations', [CpqController::class, 'saveConfiguration'])->name('configurations.store')->middleware('check.permission:sales.cpq.manage');
-        Route::get('/configurations/{id}', [CpqController::class, 'showConfiguration'])->name('configurations.show');
+        Route::get('/configurations/{id}', [CpqController::class, 'showConfiguration'])->name('configurations.show')->middleware('check.permission:sales.cpq.view');
         Route::post('/configurations/{id}/convert', [CpqController::class, 'convertToQuotation'])->name('configurations.convert')->middleware('check.permission:sales.cpq.manage');
     });
 });
 
 // Sales Order Costing (SD-CO)
 Route::middleware(['auth:api'])->prefix('order-costing')->name('sd.order-costing.')->group(function () {
-    Route::get('/', [SalesOrderCostingController::class, 'index'])->name('index');
+    Route::get('/', [SalesOrderCostingController::class, 'index'])->name('index')->middleware('check.permission:sales.order-costing.view');
     Route::post('/', [SalesOrderCostingController::class, 'store'])->name('store')->middleware('check.permission:sales.order-costing.manage');
-    Route::get('/{id}', [SalesOrderCostingController::class, 'show'])->name('show');
+    Route::get('/{id}', [SalesOrderCostingController::class, 'show'])->name('show')->middleware('check.permission:sales.order-costing.view');
     Route::put('/{id}', [SalesOrderCostingController::class, 'update'])->name('update')->middleware('check.permission:sales.order-costing.manage');
     Route::post('/{id}/items', [SalesOrderCostingController::class, 'addItem'])->name('items.add')->middleware('check.permission:sales.order-costing.manage');
     Route::post('/{id}/release', [SalesOrderCostingController::class, 'release'])->name('release')->middleware('check.permission:sales.order-costing.manage');
@@ -285,10 +285,10 @@ Route::middleware(['auth:api'])->prefix('order-costing')->name('sd.order-costing
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('billing-plans')->name('sd.billing-plans.')->group(function (): void {
-    Route::get('/', [BillingPlanController::class, 'index'])->name('index');
+    Route::get('/', [BillingPlanController::class, 'index'])->name('index')->middleware('check.permission:sales.billing-plans.view');
     Route::post('/', [BillingPlanController::class, 'store'])->name('store')->middleware('check.permission:sales.billing-plans.manage');
-    Route::get('/due-items', [BillingPlanController::class, 'dueItems'])->name('due-items');
-    Route::get('/{id}', [BillingPlanController::class, 'show'])->name('show');
+    Route::get('/due-items', [BillingPlanController::class, 'dueItems'])->name('due-items')->middleware('check.permission:sales.billing-plans.view');
+    Route::get('/{id}', [BillingPlanController::class, 'show'])->name('show')->middleware('check.permission:sales.billing-plans.view');
     Route::put('/{id}', [BillingPlanController::class, 'update'])->name('update')->middleware('check.permission:sales.billing-plans.manage');
     Route::delete('/{id}', [BillingPlanController::class, 'destroy'])->name('destroy')->middleware('check.permission:sales.billing-plans.manage');
     Route::post('/{id}/items', [BillingPlanController::class, 'addItem'])->name('items.add')->middleware('check.permission:sales.billing-plans.manage');
@@ -302,10 +302,10 @@ Route::middleware(['auth:api'])->prefix('billing-plans')->name('sd.billing-plans
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('backorders')->name('sd.backorders.')->group(function (): void {
-    Route::get('/', [BackorderController::class, 'index'])->name('index');
+    Route::get('/', [BackorderController::class, 'index'])->name('index')->middleware('check.permission:sales.backorders.view');
     Route::post('/', [BackorderController::class, 'store'])->name('store')->middleware('check.permission:sales.backorders.manage');
-    Route::get('/report', [BackorderController::class, 'report'])->name('report');
-    Route::get('/{id}', [BackorderController::class, 'show'])->name('show');
+    Route::get('/report', [BackorderController::class, 'report'])->name('report')->middleware('check.permission:sales.backorders.view');
+    Route::get('/{id}', [BackorderController::class, 'show'])->name('show')->middleware('check.permission:sales.backorders.view');
     Route::post('/{id}/reschedule', [BackorderController::class, 'reschedule'])->name('reschedule')->middleware('check.permission:sales.backorders.manage');
     Route::post('/{id}/fulfill', [BackorderController::class, 'fulfill'])->name('fulfill')->middleware('check.permission:sales.backorders.manage');
     Route::post('/{id}/cancel', [BackorderController::class, 'cancel'])->name('cancel')->middleware('check.permission:sales.backorders.manage');
@@ -317,9 +317,9 @@ Route::middleware(['auth:api'])->prefix('backorders')->name('sd.backorders.')->g
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('third-party-orders')->name('sd.tpo.')->group(function (): void {
-    Route::get('/', [ThirdPartyOrderController::class, 'index'])->name('index');
+    Route::get('/', [ThirdPartyOrderController::class, 'index'])->name('index')->middleware('check.permission:sales.third-party-orders.view');
     Route::post('/', [ThirdPartyOrderController::class, 'store'])->name('store')->middleware('check.permission:sales.third-party-orders.manage');
-    Route::get('/{id}', [ThirdPartyOrderController::class, 'show'])->name('show');
+    Route::get('/{id}', [ThirdPartyOrderController::class, 'show'])->name('show')->middleware('check.permission:sales.third-party-orders.view');
     Route::put('/{id}', [ThirdPartyOrderController::class, 'update'])->name('update')->middleware('check.permission:sales.third-party-orders.manage');
     Route::post('/{id}/create-po', [ThirdPartyOrderController::class, 'createPO'])->name('create-po')->middleware('check.permission:sales.third-party-orders.manage');
     Route::post('/{id}/confirm-shipment', [ThirdPartyOrderController::class, 'confirmShipment'])->name('confirm-shipment')->middleware('check.permission:sales.third-party-orders.manage');
@@ -333,9 +333,9 @@ Route::middleware(['auth:api'])->prefix('third-party-orders')->name('sd.tpo.')->
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('shipping-zones')->name('sd.shipping-zones.')->group(function (): void {
-    Route::get('/', [ShippingRouteController::class, 'zoneIndex'])->name('index');
+    Route::get('/', [ShippingRouteController::class, 'zoneIndex'])->name('index')->middleware('check.permission:sales.shipping-routes.view');
     Route::post('/', [ShippingRouteController::class, 'zoneStore'])->name('store')->middleware('check.permission:sales.shipping-zones.manage');
-    Route::get('/{id}', [ShippingRouteController::class, 'zoneShow'])->name('show');
+    Route::get('/{id}', [ShippingRouteController::class, 'zoneShow'])->name('show')->middleware('check.permission:sales.shipping-routes.view');
     Route::put('/{id}', [ShippingRouteController::class, 'zoneUpdate'])->name('update')->middleware('check.permission:sales.shipping-zones.manage');
     Route::delete('/{id}', [ShippingRouteController::class, 'zoneDestroy'])->name('destroy')->middleware('check.permission:sales.shipping-zones.manage');
 });
@@ -346,9 +346,9 @@ Route::middleware(['auth:api'])->prefix('shipping-zones')->name('sd.shipping-zon
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('shipping-routes')->name('sd.shipping-routes.')->group(function (): void {
-    Route::get('/', [ShippingRouteController::class, 'routeIndex'])->name('index');
+    Route::get('/', [ShippingRouteController::class, 'routeIndex'])->name('index')->middleware('check.permission:sales.shipping-routes.view');
     Route::post('/', [ShippingRouteController::class, 'routeStore'])->name('store')->middleware('check.permission:sales.shipping-routes.manage');
-    Route::get('/{id}', [ShippingRouteController::class, 'routeShow'])->name('show');
+    Route::get('/{id}', [ShippingRouteController::class, 'routeShow'])->name('show')->middleware('check.permission:sales.shipping-routes.view');
     Route::put('/{id}', [ShippingRouteController::class, 'routeUpdate'])->name('update')->middleware('check.permission:sales.shipping-routes.manage');
     Route::delete('/{id}', [ShippingRouteController::class, 'routeDestroy'])->name('destroy')->middleware('check.permission:sales.shipping-routes.manage');
     Route::post('/determine', [ShippingRouteController::class, 'determineRoute'])->name('determine')->middleware('check.permission:sales.shipping-routes.manage');
@@ -361,15 +361,15 @@ Route::middleware(['auth:api'])->prefix('shipping-routes')->name('sd.shipping-ro
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('handling-units')->name('sd.handling-units.')->group(function (): void {
-    Route::get('/', [HandlingUnitController::class, 'index'])->name('index');
+    Route::get('/', [HandlingUnitController::class, 'index'])->name('index')->middleware('check.permission:sales.handling-units.view');
     Route::post('/', [HandlingUnitController::class, 'store'])->name('store')->middleware('check.permission:sales.handling-units.manage');
-    Route::get('/{id}', [HandlingUnitController::class, 'show'])->name('show');
+    Route::get('/{id}', [HandlingUnitController::class, 'show'])->name('show')->middleware('check.permission:sales.handling-units.view');
     Route::put('/{id}', [HandlingUnitController::class, 'update'])->name('update')->middleware('check.permission:sales.handling-units.manage');
     Route::delete('/{id}', [HandlingUnitController::class, 'destroy'])->name('destroy')->middleware('check.permission:sales.handling-units.manage');
     Route::post('/{id}/items', [HandlingUnitController::class, 'addItem'])->name('items.add')->middleware('check.permission:sales.handling-units.manage');
     Route::delete('/{id}/items/{itemId}', [HandlingUnitController::class, 'removeItem'])->name('items.remove')->middleware('check.permission:sales.handling-units.manage');
     Route::post('/{id}/seal', [HandlingUnitController::class, 'seal'])->name('seal')->middleware('check.permission:sales.handling-units.manage');
-    Route::get('/packing-list/{shipmentId}', [HandlingUnitController::class, 'packingList'])->name('packing-list');
+    Route::get('/packing-list/{shipmentId}', [HandlingUnitController::class, 'packingList'])->name('packing-list')->middleware('check.permission:sales.handling-units.view');
 });
 
 
@@ -379,7 +379,7 @@ Route::middleware(['auth:api'])->prefix('handling-units')->name('sd.handling-uni
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('billing-due-list')->name('sd.billing-due-list.')->group(function (): void {
-    Route::get('/', [BillingDueListController::class, 'index'])->name('index');
+    Route::get('/', [BillingDueListController::class, 'index'])->name('index')->middleware('check.permission:sales.billing-due-list.view');
     Route::post('/collective-run', [BillingDueListController::class, 'collectiveRun'])->name('collective-run')->middleware('check.permission:sales.billing-due-list.manage');
     Route::post('/{item}/bill', [BillingDueListController::class, 'billItem'])->name('bill-item')->middleware('check.permission:sales.billing-due-list.manage');
 });
@@ -390,11 +390,11 @@ Route::middleware(['auth:api'])->prefix('billing-due-list')->name('sd.billing-du
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api'])->prefix('rebates')->name('sd.rebates.')->group(function (): void {
-    Route::get('/', [RebateController::class, 'index'])->name('index');
+    Route::get('/', [RebateController::class, 'index'])->name('index')->middleware('check.permission:sales.rebates.view');
     Route::post('/', [RebateController::class, 'store'])->name('store')->middleware('check.permission:sales.rebates.manage');
-    Route::get('/{rebate}', [RebateController::class, 'show'])->name('show');
+    Route::get('/{rebate}', [RebateController::class, 'show'])->name('show')->middleware('check.permission:sales.rebates.view');
     Route::put('/{rebate}', [RebateController::class, 'update'])->name('update')->middleware('check.permission:sales.rebates.manage');
-    Route::get('/{rebate}/balance', [RebateController::class, 'balance'])->name('balance');
+    Route::get('/{rebate}/balance', [RebateController::class, 'balance'])->name('balance')->middleware('check.permission:sales.rebates.view');
     Route::post('/{rebate}/settle', [RebateController::class, 'settle'])->name('settle')->middleware('check.permission:sales.rebates.manage');
     Route::post('/period-end-run', [RebateController::class, 'periodEndRun'])->name('period-end-run')->middleware('check.permission:sales.rebates.manage');
 });

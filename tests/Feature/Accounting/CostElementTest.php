@@ -20,6 +20,7 @@ class CostElementTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.cost-elements.manage',
+            'accounting.cost-elements.view',
         ]);
     }
 

@@ -22,6 +22,7 @@ class ProcessOrderTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser([
             'manufacturing.production.manage',
+            'manufacturing.production.view',
         ]);
 
         $this->product = Product::factory()->create([

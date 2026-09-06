@@ -19,6 +19,7 @@ class PaymentFileTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.payment-files.manage',
+            'accounting.payment-files.view',
         ]);
     }
 

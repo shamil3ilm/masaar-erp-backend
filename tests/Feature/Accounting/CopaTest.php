@@ -21,6 +21,7 @@ class CopaTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.copa.manage',
+            'accounting.copa.view',
         ]);
     }
 

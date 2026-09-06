@@ -20,6 +20,7 @@ class FxDerivativeTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.fx.manage',
+            'accounting.fx.view',
         ]);
     }
 

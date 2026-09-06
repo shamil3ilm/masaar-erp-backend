@@ -15,16 +15,16 @@ use Illuminate\Support\Facades\Route;
 
 Route::apiResource('accruals-deferrals', AccrualDeferralController::class)
     ->names('accounting.accruals')
-    ->parameters(['accruals-deferrals' => 'accrualDeferral'])->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.accruals.manage');
+    ->parameters(['accruals-deferrals' => 'accrualDeferral'])->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.accruals.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.accruals.view');
 Route::post('accruals-deferrals/{accrualDeferral}/post-period', [AccrualDeferralController::class, 'postPeriod'])
     ->name('accounting.accruals.post-period')->middleware('check.permission:accounting.accruals.manage');
 
 Route::post('carry-forward/execute', [CarryForwardController::class, 'execute'])
     ->name('accounting.carry-forward.execute')->middleware('check.permission:accounting.carry-forward.manage');
 Route::get('carry-forward/{carryForwardRun}', [CarryForwardController::class, 'status'])
-    ->name('accounting.carry-forward.status');
+    ->name('accounting.carry-forward.status')->middleware('check.permission:accounting.carry-forward.view');
 
-Route::apiResource('payment-runs', PaymentRunController::class)->names('accounting.payment-runs')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.payment-runs.manage');
+Route::apiResource('payment-runs', PaymentRunController::class)->names('accounting.payment-runs')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.payment-runs.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.payment-runs.view');
 Route::post('payment-runs/{paymentRun}/approve', [PaymentRunController::class, 'approve'])
     ->name('accounting.payment-runs.approve')->middleware('check.permission:accounting.payment-runs.manage');
 Route::post('payment-runs/{paymentRun}/post', [PaymentRunController::class, 'post'])
@@ -35,13 +35,13 @@ Route::put('payment-runs/{paymentRun}/items/{paymentRunItem}/exclude', [PaymentR
     ->name('accounting.payment-runs.items.exclude')->middleware('check.permission:accounting.payment-runs.manage');
 
 Route::prefix('disputes')->group(function () {
-    Route::get('/', [DisputeManagementController::class, 'index'])->name('accounting.disputes.index');
+    Route::get('/', [DisputeManagementController::class, 'index'])->name('accounting.disputes.index')->middleware('check.permission:accounting.disputes.view');
     Route::post('/', [DisputeManagementController::class, 'store'])->name('accounting.disputes.store')->middleware('check.permission:accounting.disputes.manage');
     Route::get('/collections-worklist', [DisputeManagementController::class, 'collectionsWorklist'])
-        ->name('accounting.disputes.collections-worklist');
+        ->name('accounting.disputes.collections-worklist')->middleware('check.permission:accounting.disputes.view');
     Route::post('/promise-to-pay', [DisputeManagementController::class, 'promiseToPay'])
         ->name('accounting.disputes.promise-to-pay')->middleware('check.permission:accounting.disputes.manage');
-    Route::get('/{disputeCase}', [DisputeManagementController::class, 'show'])->name('accounting.disputes.show');
+    Route::get('/{disputeCase}', [DisputeManagementController::class, 'show'])->name('accounting.disputes.show')->middleware('check.permission:accounting.disputes.view');
     Route::put('/{disputeCase}', [DisputeManagementController::class, 'update'])->name('accounting.disputes.update')->middleware('check.permission:accounting.disputes.manage');
     Route::post('/{disputeCase}/resolve', [DisputeManagementController::class, 'resolve'])
         ->name('accounting.disputes.resolve')->middleware('check.permission:accounting.disputes.manage');
@@ -49,7 +49,7 @@ Route::prefix('disputes')->group(function () {
         ->name('accounting.disputes.close')->middleware('check.permission:accounting.disputes.manage');
 });
 
-Route::apiResource('parked-documents', ParkedDocumentController::class)->names('accounting.parked-documents')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.parked-documents.manage');
+Route::apiResource('parked-documents', ParkedDocumentController::class)->names('accounting.parked-documents')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.parked-documents.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.parked-documents.view');
 Route::post('parked-documents/{parkedDocument}/approve', [ParkedDocumentController::class, 'approve'])
     ->name('accounting.parked-documents.approve')->middleware('check.permission:accounting.parked-documents.manage');
 Route::post('parked-documents/{parkedDocument}/post', [ParkedDocumentController::class, 'post'])
@@ -64,27 +64,27 @@ Route::post('document-splitting-rules/preview', [DocumentSplittingController::cl
 
 Route::apiResource('document-splitting-rules', DocumentSplittingController::class)
     ->only(['index', 'store', 'update', 'destroy'])
-    ->names('accounting.document-splitting-rules')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.document-splitting-rules.manage');
+    ->names('accounting.document-splitting-rules')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.document-splitting-rules.manage')->middlewareFor(['index'], 'check.permission:accounting.document-splitting-rules.view');
 
 // Posting Validation & Substitution Rules
 Route::post('posting-validation-rules/evaluate', [PostingValidationRuleController::class, 'evaluate'])
     ->name('accounting.posting-validation-rules.evaluate')->middleware('check.permission:accounting.posting-validation-rules.manage');
 
 Route::apiResource('posting-validation-rules', PostingValidationRuleController::class)
-    ->names('accounting.posting-validation-rules')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.posting-validation-rules.manage');
+    ->names('accounting.posting-validation-rules')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:accounting.posting-validation-rules.manage')->middlewareFor(['index', 'show'], 'check.permission:accounting.posting-validation-rules.view');
 
 // ----------------------------------------------------------------
 // Gap 16: Account Statements & Open Item Reconciliation
 // ----------------------------------------------------------------
 Route::prefix('statements')->group(function (): void {
     Route::get('customers/{contactId}', [AccountStatementController::class, 'customerStatement'])
-        ->name('accounting.statements.customer');
+        ->name('accounting.statements.customer')->middleware('check.permission:accounting.statements.view');
     Route::get('vendors/{contactId}', [AccountStatementController::class, 'vendorStatement'])
-        ->name('accounting.statements.vendor');
+        ->name('accounting.statements.vendor')->middleware('check.permission:accounting.statements.view');
     Route::post('send', [AccountStatementController::class, 'sendStatement'])
         ->name('accounting.statements.send')->middleware('check.permission:accounting.statements.manage');
     Route::get('open-items', [AccountStatementController::class, 'openItems'])
-        ->name('accounting.statements.open-items');
+        ->name('accounting.statements.open-items')->middleware('check.permission:accounting.statements.view');
     Route::post('confirm-reconciliation', [AccountStatementController::class, 'confirmReconciliation'])
         ->name('accounting.statements.confirm-reconciliation')->middleware('check.permission:accounting.statements.manage');
 });
@@ -93,6 +93,6 @@ Route::prefix('statements')->group(function (): void {
 // FI-AR Interest on Overdue Receivables (SAP F.24/F.26)
 // ----------------------------------------------------------------
 Route::get('ar-interest-runs/preview', [ArInterestRunController::class, 'preview'])
-    ->name('accounting.ar-interest-runs.preview');
+    ->name('accounting.ar-interest-runs.preview')->middleware('check.permission:accounting.ar-interest-runs.view');
 Route::post('ar-interest-runs/execute', [ArInterestRunController::class, 'execute'])
     ->name('accounting.ar-interest-runs.execute')->middleware('check.permission:accounting.ar-interest-runs.manage');

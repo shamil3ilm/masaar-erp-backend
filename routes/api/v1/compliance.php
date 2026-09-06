@@ -41,5 +41,5 @@ Route::prefix('documents')->name('documents.secure.')->group(function (): void {
     // Public: stream the PDF. Exempt from the standard auth middleware stack.
     Route::get('/download/{token}', [DocumentDownloadController::class, 'download'])
         ->name('download')
-        ->withoutMiddleware(['auth:api', 'validate.jwt', 'check.organization']);
+        ->withoutMiddleware(['auth:api', 'validate.jwt', 'check.organization'])->middleware('check.permission:documents.files.view');
 });

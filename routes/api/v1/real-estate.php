@@ -18,16 +18,16 @@ $ctrl = RealEstateController::class;
 
 // --- Portfolio Management ---
 Route::prefix('portfolios')->group(function () use ($ctrl) {
-    Route::get('/', [$ctrl, 'listPortfolios'])->name('re.portfolios.index');
+    Route::get('/', [$ctrl, 'listPortfolios'])->name('re.portfolios.index')->middleware('check.permission:real_estate.buildings.view');
     Route::post('/', [$ctrl, 'createPortfolio'])->name('re.portfolios.store')->middleware('check.permission:real_estate.portfolios.manage');
-    Route::get('/overview', [$ctrl, 'portfolioOverview'])->name('re.portfolios.overview');
+    Route::get('/overview', [$ctrl, 'portfolioOverview'])->name('re.portfolios.overview')->middleware('check.permission:real_estate.buildings.view');
 });
 
 // --- Properties ---
 Route::prefix('properties')->group(function () use ($ctrl) {
-    Route::get('/', [$ctrl, 'listProperties'])->name('re.properties.index');
+    Route::get('/', [$ctrl, 'listProperties'])->name('re.properties.index')->middleware('check.permission:real_estate.buildings.view');
     Route::post('/', [$ctrl, 'createProperty'])->name('re.properties.store')->middleware('check.permission:real_estate.properties.manage');
-    Route::get('/{property}', [$ctrl, 'showProperty'])->name('re.properties.show');
+    Route::get('/{property}', [$ctrl, 'showProperty'])->name('re.properties.show')->middleware('check.permission:real_estate.buildings.view');
 
     // Buildings within a property
     Route::post('/{property}/buildings', [$ctrl, 'createBuilding'])->name('re.properties.buildings.store')->middleware('check.permission:real_estate.properties.manage');
@@ -44,25 +44,25 @@ Route::prefix('buildings')->group(function () use ($ctrl) {
 
 // --- Rental Units ---
 Route::prefix('units')->group(function () use ($ctrl) {
-    Route::get('/', [$ctrl, 'listRentalUnits'])->name('re.units.index');
-    Route::get('/{unit}', [$ctrl, 'showRentalUnit'])->name('re.units.show');
+    Route::get('/', [$ctrl, 'listRentalUnits'])->name('re.units.index')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/{unit}', [$ctrl, 'showRentalUnit'])->name('re.units.show')->middleware('check.permission:real_estate.buildings.view');
     // Vacancy management
     Route::post('/{id}/vacate', [VacancyController::class, 'vacate'])->name('re.units.vacate')->middleware('check.permission:real_estate.units.manage');
     Route::post('/{id}/occupy', [VacancyController::class, 'occupy'])->name('re.units.occupy')->middleware('check.permission:real_estate.units.manage');
-    Route::get('/{id}/vacancy-history', [VacancyController::class, 'vacancyHistory'])->name('re.units.vacancy-history');
+    Route::get('/{id}/vacancy-history', [VacancyController::class, 'vacancyHistory'])->name('re.units.vacancy-history')->middleware('check.permission:real_estate.buildings.view');
 });
 
 Route::prefix('buildings')->group(function () {
-    Route::get('/{buildingId}/vacant-units', [VacancyController::class, 'vacantUnits'])->name('re.buildings.vacant-units');
-    Route::get('/{buildingId}/occupancy-trend', [VacancyController::class, 'occupancyTrend'])->name('re.buildings.occupancy-trend');
+    Route::get('/{buildingId}/vacant-units', [VacancyController::class, 'vacantUnits'])->name('re.buildings.vacant-units')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/{buildingId}/occupancy-trend', [VacancyController::class, 'occupancyTrend'])->name('re.buildings.occupancy-trend')->middleware('check.permission:real_estate.buildings.view');
     Route::post('/{buildingId}/snapshot', [VacancyController::class, 'snapshot'])->name('re.buildings.snapshot')->middleware('check.permission:real_estate.buildings.manage');
 });
 
 // --- Lease Contracts ---
 Route::prefix('contracts')->group(function () use ($ctrl) {
-    Route::get('/', [$ctrl, 'listContracts'])->name('re.contracts.index');
+    Route::get('/', [$ctrl, 'listContracts'])->name('re.contracts.index')->middleware('check.permission:real_estate.buildings.view');
     Route::post('/', [$ctrl, 'createContract'])->name('re.contracts.store')->middleware('check.permission:real_estate.contracts.manage');
-    Route::get('/{contract}', [$ctrl, 'showContract'])->name('re.contracts.show');
+    Route::get('/{contract}', [$ctrl, 'showContract'])->name('re.contracts.show')->middleware('check.permission:real_estate.buildings.view');
     Route::post('/{contract}/activate', [$ctrl, 'activateContract'])->name('re.contracts.activate')->middleware('check.permission:real_estate.contracts.manage');
     Route::post('/{contract}/terminate', [$ctrl, 'terminateContract'])->name('re.contracts.terminate')->middleware('check.permission:real_estate.contracts.manage');
 
@@ -71,7 +71,7 @@ Route::prefix('contracts')->group(function () use ($ctrl) {
 
     // IFRS 16 — Right-of-Use asset & lease liability amortisation
     Route::post('/{contract}/ifrs16/generate', [$ctrl, 'generateIfrs16'])->name('re.contracts.ifrs16.generate')->middleware('check.permission:real_estate.contracts.manage');
-    Route::get('/{contract}/ifrs16/schedule', [$ctrl, 'ifrs16Schedule'])->name('re.contracts.ifrs16.schedule');
+    Route::get('/{contract}/ifrs16/schedule', [$ctrl, 'ifrs16Schedule'])->name('re.contracts.ifrs16.schedule')->middleware('check.permission:real_estate.buildings.view');
 });
 
 // --- Contract Options ---
@@ -105,9 +105,9 @@ Route::prefix('settlements')->group(function () use ($ctrl) {
 
 // --- Reports ---
 Route::prefix('reports')->group(function () use ($ctrl) {
-    Route::get('/vacancy', [$ctrl, 'vacancyReport'])->name('re.reports.vacancy');
-    Route::get('/occupancy-trend', [VacancyController::class, 'occupancyTrend'])->name('re.reports.occupancy-trend');
-    Route::get('/expiring-contracts', [$ctrl, 'expiringContracts'])->name('re.reports.expiring');
-    Route::get('/due-escalations', [$ctrl, 'dueEscalations'])->name('re.reports.escalations-due');
-    Route::get('/upcoming-escalations', [$ctrl, 'upcomingEscalations'])->name('re.reports.escalations-upcoming');
+    Route::get('/vacancy', [$ctrl, 'vacancyReport'])->name('re.reports.vacancy')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/occupancy-trend', [VacancyController::class, 'occupancyTrend'])->name('re.reports.occupancy-trend')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/expiring-contracts', [$ctrl, 'expiringContracts'])->name('re.reports.expiring')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/due-escalations', [$ctrl, 'dueEscalations'])->name('re.reports.escalations-due')->middleware('check.permission:real_estate.buildings.view');
+    Route::get('/upcoming-escalations', [$ctrl, 'upcomingEscalations'])->name('re.reports.escalations-upcoming')->middleware('check.permission:real_estate.buildings.view');
 });

@@ -19,6 +19,7 @@ class EngineeringChangeTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser([
             'manufacturing.planning.manage',
+            'manufacturing.planning.view',
         ]);
     }
 

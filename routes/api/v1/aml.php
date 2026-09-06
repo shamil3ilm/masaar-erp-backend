@@ -12,14 +12,14 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Risk Scores
-Route::get('risk-scores',              [AmlController::class, 'riskScores'])->name('aml.risk-scores.index');
-Route::get('risk-scores/{contactId}',  [AmlController::class, 'contactRisk'])->name('aml.risk-scores.show');
+Route::get('risk-scores',              [AmlController::class, 'riskScores'])->name('aml.risk-scores.index')->middleware('check.permission:aml.sar.view');
+Route::get('risk-scores/{contactId}',  [AmlController::class, 'contactRisk'])->name('aml.risk-scores.show')->middleware('check.permission:aml.sar.view');
 
 // Flagged Transactions
-Route::get('transactions/flagged',     [AmlController::class, 'transactionFlags'])->name('aml.transaction-flags.index');
+Route::get('transactions/flagged',     [AmlController::class, 'transactionFlags'])->name('aml.transaction-flags.index')->middleware('check.permission:aml.sar.view');
 
 // Suspicious Activity Reports
-Route::get('sar',                      [AmlController::class, 'suspiciousActivities'])->name('aml.sar.index');
+Route::get('sar',                      [AmlController::class, 'suspiciousActivities'])->name('aml.sar.index')->middleware('check.permission:aml.sar.view');
 Route::post('sar',                     [AmlController::class, 'createSar'])->name('aml.sar.store')->middleware('check.permission:aml.sar.manage');
 
 // Contact Screening

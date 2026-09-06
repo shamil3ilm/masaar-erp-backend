@@ -20,6 +20,7 @@ class IntercompanyReconciliationTest extends TestCase
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([
             'accounting.ic-rec.manage',
+            'accounting.ic-rec.view',
         ]);
     }
 
