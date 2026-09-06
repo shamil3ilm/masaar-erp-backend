@@ -259,14 +259,14 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('off-cycle-payroll')->name('hr.off-cycle-payroll.')->group(function () {
         Route::get('/', [OffCyclePayrollController::class, 'index'])->name('index');
-        Route::post('/', [OffCyclePayrollController::class, 'store'])->name('store');
+        Route::post('/', [OffCyclePayrollController::class, 'store'])->name('store')->middleware('check.permission:hr.payroll.process');
         Route::get('/{id}', [OffCyclePayrollController::class, 'show'])->name('show');
-        Route::put('/{id}', [OffCyclePayrollController::class, 'update'])->name('update');
-        Route::delete('/{id}', [OffCyclePayrollController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/items', [OffCyclePayrollController::class, 'addItem'])->name('items.add');
-        Route::delete('/{id}/items/{itemId}', [OffCyclePayrollController::class, 'removeItem'])->name('items.remove');
-        Route::post('/{id}/process', [OffCyclePayrollController::class, 'process'])->name('process');
-        Route::post('/{id}/cancel', [OffCyclePayrollController::class, 'cancel'])->name('cancel');
+        Route::put('/{id}', [OffCyclePayrollController::class, 'update'])->name('update')->middleware('check.permission:hr.payroll.process');
+        Route::delete('/{id}', [OffCyclePayrollController::class, 'destroy'])->name('destroy')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/items', [OffCyclePayrollController::class, 'addItem'])->name('items.add')->middleware('check.permission:hr.payroll.process');
+        Route::delete('/{id}/items/{itemId}', [OffCyclePayrollController::class, 'removeItem'])->name('items.remove')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/process', [OffCyclePayrollController::class, 'process'])->name('process')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/cancel', [OffCyclePayrollController::class, 'cancel'])->name('cancel')->middleware('check.permission:hr.payroll.process');
     });
 
     /*
@@ -276,12 +276,12 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('payroll-corrections')->name('hr.payroll-corrections.')->group(function () {
         Route::get('/', [PayrollCorrectionController::class, 'index'])->name('index');
-        Route::post('/', [PayrollCorrectionController::class, 'store'])->name('store');
+        Route::post('/', [PayrollCorrectionController::class, 'store'])->name('store')->middleware('check.permission:hr.payroll.process');
         Route::get('/{id}', [PayrollCorrectionController::class, 'show'])->name('show');
-        Route::put('/{id}', [PayrollCorrectionController::class, 'update'])->name('update');
-        Route::post('/{id}/approve', [PayrollCorrectionController::class, 'approve'])->name('approve');
-        Route::post('/{id}/post', [PayrollCorrectionController::class, 'post'])->name('post');
-        Route::post('/{id}/cancel', [PayrollCorrectionController::class, 'cancel'])->name('cancel');
+        Route::put('/{id}', [PayrollCorrectionController::class, 'update'])->name('update')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/approve', [PayrollCorrectionController::class, 'approve'])->name('approve')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/post', [PayrollCorrectionController::class, 'post'])->name('post')->middleware('check.permission:hr.payroll.process');
+        Route::post('/{id}/cancel', [PayrollCorrectionController::class, 'cancel'])->name('cancel')->middleware('check.permission:hr.payroll.process');
     });
 
     /*
@@ -291,14 +291,14 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('exit-management')->name('hr.exit.')->group(function () {
         Route::get('/', [ExitManagementController::class, 'index'])->name('index');
-        Route::post('/', [ExitManagementController::class, 'store'])->name('store');
+        Route::post('/', [ExitManagementController::class, 'store'])->name('store')->middleware('check.permission:hr.lifecycle.manage');
         Route::get('/{id}', [ExitManagementController::class, 'show'])->name('show');
-        Route::post('/{id}/approve', [ExitManagementController::class, 'approve'])->name('approve');
-        Route::post('/{id}/start-clearance', [ExitManagementController::class, 'startClearance'])->name('start-clearance');
-        Route::post('/{id}/clearance-items/{itemId}/clear', [ExitManagementController::class, 'clearItem'])->name('clear-item');
-        Route::post('/{id}/complete-clearance', [ExitManagementController::class, 'completeClearance'])->name('complete-clearance');
-        Route::post('/{id}/settle', [ExitManagementController::class, 'settle'])->name('settle');
-        Route::post('/{id}/close', [ExitManagementController::class, 'close'])->name('close');
+        Route::post('/{id}/approve', [ExitManagementController::class, 'approve'])->name('approve')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/start-clearance', [ExitManagementController::class, 'startClearance'])->name('start-clearance')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/clearance-items/{itemId}/clear', [ExitManagementController::class, 'clearItem'])->name('clear-item')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/complete-clearance', [ExitManagementController::class, 'completeClearance'])->name('complete-clearance')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/settle', [ExitManagementController::class, 'settle'])->name('settle')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/close', [ExitManagementController::class, 'close'])->name('close')->middleware('check.permission:hr.lifecycle.manage');
     });
 
     /*
@@ -312,8 +312,8 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('/team-attendance', [ManagerSelfServiceController::class, 'teamAttendance'])->name('team-attendance');
         Route::get('/team-leave-calendar', [ManagerSelfServiceController::class, 'teamLeaveCalendar'])->name('team-leave-calendar');
         Route::get('/delegations', [ManagerSelfServiceController::class, 'delegations'])->name('delegations');
-        Route::post('/delegations', [ManagerSelfServiceController::class, 'createDelegation'])->name('delegations.create');
-        Route::delete('/delegations/{delegationId}', [ManagerSelfServiceController::class, 'revokeDelegation'])->name('delegations.revoke');
+        Route::post('/delegations', [ManagerSelfServiceController::class, 'createDelegation'])->name('delegations.create')->middleware('check.permission:hr.delegations.manage');
+        Route::delete('/delegations/{delegationId}', [ManagerSelfServiceController::class, 'revokeDelegation'])->name('delegations.revoke')->middleware('check.permission:hr.delegations.manage');
     });
 
     /*
@@ -323,7 +323,7 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('employees/{employee}')->group(function (): void {
         Route::apiResource('dependents', EmployeeDependentController::class)
-            ->names('hr.employees.dependents');
+            ->names('hr.employees.dependents')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:hr.employees.edit');
     });
 
     /*
@@ -336,13 +336,13 @@ Route::middleware(['auth:api'])->group(function () {
         ->name('hr.transfers.history');
     Route::apiResource('employee-transfers', EmployeeTransferController::class)
         ->only(['index', 'store', 'show', 'destroy'])
-        ->names('hr.transfers');
+        ->names('hr.transfers')->middlewareFor(['store', 'destroy'], 'check.permission:hr.lifecycle.manage');
     Route::post('employee-transfers/{employeeTransfer}/approve', [EmployeeTransferController::class, 'approve'])
-        ->name('hr.transfers.approve');
+        ->name('hr.transfers.approve')->middleware('check.permission:hr.lifecycle.manage');
     Route::post('employee-transfers/{employeeTransfer}/reject', [EmployeeTransferController::class, 'reject'])
-        ->name('hr.transfers.reject');
+        ->name('hr.transfers.reject')->middleware('check.permission:hr.lifecycle.manage');
     Route::post('employee-transfers/{employeeTransfer}/apply', [EmployeeTransferController::class, 'apply'])
-        ->name('hr.transfers.apply');
+        ->name('hr.transfers.apply')->middleware('check.permission:hr.lifecycle.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -352,18 +352,18 @@ Route::middleware(['auth:api'])->group(function () {
     // Static routes BEFORE apiResource to prevent capture by {omTask} wildcard
     Route::get('om-tasks/position-tasks', [OmTaskController::class, 'positionTasks'])
         ->name('hr.om-tasks.position-tasks');
-    Route::apiResource('om-tasks', OmTaskController::class)->names('hr.om-tasks');
+    Route::apiResource('om-tasks', OmTaskController::class)->names('hr.om-tasks')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:hr.org.manage');
     Route::post('om-tasks/{omTask}/assign-position', [OmTaskController::class, 'assignToPosition'])
-        ->name('hr.om-tasks.assign-position');
+        ->name('hr.om-tasks.assign-position')->middleware('check.permission:hr.org.manage');
     Route::delete('om-tasks/{omTask}/positions/{assignment}', [OmTaskController::class, 'removeFromPosition'])
-        ->name('hr.om-tasks.remove-position');
+        ->name('hr.om-tasks.remove-position')->middleware('check.permission:hr.org.manage');
 
     /*
     |--------------------------------------------------------------------------
     | Org Units (SAP ORGEH — Organisation Object Type O)
     |--------------------------------------------------------------------------
     */
-    Route::apiResource('org-units', OrgUnitController::class)->names('hr.org-units');
+    Route::apiResource('org-units', OrgUnitController::class)->names('hr.org-units')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:hr.org.manage');
     Route::get('org-units-hierarchy', [OrgUnitController::class, 'hierarchy'])
         ->name('hr.org-units.hierarchy');
     Route::get('org-units/{orgUnit}/headcount', [OrgUnitController::class, 'headcount'])
@@ -376,13 +376,13 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('probation')->name('hr.probation.')->group(function () {
         Route::get('/', [ProbationController::class, 'index'])->name('index');
-        Route::post('/', [ProbationController::class, 'store'])->name('store');
+        Route::post('/', [ProbationController::class, 'store'])->name('store')->middleware('check.permission:hr.lifecycle.manage');
         Route::get('/due-soon', [ProbationController::class, 'dueSoon'])->name('due-soon');
         Route::get('/{id}', [ProbationController::class, 'show'])->name('show');
-        Route::put('/{id}', [ProbationController::class, 'update'])->name('update');
-        Route::post('/{id}/extend', [ProbationController::class, 'extend'])->name('extend');
-        Route::post('/{id}/complete', [ProbationController::class, 'complete'])->name('complete');
-        Route::post('/{id}/waive', [ProbationController::class, 'waive'])->name('waive');
+        Route::put('/{id}', [ProbationController::class, 'update'])->name('update')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/extend', [ProbationController::class, 'extend'])->name('extend')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/complete', [ProbationController::class, 'complete'])->name('complete')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/waive', [ProbationController::class, 'waive'])->name('waive')->middleware('check.permission:hr.lifecycle.manage');
     });
 
     /*
@@ -397,36 +397,36 @@ Route::middleware(['auth:api'])->group(function () {
     */
     Route::prefix('onboarding')->name('hr.onboarding.')->group(function () {
         Route::get('/',                                           [HCMOnboardingController::class, 'index'])->name('index');
-        Route::post('/',                                          [HCMOnboardingController::class, 'store'])->name('store');
+        Route::post('/',                                          [HCMOnboardingController::class, 'store'])->name('store')->middleware('check.permission:hr.lifecycle.manage');
         Route::get('/my-tasks',                                   [HCMOnboardingController::class, 'myTasks'])->name('my-tasks');
         Route::get('/{onboarding}',                               [HCMOnboardingController::class, 'show'])->name('show');
-        Route::patch('/{onboarding}',                             [HCMOnboardingController::class, 'update'])->name('update');
-        Route::post('/{onboarding}/cancel',                       [HCMOnboardingController::class, 'cancel'])->name('cancel');
-        Route::post('/{onboarding}/tasks',                        [HCMOnboardingController::class, 'addTask'])->name('tasks.store');
-        Route::patch('/{onboarding}/tasks/{taskId}',              [HCMOnboardingController::class, 'updateTask'])->name('tasks.update');
+        Route::patch('/{onboarding}',                             [HCMOnboardingController::class, 'update'])->name('update')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{onboarding}/cancel',                       [HCMOnboardingController::class, 'cancel'])->name('cancel')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{onboarding}/tasks',                        [HCMOnboardingController::class, 'addTask'])->name('tasks.store')->middleware('check.permission:hr.lifecycle.manage');
+        Route::patch('/{onboarding}/tasks/{taskId}',              [HCMOnboardingController::class, 'updateTask'])->name('tasks.update')->middleware('check.permission:hr.lifecycle.manage');
     });
 
     Route::prefix('travel')->name('hr.travel.')->group(function () {
         Route::get('requests', [TravelExpenseReportController::class, 'index'])->name('requests.index');
         Route::post('requests', [TravelExpenseReportController::class, 'store'])->name('requests.store');
         Route::get('requests/{travelRequest}', [TravelExpenseReportController::class, 'show'])->name('requests.show');
-        Route::post('requests/{uuid}/approve', [TravelExpenseReportController::class, 'approve'])->name('requests.approve');
+        Route::post('requests/{uuid}/approve', [TravelExpenseReportController::class, 'approve'])->name('requests.approve')->middleware('check.permission:hr.travel.manage');
         Route::get('requests/{uuid}/reports', [TravelExpenseReportController::class, 'indexReports'])->name('reports.index');
-        Route::post('requests/{uuid}/reports', [TravelExpenseReportController::class, 'storeReport'])->name('reports.store');
-        Route::post('expense-reports/{uuid}/approve', [TravelExpenseReportController::class, 'approveReport'])->name('reports.approve');
-        Route::post('expense-reports/{uuid}/post', [TravelExpenseReportController::class, 'postReport'])->name('reports.post');
+        Route::post('requests/{uuid}/reports', [TravelExpenseReportController::class, 'storeReport'])->name('reports.store')->middleware('check.permission:hr.travel.manage');
+        Route::post('expense-reports/{uuid}/approve', [TravelExpenseReportController::class, 'approveReport'])->name('reports.approve')->middleware('check.permission:hr.travel.manage');
+        Route::post('expense-reports/{uuid}/post', [TravelExpenseReportController::class, 'postReport'])->name('reports.post')->middleware('check.permission:hr.travel.manage');
         Route::get('expense-types', [TravelExpenseReportController::class, 'indexTypes'])->name('expense-types.index');
-        Route::post('expense-types', [TravelExpenseReportController::class, 'storeType'])->name('expense-types.store');
+        Route::post('expense-types', [TravelExpenseReportController::class, 'storeType'])->name('expense-types.store')->middleware('check.permission:hr.travel.manage');
     });
 
     // Personnel Actions — SAP PA40 (hire/transfer/promotion/exit atomic workflow)
     Route::prefix('personnel-actions')->name('hr.personnel-actions.')->group(function () {
         Route::get('/', [PersonnelActionController::class, 'index'])->name('index');
-        Route::post('/', [PersonnelActionController::class, 'store'])->name('store');
+        Route::post('/', [PersonnelActionController::class, 'store'])->name('store')->middleware('check.permission:hr.lifecycle.manage');
         Route::get('/{id}', [PersonnelActionController::class, 'show'])->name('show');
-        Route::post('/{id}/submit', [PersonnelActionController::class, 'submit'])->name('submit');
-        Route::post('/{id}/approve', [PersonnelActionController::class, 'approve'])->name('approve');
-        Route::post('/{id}/reject', [PersonnelActionController::class, 'reject'])->name('reject');
-        Route::post('/{id}/reverse', [PersonnelActionController::class, 'reverse'])->name('reverse');
+        Route::post('/{id}/submit', [PersonnelActionController::class, 'submit'])->name('submit')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/approve', [PersonnelActionController::class, 'approve'])->name('approve')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/reject', [PersonnelActionController::class, 'reject'])->name('reject')->middleware('check.permission:hr.lifecycle.manage');
+        Route::post('/{id}/reverse', [PersonnelActionController::class, 'reverse'])->name('reverse')->middleware('check.permission:hr.lifecycle.manage');
     });
 });

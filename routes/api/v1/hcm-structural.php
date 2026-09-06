@@ -11,21 +11,21 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('compensation')->group(function () {
     Route::get('/', [CompensationController::class, 'index'])->name('hr.compensation.index');
-    Route::post('/', [CompensationController::class, 'store'])->name('hr.compensation.store');
-    Route::post('/{compensationReview}/items', [CompensationController::class, 'addItem'])->name('hr.compensation.add-item');
-    Route::post('/{compensationReview}/bulk-recommend', [CompensationController::class, 'bulkRecommend'])->name('hr.compensation.bulk-recommend');
-    Route::post('/{compensationReview}/approve', [CompensationController::class, 'approve'])->name('hr.compensation.approve');
-    Route::post('/{compensationReview}/apply', [CompensationController::class, 'apply'])->name('hr.compensation.apply');
+    Route::post('/', [CompensationController::class, 'store'])->name('hr.compensation.store')->middleware('check.permission:hr.compensation.manage');
+    Route::post('/{compensationReview}/items', [CompensationController::class, 'addItem'])->name('hr.compensation.add-item')->middleware('check.permission:hr.compensation.manage');
+    Route::post('/{compensationReview}/bulk-recommend', [CompensationController::class, 'bulkRecommend'])->name('hr.compensation.bulk-recommend')->middleware('check.permission:hr.compensation.manage');
+    Route::post('/{compensationReview}/approve', [CompensationController::class, 'approve'])->name('hr.compensation.approve')->middleware('check.permission:hr.compensation.manage');
+    Route::post('/{compensationReview}/apply', [CompensationController::class, 'apply'])->name('hr.compensation.apply')->middleware('check.permission:hr.compensation.manage');
 });
 
-Route::apiResource('positions', PositionController::class)->names('hr.positions');
+Route::apiResource('positions', PositionController::class)->names('hr.positions')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:hr.org.manage');
 Route::get('positions-hierarchy', [PositionController::class, 'hierarchy'])->name('hr.positions.hierarchy');
-Route::post('positions/{position}/assign', [PositionController::class, 'assignEmployee'])->name('hr.positions.assign');
-Route::post('positions/{position}/vacate', [PositionController::class, 'vacatePosition'])->name('hr.positions.vacate');
+Route::post('positions/{position}/assign', [PositionController::class, 'assignEmployee'])->name('hr.positions.assign')->middleware('check.permission:hr.org.manage');
+Route::post('positions/{position}/vacate', [PositionController::class, 'vacatePosition'])->name('hr.positions.vacate')->middleware('check.permission:hr.org.manage');
 
-Route::apiResource('overtime', OvertimeController::class)->names('hr.overtime');
-Route::post('overtime/{overtimeRequest}/approve', [OvertimeController::class, 'approve'])->name('hr.overtime.approve');
-Route::post('overtime/{overtimeRequest}/reject', [OvertimeController::class, 'reject'])->name('hr.overtime.reject');
+Route::apiResource('overtime', OvertimeController::class)->names('hr.overtime')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:hr.attendance.manage');
+Route::post('overtime/{overtimeRequest}/approve', [OvertimeController::class, 'approve'])->name('hr.overtime.approve')->middleware('check.permission:hr.attendance.manage');
+Route::post('overtime/{overtimeRequest}/reject', [OvertimeController::class, 'reject'])->name('hr.overtime.reject')->middleware('check.permission:hr.attendance.manage');
 Route::get('overtime/summary/{employeeId}/{year}/{month}', [OvertimeController::class, 'monthlyOtSummary'])->name('hr.overtime.monthly-summary');
 
 // Shifts
