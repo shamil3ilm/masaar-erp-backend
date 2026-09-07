@@ -5,10 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Analytics;
 
 use App\Models\Analytics\UserClusterAssignment;
-use App\Models\Analytics\UserFeatureUsage;
-use App\Models\Analytics\UserActivityLog;
-use App\Models\Analytics\UserSessionExtended;
-use App\Models\Core\Organization;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -17,26 +13,26 @@ use Illuminate\Support\Facades\Log;
 class UserClusteringService
 {
     private const CLUSTER_RULES = [
-        'power_user'        => ['api_calls_30d' => ['>=', 200], 'active_days_30d' => ['>=', 15]],
-        'high_value'        => ['total_invoiced_30d' => ['>=', 100000]],
-        'at_risk_churn'     => ['days_since_last_login' => ['>=', 14], 'api_calls_30d' => ['<=', 10]],
-        'churned'           => ['days_since_last_login' => ['>=', 30]],
-        'new_user'          => ['account_age_days' => ['<=', 7]],
-        'fast_payer'        => ['payment_speed_avg_days' => ['<=', 3], 'invoice_count_30d' => ['>=', 1]],
-        'slow_payer'        => ['payment_speed_avg_days' => ['>=', 15]],
-        'heavy_invoicer'    => ['invoice_count_30d' => ['>=', 50]],
-        'mobile_first'      => ['device_primary' => ['=', 'mobile']],
-        'module_explorer'   => ['modules_used_count' => ['>=', 5]],
-        'hr_focused'        => ['top_module' => ['=', 'hr']],
-        'sales_focused'     => ['top_module' => ['=', 'sales']],
+        'power_user' => ['api_calls_30d' => ['>=', 200], 'active_days_30d' => ['>=', 15]],
+        'high_value' => ['total_invoiced_30d' => ['>=', 100000]],
+        'at_risk_churn' => ['days_since_last_login' => ['>=', 14], 'api_calls_30d' => ['<=', 10]],
+        'churned' => ['days_since_last_login' => ['>=', 30]],
+        'new_user' => ['account_age_days' => ['<=', 7]],
+        'fast_payer' => ['payment_speed_avg_days' => ['<=', 3], 'invoice_count_30d' => ['>=', 1]],
+        'slow_payer' => ['payment_speed_avg_days' => ['>=', 15]],
+        'heavy_invoicer' => ['invoice_count_30d' => ['>=', 50]],
+        'mobile_first' => ['device_primary' => ['=', 'mobile']],
+        'module_explorer' => ['modules_used_count' => ['>=', 5]],
+        'hr_focused' => ['top_module' => ['=', 'hr']],
+        'sales_focused' => ['top_module' => ['=', 'sales']],
         'inventory_focused' => ['top_module' => ['=', 'inventory']],
-        'security_conscious'=> ['two_factor_enabled' => ['=', 1]],
-        'read_heavy'        => ['read_to_write_ratio' => ['>=', 10]],
-        'creator'           => ['creates_per_session' => ['>=', 3]],
-        'delinquent'        => ['overdue_invoice_ratio' => ['>=', 0.3]],
-        'evening_user'      => ['peak_hour' => ['between', [18, 23]]],
-        'morning_user'      => ['peak_hour' => ['between', [6, 10]]],
-        'weekend_user'      => ['peak_day_of_week' => ['in', [5, 6]]],
+        'security_conscious' => ['two_factor_enabled' => ['=', 1]],
+        'read_heavy' => ['read_to_write_ratio' => ['>=', 10]],
+        'creator' => ['creates_per_session' => ['>=', 3]],
+        'delinquent' => ['overdue_invoice_ratio' => ['>=', 0.3]],
+        'evening_user' => ['peak_hour' => ['between', [18, 23]]],
+        'morning_user' => ['peak_hour' => ['between', [6, 10]]],
+        'weekend_user' => ['peak_day_of_week' => ['in', [5, 6]]],
     ];
 
     public function clusterUser(User $user): array
@@ -107,8 +103,8 @@ class UserClusteringService
             ->where('invoices.created_by', $user->id)
             ->whereNull('invoices.deleted_at')
             ->whereNull('payments_received.deleted_at')
-            ->selectRaw('AVG(DATEDIFF(payments_received.payment_date, invoices.invoice_date)) as avg_days')
-            ->value('avg_days');
+            ->get(['invoices.invoice_date', 'payments_received.payment_date'])
+            ->avg(fn ($p) => Carbon::parse($p->invoice_date)->diffInDays(Carbon::parse($p->payment_date)));
 
         $totalInvoices = (int) ($invoiceStats->total_invoices ?? 0);
         $overdueInvoices = (int) ($invoiceStats->overdue_invoices ?? 0);
@@ -140,21 +136,16 @@ class UserClusteringService
             ->whereNotNull('duration_seconds')
             ->avg('duration_seconds');
 
-        $peakHour = DB::table('user_activity_logs')
+        // Hour and weekday come out of the timestamps here: HOUR() and
+        // DAYOFWEEK() are MySQL's, and its week starts on a different day.
+        $timestamps = DB::table('user_activity_logs')
             ->where('user_id', $user->id)
             ->where('created_at', '>=', $thirtyDaysAgo)
-            ->selectRaw('HOUR(created_at) as hour, COUNT(*) as cnt')
-            ->groupBy('hour')
-            ->orderByDesc('cnt')
-            ->value('hour');
+            ->pluck('created_at')
+            ->map(fn ($at) => Carbon::parse($at));
 
-        $peakDow = DB::table('user_activity_logs')
-            ->where('user_id', $user->id)
-            ->where('created_at', '>=', $thirtyDaysAgo)
-            ->selectRaw('DAYOFWEEK(created_at) - 2 as dow, COUNT(*) as cnt')
-            ->groupBy('dow')
-            ->orderByDesc('cnt')
-            ->value('dow');
+        $peakHour = $timestamps->countBy(fn (Carbon $at) => $at->hour)->sortDesc()->keys()->first();
+        $peakDow = $timestamps->countBy(fn (Carbon $at) => $at->dayOfWeekIso - 1)->sortDesc()->keys()->first();
 
         $primaryDevice = DB::table('user_activity_logs')
             ->where('user_id', $user->id)
@@ -187,10 +178,19 @@ class UserClusteringService
                 'SUM(access_count) as total_access,
                  SUM(create_count) as total_creates,
                  SUM(update_count) as total_updates,
-                 SUM(delete_count) as total_deletes,
-                 COUNT(DISTINCT CONCAT(module, \'|\', feature)) as feature_diversity'
+                 SUM(delete_count) as total_deletes'
             )
             ->first();
+
+        // SELECT DISTINCT over both columns, rather than counting a concatenation
+        // of them: CONCAT is MySQL only.
+        $featureDiversity = DB::table('user_feature_usage')
+            ->where('user_id', $user->id)
+            ->where('usage_date', '>=', $thirtyDaysAgo->toDateString())
+            ->select('module', 'feature')
+            ->distinct()
+            ->get()
+            ->count();
 
         $topModule = DB::table('user_feature_usage')
             ->where('user_id', $user->id)
@@ -212,7 +212,7 @@ class UserClusteringService
 
         return [
             'top_module' => $topModule,
-            'feature_diversity' => (int) ($usageStats->feature_diversity ?? 0),
+            'feature_diversity' => $featureDiversity,
             'creates_per_session' => $sessionCount > 0
                 ? round($totalCreates / $sessionCount, 2)
                 : 0.0,
@@ -273,15 +273,15 @@ class UserClusteringService
     {
         $score = 0;
 
-        if (!empty($user->name)) {
+        if (! empty($user->name)) {
             $score++;
         }
 
-        if (!empty($user->email)) {
+        if (! empty($user->email)) {
             $score++;
         }
 
-        if (!empty($user->phone)) {
+        if (! empty($user->phone)) {
             $score++;
         }
 
@@ -293,11 +293,11 @@ class UserClusteringService
             $score++;
         }
 
-        if (!empty($user->timezone)) {
+        if (! empty($user->timezone)) {
             $score++;
         }
 
-        if (!empty($user->preferred_language)) {
+        if (! empty($user->preferred_language)) {
             $score++;
         }
 
@@ -343,15 +343,15 @@ class UserClusteringService
             $met = match ($operator) {
                 '>=' => $value >= $threshold,
                 '<=' => $value <= $threshold,
-                '>'  => $value > $threshold,
-                '<'  => $value < $threshold,
-                '='  => $value === $threshold,
+                '>' => $value > $threshold,
+                '<' => $value < $threshold,
+                '=' => $value === $threshold,
                 'between' => is_array($threshold) && $value >= $threshold[0] && $value <= $threshold[1],
                 'in' => is_array($threshold) && in_array($value, $threshold, true),
                 default => false,
             };
 
-            if (!$met) {
+            if (! $met) {
                 return false;
             }
         }

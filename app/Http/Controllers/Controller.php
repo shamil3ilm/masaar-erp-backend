@@ -23,13 +23,18 @@ abstract class Controller
         return $this->organization($request)?->id ?? auth()->user()?->organization_id;
     }
 
+    protected function userId(): ?int
+    {
+        return auth()->id();
+    }
+
     /**
      * Return a safe sort column from a request parameter.
      * Rejects any column not in the provided allowlist to prevent ORDER BY injection.
      *
      * @param  string|null  $requested  The column name from the request (e.g. $request->sort_by)
-     * @param  string[]     $allowed    Allowlist of valid column names for this endpoint
-     * @param  string       $default    Fallback column when the requested value is not allowed
+     * @param  string[]  $allowed  Allowlist of valid column names for this endpoint
+     * @param  string  $default  Fallback column when the requested value is not allowed
      */
     protected function safeSortBy(?string $requested, array $allowed, string $default): string
     {

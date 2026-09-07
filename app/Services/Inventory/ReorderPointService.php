@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Inventory;
 
 use App\Models\Inventory\Product;
-use App\Models\Inventory\StockLevel;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -33,9 +32,8 @@ class ReorderPointService
         $stockByProduct = DB::table('stock_levels')
             ->join('warehouses', 'warehouses.id', '=', 'stock_levels.warehouse_id')
             ->where('warehouses.organization_id', $organizationId)
-            ->whereNull('stock_levels.deleted_at')
             ->groupBy('stock_levels.product_id')
-            ->select('stock_levels.product_id', DB::raw('SUM(stock_levels.quantity_on_hand) as total_stock'))
+            ->select('stock_levels.product_id', DB::raw('SUM(stock_levels.quantity) as total_stock'))
             ->pluck('total_stock', 'product_id');
 
         return Product::where('organization_id', $organizationId)
@@ -45,20 +43,21 @@ class ReorderPointService
             ->get()
             ->filter(function (Product $product) use ($stockByProduct): bool {
                 $stock = (float) ($stockByProduct[$product->id] ?? 0);
+
                 return $stock <= (float) $product->reorder_level;
             })
             ->map(function (Product $product) use ($stockByProduct): array {
-                $stock    = (float) ($stockByProduct[$product->id] ?? 0);
-                $reorder  = (float) $product->reorder_level;
+                $stock = (float) ($stockByProduct[$product->id] ?? 0);
+                $reorder = (float) $product->reorder_level;
                 $shortage = max(0, $reorder - $stock);
 
                 return [
-                    'product_id'       => $product->id,
-                    'sku'              => $product->sku,
-                    'name'             => $product->name,
-                    'current_stock'    => $stock,
-                    'reorder_level'    => $reorder,
-                    'shortage'         => $shortage,
+                    'product_id' => $product->id,
+                    'sku' => $product->sku,
+                    'name' => $product->name,
+                    'current_stock' => $stock,
+                    'reorder_level' => $reorder,
+                    'shortage' => $shortage,
                     'reorder_quantity' => (float) ($product->reorder_quantity ?? $shortage),
                 ];
             })
@@ -78,20 +77,19 @@ class ReorderPointService
             ->join('warehouses', 'warehouses.id', '=', 'stock_levels.warehouse_id')
             ->where('warehouses.organization_id', $organizationId)
             ->where('stock_levels.product_id', $productId)
-            ->whereNull('stock_levels.deleted_at')
-            ->sum('stock_levels.quantity_on_hand');
+            ->sum('stock_levels.quantity');
 
         $reorderLevel = (float) ($product->reorder_level ?? 0);
 
         return [
-            'product_id'        => $product->id,
-            'sku'               => $product->sku,
-            'name'              => $product->name,
-            'current_stock'     => $stock,
-            'reorder_level'     => $reorderLevel,
-            'reorder_quantity'  => (float) ($product->reorder_quantity ?? 0),
-            'needs_reorder'     => $stock <= $reorderLevel && $reorderLevel > 0,
-            'shortage'          => max(0, $reorderLevel - $stock),
+            'product_id' => $product->id,
+            'sku' => $product->sku,
+            'name' => $product->name,
+            'current_stock' => $stock,
+            'reorder_level' => $reorderLevel,
+            'reorder_quantity' => (float) ($product->reorder_quantity ?? 0),
+            'needs_reorder' => $stock <= $reorderLevel && $reorderLevel > 0,
+            'shortage' => max(0, $reorderLevel - $stock),
         ];
     }
 }

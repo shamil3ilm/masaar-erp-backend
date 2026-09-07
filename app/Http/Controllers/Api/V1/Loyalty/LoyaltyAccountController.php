@@ -12,23 +12,28 @@ use Illuminate\Http\Request;
 
 class LoyaltyAccountController extends Controller
 {
-    public function __construct(private LoyaltyService $loyaltyService)
-    {
-    }
+    public function __construct(private LoyaltyService $loyaltyService) {}
 
     public function index(Request $request): JsonResponse
     {
         $accounts = CustomerLoyaltyAccount::with('contact', 'tier', 'loyaltyProgram')
             ->paginate($request->input('per_page', 20));
+
         return $this->paginated($accounts);
     }
 
     public function enroll(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'contact_id' => 'required|integer|exists:contacts,id',
+            'program_id' => 'required|integer|exists:loyalty_programs,id',
+        ]);
+
         $account = $this->loyaltyService->enrollCustomer(
-            $request->input('contact_id'),
-            $request->input('program_id')
+            $validated['contact_id'],
+            $validated['program_id'],
         );
+
         return $this->created($account->load('contact', 'loyaltyProgram'));
     }
 
@@ -40,6 +45,7 @@ class LoyaltyAccountController extends Controller
     public function transactions(CustomerLoyaltyAccount $account): JsonResponse
     {
         $transactions = $account->transactions()->orderByDesc('created_at')->paginate(20);
+
         return $this->paginated($transactions);
     }
 
@@ -53,6 +59,7 @@ class LoyaltyAccountController extends Controller
             $request->input('source_id'),
             $request->input('source_amount')
         );
+
         return $this->created($transaction);
     }
 
@@ -62,12 +69,14 @@ class LoyaltyAccountController extends Controller
             $account->id,
             $request->input('reward_id')
         );
+
         return $this->created($redemption->load('reward'));
     }
 
     public function availableRewards(CustomerLoyaltyAccount $account): JsonResponse
     {
         $rewards = $this->loyaltyService->getAvailableRewards($account->id);
+
         return $this->success($rewards);
     }
 }

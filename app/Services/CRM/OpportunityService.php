@@ -173,7 +173,7 @@ class OpportunityService
      */
     public function reopen(Opportunity $opportunity, int $userId): Opportunity
     {
-        if (!$opportunity->isClosed()) {
+        if (! $opportunity->isClosed()) {
             throw new \InvalidArgumentException('Opportunity is not closed.');
         }
 
@@ -225,11 +225,11 @@ class OpportunityService
         $stages = PipelineStage::where('organization_id', $orgId)
             ->active()
             ->ordered()
-            ->withCount(['opportunities' => fn($q) => $q->open()])
-            ->withSum(['opportunities' => fn($q) => $q->open()], 'amount')
+            ->withCount(['opportunities' => fn ($q) => $q->open()])
+            ->withSum(['opportunities' => fn ($q) => $q->open()], 'amount')
             ->get();
 
-        return $stages->map(fn($stage) => [
+        return $stages->map(fn ($stage) => [
             'id' => $stage->id,
             'name' => $stage->name,
             'color' => $stage->color,
@@ -274,11 +274,16 @@ class OpportunityService
         $avgDealSize = $won > 0 ? $wonValue / $won : 0;
 
         // Average sales cycle (days)
-        $avgSalesCycle = Opportunity::where('organization_id', auth()->user()->organization_id)
+        // Averaged here rather than in SQL: subtracting two dates is spelled
+        // differently on every driver.
+        $closed = Opportunity::where('organization_id', auth()->user()->organization_id)
             ->where('status', Opportunity::STATUS_WON)
             ->whereNotNull('actual_close_date')
-            ->selectRaw('AVG(DATEDIFF(actual_close_date, created_at)) as avg_days')
-            ->first()->avg_days ?? 0;
+            ->get(['created_at', 'actual_close_date']);
+
+        $avgSalesCycle = $closed->isEmpty() ? 0 : $closed->avg(
+            fn ($o) => $o->created_at->startOfDay()->diffInDays($o->actual_close_date->startOfDay())
+        );
 
         return [
             'total' => $total,

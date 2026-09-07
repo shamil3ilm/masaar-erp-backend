@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Analytics;
 
 use App\Models\Analytics\DimCustomer;
-use App\Models\Analytics\DimOrganization;
 use App\Models\Analytics\DimProduct;
 use App\Models\Analytics\DimTime;
 use App\Models\Analytics\DimVendor;
@@ -13,7 +12,6 @@ use App\Models\Analytics\DimWarehouse;
 use App\Models\Analytics\FactInventoryMovement;
 use App\Models\Analytics\FactPurchase;
 use App\Models\Analytics\FactSale;
-use App\Models\Core\Organization;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -26,9 +24,9 @@ class DataWarehouseService
     public function syncDimensions(int $organizationId): array
     {
         return [
-            'products'   => $this->syncProducts($organizationId),
-            'customers'  => $this->syncCustomers($organizationId),
-            'vendors'    => $this->syncVendors($organizationId),
+            'products' => $this->syncProducts($organizationId),
+            'customers' => $this->syncCustomers($organizationId),
+            'vendors' => $this->syncVendors($organizationId),
             'warehouses' => $this->syncWarehouses($organizationId),
         ];
     }
@@ -37,11 +35,11 @@ class DataWarehouseService
     {
         $products = DB::table('products')
             ->join('categories', 'products.category_id', '=', 'categories.id')
-            ->leftJoin('units_of_measure', 'products.unit_of_measure_id', '=', 'units_of_measure.id')
+            ->leftJoin('units_of_measure', 'products.unit_id', '=', 'units_of_measure.id')
             ->where('products.organization_id', $organizationId)
             ->select([
                 'products.id as product_id',
-                'products.product_code',
+                'products.sku as product_code',
                 'products.name as product_name',
                 'categories.name as category_name',
                 DB::raw('NULL as subcategory_name'),
@@ -58,17 +56,17 @@ class DataWarehouseService
             DimProduct::updateOrCreate(
                 [
                     'organization_id' => $organizationId,
-                    'product_id'      => $product->product_id,
+                    'product_id' => $product->product_id,
                 ],
                 [
-                    'product_code'     => $product->product_code,
-                    'product_name'     => $product->product_name,
-                    'category_name'    => $product->category_name,
+                    'product_code' => $product->product_code,
+                    'product_name' => $product->product_name,
+                    'category_name' => $product->category_name,
                     'subcategory_name' => $product->subcategory_name,
-                    'unit_of_measure'  => $product->unit_of_measure,
-                    'product_type'     => $product->product_type,
-                    'is_active'        => (bool) $product->is_active,
-                    'synced_at'        => $now,
+                    'unit_of_measure' => $product->unit_of_measure,
+                    'product_type' => $product->product_type,
+                    'is_active' => (bool) $product->is_active,
+                    'synced_at' => $now,
                 ]
             );
             $count++;
@@ -80,18 +78,19 @@ class DataWarehouseService
     private function syncCustomers(int $organizationId): int
     {
         $contacts = DB::table('contacts')
-            ->where('organization_id', $organizationId)
-            ->whereIn('type', ['customer', 'both'])
+            ->leftJoin('customer_groups', 'contacts.customer_group_id', '=', 'customer_groups.id')
+            ->where('contacts.organization_id', $organizationId)
+            ->whereIn('contacts.contact_type', ['customer', 'both'])
             ->select([
-                'id as contact_id',
-                DB::raw("COALESCE(customer_code, CONCAT('CUST-', id)) as customer_code"),
-                'name as customer_name',
-                'customer_group',
-                'country_code',
-                'city',
-                DB::raw("COALESCE(currency_code, 'SAR') as currency_code"),
-                'credit_limit',
-                'is_active',
+                'contacts.id as contact_id',
+                'contacts.company_name',
+                'contacts.contact_name',
+                'customer_groups.name as customer_group',
+                'contacts.billing_country_code as country_code',
+                'contacts.billing_city as city',
+                'contacts.currency_code',
+                'contacts.credit_limit',
+                'contacts.is_active',
             ])
             ->get();
 
@@ -102,18 +101,18 @@ class DataWarehouseService
             DimCustomer::updateOrCreate(
                 [
                     'organization_id' => $organizationId,
-                    'contact_id'      => $contact->contact_id,
+                    'contact_id' => $contact->contact_id,
                 ],
                 [
-                    'customer_code'  => $contact->customer_code,
-                    'customer_name'  => $contact->customer_name,
+                    'customer_code' => 'CUST-'.$contact->contact_id,
+                    'customer_name' => $contact->company_name ?: $contact->contact_name,
                     'customer_group' => $contact->customer_group,
-                    'country_code'   => $contact->country_code,
-                    'city'           => $contact->city,
-                    'currency_code'  => $contact->currency_code,
-                    'credit_limit'   => $contact->credit_limit,
-                    'is_active'      => (bool) $contact->is_active,
-                    'synced_at'      => $now,
+                    'country_code' => $contact->country_code,
+                    'city' => $contact->city,
+                    'currency_code' => $contact->currency_code,
+                    'credit_limit' => $contact->credit_limit,
+                    'is_active' => (bool) $contact->is_active,
+                    'synced_at' => $now,
                 ]
             );
             $count++;
@@ -126,14 +125,13 @@ class DataWarehouseService
     {
         $contacts = DB::table('contacts')
             ->where('organization_id', $organizationId)
-            ->whereIn('type', ['supplier', 'vendor', 'both'])
+            ->whereIn('contact_type', ['supplier', 'both'])
             ->select([
                 'id as contact_id',
-                DB::raw("COALESCE(vendor_code, CONCAT('VEND-', id)) as vendor_code"),
-                'name as vendor_name',
-                'vendor_group',
-                'country_code',
-                DB::raw("COALESCE(currency_code, 'SAR') as currency_code"),
+                'company_name',
+                'contact_name',
+                'billing_country_code as country_code',
+                'currency_code',
                 'payment_terms',
                 'is_active',
             ])
@@ -146,17 +144,17 @@ class DataWarehouseService
             DimVendor::updateOrCreate(
                 [
                     'organization_id' => $organizationId,
-                    'contact_id'      => $contact->contact_id,
+                    'contact_id' => $contact->contact_id,
                 ],
                 [
-                    'vendor_code'   => $contact->vendor_code,
-                    'vendor_name'   => $contact->vendor_name,
-                    'vendor_group'  => $contact->vendor_group,
-                    'country_code'  => $contact->country_code,
+                    'vendor_code' => 'VEND-'.$contact->contact_id,
+                    'vendor_name' => $contact->company_name ?: $contact->contact_name,
+                    'vendor_group' => null,
+                    'country_code' => $contact->country_code,
                     'currency_code' => $contact->currency_code,
                     'payment_terms' => $contact->payment_terms,
-                    'is_active'     => (bool) $contact->is_active,
-                    'synced_at'     => $now,
+                    'is_active' => (bool) $contact->is_active,
+                    'synced_at' => $now,
                 ]
             );
             $count++;
@@ -173,7 +171,7 @@ class DataWarehouseService
                 'id as warehouse_id',
                 'code as warehouse_code',
                 'name as warehouse_name',
-                'location',
+                'city',
                 'is_active',
             ])
             ->get();
@@ -184,13 +182,13 @@ class DataWarehouseService
             DimWarehouse::updateOrCreate(
                 [
                     'organization_id' => $organizationId,
-                    'warehouse_id'    => $wh->warehouse_id,
+                    'warehouse_id' => $wh->warehouse_id,
                 ],
                 [
                     'warehouse_code' => $wh->warehouse_code,
                     'warehouse_name' => $wh->warehouse_name,
-                    'location'       => $wh->location,
-                    'is_active'      => (bool) $wh->is_active,
+                    'location' => $wh->city,
+                    'is_active' => (bool) $wh->is_active,
                 ]
             );
             $count++;
@@ -215,18 +213,18 @@ class DataWarehouseService
             DimTime::firstOrCreate(
                 ['full_date' => $date],
                 [
-                    'day_of_week'  => (int) $current->dayOfWeek,
-                    'day_name'     => $current->format('l'),
+                    'day_of_week' => (int) $current->dayOfWeek,
+                    'day_name' => $current->format('l'),
                     'day_of_month' => (int) $current->day,
                     'week_of_year' => (int) $current->weekOfYear,
                     'month_number' => (int) $current->month,
-                    'month_name'   => $current->format('F'),
-                    'quarter'      => (int) $current->quarter,
-                    'year'         => (int) $current->year,
-                    'fiscal_year'  => (int) $current->year,
+                    'month_name' => $current->format('F'),
+                    'quarter' => (int) $current->quarter,
+                    'year' => (int) $current->year,
+                    'fiscal_year' => (int) $current->year,
                     'fiscal_period' => (int) $current->month,
-                    'is_weekend'   => $current->isWeekend(),
-                    'is_holiday'   => false,
+                    'is_weekend' => $current->isWeekend(),
+                    'is_holiday' => false,
                 ]
             );
 
@@ -279,7 +277,7 @@ class DataWarehouseService
 
             $dimTime = DimTime::where('full_date', $line->invoice_date)->first();
 
-            if (!$dimProduct || !$dimCustomer || !$dimTime) {
+            if (! $dimProduct || ! $dimCustomer || ! $dimTime) {
                 continue;
             }
 
@@ -288,23 +286,23 @@ class DataWarehouseService
 
             FactSale::updateOrCreate(
                 [
-                    'organization_id'  => $organizationId,
-                    'invoice_line_id'  => $line->invoice_line_id,
+                    'organization_id' => $organizationId,
+                    'invoice_line_id' => $line->invoice_line_id,
                 ],
                 [
-                    'dim_product_id'  => $dimProduct->id,
+                    'dim_product_id' => $dimProduct->id,
                     'dim_customer_id' => $dimCustomer->id,
-                    'dim_time_id'     => $dimTime->id,
-                    'invoice_id'      => $line->invoice_id,
-                    'quantity'        => $line->quantity,
-                    'unit_price'      => $line->unit_price,
-                    'net_amount'      => $netAmount,
-                    'tax_amount'      => $line->tax_amount,
-                    'gross_amount'    => $line->gross_amount,
+                    'dim_time_id' => $dimTime->id,
+                    'invoice_id' => $line->invoice_id,
+                    'quantity' => $line->quantity,
+                    'unit_price' => $line->unit_price,
+                    'net_amount' => $netAmount,
+                    'tax_amount' => $line->tax_amount,
+                    'gross_amount' => $line->gross_amount,
                     'discount_amount' => $line->discount_amount,
-                    'cost_amount'     => $costAmount,
-                    'gross_margin'    => $netAmount - $costAmount,
-                    'currency_code'   => $line->currency_code,
+                    'cost_amount' => $costAmount,
+                    'gross_margin' => $netAmount - $costAmount,
+                    'currency_code' => $line->currency_code,
                 ]
             );
             $count++;
@@ -349,24 +347,24 @@ class DataWarehouseService
 
             $dimTime = DimTime::where('full_date', $line->bill_date)->first();
 
-            if (!$dimProduct || !$dimVendor || !$dimTime) {
+            if (! $dimProduct || ! $dimVendor || ! $dimTime) {
                 continue;
             }
 
             FactPurchase::updateOrCreate(
                 [
                     'organization_id' => $organizationId,
-                    'bill_id'         => $line->bill_id,
-                    'dim_product_id'  => $dimProduct->id,
+                    'bill_id' => $line->bill_id,
+                    'dim_product_id' => $dimProduct->id,
                 ],
                 [
                     'dim_vendor_id' => $dimVendor->id,
-                    'dim_time_id'   => $dimTime->id,
-                    'quantity'      => $line->quantity,
-                    'unit_price'    => $line->unit_price,
-                    'net_amount'    => $line->net_amount,
-                    'tax_amount'    => $line->tax_amount,
-                    'gross_amount'  => $line->gross_amount,
+                    'dim_time_id' => $dimTime->id,
+                    'quantity' => $line->quantity,
+                    'unit_price' => $line->unit_price,
+                    'net_amount' => $line->net_amount,
+                    'tax_amount' => $line->tax_amount,
+                    'gross_amount' => $line->gross_amount,
                     'currency_code' => $line->currency_code,
                 ]
             );
@@ -412,23 +410,23 @@ class DataWarehouseService
 
             $dimTime = DimTime::where('full_date', $movement->movement_date)->first();
 
-            if (!$dimProduct || !$dimWarehouse || !$dimTime) {
+            if (! $dimProduct || ! $dimWarehouse || ! $dimTime) {
                 continue;
             }
 
             FactInventoryMovement::create([
-                'organization_id'  => $organizationId,
-                'dim_product_id'   => $dimProduct->id,
+                'organization_id' => $organizationId,
+                'dim_product_id' => $dimProduct->id,
                 'dim_warehouse_id' => $dimWarehouse->id,
-                'dim_time_id'      => $dimTime->id,
-                'movement_type'    => $movement->movement_type,
-                'quantity_in'      => $movement->quantity_in,
-                'quantity_out'     => $movement->quantity_out,
+                'dim_time_id' => $dimTime->id,
+                'movement_type' => $movement->movement_type,
+                'quantity_in' => $movement->quantity_in,
+                'quantity_out' => $movement->quantity_out,
                 'quantity_balance' => $movement->quantity_balance,
-                'unit_cost'        => $movement->unit_cost,
-                'total_cost'       => $movement->total_cost,
-                'currency_code'    => $movement->currency_code,
-                'reference_type'   => $movement->reference_type,
+                'unit_cost' => $movement->unit_cost,
+                'total_cost' => $movement->total_cost,
+                'currency_code' => $movement->currency_code,
+                'reference_type' => $movement->reference_type,
             ]);
             $count++;
         }
@@ -450,13 +448,13 @@ class DataWarehouseService
 
         $this->applyDateFilters($query, 'dt', $filters);
 
-        if (!empty($filters['product_id'])) {
+        if (! empty($filters['product_id'])) {
             $query->where('dp.product_id', $filters['product_id']);
         }
-        if (!empty($filters['customer_id'])) {
+        if (! empty($filters['customer_id'])) {
             $query->where('dc.contact_id', $filters['customer_id']);
         }
-        if (!empty($filters['category_name'])) {
+        if (! empty($filters['category_name'])) {
             $query->where('dp.category_name', $filters['category_name']);
         }
 
@@ -494,7 +492,7 @@ class DataWarehouseService
 
         $query->select($selectColumns);
 
-        if (!empty($groupByColumns)) {
+        if (! empty($groupByColumns)) {
             $query->groupBy($groupByColumns);
         }
 
@@ -524,7 +522,7 @@ class DataWarehouseService
 
         $this->applyDateFilters($query, 'dt', $filters);
 
-        if (!empty($filters['vendor_id'])) {
+        if (! empty($filters['vendor_id'])) {
             $query->where('dv.contact_id', $filters['vendor_id']);
         }
 
@@ -558,10 +556,10 @@ class DataWarehouseService
 
         $this->applyDateFilters($query, 'dt', $filters);
 
-        if (!empty($filters['warehouse_id'])) {
+        if (! empty($filters['warehouse_id'])) {
             $query->where('dw.warehouse_id', $filters['warehouse_id']);
         }
-        if (!empty($filters['movement_type'])) {
+        if (! empty($filters['movement_type'])) {
             $query->where('fim.movement_type', $filters['movement_type']);
         }
 
@@ -679,19 +677,19 @@ class DataWarehouseService
 
     private function applyDateFilters(mixed $query, string $timeAlias, array $filters): void
     {
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->where("{$timeAlias}.full_date", '>=', $filters['date_from']);
         }
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->where("{$timeAlias}.full_date", '<=', $filters['date_to']);
         }
-        if (!empty($filters['year'])) {
+        if (! empty($filters['year'])) {
             $query->where("{$timeAlias}.year", $filters['year']);
         }
-        if (!empty($filters['month'])) {
+        if (! empty($filters['month'])) {
             $query->where("{$timeAlias}.month_number", $filters['month']);
         }
-        if (!empty($filters['quarter'])) {
+        if (! empty($filters['quarter'])) {
             $query->where("{$timeAlias}.quarter", $filters['quarter']);
         }
     }

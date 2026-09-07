@@ -9,7 +9,6 @@ use App\Models\TM\CarrierPerformance;
 use App\Models\TM\FreightAgreement;
 use App\Models\TM\FreightRateLine;
 use App\Models\TM\FreightRateTable;
-use App\Models\TM\FreightSurcharge;
 use App\Models\TM\FreightTenderBid;
 use App\Models\TM\FreightTenderRequest;
 use App\Models\TM\LoadPlan;
@@ -148,7 +147,7 @@ class TransportationService
 
         // Find matching rate line
         $line = $table->rateLines
-            ->filter(function (FreightRateLine $line) use ($weight, $volume, $originZone, $destinationZone) {
+            ->filter(function (FreightRateLine $line) use ($weight, $originZone, $destinationZone) {
                 if ($line->origin_zone !== null && $line->origin_zone !== $originZone) {
                     return false;
                 }
@@ -443,7 +442,7 @@ class TransportationService
 
     public function createLoadPlan(int $organizationId, array $data): LoadPlan
     {
-        $planNumber = $this->numberGenerator->generate($organizationId, 'load_plan');
+        $planNumber = $this->numberGenerator->generate('LP', null, $organizationId);
 
         return LoadPlan::create(array_merge($data, [
             'organization_id' => $organizationId,
