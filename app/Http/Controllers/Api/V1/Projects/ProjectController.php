@@ -57,7 +57,7 @@ class ProjectController extends Controller
 
         $projects = $query->paginate($request->integer('per_page', 15));
 
-        return $this->paginated($projects, fn ($p) => $p);
+        return $this->paginated($projects);
     }
 
     /**
@@ -85,6 +85,7 @@ class ProjectController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -130,7 +131,7 @@ class ProjectController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->projectService->updateProject($project, $validated)->fresh(['manager', 'customer']),
+            fn () => $this->projectService->updateProject($project, $validated)->fresh(['manager', 'customer']),
             'Project updated successfully.',
             'VALIDATION_ERROR'
         );
@@ -160,7 +161,7 @@ class ProjectController extends Controller
     public function activateProject(Project $project): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->projectService->activateProject($project, auth()->id()),
+            fn () => $this->projectService->activateProject($project, auth()->id()),
             'Project activated successfully.',
             'VALIDATION_ERROR'
         );
@@ -172,7 +173,7 @@ class ProjectController extends Controller
     public function completeProject(Project $project): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->projectService->completeProject($project, auth()->id()),
+            fn () => $this->projectService->completeProject($project, auth()->id()),
             'Project completed successfully.',
             'VALIDATION_ERROR'
         );
@@ -231,6 +232,7 @@ class ProjectController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -289,7 +291,7 @@ class ProjectController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->projectService->updateProgress($wbsElement, $validated['progress_percent'], auth()->id()),
+            fn () => $this->projectService->updateProgress($wbsElement, $validated['progress_percent'], auth()->id()),
             'Progress updated successfully.',
             'VALIDATION_ERROR'
         );
@@ -332,6 +334,7 @@ class ProjectController extends Controller
             $milestone = $this->projectService->createMilestone($validated, auth()->id());
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -362,7 +365,7 @@ class ProjectController extends Controller
     public function achieveMilestone(ProjectMilestone $milestone): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->projectService->achieveMilestone($milestone, auth()->id()),
+            fn () => $this->projectService->achieveMilestone($milestone, auth()->id()),
             'Milestone achieved.',
             'VALIDATION_ERROR'
         );
@@ -387,7 +390,7 @@ class ProjectController extends Controller
 
         $entries = $query->paginate($request->integer('per_page', 20));
 
-        return $this->paginated($entries, fn ($e) => $e);
+        return $this->paginated($entries);
     }
 
     /**
@@ -414,6 +417,7 @@ class ProjectController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -426,7 +430,7 @@ class ProjectController extends Controller
     public function approveTime(ProjectTimeEntry $timeEntry): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->projectService->approveTime($timeEntry, auth()->id()),
+            fn () => $this->projectService->approveTime($timeEntry, auth()->id()),
             'Time entry approved.',
             'VALIDATION_ERROR'
         );
@@ -449,7 +453,7 @@ class ProjectController extends Controller
 
         $entries = $query->paginate($request->integer('per_page', 20));
 
-        return $this->paginated($entries, fn ($e) => $e);
+        return $this->paginated($entries);
     }
 
     /**
@@ -475,6 +479,7 @@ class ProjectController extends Controller
             $entry = $this->projectService->addCostEntry($validated, auth()->id());
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -518,6 +523,7 @@ class ProjectController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
@@ -613,7 +619,7 @@ class ProjectController extends Controller
     public function evmTrend(Request $request, Project $project): JsonResponse
     {
         $snapshots = max(1, $request->integer('snapshots', 12));
-        $trend     = app(EarnedValueService::class)->getTrend($project->id, $snapshots);
+        $trend = app(EarnedValueService::class)->getTrend($project->id, $snapshots);
 
         return $this->success($trend);
     }

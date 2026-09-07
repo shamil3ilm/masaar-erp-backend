@@ -6,7 +6,13 @@ namespace Tests\Feature\Architecture;
 
 use App\Models\Core\OrganizationModule;
 use App\Models\Core\Permission;
+use Database\Seeders\PermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -14,11 +20,10 @@ use Tests\Traits\TestHelpers;
 /**
  * No endpoint may answer 500 to a request that reaches it.
  *
- * 21% of the routes in this API are exercised by a test, so most of the
- * surface has never been called by anything. That is how DpsScreeningRun sat
- * unloadable: it redeclared an Eloquent method with a narrower signature, PHP
- * refused the class, and denied-party screening was fatal on every request —
- * for as long as nobody looked.
+ * Most of this API is not covered by any other test, so a module can be
+ * fatal on every request and nothing says so. A class that fails to load, a
+ * missing method, a query the database rejects: none of it surfaces until
+ * something calls the route.
  *
  * This will not tell you an endpoint is correct. It tells you the code behind
  * it parses, its dependencies resolve, and its query runs, which is the class
@@ -33,21 +38,35 @@ class RouteSmokeTest extends TestCase
 {
     use RefreshDatabase, TestHelpers;
 
-    /** Endpoints that answer 5xx for a reason that is not a defect. */
-    private const ACCEPTED = [];
-
-    /** Endpoints answering 5xx for an unknown id, for a reason that is not a defect. */
-    private const ACCEPTED_BY_ID = [];
+    private const BASELINE = __DIR__.'/../../Fixtures/failing-endpoints.txt';
 
     private function bootTenant(): void
     {
+        // A thousand requests from one test trips the rate limiter, and a
+        // 429 never reaches a handler. Left on, most of the pass is throttled
+        // and the check goes green having exercised almost nothing.
+        $this->withoutMiddleware(ThrottleRequests::class);
+
+        // Without a secret the ZATCA webhook answers 503 "not configured"
+        // before its signature check runs, which is a correct response to a
+        // misconfiguration and says nothing about the handler.
+        config(['zatca-integration.webhook_secret' => 'smoke-test-secret']);
+
+        // Nothing leaves the test. A handler that calls out on its way to
+        // failing would otherwise reach a real service from CI.
+        Http::preventStrayRequests();
+        Http::fake();
+        Mail::fake();
+        Bus::fake();
+        Notification::fake();
+
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser(['core.test.act']);
 
         // Everything the catalogue offers, the way the admin role is seeded.
         // Not a super admin: that user has no organization, and the tenant
         // context is most of what these handlers read.
-        $this->seed(\Database\Seeders\PermissionsSeeder::class);
+        $this->seed(PermissionsSeeder::class);
         $this->role->permissions()->sync(Permission::pluck('id'));
 
         foreach (array_keys(config('modules.available', [])) ?: $this->moduleCodes() as $code) {
@@ -66,17 +85,17 @@ class RouteSmokeTest extends TestCase
         $broken = [];
 
         foreach ($this->parameterlessGets() as $uri) {
-            $status = $this->getJson('/'.$uri, $this->authHeaders())->status();
+            $status = $this->getJson('/'.$uri, $this->authHeaders())->baseResponse->getStatusCode();
 
             if ($status >= 500) {
-                $broken[] = $status.' '.$uri;
+                $broken[] = 'GET '.$uri;
             }
         }
 
         sort($broken);
 
-        $this->assertSame(self::ACCEPTED, $broken, sprintf(
-            "These endpoints answered 5xx. The request reached them and the code "
+        $this->assertBaseline($broken, sprintf(
+            'These endpoints answered 5xx. The request reached them and the code '
             ."behind them failed.\n%s",
             implode("\n", $broken)
         ));
@@ -140,20 +159,20 @@ class RouteSmokeTest extends TestCase
 
         foreach ($this->plainIdGets() as $uri) {
             $path = preg_replace('/\{\w+\??\}/', '99999999', $uri, 1);
-            $status = $this->getJson('/'.$path, $this->authHeaders())->status();
+            $status = $this->getJson('/'.$path, $this->authHeaders())->baseResponse->getStatusCode();
 
             if ($status >= 500) {
-                $broken[] = $status.' '.$uri;
+                $broken[] = 'GET '.$uri;
             }
         }
 
         sort($broken);
 
-        $this->assertSame(self::ACCEPTED_BY_ID, $broken, sprintf(
-            "These endpoints answered 5xx for an id that matches no row.
-%s",
-            implode("
-", $broken)
+        $this->assertBaseline($broken, sprintf(
+            'These endpoints answered 5xx for an id that matches no row.
+%s',
+            implode('
+', $broken)
         ));
     }
 
@@ -189,5 +208,113 @@ class RouteSmokeTest extends TestCase
         sort($out);
 
         return array_values(array_unique($out));
+    }
+
+    /**
+     * And the write endpoints, sent nothing.
+     *
+     * A request with no body is the one every write endpoint has to survive:
+     * it either refuses it as invalid, cannot find what it was pointed at, or
+     * is not permitted. All three are answers. A stack trace means the
+     * request reached code that fell over before deciding anything.
+     *
+     * This does not check that a write works. It checks that failing to write
+     * is handled, which is the half nobody tries by hand.
+     */
+    public function test_no_write_endpoint_returns_a_server_error(): void
+    {
+        $this->bootTenant();
+
+        $broken = [];
+
+        foreach ($this->writeEndpoints() as [$verb, $uri]) {
+            $path = preg_replace('/\{\w+\??\}/', '99999999', $uri);
+
+            $status = $this->json($verb, '/'.$path, [], $this->authHeaders())->baseResponse->getStatusCode();
+
+            if ($status >= 500) {
+                $broken[] = $verb.' '.$uri;
+            }
+        }
+
+        sort($broken);
+
+        $this->assertBaseline($broken, sprintf(
+            'These write endpoints answered 5xx to a request with no body. '
+            .'They failed rather than refusing.
+%s',
+            implode('
+', $broken)
+        ));
+    }
+
+    /**
+     * @return list<array{string, string}>
+     */
+    private function writeEndpoints(): array
+    {
+        $out = [];
+
+        foreach (Route::getRoutes() as $route) {
+            $uri = $route->uri();
+
+            if (! str_starts_with($uri, 'api/v1/')) {
+                continue;
+            }
+
+            if (str_starts_with($uri, 'api/v1/auth') || str_starts_with($uri, 'api/v1/portal')) {
+                continue;
+            }
+
+            preg_match_all('/\{(\w+)\??\}/', $uri, $m);
+
+            // Same restriction as the read pass: a bound model is resolved
+            // before the handler runs, so a made-up value proves nothing.
+            if ($m[1] !== []) {
+                if (count($m[1]) !== 1) {
+                    continue;
+                }
+
+                $param = $m[1][0];
+
+                if ($param !== 'id' && $param !== 'uuid' && ! str_ends_with($param, 'Id')) {
+                    continue;
+                }
+            }
+
+            foreach ($route->methods() as $verb) {
+                if (in_array($verb, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+                    $out[] = [$verb, $uri];
+                }
+            }
+        }
+
+        sort($out);
+
+        return $out;
+    }
+
+    /**
+     * The failures found may be in the baseline; the baseline may not grow.
+     *
+     * Only the entries this pass could have produced are compared, so one pass
+     * does not report another's as fixed.
+     *
+     * @param  list<string>  $found
+     */
+    private function assertBaseline(array $found, string $message): void
+    {
+        $declared = [];
+
+        foreach (file(self::BASELINE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            if (! str_starts_with($line, '#')) {
+                $declared[] = $line;
+            }
+        }
+
+        $new = array_values(array_diff($found, $declared));
+        sort($new);
+
+        $this->assertSame([], $new, $message);
     }
 }

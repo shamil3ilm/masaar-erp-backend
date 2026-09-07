@@ -32,8 +32,8 @@ class BillingDueListController extends Controller
 
         $items = $this->service->getDueList(
             organizationId: $request->user()->organization_id,
-            filters:        $filters,
-            perPage:        (int) $request->get('per_page', 25),
+            filters: $filters,
+            perPage: (int) $request->get('per_page', 25),
         );
 
         return $this->paginated($items, null, 'Billing due list retrieved');
@@ -47,7 +47,7 @@ class BillingDueListController extends Controller
     {
         $invoice = $this->service->billItem($item, $request->user()->id);
 
-        return $this->successResponse($invoice, 'Item billed — draft invoice created', 201);
+        return $this->success($invoice, 'Item billed — draft invoice created', 201);
     }
 
     /**
@@ -57,17 +57,17 @@ class BillingDueListController extends Controller
     public function collectiveRun(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'item_ids'   => ['array'],
+            'item_ids' => ['array'],
             'item_ids.*' => ['integer'],
         ]);
 
         $invoices = $this->service->collectiveBillingRun(
             organizationId: $request->user()->organization_id,
-            itemIds:        $data['item_ids'] ?? [],
+            itemIds: $data['item_ids'] ?? [],
             createdByUserId: $request->user()->id,
         );
 
-        return $this->successResponse(
+        return $this->success(
             ['invoices_created' => count($invoices), 'invoices' => $invoices],
             'Collective billing run completed',
             201,

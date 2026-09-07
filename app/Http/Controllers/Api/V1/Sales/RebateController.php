@@ -38,7 +38,7 @@ class RebateController extends Controller
     /** GET /rebates/{rebate} */
     public function show(RebateMaster $rebate): JsonResponse
     {
-        return $this->successResponse(
+        return $this->success(
             $rebate->load(['customer:id,name', 'accruals']),
             'Rebate master retrieved',
         );
@@ -48,52 +48,52 @@ class RebateController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'               => ['required', 'string', 'max:255'],
-            'contact_id'         => ['required', 'integer'],
-            'rebate_type'        => ['required', 'in:percentage,fixed_amount,tiered'],
-            'calculation_base'   => ['required', 'in:invoice_value,quantity,gross_profit'],
-            'rebate_rate'        => ['required', 'numeric', 'min:0'],
-            'accrual_method'     => ['required', 'in:periodic,on_invoice'],
-            'valid_from'         => ['required', 'date'],
-            'valid_to'           => ['nullable', 'date', 'after:valid_from'],
-            'minimum_purchase'   => ['nullable', 'numeric', 'min:0'],
-            'maximum_rebate'     => ['nullable', 'numeric', 'min:0'],
+            'name' => ['required', 'string', 'max:255'],
+            'contact_id' => ['required', 'integer'],
+            'rebate_type' => ['required', 'in:percentage,fixed_amount,tiered'],
+            'calculation_base' => ['required', 'in:invoice_value,quantity,gross_profit'],
+            'rebate_rate' => ['required', 'numeric', 'min:0'],
+            'accrual_method' => ['required', 'in:periodic,on_invoice'],
+            'valid_from' => ['required', 'date'],
+            'valid_to' => ['nullable', 'date', 'after:valid_from'],
+            'minimum_purchase' => ['nullable', 'numeric', 'min:0'],
+            'maximum_rebate' => ['nullable', 'numeric', 'min:0'],
             'accrual_account_id' => ['nullable', 'integer'],
             'expense_account_id' => ['nullable', 'integer'],
-            'description'        => ['nullable', 'string'],
+            'description' => ['nullable', 'string'],
         ]);
 
         $rebate = RebateMaster::create(array_merge($data, [
             'organization_id' => $request->user()->organization_id,
-            'status'          => RebateMaster::STATUS_ACTIVE,
+            'status' => RebateMaster::STATUS_ACTIVE,
         ]));
 
-        return $this->successResponse($rebate, 'Rebate master created', 201);
+        return $this->success($rebate, 'Rebate master created', 201);
     }
 
     /** PUT /rebates/{rebate} */
     public function update(Request $request, RebateMaster $rebate): JsonResponse
     {
         $data = $request->validate([
-            'name'               => ['string', 'max:255'],
-            'rebate_rate'        => ['numeric', 'min:0'],
-            'valid_to'           => ['nullable', 'date'],
-            'minimum_purchase'   => ['nullable', 'numeric', 'min:0'],
-            'maximum_rebate'     => ['nullable', 'numeric', 'min:0'],
+            'name' => ['string', 'max:255'],
+            'rebate_rate' => ['numeric', 'min:0'],
+            'valid_to' => ['nullable', 'date'],
+            'minimum_purchase' => ['nullable', 'numeric', 'min:0'],
+            'maximum_rebate' => ['nullable', 'numeric', 'min:0'],
             'accrual_account_id' => ['nullable', 'integer'],
             'expense_account_id' => ['nullable', 'integer'],
-            'status'             => ['in:active,inactive'],
+            'status' => ['in:active,inactive'],
         ]);
 
         $rebate->update($data);
 
-        return $this->successResponse($rebate, 'Rebate master updated');
+        return $this->success($rebate, 'Rebate master updated');
     }
 
     /** GET /rebates/{rebate}/balance */
     public function balance(RebateMaster $rebate): JsonResponse
     {
-        return $this->successResponse(
+        return $this->success(
             $this->settlementService->getOutstandingBalance($rebate),
             'Rebate outstanding balance',
         );
@@ -103,18 +103,18 @@ class RebateController extends Controller
     public function settle(Request $request, RebateMaster $rebate): JsonResponse
     {
         $data = $request->validate([
-            'settlement_date'   => ['required', 'date'],
+            'settlement_date' => ['required', 'date'],
             'settlement_method' => ['in:credit_note,payment'],
         ]);
 
         $result = $this->settlementService->settle(
-            rebate:           $rebate,
-            settlementDate:   Carbon::parse($data['settlement_date']),
+            rebate: $rebate,
+            settlementDate: Carbon::parse($data['settlement_date']),
             settlementMethod: $data['settlement_method'] ?? 'credit_note',
-            settledByUserId:  $request->user()->id,
+            settledByUserId: $request->user()->id,
         );
 
-        return $this->successResponse($result, 'Rebate settled');
+        return $this->success($result, 'Rebate settled');
     }
 
     /** POST /rebates/period-end-run */
@@ -126,9 +126,9 @@ class RebateController extends Controller
 
         $result = $this->settlementService->periodEndRun(
             organizationId: $request->user()->organization_id,
-            periodEnd:      Carbon::parse($data['period_end']),
+            periodEnd: Carbon::parse($data['period_end']),
         );
 
-        return $this->successResponse($result, 'Period-end rebate settlement run completed');
+        return $this->success($result, 'Period-end rebate settlement run completed');
     }
 }

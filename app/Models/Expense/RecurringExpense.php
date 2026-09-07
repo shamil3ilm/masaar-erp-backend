@@ -6,24 +6,31 @@ namespace App\Models\Expense;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RecurringExpense extends Model
 {
+    use BelongsToOrganization;
     use HasFactory;
     use HasUuid;
-    use BelongsToOrganization;
 
     protected $guarded = ['id'];
 
     // Frequency constants
     public const FREQUENCY_DAILY = 'daily';
+
     public const FREQUENCY_WEEKLY = 'weekly';
+
     public const FREQUENCY_MONTHLY = 'monthly';
+
     public const FREQUENCY_QUARTERLY = 'quarterly';
+
     public const FREQUENCY_SEMI_ANNUAL = 'semi_annual';
+
     public const FREQUENCY_ANNUAL = 'annual';
 
     public const FREQUENCIES = [
@@ -56,11 +63,24 @@ class RecurringExpense extends Model
 
     public function category(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Expense\ExpenseCategory::class, 'category_id');
+        return $this->belongsTo(ExpenseCategory::class, 'category_id');
     }
 
     public function createdBy(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Recurring expenses that are ready to be raised.
+     *
+     * Active, started, not finished, and due on or before today.
+     */
+    public function scopeDue(Builder $query): Builder
+    {
+        return $query->where('is_active', true)
+            ->whereNotNull('next_occurrence')
+            ->whereDate('next_occurrence', '<=', now())
+            ->where(fn (Builder $q) => $q->whereNull('end_date')->orWhereDate('end_date', '>=', now()));
     }
 }
