@@ -144,7 +144,11 @@ class Contact extends Model
      */
     public function getDisplayName(): string
     {
-        return $this->company_name ?? $this->contact_name;
+        // Both are nullable, and the declared return type is not. A contact
+        // carrying neither name made this a TypeError rather than an empty
+        // label, which is how a lookup for a contact that does not exist
+        // answered 500.
+        return $this->company_name ?? $this->contact_name ?? '';
     }
 
     /**

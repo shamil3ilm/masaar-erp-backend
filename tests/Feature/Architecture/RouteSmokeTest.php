@@ -36,7 +36,10 @@ class RouteSmokeTest extends TestCase
     /** Endpoints that answer 5xx for a reason that is not a defect. */
     private const ACCEPTED = [];
 
-    public function test_no_endpoint_returns_a_server_error(): void
+    /** Endpoints answering 5xx for an unknown id, for a reason that is not a defect. */
+    private const ACCEPTED_BY_ID = [];
+
+    private function bootTenant(): void
     {
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser(['core.test.act']);
@@ -53,6 +56,12 @@ class RouteSmokeTest extends TestCase
                 ['is_enabled' => true, 'enabled_at' => now()],
             );
         }
+
+    }
+
+    public function test_no_endpoint_returns_a_server_error(): void
+    {
+        $this->bootTenant();
 
         $broken = [];
 
@@ -112,5 +121,73 @@ class RouteSmokeTest extends TestCase
             'tm', 'tax', 'trade', 'customs', 'loyalty', 'messaging', 'billing',
             'automation', 'documents', 'calendar', 'taskboard', 'expenses', 'reports',
         ];
+    }
+
+    /**
+     * The same, for endpoints that take an id.
+     *
+     * Only where the parameter is a plain string — {id}, {uuid}, {somethingId}.
+     * Laravel resolves a type-hinted model before the handler runs, so a bogus
+     * value there answers 404 without executing anything, and proves nothing.
+     * Where the handler does run, an id that matches no row must come back 404
+     * or 422, never a stack trace.
+     */
+    public function test_no_endpoint_returns_a_server_error_for_an_unknown_id(): void
+    {
+        $this->bootTenant();
+
+        $broken = [];
+
+        foreach ($this->plainIdGets() as $uri) {
+            $path = preg_replace('/\{\w+\??\}/', '99999999', $uri, 1);
+            $status = $this->getJson('/'.$path, $this->authHeaders())->status();
+
+            if ($status >= 500) {
+                $broken[] = $status.' '.$uri;
+            }
+        }
+
+        sort($broken);
+
+        $this->assertSame(self::ACCEPTED_BY_ID, $broken, sprintf(
+            "These endpoints answered 5xx for an id that matches no row.
+%s",
+            implode("
+", $broken)
+        ));
+    }
+
+    /** @return list<string> */
+    private function plainIdGets(): array
+    {
+        $out = [];
+
+        foreach (Route::getRoutes() as $route) {
+            $uri = $route->uri();
+
+            if (! str_starts_with($uri, 'api/v1/') || ! in_array('GET', $route->methods(), true)) {
+                continue;
+            }
+
+            if (str_starts_with($uri, 'api/v1/auth') || str_starts_with($uri, 'api/v1/portal')) {
+                continue;
+            }
+
+            preg_match_all('/\{(\w+)\??\}/', $uri, $m);
+
+            if (count($m[1]) !== 1) {
+                continue;
+            }
+
+            $param = $m[1][0];
+
+            if ($param === 'id' || $param === 'uuid' || str_ends_with($param, 'Id')) {
+                $out[] = $uri;
+            }
+        }
+
+        sort($out);
+
+        return array_values(array_unique($out));
     }
 }

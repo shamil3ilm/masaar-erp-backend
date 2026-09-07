@@ -11,9 +11,11 @@ use App\Models\Core\Notification;
 use App\Models\Core\Organization;
 use App\Models\Core\Permission;
 use App\Models\Core\Role;
+use App\Models\HR\Employee;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -104,6 +106,20 @@ class User extends Authenticatable implements JWTSubject, \Illuminate\Contracts\
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);
+    }
+
+    /**
+     * The employee record this account belongs to, if it has one.
+     *
+     * EmployeeSelfServiceController has always read $user->employee, and the
+     * relation was never declared. Outside production, where strict attribute
+     * access is on, that threw and every self-service endpoint answered 500;
+     * in production it read as null, so all seventeen of them answered
+     * "no employee record found" to everyone.
+     */
+    public function employee(): HasOne
+    {
+        return $this->hasOne(Employee::class);
     }
 
     public function branches(): BelongsToMany
