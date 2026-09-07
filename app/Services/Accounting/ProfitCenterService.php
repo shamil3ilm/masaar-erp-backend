@@ -18,7 +18,7 @@ class ProfitCenterService
 
     public function createProfitCenter(array $data, int $userId): ProfitCenter
     {
-        return DB::transaction(function () use ($data, $userId): ProfitCenter {
+        return DB::transaction(function () use ($data): ProfitCenter {
             $this->validateUniqueCode(
                 $data['organization_id'],
                 $data['code']
@@ -30,7 +30,7 @@ class ProfitCenterService
 
     public function updateProfitCenter(ProfitCenter $profitCenter, array $data, int $userId): ProfitCenter
     {
-        return DB::transaction(function () use ($profitCenter, $data, $userId): ProfitCenter {
+        return DB::transaction(function () use ($profitCenter, $data): ProfitCenter {
             if (isset($data['code']) && $data['code'] !== $profitCenter->code) {
                 $this->validateUniqueCode(
                     $profitCenter->organization_id,
@@ -110,13 +110,13 @@ class ProfitCenterService
         foreach ($rows as $row) {
             $pcId = $row->profit_center_id;
 
-            if (!isset($byPc[$pcId])) {
+            if (! isset($byPc[$pcId])) {
                 $byPc[$pcId] = [
                     'profit_center_id' => $pcId,
-                    'code'             => $row->code,
-                    'name'             => $row->name,
-                    'revenue'          => '0',
-                    'expense'          => '0',
+                    'code' => $row->code,
+                    'name' => $row->name,
+                    'revenue' => '0',
+                    'expense' => '0',
                 ];
             }
 
@@ -124,15 +124,15 @@ class ProfitCenterService
 
             if (in_array($accountType, ['income', 'revenue'], true)) {
                 // Revenue = net credit on income accounts
-                $byPc[$pcId]['revenue'] = bcadd((string)$byPc[$pcId]['revenue'], bcsub((string)(float)$row->total_credit, (string)(float)$row->total_debit, 4), 4);
+                $byPc[$pcId]['revenue'] = bcadd((string) $byPc[$pcId]['revenue'], bcsub((string) (float) $row->total_credit, (string) (float) $row->total_debit, 4), 4);
             } else {
                 // Expense = net debit on non-income accounts
-                $byPc[$pcId]['expense'] = bcadd((string)$byPc[$pcId]['expense'], bcsub((string)(float)$row->total_debit, (string)(float)$row->total_credit, 4), 4);
+                $byPc[$pcId]['expense'] = bcadd((string) $byPc[$pcId]['expense'], bcsub((string) (float) $row->total_debit, (string) (float) $row->total_credit, 4), 4);
             }
         }
 
         return array_map(function (array $pc): array {
-            $pc['profit'] = bcsub((string)$pc['revenue'], (string)$pc['expense'], 4);
+            $pc['profit'] = bcsub((string) $pc['revenue'], (string) $pc['expense'], 4);
 
             return $pc;
         }, array_values($byPc));
@@ -168,17 +168,17 @@ class ProfitCenterService
             /** @var ProfitCenterPlan $plan */
             $plan = ProfitCenterPlan::updateOrCreate(
                 [
-                    'organization_id'  => $profitCenter->organization_id,
+                    'organization_id' => $profitCenter->organization_id,
                     'profit_center_id' => $profitCenter->id,
-                    'fiscal_year'      => $fiscalYear,
-                    'period'           => $period,
+                    'fiscal_year' => $fiscalYear,
+                    'period' => $period,
                 ],
                 [
-                    'plan_revenue'  => $revenue,
-                    'plan_cost'     => $cost,
-                    'plan_profit'   => $profit,
+                    'plan_revenue' => $revenue,
+                    'plan_cost' => $cost,
+                    'plan_profit' => $profit,
                     'currency_code' => 'SAR',
-                    'created_by'    => auth()->id(),
+                    'created_by' => auth()->id(),
                 ]
             );
 
@@ -203,16 +203,16 @@ class ProfitCenterService
         for ($p = 1; $p <= 12; $p++) {
             $row = $rows->get($p);
             $periods[$p] = [
-                'period'       => $p,
+                'period' => $p,
                 'plan_revenue' => $row !== null ? (float) $row->plan_revenue : 0.0,
-                'plan_cost'    => $row !== null ? (float) $row->plan_cost    : 0.0,
-                'plan_profit'  => $row !== null ? (float) $row->plan_profit  : 0.0,
+                'plan_cost' => $row !== null ? (float) $row->plan_cost : 0.0,
+                'plan_profit' => $row !== null ? (float) $row->plan_profit : 0.0,
             ];
         }
 
         return [
             'fiscal_year' => $fiscalYear,
-            'periods'     => $periods,
+            'periods' => $periods,
         ];
     }
 
@@ -243,19 +243,19 @@ class ProfitCenterService
             ->where('je.status', JournalEntry::STATUS_POSTED)
             ->whereYear('je.entry_date', $fiscalYear)
             ->select(
-                DB::raw('MONTH(je.entry_date) AS period'),
+                DB::raw('SUBSTR(je.entry_date, 6, 2) AS period'),
                 'a.account_type',
                 DB::raw('SUM(jel.debit)  AS total_debit'),
                 DB::raw('SUM(jel.credit) AS total_credit')
             )
-            ->groupBy(DB::raw('MONTH(je.entry_date)'), 'a.account_type')
+            ->groupBy(DB::raw('SUBSTR(je.entry_date, 6, 2)'), 'a.account_type')
             ->get();
 
         // Aggregate actuals by period
         $actualByPeriod = [];
         foreach ($actuals as $row) {
             $p = (int) $row->period;
-            if (!isset($actualByPeriod[$p])) {
+            if (! isset($actualByPeriod[$p])) {
                 $actualByPeriod[$p] = ['revenue' => 0.0, 'cost' => 0.0];
             }
 
@@ -269,30 +269,30 @@ class ProfitCenterService
 
         $periods = [];
         for ($p = 1; $p <= 12; $p++) {
-            $plan        = $plans->get($p);
+            $plan = $plans->get($p);
             $planRevenue = $plan !== null ? (float) $plan->plan_revenue : 0.0;
-            $planCost    = $plan !== null ? (float) $plan->plan_cost    : 0.0;
-            $planProfit  = $plan !== null ? (float) $plan->plan_profit  : 0.0;
+            $planCost = $plan !== null ? (float) $plan->plan_cost : 0.0;
+            $planProfit = $plan !== null ? (float) $plan->plan_profit : 0.0;
 
-            $actRevenue  = $actualByPeriod[$p]['revenue'] ?? 0.0;
-            $actCost     = $actualByPeriod[$p]['cost']    ?? 0.0;
-            $actProfit   = $actRevenue - $actCost;
+            $actRevenue = $actualByPeriod[$p]['revenue'] ?? 0.0;
+            $actCost = $actualByPeriod[$p]['cost'] ?? 0.0;
+            $actProfit = $actRevenue - $actCost;
 
-            $revVariance    = $actRevenue - $planRevenue;
-            $profitVariance = $actProfit  - $planProfit;
+            $revVariance = $actRevenue - $planRevenue;
+            $profitVariance = $actProfit - $planProfit;
 
             $periods[] = [
-                'period'           => $p,
-                'plan_revenue'     => $planRevenue,
-                'plan_cost'        => $planCost,
-                'plan_profit'      => $planProfit,
-                'actual_revenue'   => $actRevenue,
-                'actual_cost'      => $actCost,
-                'actual_profit'    => $actProfit,
+                'period' => $p,
+                'plan_revenue' => $planRevenue,
+                'plan_cost' => $planCost,
+                'plan_profit' => $planProfit,
+                'actual_revenue' => $actRevenue,
+                'actual_cost' => $actCost,
+                'actual_profit' => $actProfit,
                 'revenue_variance' => $revVariance,
-                'cost_variance'    => $actCost - $planCost,
-                'profit_variance'  => $profitVariance,
-                'variance_pct'     => $planRevenue != 0
+                'cost_variance' => $actCost - $planCost,
+                'profit_variance' => $profitVariance,
+                'variance_pct' => $planRevenue != 0
                     ? round(($revVariance / $planRevenue) * 100, 2)
                     : null,
             ];
@@ -300,7 +300,7 @@ class ProfitCenterService
 
         return [
             'fiscal_year' => $fiscalYear,
-            'periods'     => $periods,
+            'periods' => $periods,
         ];
     }
 

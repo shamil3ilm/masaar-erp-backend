@@ -82,9 +82,12 @@ class RouteSmokeTest extends TestCase
     {
         $this->bootTenant();
 
+        $attempted = [];
         $broken = [];
 
         foreach ($this->parameterlessGets() as $uri) {
+            $attempted[] = 'GET '.$uri;
+
             $status = $this->getJson('/'.$uri, $this->authHeaders())->baseResponse->getStatusCode();
 
             if ($status >= 500) {
@@ -94,7 +97,7 @@ class RouteSmokeTest extends TestCase
 
         sort($broken);
 
-        $this->assertBaseline($broken, sprintf(
+        $this->assertBaseline($broken, $attempted, sprintf(
             'These endpoints answered 5xx. The request reached them and the code '
             ."behind them failed.\n%s",
             implode("\n", $broken)
@@ -155,9 +158,12 @@ class RouteSmokeTest extends TestCase
     {
         $this->bootTenant();
 
+        $attempted = [];
         $broken = [];
 
         foreach ($this->plainIdGets() as $uri) {
+            $attempted[] = 'GET '.$uri;
+
             $path = preg_replace('/\{\w+\??\}/', '99999999', $uri, 1);
             $status = $this->getJson('/'.$path, $this->authHeaders())->baseResponse->getStatusCode();
 
@@ -168,7 +174,7 @@ class RouteSmokeTest extends TestCase
 
         sort($broken);
 
-        $this->assertBaseline($broken, sprintf(
+        $this->assertBaseline($broken, $attempted, sprintf(
             'These endpoints answered 5xx for an id that matches no row.
 %s',
             implode('
@@ -225,9 +231,12 @@ class RouteSmokeTest extends TestCase
     {
         $this->bootTenant();
 
+        $attempted = [];
         $broken = [];
 
         foreach ($this->writeEndpoints() as [$verb, $uri]) {
+            $attempted[] = $verb.' '.$uri;
+
             $path = preg_replace('/\{\w+\??\}/', '99999999', $uri);
 
             $status = $this->json($verb, '/'.$path, [], $this->authHeaders())->baseResponse->getStatusCode();
@@ -239,7 +248,7 @@ class RouteSmokeTest extends TestCase
 
         sort($broken);
 
-        $this->assertBaseline($broken, sprintf(
+        $this->assertBaseline($broken, $attempted, sprintf(
             'These write endpoints answered 5xx to a request with no body. '
             .'They failed rather than refusing.
 %s',
@@ -302,7 +311,11 @@ class RouteSmokeTest extends TestCase
      *
      * @param  list<string>  $found
      */
-    private function assertBaseline(array $found, string $message): void
+    /**
+     * @param  list<string>  $found  what failed in this pass
+     * @param  list<string>  $attempted  every endpoint this pass called
+     */
+    private function assertBaseline(array $found, array $attempted, string $message): void
     {
         $declared = [];
 
@@ -316,5 +329,18 @@ class RouteSmokeTest extends TestCase
         sort($new);
 
         $this->assertSame([], $new, $message);
+
+        // The ones this pass covers that no longer fail. Leaving them declared
+        // would let the next regression hide behind an entry already there.
+        $fixed = array_values(array_intersect(array_diff($declared, $found), $attempted));
+        sort($fixed);
+
+        $this->assertSame([], $fixed, sprintf(
+            'These are in %s and no longer fail. Remove them.
+%s',
+            basename(self::BASELINE),
+            implode('
+', $fixed)
+        ));
     }
 }

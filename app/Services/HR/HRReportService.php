@@ -8,17 +8,23 @@ use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\Payslip;
+use App\Services\Concerns\PortableDates;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class HRReportService
 {
+    use PortableDates;
+
     protected int $organizationId;
+
     protected ?int $branchId = null;
 
     public function setContext(int $organizationId, ?int $branchId = null): self
     {
         $this->organizationId = $organizationId;
         $this->branchId = $branchId;
+
         return $this;
     }
 
@@ -27,11 +33,11 @@ class HRReportService
      */
     public function generateHeadcountReport(string $asOfDate, ?int $departmentId = null): array
     {
-        $query = Employee::where('organization_id', $this->organizationId)
-            ->where('date_of_joining', '<=', $asOfDate)
+        $query = Employee::where('employees.organization_id', $this->organizationId)
+            ->where('joining_date', '<=', $asOfDate)
             ->where(function ($q) use ($asOfDate) {
-                $q->whereNull('date_of_exit')
-                    ->orWhere('date_of_exit', '>', $asOfDate);
+                $q->whereNull('termination_date')
+                    ->orWhere('termination_date', '>', $asOfDate);
             });
 
         if ($this->branchId) {
@@ -49,12 +55,17 @@ class HRReportService
             COUNT(*) as total,
             SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) as male,
             SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) as female,
-            SUM(CASE WHEN employment_type = 'permanent' THEN 1 ELSE 0 END) as permanent,
+            SUM(CASE WHEN employment_type = 'full_time' THEN 1 ELSE 0 END) as full_time,
             SUM(CASE WHEN employment_type = 'contract' THEN 1 ELSE 0 END) as contract,
-            SUM(CASE WHEN employment_type = 'probation' THEN 1 ELSE 0 END) as probation,
-            AVG(TIMESTAMPDIFF(YEAR, date_of_joining, ?)) as avg_tenure,
-            AVG(TIMESTAMPDIFF(YEAR, date_of_birth,   ?)) as avg_age
-        ", [$asOfDate, $asOfDate])->first();
+            SUM(CASE WHEN employment_type = 'probation' THEN 1 ELSE 0 END) as probation
+        ")->first();
+
+        // Averaged here rather than in SQL: two dates only, and averaging the
+        // years between them has no standard spelling.
+        $ages = (clone $query)->get(['joining_date', 'date_of_birth']);
+        $on = Carbon::parse($asOfDate);
+        $avgTenure = $ages->whereNotNull('joining_date')->avg(fn ($e) => $e->joining_date->diffInYears($on));
+        $avgAge = $ages->whereNotNull('date_of_birth')->avg(fn ($e) => $e->date_of_birth->diffInYears($on));
 
         // By department
         $byDepartment = (clone $query)
@@ -65,7 +76,7 @@ class HRReportService
                 COUNT(*) as count,
                 SUM(CASE WHEN employees.gender = 'male' THEN 1 ELSE 0 END) as male,
                 SUM(CASE WHEN employees.gender = 'female' THEN 1 ELSE 0 END) as female,
-                SUM(CASE WHEN employees.employment_type = 'permanent' THEN 1 ELSE 0 END) as permanent,
+                SUM(CASE WHEN employees.employment_type = 'full_time' THEN 1 ELSE 0 END) as full_time,
                 SUM(CASE WHEN employees.employment_type = 'contract' THEN 1 ELSE 0 END) as contract,
                 SUM(CASE WHEN employees.employment_type = 'probation' THEN 1 ELSE 0 END) as probation
             ")
@@ -82,41 +93,41 @@ class HRReportService
             ->get()->toArray();
 
         // By tenure
-        $tenureRows = (clone $query)->selectRaw("
-            CASE
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, ?) < 1  THEN '0_1_year'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, ?) < 3  THEN '1_3_years'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, ?) < 5  THEN '3_5_years'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, ?) < 10 THEN '5_10_years'
-                ELSE '10_plus_years'
-            END as bracket, COUNT(*) as cnt
-        ", [$asOfDate, $asOfDate, $asOfDate, $asOfDate])->groupBy('bracket')->pluck('cnt', 'bracket');
+        $tenureRows = (clone $query)->selectRaw(
+            $this->yearsBracket('joining_date', [
+                1 => '0_1_year',
+                3 => '1_3_years',
+                5 => '3_5_years',
+                10 => '5_10_years',
+            ], '10_plus_years').' as bracket, COUNT(*) as cnt',
+            $this->bracketDates([1, 3, 5, 10], $asOfDate)
+        )->groupBy('bracket')->pluck('cnt', 'bracket');
 
         $byTenure = [
-            '0_1_year'     => (int) ($tenureRows['0_1_year']     ?? 0),
-            '1_3_years'    => (int) ($tenureRows['1_3_years']    ?? 0),
-            '3_5_years'    => (int) ($tenureRows['3_5_years']    ?? 0),
-            '5_10_years'   => (int) ($tenureRows['5_10_years']   ?? 0),
-            '10_plus_years'=> (int) ($tenureRows['10_plus_years']?? 0),
+            '0_1_year' => (int) ($tenureRows['0_1_year'] ?? 0),
+            '1_3_years' => (int) ($tenureRows['1_3_years'] ?? 0),
+            '3_5_years' => (int) ($tenureRows['3_5_years'] ?? 0),
+            '5_10_years' => (int) ($tenureRows['5_10_years'] ?? 0),
+            '10_plus_years' => (int) ($tenureRows['10_plus_years'] ?? 0),
         ];
 
         // By age
-        $ageRows = (clone $query)->selectRaw("
-            CASE
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) < 25 THEN 'under_25'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) < 35 THEN '25_35'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) < 45 THEN '35_45'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) < 55 THEN '45_55'
-                ELSE '55_plus'
-            END as bracket, COUNT(*) as cnt
-        ")->groupBy('bracket')->pluck('cnt', 'bracket');
+        $ageRows = (clone $query)->selectRaw(
+            $this->yearsBracket('date_of_birth', [
+                25 => 'under_25',
+                35 => '25_35',
+                45 => '35_45',
+                55 => '45_55',
+            ], '55_plus').' as bracket, COUNT(*) as cnt',
+            $this->bracketDates([25, 35, 45, 55], $asOfDate)
+        )->groupBy('bracket')->pluck('cnt', 'bracket');
 
         $byAge = [
             'under_25' => (int) ($ageRows['under_25'] ?? 0),
-            '25_35'    => (int) ($ageRows['25_35']    ?? 0),
-            '35_45'    => (int) ($ageRows['35_45']    ?? 0),
-            '45_55'    => (int) ($ageRows['45_55']    ?? 0),
-            '55_plus'  => (int) ($ageRows['55_plus']  ?? 0),
+            '25_35' => (int) ($ageRows['25_35'] ?? 0),
+            '35_45' => (int) ($ageRows['35_45'] ?? 0),
+            '45_55' => (int) ($ageRows['45_55'] ?? 0),
+            '55_plus' => (int) ($ageRows['55_plus'] ?? 0),
         ];
 
         // By nationality (top 10)
@@ -129,23 +140,23 @@ class HRReportService
 
         return [
             'report_type' => 'headcount',
-            'as_of_date'  => $asOfDate,
+            'as_of_date' => $asOfDate,
             'summary' => [
-                'total_headcount'      => (int)   ($summary->total     ?? 0),
-                'male'                 => (int)   ($summary->male      ?? 0),
-                'female'               => (int)   ($summary->female    ?? 0),
-                'permanent'            => (int)   ($summary->permanent ?? 0),
-                'contract'             => (int)   ($summary->contract  ?? 0),
-                'probation'            => (int)   ($summary->probation ?? 0),
-                'average_tenure_years' => round((float) ($summary->avg_tenure ?? 0), 1),
-                'average_age'          => round((float) ($summary->avg_age    ?? 0), 1),
+                'total_headcount' => (int) ($summary->total ?? 0),
+                'male' => (int) ($summary->male ?? 0),
+                'female' => (int) ($summary->female ?? 0),
+                'full_time' => (int) ($summary->full_time ?? 0),
+                'contract' => (int) ($summary->contract ?? 0),
+                'probation' => (int) ($summary->probation ?? 0),
+                'average_tenure_years' => round((float) $avgTenure, 1),
+                'average_age' => round((float) $avgAge, 1),
             ],
-            'by_department'  => $byDepartment,
+            'by_department' => $byDepartment,
             'by_designation' => $byDesignation,
-            'by_tenure'      => $byTenure,
-            'by_age'         => $byAge,
+            'by_tenure' => $byTenure,
+            'by_age' => $byAge,
             'by_nationality' => $byNationality,
-            'generated_at'   => now()->toIso8601String(),
+            'generated_at' => now()->toIso8601String(),
         ];
     }
 
@@ -156,36 +167,36 @@ class HRReportService
     {
         // Starting headcount
         $startingCount = Employee::where('organization_id', $this->organizationId)
-            ->where('date_of_joining', '<', $startDate)
+            ->where('joining_date', '<', $startDate)
             ->where(function ($q) use ($startDate) {
-                $q->whereNull('date_of_exit')
-                    ->orWhere('date_of_exit', '>=', $startDate);
+                $q->whereNull('termination_date')
+                    ->orWhere('termination_date', '>=', $startDate);
             })
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         // New hires
         $newHires = Employee::where('organization_id', $this->organizationId)
-            ->whereBetween('date_of_joining', [$startDate, $endDate])
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->whereBetween('joining_date', [$startDate, $endDate])
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->with('department')
             ->get();
 
         // Separations
         $separations = Employee::where('organization_id', $this->organizationId)
-            ->whereBetween('date_of_exit', [$startDate, $endDate])
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->whereBetween('termination_date', [$startDate, $endDate])
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->with('department')
             ->get();
 
         // Ending headcount
         $endingCount = Employee::where('organization_id', $this->organizationId)
-            ->where('date_of_joining', '<=', $endDate)
+            ->where('joining_date', '<=', $endDate)
             ->where(function ($q) use ($endDate) {
-                $q->whereNull('date_of_exit')
-                    ->orWhere('date_of_exit', '>', $endDate);
+                $q->whereNull('termination_date')
+                    ->orWhere('termination_date', '>', $endDate);
             })
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         // Calculate rates
@@ -213,11 +224,11 @@ class HRReportService
 
         // Separations by tenure
         $separationsByTenure = [
-            '0_6_months' => $separations->filter(fn($e) => $e->getTenureInMonths() < 6)->count(),
-            '6_12_months' => $separations->filter(fn($e) => $e->getTenureInMonths() >= 6 && $e->getTenureInMonths() < 12)->count(),
-            '1_2_years' => $separations->filter(fn($e) => $e->getTenureInYears() >= 1 && $e->getTenureInYears() < 2)->count(),
-            '2_5_years' => $separations->filter(fn($e) => $e->getTenureInYears() >= 2 && $e->getTenureInYears() < 5)->count(),
-            '5_plus_years' => $separations->filter(fn($e) => $e->getTenureInYears() >= 5)->count(),
+            '0_6_months' => $separations->filter(fn ($e) => $e->getTenureInMonths() < 6)->count(),
+            '6_12_months' => $separations->filter(fn ($e) => $e->getTenureInMonths() >= 6 && $e->getTenureInMonths() < 12)->count(),
+            '1_2_years' => $separations->filter(fn ($e) => $e->getTenureInYears() >= 1 && $e->getTenureInYears() < 2)->count(),
+            '2_5_years' => $separations->filter(fn ($e) => $e->getTenureInYears() >= 2 && $e->getTenureInYears() < 5)->count(),
+            '5_plus_years' => $separations->filter(fn ($e) => $e->getTenureInYears() >= 5)->count(),
         ];
 
         return [
@@ -251,11 +262,11 @@ class HRReportService
             ->with('employee.department');
 
         if ($this->branchId) {
-            $query->whereHas('employee', fn($q) => $q->where('branch_id', $this->branchId));
+            $query->whereHas('employee', fn ($q) => $q->where('branch_id', $this->branchId));
         }
 
         if ($departmentId) {
-            $query->whereHas('employee', fn($q) => $q->where('department_id', $departmentId));
+            $query->whereHas('employee', fn ($q) => $q->where('department_id', $departmentId));
         }
 
         // All sections resolved via DB aggregation — no full collection loaded.
@@ -274,14 +285,14 @@ class HRReportService
         ")->first();
 
         $summary = [
-            'total_records'         => (int)   ($summaryRow->total_records         ?? 0),
-            'present'               => (int)   ($summaryRow->present               ?? 0),
-            'absent'                => (int)   ($summaryRow->absent                ?? 0),
-            'late'                  => (int)   ($summaryRow->late                  ?? 0),
-            'on_leave'              => (int)   ($summaryRow->on_leave              ?? 0),
-            'half_day'              => (int)   ($summaryRow->half_day              ?? 0),
-            'total_working_hours'   => round((float) ($summaryRow->total_working_hours   ?? 0), 2),
-            'total_overtime_hours'  => round((float) ($summaryRow->total_overtime_hours  ?? 0), 2),
+            'total_records' => (int) ($summaryRow->total_records ?? 0),
+            'present' => (int) ($summaryRow->present ?? 0),
+            'absent' => (int) ($summaryRow->absent ?? 0),
+            'late' => (int) ($summaryRow->late ?? 0),
+            'on_leave' => (int) ($summaryRow->on_leave ?? 0),
+            'half_day' => (int) ($summaryRow->half_day ?? 0),
+            'total_working_hours' => round((float) ($summaryRow->total_working_hours ?? 0), 2),
+            'total_overtime_hours' => round((float) ($summaryRow->total_overtime_hours ?? 0), 2),
             'average_working_hours' => round((float) ($summaryRow->average_working_hours ?? 0), 2),
         ];
 
@@ -299,12 +310,12 @@ class HRReportService
             ->groupBy('emp.department_id', 'departments.name')
             ->orderByRaw('present / NULLIF(COUNT(*), 0) DESC')
             ->get()
-            ->map(fn($r) => [
-                'department'      => $r->department,
-                'total_records'   => (int) $r->total_records,
-                'present'         => (int) $r->present,
-                'absent'          => (int) $r->absent,
-                'late'            => (int) $r->late,
+            ->map(fn ($r) => [
+                'department' => $r->department,
+                'total_records' => (int) $r->total_records,
+                'present' => (int) $r->present,
+                'absent' => (int) $r->absent,
+                'late' => (int) $r->late,
                 'attendance_rate' => $r->total_records > 0
                     ? round(($r->present / $r->total_records) * 100, 2) : 0,
             ])->toArray();
@@ -324,11 +335,15 @@ class HRReportService
         $lateByEmployee = (clone $query)
             ->where('attendances.status', 'late')
             ->join('employees as emp2', 'emp2.id', '=', 'attendances.employee_id')
-            ->selectRaw("CONCAT(emp2.first_name, ' ', emp2.last_name) as employee, COUNT(*) as late_count")
+            ->selectRaw('emp2.first_name, emp2.last_name, COUNT(*) as late_count')
             ->groupBy('attendances.employee_id', 'emp2.first_name', 'emp2.last_name')
             ->orderByRaw('COUNT(*) DESC')
             ->limit(10)
-            ->get()->toArray();
+            ->get()
+            ->map(fn ($r) => [
+                'employee' => $r->first_name.' '.$r->last_name,
+                'late_count' => (int) $r->late_count,
+            ])->toArray();
 
         return [
             'report_type' => 'attendance',
@@ -352,11 +367,11 @@ class HRReportService
             ->with(['employee.department', 'leaveType']);
 
         if ($this->branchId) {
-            $query->whereHas('employee', fn($q) => $q->where('branch_id', $this->branchId));
+            $query->whereHas('employee', fn ($q) => $q->where('branch_id', $this->branchId));
         }
 
         if ($departmentId) {
-            $query->whereHas('employee', fn($q) => $q->where('department_id', $departmentId));
+            $query->whereHas('employee', fn ($q) => $q->where('department_id', $departmentId));
         }
 
         // All sections resolved via DB aggregation — no full collection loaded.
@@ -373,12 +388,12 @@ class HRReportService
         ")->first();
 
         $summary = [
-            'total_requests'      => (int)   ($summaryRow->total_requests      ?? 0),
-            'approved'            => (int)   ($summaryRow->approved            ?? 0),
-            'pending'             => (int)   ($summaryRow->pending             ?? 0),
-            'rejected'            => (int)   ($summaryRow->rejected            ?? 0),
-            'cancelled'           => (int)   ($summaryRow->cancelled           ?? 0),
-            'total_days_requested'=> (float) ($summaryRow->total_days_requested?? 0),
+            'total_requests' => (int) ($summaryRow->total_requests ?? 0),
+            'approved' => (int) ($summaryRow->approved ?? 0),
+            'pending' => (int) ($summaryRow->pending ?? 0),
+            'rejected' => (int) ($summaryRow->rejected ?? 0),
+            'cancelled' => (int) ($summaryRow->cancelled ?? 0),
+            'total_days_requested' => (float) ($summaryRow->total_days_requested ?? 0),
             'total_days_approved' => (float) ($summaryRow->total_days_approved ?? 0),
         ];
 
@@ -410,7 +425,7 @@ class HRReportService
 
         // By month
         $byMonth = (clone $query)
-            ->selectRaw("DATE_FORMAT(start_date, '%Y-%m') as month, COUNT(*) as requests, COALESCE(SUM(total_days), 0) as days")
+            ->selectRaw('SUBSTR(start_date, 1, 7) as month, COUNT(*) as requests, COALESCE(SUM(total_days), 0) as days')
             ->groupBy('month')
             ->orderBy('month')
             ->get()->toArray();
@@ -419,11 +434,16 @@ class HRReportService
         $topLeaveTakers = (clone $query)
             ->where('leave_requests.status', 'approved')
             ->join('employees as emp3', 'emp3.id', '=', 'leave_requests.employee_id')
-            ->selectRaw("CONCAT(emp3.first_name, ' ', emp3.last_name) as employee, COUNT(*) as leaves, COALESCE(SUM(leave_requests.total_days), 0) as days")
+            ->selectRaw('emp3.first_name, emp3.last_name, COUNT(*) as leaves, COALESCE(SUM(leave_requests.total_days), 0) as days')
             ->groupBy('leave_requests.employee_id', 'emp3.first_name', 'emp3.last_name')
             ->orderByRaw('SUM(leave_requests.total_days) DESC')
             ->limit(10)
-            ->get()->toArray();
+            ->get()
+            ->map(fn ($r) => [
+                'employee' => $r->first_name.' '.$r->last_name,
+                'leaves' => (int) $r->leaves,
+                'days' => (float) $r->days,
+            ])->toArray();
 
         return [
             'report_type' => 'leave_analysis',
@@ -450,7 +470,7 @@ class HRReportService
             ->with(['employee.department', 'items.salaryComponent', 'payrollPeriod']);
 
         if ($this->branchId) {
-            $query->whereHas('employee', fn($q) => $q->where('branch_id', $this->branchId));
+            $query->whereHas('employee', fn ($q) => $q->where('branch_id', $this->branchId));
         }
 
         // All sections resolved via DB aggregation — no full collection loaded.
@@ -471,14 +491,14 @@ class HRReportService
         ")->first();
 
         $summary = [
-            'total_payslips'  => (int)   ($summaryRow->total_payslips  ?? 0),
-            'total_gross'     => (float) ($summaryRow->total_gross      ?? 0),
-            'total_deductions'=> (float) ($summaryRow->total_deductions ?? 0),
-            'total_net'       => (float) ($summaryRow->total_net        ?? 0),
-            'average_gross'   => round((float) ($summaryRow->average_gross ?? 0), 2),
-            'average_net'     => round((float) ($summaryRow->average_net   ?? 0), 2),
-            'paid_count'      => (int)   ($summaryRow->paid_count       ?? 0),
-            'pending_count'   => (int)   ($summaryRow->pending_count    ?? 0),
+            'total_payslips' => (int) ($summaryRow->total_payslips ?? 0),
+            'total_gross' => (float) ($summaryRow->total_gross ?? 0),
+            'total_deductions' => (float) ($summaryRow->total_deductions ?? 0),
+            'total_net' => (float) ($summaryRow->total_net ?? 0),
+            'average_gross' => round((float) ($summaryRow->average_gross ?? 0), 2),
+            'average_net' => round((float) ($summaryRow->average_net ?? 0), 2),
+            'paid_count' => (int) ($summaryRow->paid_count ?? 0),
+            'pending_count' => (int) ($summaryRow->pending_count ?? 0),
         ];
 
         // By department
@@ -497,7 +517,7 @@ class HRReportService
             ->get()->toArray();
 
         // By salary component (via payslip items join)
-        $byComponent = \Illuminate\Support\Facades\DB::table('payslip_items')
+        $byComponent = DB::table('payslip_items')
             ->join('payslips', 'payslips.id', '=', 'payslip_items.payslip_id')
             ->whereIn('payslips.id', (clone $query)->select('id'))
             ->selectRaw("
@@ -513,12 +533,12 @@ class HRReportService
         // Monthly trend
         $byMonth = (clone $query)
             ->join('payroll_periods as pp', 'pp.id', '=', 'payslips.payroll_period_id')
-            ->selectRaw("
-                DATE_FORMAT(pp.start_date, '%Y-%m') as month,
+            ->selectRaw('
+                SUBSTR(pp.start_date, 1, 7) as month,
                 COUNT(*) as employees,
                 COALESCE(SUM(payslips.gross_earnings), 0) as gross,
                 COALESCE(SUM(payslips.net_salary), 0) as net
-            ")
+            ')
             ->groupBy('month')
             ->orderBy('month')
             ->get()->toArray();
@@ -526,12 +546,12 @@ class HRReportService
         return [
             'report_type' => 'payroll_summary',
             'period_start' => $startDate,
-            'period_end'   => $endDate,
-            'currency'     => $currency,
-            'summary'      => $summary,
-            'by_department'=> $byDepartment,
+            'period_end' => $endDate,
+            'currency' => $currency,
+            'summary' => $summary,
+            'by_department' => $byDepartment,
             'by_component' => $byComponent,
-            'monthly_trend'=> $byMonth,
+            'monthly_trend' => $byMonth,
             'generated_at' => now()->toIso8601String(),
         ];
     }
@@ -548,19 +568,19 @@ class HRReportService
         // Active employees
         $activeEmployees = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         // Today's attendance
         $todayAttendance = Attendance::where('organization_id', $this->organizationId)
             ->where('attendance_date', $today)
-            ->when($this->branchId, fn($q) => $q->whereHas('employee', fn($e) => $e->where('branch_id', $this->branchId)))
+            ->when($this->branchId, fn ($q) => $q->whereHas('employee', fn ($e) => $e->where('branch_id', $this->branchId)))
             ->get();
 
         // Pending leave requests
         $pendingLeaves = LeaveRequest::where('organization_id', $this->organizationId)
             ->where('status', 'pending')
-            ->when($this->branchId, fn($q) => $q->whereHas('employee', fn($e) => $e->where('branch_id', $this->branchId)))
+            ->when($this->branchId, fn ($q) => $q->whereHas('employee', fn ($e) => $e->where('branch_id', $this->branchId)))
             ->count();
 
         // Employees on leave today
@@ -568,13 +588,13 @@ class HRReportService
             ->where('status', 'approved')
             ->where('start_date', '<=', $today)
             ->where('end_date', '>=', $today)
-            ->when($this->branchId, fn($q) => $q->whereHas('employee', fn($e) => $e->where('branch_id', $this->branchId)))
+            ->when($this->branchId, fn ($q) => $q->whereHas('employee', fn ($e) => $e->where('branch_id', $this->branchId)))
             ->count();
 
         // New joiners this month
         $newJoiners = Employee::where('organization_id', $this->organizationId)
-            ->whereBetween('date_of_joining', [$monthStart, $monthEnd])
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->whereBetween('joining_date', [$monthStart, $monthEnd])
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         // Expiring documents (next 30 days)
@@ -589,15 +609,15 @@ class HRReportService
         $birthdays = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
             ->whereMonth('date_of_birth', now()->month)
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         // Work anniversaries this month
         $anniversaries = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
-            ->whereMonth('date_of_joining', now()->month)
-            ->whereYear('date_of_joining', '<', now()->year)
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->whereMonth('joining_date', now()->month)
+            ->whereYear('joining_date', '<', now()->year)
+            ->when($this->branchId, fn ($q) => $q->where('branch_id', $this->branchId))
             ->count();
 
         return [

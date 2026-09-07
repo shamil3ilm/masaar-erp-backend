@@ -25,13 +25,13 @@ class ProductionSchedulingService
             $cursor = Carbon::parse($workOrder->planned_start_date)->startOfDay()->setTime(8, 0);
 
             foreach ($workOrder->operations->sortBy('sequence') as $operation) {
-                $start    = $cursor->copy();
+                $start = $cursor->copy();
                 $duration = $this->computeDurationHours($operation, (float) $workOrder->planned_quantity);
-                $end      = $this->advanceByWorkingHours($start, $duration, $operation);
+                $end = $this->advanceByWorkingHours($start, $duration, $operation);
 
                 $operation->update([
                     'scheduled_start' => $start,
-                    'scheduled_end'   => $end,
+                    'scheduled_end' => $end,
                 ]);
 
                 // Add inter-operation buffer if linked to a routing operation
@@ -61,13 +61,13 @@ class ProductionSchedulingService
 
             foreach ($workOrder->operations->sortByDesc('sequence') as $operation) {
                 $duration = $this->computeDurationHours($operation, (float) $workOrder->planned_quantity);
-                $inter    = $this->getInterOperationTime($operation);
-                $end      = $cursor->copy();
-                $start    = $this->subtractWorkingHours($end, $duration, $operation);
+                $inter = $this->getInterOperationTime($operation);
+                $end = $cursor->copy();
+                $start = $this->subtractWorkingHours($end, $duration, $operation);
 
                 $operation->update([
                     'scheduled_start' => $start,
-                    'scheduled_end'   => $end,
+                    'scheduled_end' => $end,
                 ]);
 
                 $cursor = $start->copy()->subHours((int) ceil($inter));
@@ -82,14 +82,14 @@ class ProductionSchedulingService
     }
 
     /**
-     * Re-run forward scheduling for all 'planned' work orders in an
+     * Re-run forward scheduling for every released work order in an
      * organisation. Marks work orders with capacity conflicts.
      */
     public function rescheduleAll(int $organizationId): array
     {
         $workOrders = WorkOrder::withoutGlobalScope('organization')
             ->where('organization_id', $organizationId)
-            ->where('status', WorkOrder::STATUS_SCHEDULED)
+            ->where('status', WorkOrder::STATUS_RELEASED)
             ->with(['operations'])
             ->get();
 
@@ -99,18 +99,18 @@ class ProductionSchedulingService
             try {
                 $this->scheduleForward($workOrder);
                 $results[] = [
-                    'work_order_id'     => $workOrder->id,
+                    'work_order_id' => $workOrder->id,
                     'work_order_number' => $workOrder->work_order_number,
-                    'status'            => 'rescheduled',
-                    'conflict'          => false,
+                    'status' => 'rescheduled',
+                    'conflict' => false,
                 ];
             } catch (\Throwable $e) {
                 $results[] = [
-                    'work_order_id'     => $workOrder->id,
+                    'work_order_id' => $workOrder->id,
                     'work_order_number' => $workOrder->work_order_number,
-                    'status'            => 'conflict',
-                    'conflict'          => true,
-                    'message'           => $e->getMessage(),
+                    'status' => 'conflict',
+                    'conflict' => true,
+                    'message' => $e->getMessage(),
                 ];
             }
         }
@@ -130,37 +130,37 @@ class ProductionSchedulingService
             ->where('organization_id', $organizationId)
             ->whereHas('operations', function ($q) use ($fromDate, $toDate) {
                 $q->where(function ($inner) use ($fromDate, $toDate) {
-                    $inner->whereBetween('scheduled_start', [$fromDate, $toDate . ' 23:59:59'])
-                        ->orWhereBetween('scheduled_end', [$fromDate, $toDate . ' 23:59:59']);
+                    $inner->whereBetween('scheduled_start', [$fromDate, $toDate.' 23:59:59'])
+                        ->orWhereBetween('scheduled_end', [$fromDate, $toDate.' 23:59:59']);
                 });
             })
             ->get();
 
         return $workOrders->map(function (WorkOrder $wo): array {
             $ops = $wo->operations->sortBy('sequence')->map(function (WorkOrderOperation $op): array {
-                $start    = $op->scheduled_start ? Carbon::parse($op->scheduled_start) : null;
-                $end      = $op->scheduled_end   ? Carbon::parse($op->scheduled_end)   : null;
+                $start = $op->scheduled_start ? Carbon::parse($op->scheduled_start) : null;
+                $end = $op->scheduled_end ? Carbon::parse($op->scheduled_end) : null;
                 $duration = ($start && $end) ? round($end->diffInMinutes($start) / 60, 2) : null;
 
                 return [
                     'operation_id' => $op->id,
-                    'name'         => $op->name,
-                    'work_center'  => $op->work_center_id,
-                    'sequence'     => $op->sequence,
-                    'start'        => $start?->toDateTimeString(),
-                    'end'          => $end?->toDateTimeString(),
-                    'duration'     => $duration,
-                    'status'       => $op->status,
+                    'name' => $op->name,
+                    'work_center' => $op->work_center_id,
+                    'sequence' => $op->sequence,
+                    'start' => $start?->toDateTimeString(),
+                    'end' => $end?->toDateTimeString(),
+                    'duration' => $duration,
+                    'status' => $op->status,
                 ];
             })->values()->all();
 
             return [
-                'work_order_id'     => $wo->id,
+                'work_order_id' => $wo->id,
                 'work_order_number' => $wo->work_order_number,
-                'product_name'      => $wo->product?->name ?? 'Unknown',
-                'status'            => $wo->status,
-                'planned_quantity'  => (float) $wo->planned_quantity,
-                'operations'        => $ops,
+                'product_name' => $wo->product?->name ?? 'Unknown',
+                'status' => $wo->status,
+                'planned_quantity' => (float) $wo->planned_quantity,
+                'operations' => $ops,
             ];
         })->values()->all();
     }
@@ -197,17 +197,17 @@ class ProductionSchedulingService
      */
     private function advanceByWorkingHours(Carbon $from, float $hours, WorkOrderOperation $operation): Carbon
     {
-        $workCenter    = $this->resolveWorkCenter($operation);
+        $workCenter = $this->resolveWorkCenter($operation);
         $dailyCapacity = $workCenter !== null ? $this->effectiveDailyHours($workCenter) : 8.0;
 
-        $cursor    = $from->copy();
+        $cursor = $from->copy();
         $remaining = $hours;
 
         while ($remaining > 0.0) {
             $available = $this->availableHoursFromTime($cursor, $dailyCapacity, $workCenter);
 
             if ($available > 0.0) {
-                $consumed  = min($available, $remaining);
+                $consumed = min($available, $remaining);
                 $remaining = round($remaining - $consumed, 4);
 
                 if ($remaining <= 0.0) {
@@ -231,17 +231,17 @@ class ProductionSchedulingService
      */
     private function subtractWorkingHours(Carbon $from, float $hours, WorkOrderOperation $operation): Carbon
     {
-        $workCenter    = $this->resolveWorkCenter($operation);
+        $workCenter = $this->resolveWorkCenter($operation);
         $dailyCapacity = $workCenter !== null ? $this->effectiveDailyHours($workCenter) : 8.0;
 
-        $cursor    = $from->copy();
+        $cursor = $from->copy();
         $remaining = $hours;
 
         while ($remaining > 0.0) {
             $available = $this->availableHoursFromTime($cursor, $dailyCapacity, $workCenter);
 
             if ($available > 0.0) {
-                $consumed  = min($available, $remaining);
+                $consumed = min($available, $remaining);
                 $remaining = round($remaining - $consumed, 4);
 
                 if ($remaining <= 0.0) {
@@ -265,14 +265,14 @@ class ProductionSchedulingService
      */
     private function availableHoursFromTime(Carbon $cursor, float $dailyCapacity, ?WorkCenter $workCenter): float
     {
-        if ($workCenter !== null && !$workCenter->isWorkingDay($cursor->toDateTime())) {
+        if ($workCenter !== null && ! $workCenter->isWorkingDay($cursor->toDateTime())) {
             return 0.0;
         }
 
         // Hours remaining in this working day (assuming 08:00–17:00 window)
         $startHour = 8;
-        $endHour   = 17;
-        $hour      = (float) $cursor->format('G') + (float) $cursor->format('i') / 60;
+        $endHour = 17;
+        $hour = (float) $cursor->format('G') + (float) $cursor->format('i') / 60;
 
         if ($hour < $startHour) {
             return (float) $dailyCapacity;

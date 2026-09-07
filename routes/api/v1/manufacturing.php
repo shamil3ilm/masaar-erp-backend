@@ -1,37 +1,37 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Maintenance\MaintenancePermitController;
 use App\Http\Controllers\Api\V1\Manufacturing\AuditManagementController;
 use App\Http\Controllers\Api\V1\Manufacturing\BomAlternativeController;
-use App\Http\Controllers\Api\V1\Manufacturing\Capa8DController;
-use App\Http\Controllers\Api\V1\Manufacturing\CapaController;
-use App\Http\Controllers\Api\V1\Manufacturing\DynamicModificationController;
-use App\Http\Controllers\Api\V1\Manufacturing\ComplaintController;
-use App\Http\Controllers\Api\V1\Manufacturing\SupplierQualityController;
 use App\Http\Controllers\Api\V1\Manufacturing\BomController;
-use App\Http\Controllers\Api\V1\Manufacturing\CoProductController;
-use App\Http\Controllers\Api\V1\Manufacturing\EngineeringChangeController;
-use App\Http\Controllers\Api\V1\Manufacturing\ProductionResourceToolController;
-use App\Http\Controllers\Api\V1\Manufacturing\ReturnsInspectionController;
-use App\Http\Controllers\Api\V1\Manufacturing\ScrapReportingController;
 use App\Http\Controllers\Api\V1\Manufacturing\CalibrationController;
+use App\Http\Controllers\Api\V1\Manufacturing\Capa8DController;
 use App\Http\Controllers\Api\V1\Manufacturing\CapacityController;
 use App\Http\Controllers\Api\V1\Manufacturing\CapacityLevelingController;
+use App\Http\Controllers\Api\V1\Manufacturing\CapaController;
+use App\Http\Controllers\Api\V1\Manufacturing\ComplaintController;
+use App\Http\Controllers\Api\V1\Manufacturing\CoProductController;
 use App\Http\Controllers\Api\V1\Manufacturing\DetailedSchedulingController;
+use App\Http\Controllers\Api\V1\Manufacturing\DynamicModificationController;
+use App\Http\Controllers\Api\V1\Manufacturing\EngineeringChangeController;
 use App\Http\Controllers\Api\V1\Manufacturing\LongTermPlanningController;
 use App\Http\Controllers\Api\V1\Manufacturing\MrpController;
 use App\Http\Controllers\Api\V1\Manufacturing\ProcessOrderController;
 use App\Http\Controllers\Api\V1\Manufacturing\ProcurementInspectionController;
 use App\Http\Controllers\Api\V1\Manufacturing\ProductCostCollectorController;
+use App\Http\Controllers\Api\V1\Manufacturing\ProductionResourceToolController;
 use App\Http\Controllers\Api\V1\Manufacturing\ProductionVersionController;
-use App\Http\Controllers\Api\V1\Manufacturing\RepetitiveManufacturingController;
-use App\Http\Controllers\Api\V1\Manufacturing\SpcController;
-use App\Http\Controllers\Api\V1\Manufacturing\WorkCenterController;
-use App\Http\Controllers\Api\V1\Manufacturing\WorkOrderController;
 use App\Http\Controllers\Api\V1\Manufacturing\QInfoRecordController;
 use App\Http\Controllers\Api\V1\Manufacturing\QualityCostController;
+use App\Http\Controllers\Api\V1\Manufacturing\RepetitiveManufacturingController;
+use App\Http\Controllers\Api\V1\Manufacturing\ReturnsInspectionController;
+use App\Http\Controllers\Api\V1\Manufacturing\ScrapReportingController;
 use App\Http\Controllers\Api\V1\Manufacturing\SkipLotController;
+use App\Http\Controllers\Api\V1\Manufacturing\SpcController;
 use App\Http\Controllers\Api\V1\Manufacturing\StabilityStudyController;
-use App\Http\Controllers\Api\V1\Maintenance\MaintenancePermitController;
+use App\Http\Controllers\Api\V1\Manufacturing\SupplierQualityController;
+use App\Http\Controllers\Api\V1\Manufacturing\WorkCenterController;
+use App\Http\Controllers\Api\V1\Manufacturing\WorkOrderController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -322,15 +322,18 @@ Route::middleware(['auth:api'])->prefix('cost-collectors')->name('pp.cost-collec
 });
 
 // BOM Alternatives
-Route::middleware(['auth:api'])->prefix('bom-alternatives')->name('pp.bom-alternatives.')->group(function () {
-    Route::get('/{productId}', [BomAlternativeController::class, 'index'])->name('index')->middleware('check.permission:manufacturing.planning.view');
-    Route::post('/{productId}', [BomAlternativeController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
-    Route::get('/{productId}/{id}', [BomAlternativeController::class, 'show'])->name('show')->middleware('check.permission:manufacturing.planning.view');
-    Route::put('/{productId}/{id}', [BomAlternativeController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
-    Route::delete('/{productId}/{id}', [BomAlternativeController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
-    Route::post('/{productId}/{id}/set-default', [BomAlternativeController::class, 'setDefault'])->name('set-default')->middleware('check.permission:manufacturing.planning.manage');
-    Route::post('/determine', [BomAlternativeController::class, 'determine'])->name('determine')->middleware('check.permission:manufacturing.planning.manage');
-});
+// {productId} and {id} are numeric so /bom-alternatives/determine, declared
+// at the end of this group, is not swallowed by /bom-alternatives/{productId}.
+Route::middleware(['auth:api'])->prefix('bom-alternatives')->name('pp.bom-alternatives.')
+    ->whereNumber(['productId', 'id'])->group(function () {
+        Route::get('/{productId}', [BomAlternativeController::class, 'index'])->name('index')->middleware('check.permission:manufacturing.planning.view');
+        Route::post('/{productId}', [BomAlternativeController::class, 'store'])->name('store')->middleware('check.permission:manufacturing.planning.manage');
+        Route::get('/{productId}/{id}', [BomAlternativeController::class, 'show'])->name('show')->middleware('check.permission:manufacturing.planning.view');
+        Route::put('/{productId}/{id}', [BomAlternativeController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.planning.manage');
+        Route::delete('/{productId}/{id}', [BomAlternativeController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/{productId}/{id}/set-default', [BomAlternativeController::class, 'setDefault'])->name('set-default')->middleware('check.permission:manufacturing.planning.manage');
+        Route::post('/determine', [BomAlternativeController::class, 'determine'])->name('determine')->middleware('check.permission:manufacturing.planning.manage');
+    });
 
 // Engineering Change Management
 Route::middleware(['auth:api'])->prefix('engineering-changes')->name('pp.ecm.')->group(function () {

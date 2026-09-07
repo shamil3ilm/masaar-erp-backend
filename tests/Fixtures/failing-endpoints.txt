@@ -5,51 +5,8 @@
 # holding the whole permission catalogue. None of them should fail; a 4xx is an
 # answer, a stack trace is not.
 #
-# A ratchet, not an approval. The set may shrink and may not grow.
+# A ratchet, not an approval. Nothing may be added without a reason written
+# beside it, and an entry that no longer fails must be removed: the test says
+# so, so that the next regression cannot hide behind a stale line.
 #
-# ---------------------------------------------------------------------------
-# MySQL syntax the SQLite test database does not implement
-# ---------------------------------------------------------------------------
-#
-# CURDATE(), DATEDIFF(), YEAR() and HOUR() are MySQL functions, and the suite
-# runs on in-memory SQLite. These are believed to work in production and are
-# tested nowhere: CI has no MySQL job, so nothing here or in the pipeline ever
-# executes this SQL. Rewriting the raw SQL as a driver-agnostic expression
-# would move them out of this file and under test.
-
-GET api/v1/crm/opportunities/statistics
-GET api/v1/export/payable-aging
-GET api/v1/export/receivable-aging
-GET api/v1/grc/ccm/dashboard
-GET api/v1/hr/dashboard
-GET api/v1/hr/dashboard/anniversaries
-GET api/v1/hr/dashboard/birthdays
-GET api/v1/hr/dashboard/demographics
-GET api/v1/hr/reports/headcount
-GET api/v1/inventory/barcode/price-check/analytics
-GET api/v1/reports/financial/aged-payables
-GET api/v1/reports/financial/aged-receivables
-GET api/v1/reports/financial/payable-aging
-GET api/v1/reports/financial/receivable-aging
-
-# ---------------------------------------------------------------------------
-# Broken in any environment
-# ---------------------------------------------------------------------------
-#
-# Columns that no table has, methods that were never defined, constants that do
-# not exist, and route parameters typed as int where Laravel passes a string.
-# Each fails the same way on MySQL.
-
-GET api/v1/grir/open-items
-GET api/v1/grir/report
-GET api/v1/hr/manager/team
-GET api/v1/hr/onboarding/my-tasks
-GET api/v1/inventory/stock/reorder-points
-GET api/v1/webhooks/dlq
-POST api/v1/analytics/warehouse/sync
-POST api/v1/hr/leave-management/accruals/process
-POST api/v1/loyalty/accounts/enroll
-POST api/v1/manufacturing/bom-alternatives/determine
-POST api/v1/manufacturing/schedule/reschedule-all
-POST api/v1/sales/payment-delivery/delivery-modes/calculate-shipping
-POST api/v1/tm/load-plans
+# Empty is the goal, and where it currently stands.

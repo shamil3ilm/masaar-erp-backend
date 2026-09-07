@@ -46,6 +46,7 @@ class DeliveryModeController extends Controller
             $mode = $this->service->createDeliveryMode($data);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -60,26 +61,35 @@ class DeliveryModeController extends Controller
     public function update(Request $request, DeliveryMode $mode): JsonResponse
     {
         $mode->update($request->all());
+
         return $this->success($mode->fresh());
     }
 
     public function destroy(DeliveryMode $mode): JsonResponse
     {
         $mode->delete();
+
         return $this->success(['message' => 'Delivery mode deleted']);
     }
 
     public function calculateShipping(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'delivery_mode_id' => 'required|integer|exists:delivery_modes,id',
+            'zone_id' => 'nullable|integer',
+            'total_weight_kg' => 'nullable|numeric|min:0',
+            'order_total' => 'nullable|numeric|min:0',
+        ]);
+
         $result = $this->service->calculateShippingCost(
-            $request->input('delivery_mode_id'),
-            $request->input('zone_id'),
-            (float) $request->input('total_weight_kg', $request->input('weight', 0)),
-            (float) $request->input('order_total', $request->input('order_value', 0))
+            $validated['delivery_mode_id'],
+            $validated['zone_id'] ?? null,
+            (float) ($validated['total_weight_kg'] ?? 0),
+            (float) ($validated['order_total'] ?? 0),
         );
 
         // Map 'cost' to 'shipping_cost' for API consumers
-        if (isset($result['cost']) && !isset($result['shipping_cost'])) {
+        if (isset($result['cost']) && ! isset($result['shipping_cost'])) {
             $result['shipping_cost'] = $result['cost'];
         }
 

@@ -6,6 +6,7 @@ namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\MrpCapacityRequirement;
 use App\Models\Manufacturing\MrpPlannedOrder;
+use App\Models\Manufacturing\RoutingOperation;
 use App\Models\Manufacturing\WorkCenter;
 use App\Models\Manufacturing\WorkCenterCapacity;
 use Illuminate\Support\Carbon;
@@ -42,15 +43,15 @@ class MrpCapacityService
 
         if ($plannedOrders->isEmpty()) {
             return [
-                'requirements'           => [],
+                'requirements' => [],
                 'overloaded_work_centers' => [],
-                'feasible'               => true,
+                'feasible' => true,
             ];
         }
 
-        $orgId        = (int) $plannedOrders->first()->organization_id;
+        $orgId = (int) $plannedOrders->first()->organization_id;
         $requirements = [];
-        $allFeasible  = true;
+        $allFeasible = true;
 
         // Pre-load active work centers for this org so we can map BOM routing
         $workCenters = WorkCenter::withoutGlobalScopes()
@@ -83,11 +84,11 @@ class MrpCapacityService
 
                 // Try to find a routing operation for this product → work center
                 // Use the first (lowest sequence_number) operation on the active routing.
-                $routing = \App\Models\Manufacturing\RoutingOperation::withoutGlobalScopes()
+                $routing = RoutingOperation::withoutGlobalScopes()
                     ->whereHas('routing', function ($q) use ($orgId, $order): void {
                         $q->withoutGlobalScopes()
-                          ->where('organization_id', $orgId)
-                          ->where('product_id', $order->product_id);
+                            ->where('organization_id', $orgId)
+                            ->where('product_id', $order->product_id);
                     })
                     ->with('workCenter')
                     ->orderBy('sequence_number')
@@ -136,27 +137,27 @@ class MrpCapacityService
 
                 $req = MrpCapacityRequirement::create([
                     'organization_id' => $orgId,
-                    'mrp_run_id'      => $order->mrp_run_id,
-                    'work_center_id'  => $workCenterId,
+                    'mrp_run_id' => $order->mrp_run_id,
+                    'work_center_id' => $workCenterId,
                     'planned_order_id' => $order->id,
-                    'required_date'   => $requiredDate->toDateString(),
-                    'required_hours'  => $requiredHours,
+                    'required_date' => $requiredDate->toDateString(),
+                    'required_hours' => $requiredHours,
                     'available_hours' => $availableHours,
-                    'load_pct'        => $loadPct,
-                    'status'          => $status,
+                    'load_pct' => $loadPct,
+                    'status' => $status,
                 ]);
 
                 $requirements[] = [
-                    'id'               => $req->id,
-                    'uuid'             => $req->uuid,
+                    'id' => $req->id,
+                    'uuid' => $req->uuid,
                     'planned_order_id' => $order->id,
-                    'work_center_id'   => $workCenterId,
+                    'work_center_id' => $workCenterId,
                     'work_center_name' => $workCenters->get($workCenterId)?->name,
-                    'required_date'    => $requiredDate->toDateString(),
-                    'required_hours'   => $requiredHours,
-                    'available_hours'  => $availableHours,
-                    'load_pct'         => $loadPct,
-                    'status'           => $status,
+                    'required_date' => $requiredDate->toDateString(),
+                    'required_hours' => $requiredHours,
+                    'available_hours' => $availableHours,
+                    'load_pct' => $loadPct,
+                    'status' => $status,
                 ];
             }
         });
@@ -166,19 +167,19 @@ class MrpCapacityService
             ->groupBy('work_center_id')
             ->map(function (Collection $items): array {
                 return [
-                    'work_center_id'   => $items->first()['work_center_id'],
+                    'work_center_id' => $items->first()['work_center_id'],
                     'work_center_name' => $items->first()['work_center_name'],
                     'overloaded_count' => $items->count(),
-                    'max_load_pct'     => $items->max('load_pct'),
+                    'max_load_pct' => $items->max('load_pct'),
                 ];
             })
             ->values()
             ->all();
 
         return [
-            'requirements'            => $requirements,
+            'requirements' => $requirements,
             'overloaded_work_centers' => $overloaded,
-            'feasible'                => $allFeasible,
+            'feasible' => $allFeasible,
         ];
     }
 
@@ -203,39 +204,58 @@ class MrpCapacityService
                 'mrp_capacity_requirements.work_center_id,
                  work_centers.name  AS work_center_name,
                  work_centers.code  AS work_center_code,
-                 DATE_FORMAT(required_date, \'%x-%V\') AS year_week,
+                 required_date,
                  SUM(required_hours)  AS required_hours,
                  SUM(available_hours) AS available_hours,
                  MAX(CASE WHEN required_hours > available_hours THEN 1 ELSE 0 END) AS overloaded'
             )
-            ->groupBy('mrp_capacity_requirements.work_center_id', 'work_centers.name', 'work_centers.code', 'year_week')
+            ->groupBy('mrp_capacity_requirements.work_center_id', 'work_centers.name', 'work_centers.code', 'required_date')
             ->orderBy('mrp_capacity_requirements.work_center_id')
-            ->orderBy('year_week')
+            ->orderBy('required_date')
             ->get();
 
         $grouped = [];
+        $weeks = [];
+
         foreach ($rows as $row) {
             $wcId = (int) $row->work_center_id;
-            if (!isset($grouped[$wcId])) {
+            if (! isset($grouped[$wcId])) {
                 $grouped[$wcId] = [
-                    'work_center_id'   => $wcId,
+                    'work_center_id' => $wcId,
                     'work_center_name' => $row->work_center_name,
                     'work_center_code' => $row->work_center_code,
-                    'weeks'            => [],
+                    'weeks' => [],
                 ];
             }
 
-            $req  = (float) $row->required_hours;
-            $avail = (float) $row->available_hours;
-            $grouped[$wcId]['weeks'][] = [
-                'year_week'       => $row->year_week,
-                'required_hours'  => $req,
-                'available_hours' => $avail,
-                'load_pct'        => $avail > 0.0
-                    ? round(($req / $avail) * 100, 2)
-                    : ($req > 0 ? 999.99 : 0.0),
-                'overloaded'      => (bool) $row->overloaded,
+            // Folded into ISO weeks here: no two drivers spell a week the same.
+            $week = Carbon::parse($row->required_date)->format('o-W');
+            $totals = $weeks[$wcId][$week] ?? ['required' => 0.0, 'available' => 0.0, 'overloaded' => false];
+
+            $weeks[$wcId][$week] = [
+                'required' => $totals['required'] + (float) $row->required_hours,
+                'available' => $totals['available'] + (float) $row->available_hours,
+                'overloaded' => $totals['overloaded'] || (bool) $row->overloaded,
             ];
+        }
+
+        foreach ($weeks as $wcId => $byWeek) {
+            ksort($byWeek);
+
+            foreach ($byWeek as $week => $totals) {
+                $req = $totals['required'];
+                $avail = $totals['available'];
+
+                $grouped[$wcId]['weeks'][] = [
+                    'year_week' => $week,
+                    'required_hours' => $req,
+                    'available_hours' => $avail,
+                    'load_pct' => $avail > 0.0
+                        ? round(($req / $avail) * 100, 2)
+                        : ($req > 0 ? 999.99 : 0.0),
+                    'overloaded' => $totals['overloaded'],
+                ];
+            }
         }
 
         return array_values($grouped);

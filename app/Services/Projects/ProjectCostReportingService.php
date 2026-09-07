@@ -6,6 +6,7 @@ namespace App\Services\Projects;
 
 use App\Models\Projects\ProjectCostEntry;
 use App\Models\Projects\WbsElement;
+use Illuminate\Support\Collection;
 
 class ProjectCostReportingService
 {
@@ -44,33 +45,33 @@ class ProjectCostReportingService
                 ->toArray();
 
             $totalActual = array_sum($actualByType);
-            $planned     = (float) $wbs->planned_cost;
-            $variance    = bcsub((string) $planned, (string) $totalActual, 4);
+            $planned = (float) $wbs->planned_cost;
+            $variance = bcsub((string) $planned, (string) $totalActual, 4);
 
             $rows[] = [
-                'wbs_id'        => $wbs->id,
-                'wbs_code'      => $wbs->wbs_code,
-                'wbs_name'      => $wbs->name,
-                'planned_cost'  => $planned,
-                'actual_cost'   => $totalActual,
-                'variance'      => $variance,
-                'variance_pct'  => $planned > 0.0
+                'wbs_id' => $wbs->id,
+                'wbs_code' => $wbs->wbs_code,
+                'wbs_name' => $wbs->name,
+                'planned_cost' => $planned,
+                'actual_cost' => $totalActual,
+                'variance' => $variance,
+                'variance_pct' => $planned > 0.0
                     ? round((float) $variance / $planned * 100, 2)
                     : 0.0,
-                'by_cost_type'  => $actualByType,
-                'progress_pct'  => $wbs->progress_percent,
+                'by_cost_type' => $actualByType,
+                'progress_pct' => $wbs->progress_percent,
             ];
         }
 
         $totalPlanned = (float) $wbsElements->sum('planned_cost');
-        $totalActual  = array_sum(array_column($rows, 'actual_cost'));
+        $totalActual = array_sum(array_column($rows, 'actual_cost'));
 
         return [
-            'project_id'     => $projectId,
-            'total_planned'  => $totalPlanned,
-            'total_actual'   => $totalActual,
+            'project_id' => $projectId,
+            'total_planned' => $totalPlanned,
+            'total_actual' => $totalActual,
             'total_variance' => bcsub((string) $totalPlanned, (string) $totalActual, 4),
-            'wbs_breakdown'  => $rows,
+            'wbs_breakdown' => $rows,
         ];
     }
 
@@ -87,7 +88,7 @@ class ProjectCostReportingService
     public function getCostTrend(int $projectId, int $months = 12): array
     {
         $monthly = ProjectCostEntry::query()
-            ->selectRaw("DATE_FORMAT(cost_date, '%Y-%m') as month, SUM(amount) as total")
+            ->selectRaw('SUBSTR(cost_date, 1, 7) as month, SUM(amount) as total')
             ->where('project_id', $projectId)
             ->groupBy('month')
             ->orderBy('month')
@@ -100,17 +101,17 @@ class ProjectCostReportingService
             $cumulativeTotal = bcadd($cumulativeTotal, (string) $row->total, 4);
 
             return [
-                'month'      => $row->month,
-                'monthly'    => (float) $row->total,
+                'month' => $row->month,
+                'monthly' => (float) $row->total,
                 'cumulative' => $cumulativeTotal,
             ];
         })->values()->all();
 
         return [
-            'project_id'          => $projectId,
-            'periods_shown'       => count($trend),
+            'project_id' => $projectId,
+            'periods_shown' => count($trend),
             'total_spent_to_date' => $cumulativeTotal,
-            'monthly_trend'       => $trend,
+            'monthly_trend' => $trend,
         ];
     }
 
@@ -119,7 +120,7 @@ class ProjectCostReportingService
      *
      * @return array{
      *   project_id: int,
-     *   by_type: \Illuminate\Support\Collection,
+     *   by_type: Collection,
      *   total: float
      * }
      */
@@ -134,8 +135,8 @@ class ProjectCostReportingService
 
         return [
             'project_id' => $projectId,
-            'by_type'    => $byType,
-            'total'      => (float) $byType->sum('total'),
+            'by_type' => $byType,
+            'total' => (float) $byType->sum('total'),
         ];
     }
 }

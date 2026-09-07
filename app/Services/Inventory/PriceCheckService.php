@@ -7,8 +7,6 @@ namespace App\Services\Inventory;
 use App\Models\Inventory\PriceCheckLog;
 use App\Models\Inventory\PriceCheckStation;
 use App\Models\Inventory\Product;
-use App\Models\Inventory\ProductBarcode;
-use Illuminate\Support\Facades\DB;
 
 class PriceCheckService
 {
@@ -24,7 +22,7 @@ class PriceCheckService
         $result = $this->barcodeService->lookup($scanValue);
 
         // If not found via barcode, try SKU lookup
-        if (!$result && in_array($scanType, [PriceCheckLog::SCAN_MANUAL, PriceCheckLog::SCAN_SKU])) {
+        if (! $result && in_array($scanType, [PriceCheckLog::SCAN_MANUAL, PriceCheckLog::SCAN_SKU])) {
             $product = Product::where('sku', $scanValue)
                 ->where('organization_id', auth()->user()->organization_id)
                 ->first();
@@ -49,7 +47,7 @@ class PriceCheckService
             'scanned_at' => now(),
         ];
 
-        if (!$result) {
+        if (! $result) {
             // Product not found
             $logData['scan_successful'] = false;
             $logData['error_type'] = PriceCheckLog::ERROR_NOT_FOUND;
@@ -66,7 +64,7 @@ class PriceCheckService
 
         $product = $result['product'];
 
-        if (!$product->is_active) {
+        if (! $product->is_active) {
             $logData['scan_successful'] = false;
             $logData['product_id'] = $product->id;
             $logData['product_name'] = $product->name;
@@ -231,11 +229,13 @@ class PriceCheckService
                 ->groupBy('error_type')
                 ->get()
                 ->keyBy('error_type'),
+            // Grouped here rather than in SQL: HOUR() is MySQL only.
             'hourly_distribution' => (clone $query)
-                ->selectRaw('HOUR(scanned_at) as hour, COUNT(*) as count')
-                ->groupBy('hour')
-                ->orderBy('hour')
-                ->get(),
+                ->get(['scanned_at'])
+                ->groupBy(fn ($scan) => (int) $scan->scanned_at->format('G'))
+                ->map(fn ($scans, $hour) => ['hour' => $hour, 'count' => $scans->count()])
+                ->sortKeys()
+                ->values(),
         ];
     }
 }

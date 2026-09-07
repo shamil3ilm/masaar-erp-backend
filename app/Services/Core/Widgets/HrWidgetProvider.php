@@ -7,6 +7,7 @@ namespace App\Services\Core\Widgets;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
+use App\Services\Concerns\PortableDates;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
  */
 class HrWidgetProvider extends WidgetProvider
 {
+    use PortableDates;
+
     public function getEmployeeSummary(array $config = []): array
     {
         $query = Employee::where('organization_id', $this->organizationId);
@@ -99,19 +102,19 @@ class HrWidgetProvider extends WidgetProvider
             $query->where('branch_id', $this->branchId);
         }
 
-        // DB-level year-boundary-safe "days until next birthday".
-        $birthdayRaw = "MOD(DATEDIFF(DATE_ADD(date_of_birth, INTERVAL (YEAR(CURDATE()) - YEAR(date_of_birth)) YEAR), CURDATE()) + 366, 366)";
-
-        $birthdays = (clone $query)
-            ->whereRaw("{$birthdayRaw} <= ?", [$days])
-            ->selectRaw("CONCAT(first_name, ' ', last_name) as name, DATE_FORMAT(date_of_birth, '%b %d') as dob_fmt, ({$birthdayRaw}) as days_away")
-            ->orderByRaw($birthdayRaw)
-            ->limit(5)
-            ->get()
-            ->map(fn ($r) => [
-                'name'     => $r->name,
-                'date'     => $r->dob_fmt,
-                'is_today' => (int) $r->days_away === 0,
+        $birthdays = $this->withinNextDays($query, 'date_of_birth', now(), $days)
+            ->get(['first_name', 'last_name', 'date_of_birth'])
+            ->map(fn ($e) => [
+                'name' => $e->first_name.' '.$e->last_name,
+                'date' => $e->date_of_birth->format('M d'),
+                'days_away' => (int) now()->startOfDay()->diffInDays($this->nextOccurrence($e->date_of_birth)),
+            ])
+            ->sortBy('days_away')
+            ->take(5)
+            ->map(fn ($b) => [
+                'name' => $b['name'],
+                'date' => $b['date'],
+                'is_today' => $b['days_away'] === 0,
             ]);
 
         return [
@@ -137,7 +140,7 @@ class HrWidgetProvider extends WidgetProvider
             ->get();
 
         return [
-            'labels' => $data->map(fn($d) => $d->department->name ?? 'Unassigned')->toArray(),
+            'labels' => $data->map(fn ($d) => $d->department->name ?? 'Unassigned')->toArray(),
             'data' => $data->pluck('count')->toArray(),
         ];
     }

@@ -7,15 +7,19 @@ namespace App\Services\HR;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
-use App\Models\HR\Payslip;
 use App\Models\HR\PayrollPeriod;
+use App\Models\HR\Payslip;
+use App\Services\Concerns\PortableDates;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class HRDashboardService
 {
+    use PortableDates;
+
     protected int $organizationId;
+
     protected ?int $branchId = null;
 
     public function setContext(int $organizationId, ?int $branchId = null): self
@@ -342,28 +346,28 @@ class HRDashboardService
             ->join('payslips', 'payslips.payroll_period_id', '=', 'payroll_periods.id', 'left')
             ->when($this->branchId, function ($q) {
                 $q->leftJoin('employees as trend_emp', 'trend_emp.id', '=', 'payslips.employee_id')
-                  ->where(function ($sub) {
-                      $sub->whereNull('payslips.id')
-                          ->orWhere('trend_emp.branch_id', $this->branchId);
-                  });
+                    ->where(function ($sub) {
+                        $sub->whereNull('payslips.id')
+                            ->orWhere('trend_emp.branch_id', $this->branchId);
+                    });
             })
-            ->selectRaw("
+            ->selectRaw('
                 payroll_periods.id,
                 payroll_periods.name as period,
-                DATE_FORMAT(payroll_periods.start_date, '%b %Y') as month,
+                payroll_periods.start_date,
                 COALESCE(SUM(payslips.gross_earnings), 0) as gross,
                 COALESCE(SUM(payslips.net_salary), 0) as net,
                 COUNT(payslips.id) as employees
-            ")
+            ')
             ->groupBy('payroll_periods.id', 'payroll_periods.name', 'payroll_periods.start_date')
             ->orderBy('payroll_periods.start_date')
             ->get()
             ->map(fn ($r) => [
-                'period'    => $r->period,
-                'month'     => $r->month,
-                'gross'     => (float) $r->gross,
-                'net'       => (float) $r->net,
-                'employees' => (int)   $r->employees,
+                'period' => $r->period,
+                'month' => Carbon::parse($r->start_date)->format('M Y'),
+                'gross' => (float) $r->gross,
+                'net' => (float) $r->net,
+                'employees' => (int) $r->employees,
             ]);
 
         return [
@@ -390,7 +394,6 @@ class HRDashboardService
     public function getUpcomingBirthdays(int $days = 30): array
     {
         $today = now();
-        $endDate = now()->addDays($days);
 
         $query = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
@@ -400,17 +403,12 @@ class HRDashboardService
             $query->where('branch_id', $this->branchId);
         }
 
-        // DB-level filter using "days until next birthday" (handles year-boundary).
-        // MOD(DATEDIFF(next_birthday_occurrence, today) + 366, 366) gives days until next birthday.
-        $birthdayRaw = "MOD(DATEDIFF(DATE_ADD(date_of_birth, INTERVAL (YEAR(CURDATE()) - YEAR(date_of_birth)) YEAR), CURDATE()) + 366, 366)";
-        $upcomingCount = (clone $query)->whereRaw("{$birthdayRaw} <= ?", [$days])->count();
-        $todayCount    = (clone $query)->whereRaw("{$birthdayRaw} = 0")->count();
+        $upcomingCount = $this->withinNextDays(clone $query, 'date_of_birth', $today, $days)->count();
+        $todayCount = $this->onMonthDay(clone $query, 'date_of_birth', $today)->count();
 
-        $employees = $query->whereRaw("{$birthdayRaw} <= ?", [$days])
-        ->with('department:id,name')
-        ->orderByRaw($birthdayRaw)
-        ->limit(10)
-        ->get()
+        $employees = $this->withinNextDays($query, 'date_of_birth', $today, $days)
+            ->with('department:id,name')
+            ->get()
             ->map(function ($employee) use ($today) {
                 $birthday = $employee->date_of_birth->setYear($today->year);
                 if ($birthday->isPast()) {
@@ -429,12 +427,13 @@ class HRDashboardService
                 ];
             })
             ->sortBy('days_away')
+            ->take(10)
             ->values();
 
         return [
             'upcoming_count' => $upcomingCount,
-            'today_count'    => $todayCount,
-            'items'          => $employees->values()->toArray(),
+            'today_count' => $todayCount,
+            'items' => $employees->values()->toArray(),
         ];
     }
 
@@ -444,33 +443,28 @@ class HRDashboardService
     public function getWorkAnniversaries(int $days = 30): array
     {
         $today = now();
-        $endDate = now()->addDays($days);
 
         $query = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
-            ->whereNotNull('date_of_joining');
+            ->whereNotNull('joining_date');
 
         if ($this->branchId) {
             $query->where('branch_id', $this->branchId);
         }
 
-        // DB-level filter using "days until next work anniversary" (handles year-boundary).
-        $anniversaryRaw = "MOD(DATEDIFF(DATE_ADD(date_of_joining, INTERVAL (YEAR(CURDATE()) - YEAR(date_of_joining)) YEAR), CURDATE()) + 366, 366)";
-        $upcomingCount = (clone $query)->whereRaw("{$anniversaryRaw} <= ?", [$days])->count();
-        $todayCount    = (clone $query)->whereRaw("{$anniversaryRaw} = 0")->count();
+        $upcomingCount = $this->withinNextDays(clone $query, 'joining_date', $today, $days)->count();
+        $todayCount = $this->onMonthDay(clone $query, 'joining_date', $today)->count();
 
-        $employees = $query->whereRaw("{$anniversaryRaw} <= ?", [$days])
-        ->with('department:id,name', 'designation:id,name')
-        ->orderByRaw($anniversaryRaw)
-        ->limit(10)
-        ->get()
+        $employees = $this->withinNextDays($query, 'joining_date', $today, $days)
+            ->with('department:id,name', 'designation:id,name')
+            ->get()
             ->map(function ($employee) use ($today) {
-                $anniversary = $employee->date_of_joining->setYear($today->year);
+                $anniversary = $employee->joining_date->setYear($today->year);
                 if ($anniversary->isPast()) {
                     $anniversary = $anniversary->addYear();
                 }
 
-                $years = $today->year - $employee->date_of_joining->year;
+                $years = $today->year - $employee->joining_date->year;
                 if ($anniversary->gt($today)) {
                     $years++;
                 }
@@ -488,12 +482,13 @@ class HRDashboardService
                 ];
             })
             ->sortBy('days_away')
+            ->take(10)
             ->values();
 
         return [
             'upcoming_count' => $upcomingCount,
-            'today_count'    => $todayCount,
-            'items'          => $employees->values()->toArray(),
+            'today_count' => $todayCount,
+            'items' => $employees->values()->toArray(),
         ];
     }
 
@@ -525,15 +520,15 @@ class HRDashboardService
             ->orderBy('employee_documents.expiry_date');
 
         // Count totals via DB — no full collection loaded.
-        $totalAlerts   = (clone $documents)->count();
-        $expiredCount  = (clone $documents)->where('employee_documents.expiry_date', '<', $today)->count();
-        $expiringSoon  = $totalAlerts - $expiredCount;
+        $totalAlerts = (clone $documents)->count();
+        $expiredCount = (clone $documents)->where('employee_documents.expiry_date', '<', $today)->count();
+        $expiringSoon = $totalAlerts - $expiredCount;
 
         // Only materialize the top 10 items.
         $items = (clone $documents)
             ->limit(10)
             ->get()
-            ->map(function ($doc) use ($today) {
+            ->map(function ($doc) {
                 $expiryDate = Carbon::parse($doc->expiry_date);
                 $daysUntilExpiry = now()->diffInDays($expiryDate, false);
 
@@ -567,14 +562,14 @@ class HRDashboardService
         $startDate = now()->subDays($days)->toDateString();
 
         $query = Employee::where('organization_id', $this->organizationId)
-            ->where('date_of_joining', '>=', $startDate)
+            ->where('joining_date', '>=', $startDate)
             ->with(['department:id,name', 'designation:id,name']);
 
         if ($this->branchId) {
             $query->where('branch_id', $this->branchId);
         }
 
-        $joiners = $query->orderByDesc('date_of_joining')
+        $joiners = $query->orderByDesc('joining_date')
             ->limit(10)
             ->get()
             ->map(fn ($emp) => [
@@ -583,8 +578,8 @@ class HRDashboardService
                 'employee_number' => $emp->employee_number,
                 'department' => $emp->department->name ?? 'N/A',
                 'designation' => $emp->designation->name ?? 'N/A',
-                'date_of_joining' => $emp->date_of_joining->format('Y-m-d'),
-                'days_since_joining' => $emp->date_of_joining->diffInDays(now()),
+                'joining_date' => $emp->joining_date->format('Y-m-d'),
+                'days_since_joining' => $emp->joining_date->diffInDays(now()),
             ]);
 
         return [
@@ -660,23 +655,21 @@ class HRDashboardService
             $query->where('branch_id', $this->branchId);
         }
 
-        $rows = $query->selectRaw("
-            CASE
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) <= 25 THEN '18-25'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) <= 35 THEN '26-35'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) <= 45 THEN '36-45'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_birth, NOW()) <= 55 THEN '46-55'
-                ELSE '55+'
-            END as bracket,
-            COUNT(*) as cnt
-        ")->groupBy('bracket')->pluck('cnt', 'bracket');
+        $rows = $query->selectRaw($this->yearsBracket('date_of_birth', [
+            26 => '18-25',
+            36 => '26-35',
+            46 => '36-45',
+            56 => '46-55',
+        ], '55+').' as bracket, COUNT(*) as cnt', $this->bracketDates([26, 36, 46, 56]))
+            ->groupBy('bracket')
+            ->pluck('cnt', 'bracket');
 
         return [
             '18-25' => (int) ($rows['18-25'] ?? 0),
             '26-35' => (int) ($rows['26-35'] ?? 0),
             '36-45' => (int) ($rows['36-45'] ?? 0),
             '46-55' => (int) ($rows['46-55'] ?? 0),
-            '55+'   => (int) ($rows['55+']   ?? 0),
+            '55+' => (int) ($rows['55+'] ?? 0),
         ];
     }
 
@@ -687,29 +680,27 @@ class HRDashboardService
     {
         $query = Employee::where('organization_id', $this->organizationId)
             ->where('employment_status', 'active')
-            ->whereNotNull('date_of_joining');
+            ->whereNotNull('joining_date');
 
         if ($this->branchId) {
             $query->where('branch_id', $this->branchId);
         }
 
-        $rows = $query->selectRaw("
-            CASE
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, NOW()) < 1  THEN '< 1 year'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, NOW()) < 2  THEN '1-2 years'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, NOW()) < 5  THEN '2-5 years'
-                WHEN TIMESTAMPDIFF(YEAR, date_of_joining, NOW()) < 10 THEN '5-10 years'
-                ELSE '10+ years'
-            END as bracket,
-            COUNT(*) as cnt
-        ")->groupBy('bracket')->pluck('cnt', 'bracket');
+        $rows = $query->selectRaw($this->yearsBracket('joining_date', [
+            1 => '< 1 year',
+            2 => '1-2 years',
+            5 => '2-5 years',
+            10 => '5-10 years',
+        ], '10+ years').' as bracket, COUNT(*) as cnt', $this->bracketDates([1, 2, 5, 10]))
+            ->groupBy('bracket')
+            ->pluck('cnt', 'bracket');
 
         return [
-            '< 1 year'   => (int) ($rows['< 1 year']   ?? 0),
-            '1-2 years'  => (int) ($rows['1-2 years']  ?? 0),
-            '2-5 years'  => (int) ($rows['2-5 years']  ?? 0),
+            '< 1 year' => (int) ($rows['< 1 year'] ?? 0),
+            '1-2 years' => (int) ($rows['1-2 years'] ?? 0),
+            '2-5 years' => (int) ($rows['2-5 years'] ?? 0),
             '5-10 years' => (int) ($rows['5-10 years'] ?? 0),
-            '10+ years'  => (int) ($rows['10+ years']  ?? 0),
+            '10+ years' => (int) ($rows['10+ years'] ?? 0),
         ];
     }
 

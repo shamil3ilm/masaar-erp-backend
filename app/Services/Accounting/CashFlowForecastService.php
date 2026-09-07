@@ -33,8 +33,8 @@ class CashFlowForecastService
         string $currencyCode = 'SAR'
     ): CashFlowForecast {
         return DB::transaction(function () use ($organization, $horizonDays, $scenario, $currencyCode) {
-            $today    = now()->toDateString();
-            $horizon  = now()->addDays($horizonDays)->toDateString();
+            $today = now()->toDateString();
+            $horizon = now()->addDays($horizonDays)->toDateString();
 
             // Opening balance — sum of all bank transaction running totals.
             // Use the most recent bank transaction balance per account as a proxy.
@@ -48,19 +48,19 @@ class CashFlowForecastService
                 ->value('total') ?? 0;
 
             $forecast = CashFlowForecast::create([
-                'organization_id'       => $organization->id,
-                'forecast_date'         => $today,
-                'horizon_days'          => $horizonDays,
-                'currency_code'         => $currencyCode,
+                'organization_id' => $organization->id,
+                'forecast_date' => $today,
+                'horizon_days' => $horizonDays,
+                'currency_code' => $currencyCode,
                 'total_opening_balance' => $openingBalance,
-                'total_inflows'         => 0,
-                'total_outflows'        => 0,
-                'closing_balance'       => 0,
-                'scenario_id'           => $scenario?->id,
-                'generated_at'          => now(),
+                'total_inflows' => 0,
+                'total_outflows' => 0,
+                'closing_balance' => 0,
+                'scenario_id' => $scenario?->id,
+                'generated_at' => now(),
             ]);
 
-            $totalInflows  = '0';
+            $totalInflows = '0';
             $totalOutflows = '0';
 
             // --- Inflows from outstanding invoices ---
@@ -76,15 +76,15 @@ class CashFlowForecastService
                     : CashFlowLine::CONFIDENCE_PROBABLE;
 
                 CashFlowLine::create([
-                    'forecast_id'  => $forecast->id,
+                    'forecast_id' => $forecast->id,
                     'expected_date' => $invoice->due_date->toDateString(),
-                    'flow_type'    => CashFlowLine::TYPE_INFLOW,
-                    'source_type'  => CashFlowLine::SOURCE_INVOICE,
-                    'source_id'    => $invoice->id,
-                    'description'  => "Invoice #{$invoice->invoice_number}",
-                    'amount'       => $invoice->amount_due,
-                    'confidence'   => $confidence,
-                    'is_actual'    => false,
+                    'flow_type' => CashFlowLine::TYPE_INFLOW,
+                    'source_type' => CashFlowLine::SOURCE_INVOICE,
+                    'source_id' => $invoice->id,
+                    'description' => "Invoice #{$invoice->invoice_number}",
+                    'amount' => $invoice->amount_due,
+                    'confidence' => $confidence,
+                    'is_actual' => false,
                 ]);
 
                 $totalInflows = bcadd($totalInflows, (string) $invoice->amount_due, 4);
@@ -101,15 +101,15 @@ class CashFlowForecastService
                 $dueDate = $po->expected_delivery_date ?? $po->created_at->toDateString();
 
                 CashFlowLine::create([
-                    'forecast_id'  => $forecast->id,
+                    'forecast_id' => $forecast->id,
                     'expected_date' => $dueDate,
-                    'flow_type'    => CashFlowLine::TYPE_OUTFLOW,
-                    'source_type'  => CashFlowLine::SOURCE_PURCHASE_ORDER,
-                    'source_id'    => $po->id,
-                    'description'  => "PO #{$po->po_number}",
-                    'amount'       => $po->amount_due,
-                    'confidence'   => CashFlowLine::CONFIDENCE_PROBABLE,
-                    'is_actual'    => false,
+                    'flow_type' => CashFlowLine::TYPE_OUTFLOW,
+                    'source_type' => CashFlowLine::SOURCE_PURCHASE_ORDER,
+                    'source_id' => $po->id,
+                    'description' => "PO #{$po->order_number}",
+                    'amount' => $po->amount_due,
+                    'confidence' => CashFlowLine::CONFIDENCE_PROBABLE,
+                    'is_actual' => false,
                 ]);
 
                 $totalOutflows = bcadd($totalOutflows, (string) $po->amount_due, 4);
@@ -117,9 +117,9 @@ class CashFlowForecastService
 
             // --- Outflows from loan schedules ---
             $loanSchedules = LoanSchedule::whereHas('loan', function ($q) use ($organization) {
-                    $q->where('organization_id', $organization->id)
-                        ->whereIn('status', ['active', 'disbursed']);
-                })
+                $q->where('organization_id', $organization->id)
+                    ->whereIn('status', ['active', 'disbursed']);
+            })
                 ->where('status', 'pending')
                 ->whereBetween('due_date', [$today, $horizon])
                 ->with('loan')
@@ -127,15 +127,15 @@ class CashFlowForecastService
 
             foreach ($loanSchedules as $schedule) {
                 CashFlowLine::create([
-                    'forecast_id'  => $forecast->id,
+                    'forecast_id' => $forecast->id,
                     'expected_date' => $schedule->due_date->toDateString(),
-                    'flow_type'    => CashFlowLine::TYPE_OUTFLOW,
-                    'source_type'  => CashFlowLine::SOURCE_LOAN,
-                    'source_id'    => $schedule->id,
-                    'description'  => "Loan installment #{$schedule->installment_number}",
-                    'amount'       => $schedule->total_amount,
-                    'confidence'   => CashFlowLine::CONFIDENCE_CERTAIN,
-                    'is_actual'    => false,
+                    'flow_type' => CashFlowLine::TYPE_OUTFLOW,
+                    'source_type' => CashFlowLine::SOURCE_LOAN,
+                    'source_id' => $schedule->id,
+                    'description' => "Loan installment #{$schedule->installment_number}",
+                    'amount' => $schedule->total_amount,
+                    'confidence' => CashFlowLine::CONFIDENCE_CERTAIN,
+                    'is_actual' => false,
                 ]);
 
                 $totalOutflows = bcadd($totalOutflows, (string) $schedule->total_amount, 4);
@@ -148,8 +148,8 @@ class CashFlowForecastService
             );
 
             $forecast->update([
-                'total_inflows'   => $totalInflows,
-                'total_outflows'  => $totalOutflows,
+                'total_inflows' => $totalInflows,
+                'total_outflows' => $totalOutflows,
                 'closing_balance' => $closingBalance,
             ]);
 
@@ -166,7 +166,7 @@ class CashFlowForecastService
             $forecast->lines()->delete();
 
             $organization = $forecast->organization;
-            $scenario     = $forecast->scenario;
+            $scenario = $forecast->scenario;
 
             $fresh = $this->generateForecast(
                 $organization,
@@ -190,7 +190,7 @@ class CashFlowForecastService
 
         foreach (array_keys($buckets) as $days) {
             $from = now()->toDateString();
-            $to   = now()->addDays($days)->toDateString();
+            $to = now()->addDays($days)->toDateString();
 
             $inflows = $forecast->lines()
                 ->inflows()
@@ -204,9 +204,9 @@ class CashFlowForecastService
 
             $buckets[$days] = [
                 'period_days' => $days,
-                'inflows'     => (float) $inflows,
-                'outflows'    => (float) $outflows,
-                'net'         => (float) bcsub((string) $inflows, (string) $outflows, 4),
+                'inflows' => (float) $inflows,
+                'outflows' => (float) $outflows,
+                'net' => (float) bcsub((string) $inflows, (string) $outflows, 4),
             ];
         }
 

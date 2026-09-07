@@ -27,11 +27,11 @@ class DunningService
         return DB::transaction(function () use ($organization, $runDate) {
             $run = DunningRun::create([
                 'organization_id' => $organization->id,
-                'run_date'        => $runDate->toDateString(),
-                'status'          => DunningRun::STATUS_DRAFT,
+                'run_date' => $runDate->toDateString(),
+                'status' => DunningRun::STATUS_DRAFT,
                 'total_customers' => 0,
-                'total_amount'    => 0,
-                'created_by'      => auth()->id(),
+                'total_amount' => 0,
+                'created_by' => auth()->id(),
             ]);
 
             // Step 1: DB-level customer summary (max days overdue + total) — avoids
@@ -43,18 +43,20 @@ class DunningService
                 ->whereIn('status', [Invoice::STATUS_SENT, Invoice::STATUS_PARTIAL, Invoice::STATUS_OVERDUE])
                 ->where('due_date', '<', $runDateStr)
                 ->where('amount_due', '>', 0)
-                ->selectRaw('customer_id, MAX(DATEDIFF(?, due_date)) as max_days_overdue, SUM(amount_due) as total_overdue, MIN(currency_code) as currency_code', [$runDateStr])
+                // The oldest due date is the largest overdue age; the days
+                // between two dates are counted below rather than in SQL.
+                ->selectRaw('customer_id, MIN(due_date) as earliest_due, SUM(amount_due) as total_overdue, MIN(currency_code) as currency_code')
                 ->groupBy('customer_id')
                 ->get();
 
             $totalCustomers = 0;
-            $totalAmount    = '0';
+            $totalAmount = '0';
 
             foreach ($customerSummaries as $summary) {
                 $customerId = $summary->customer_id;
 
                 $contact = Contact::find($customerId);
-                if (!$contact) {
+                if (! $contact) {
                     continue;
                 }
 
@@ -64,21 +66,22 @@ class DunningService
                     ->active()
                     ->first();
 
-                $level = DunningLevel::forDaysOverdue($organization->id, (int) $summary->max_days_overdue);
+                $daysOverdue = (int) Carbon::parse($summary->earliest_due)->startOfDay()->diffInDays($runDate->copy()->startOfDay());
+                $level = DunningLevel::forDaysOverdue($organization->id, $daysOverdue);
 
-                if (!$level) {
+                if (! $level) {
                     continue;
                 }
 
                 $notice = DunningNotice::create([
-                    'dunning_run_id'   => $run->id,
-                    'contact_id'       => $customerId,
+                    'dunning_run_id' => $run->id,
+                    'contact_id' => $customerId,
                     'dunning_level_id' => $level->id,
-                    'total_overdue'    => $summary->total_overdue,
-                    'currency_code'    => $summary->currency_code ?? 'SAR',
-                    'notice_date'      => $runDateStr,
-                    'status'           => $activeBlock ? DunningNotice::STATUS_BLOCKED : DunningNotice::STATUS_PENDING,
-                    'blocking_reason'  => $activeBlock ? $activeBlock->reason : null,
+                    'total_overdue' => $summary->total_overdue,
+                    'currency_code' => $summary->currency_code ?? 'SAR',
+                    'notice_date' => $runDateStr,
+                    'status' => $activeBlock ? DunningNotice::STATUS_BLOCKED : DunningNotice::STATUS_PENDING,
+                    'blocking_reason' => $activeBlock ? $activeBlock->reason : null,
                 ]);
 
                 // Step 2: fetch only this customer's invoices (small per-customer set).
@@ -91,14 +94,14 @@ class DunningService
 
                 foreach ($invoices as $invoice) {
                     DunningNoticeItem::create([
-                        'dunning_notice_id'  => $notice->id,
-                        'invoice_id'         => $invoice->id,
-                        'invoice_number'     => $invoice->invoice_number,
-                        'invoice_date'       => $invoice->invoice_date->toDateString(),
-                        'due_date'           => $invoice->due_date->toDateString(),
-                        'original_amount'    => $invoice->total,
+                        'dunning_notice_id' => $notice->id,
+                        'invoice_id' => $invoice->id,
+                        'invoice_number' => $invoice->invoice_number,
+                        'invoice_date' => $invoice->invoice_date->toDateString(),
+                        'due_date' => $invoice->due_date->toDateString(),
+                        'original_amount' => $invoice->total,
                         'outstanding_amount' => $invoice->amount_due,
-                        'days_overdue'       => $invoice->getDaysPastDue(),
+                        'days_overdue' => $invoice->getDaysPastDue(),
                     ]);
                 }
 
@@ -108,7 +111,7 @@ class DunningService
 
             $run->update([
                 'total_customers' => $totalCustomers,
-                'total_amount'    => $totalAmount,
+                'total_amount' => $totalAmount,
             ]);
 
             return $run->fresh(['notices']);
@@ -120,12 +123,12 @@ class DunningService
      */
     public function postRun(DunningRun $run): DunningRun
     {
-        if (!$run->isDraft()) {
+        if (! $run->isDraft()) {
             throw new InvalidArgumentException('Only draft dunning runs can be posted.');
         }
 
         $run->update([
-            'status'    => DunningRun::STATUS_POSTED,
+            'status' => DunningRun::STATUS_POSTED,
             'posted_at' => now(),
         ]);
 
@@ -137,7 +140,7 @@ class DunningService
      */
     public function sendNotices(DunningRun $run): int
     {
-        if (!$run->isPosted()) {
+        if (! $run->isPosted()) {
             throw new InvalidArgumentException('Only posted dunning runs can have notices sent.');
         }
 
@@ -151,7 +154,7 @@ class DunningService
                 // In a real system this would dispatch a mailable/notification.
                 // Here we mark the notice as sent.
                 $notice->update([
-                    'status'  => DunningNotice::STATUS_SENT,
+                    'status' => DunningNotice::STATUS_SENT,
                     'sent_at' => now(),
                 ]);
                 $sent++;
@@ -167,10 +170,10 @@ class DunningService
     {
         return DunningBlock::create([
             'organization_id' => $contact->organization_id,
-            'contact_id'      => $contact->id,
-            'blocked_until'   => $data['blocked_until'] ?? null,
-            'reason'          => $data['reason'],
-            'blocked_by'      => auth()->id(),
+            'contact_id' => $contact->id,
+            'blocked_until' => $data['blocked_until'] ?? null,
+            'reason' => $data['reason'],
+            'blocked_by' => auth()->id(),
         ]);
     }
 
@@ -179,13 +182,13 @@ class DunningService
      */
     public function releaseBlock(DunningBlock $block, string $releaseReason): DunningBlock
     {
-        if (!$block->isActive()) {
+        if (! $block->isActive()) {
             throw new InvalidArgumentException('This dunning block is already released or expired.');
         }
 
         $block->update([
-            'released_at'    => now(),
-            'released_by'    => auth()->id(),
+            'released_at' => now(),
+            'released_by' => auth()->id(),
             'release_reason' => $releaseReason,
         ]);
 

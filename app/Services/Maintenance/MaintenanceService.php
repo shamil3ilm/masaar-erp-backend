@@ -38,6 +38,7 @@ class MaintenanceService
     public function updateEquipment(Equipment $equipment, array $data): Equipment
     {
         $equipment->update($data);
+
         return $equipment->fresh();
     }
 
@@ -61,6 +62,7 @@ class MaintenanceService
     public function updateMaintenancePlan(MaintenancePlan $plan, array $data): MaintenancePlan
     {
         $plan->update($data);
+
         return $plan->fresh();
     }
 
@@ -69,7 +71,7 @@ class MaintenanceService
      */
     public function generateOrderFromPlan(MaintenancePlan $plan, int $userId): MaintenanceOrder
     {
-        if (!$plan->is_active) {
+        if (! $plan->is_active) {
             throw new \InvalidArgumentException('Cannot generate an order from an inactive maintenance plan.');
         }
 
@@ -77,25 +79,25 @@ class MaintenanceService
             $orgId = $plan->organization_id;
 
             $order = MaintenanceOrder::create([
-                'organization_id'    => $orgId,
-                'order_number'       => MaintenanceOrder::generateOrderNumber($orgId),
+                'organization_id' => $orgId,
+                'order_number' => MaintenanceOrder::generateOrderNumber($orgId),
                 'maintenance_plan_id' => $plan->id,
-                'equipment_id'       => $plan->equipment_id,
-                'order_type'         => MaintenanceOrder::TYPE_PREVENTIVE,
-                'priority'           => MaintenanceOrder::PRIORITY_MEDIUM,
-                'status'             => MaintenanceOrder::STATUS_OPEN,
-                'description'        => $plan->description ?? $plan->name,
-                'estimated_cost'     => null,
-                'created_by'         => $userId,
+                'equipment_id' => $plan->equipment_id,
+                'order_type' => MaintenanceOrder::TYPE_PREVENTIVE,
+                'priority' => MaintenanceOrder::PRIORITY_MEDIUM,
+                'status' => MaintenanceOrder::STATUS_OPEN,
+                'description' => $plan->description ?? $plan->name,
+                'estimated_cost' => null,
+                'created_by' => $userId,
             ]);
 
             // Create tasks from the plan's task list
-            if (!empty($plan->tasks)) {
+            if (! empty($plan->tasks)) {
                 foreach ($plan->tasks as $index => $taskData) {
                     $order->tasks()->create([
-                        'task_description'  => is_array($taskData) ? ($taskData['description'] ?? $taskData) : $taskData,
+                        'task_description' => is_array($taskData) ? ($taskData['description'] ?? $taskData) : $taskData,
                         'is_safety_critical' => is_array($taskData) ? (bool) ($taskData['is_safety_critical'] ?? false) : false,
-                        'sort_order'        => $index,
+                        'sort_order' => $index,
                     ]);
                 }
             }
@@ -134,9 +136,9 @@ class MaintenanceService
 
             $order = MaintenanceOrder::create(array_merge($data, [
                 'organization_id' => $orgId,
-                'order_number'    => MaintenanceOrder::generateOrderNumber($orgId),
-                'created_by'      => $userId,
-                'status'          => $data['status'] ?? MaintenanceOrder::STATUS_OPEN,
+                'order_number' => MaintenanceOrder::generateOrderNumber($orgId),
+                'created_by' => $userId,
+                'status' => $data['status'] ?? MaintenanceOrder::STATUS_OPEN,
             ]));
 
             foreach ($tasks as $index => $taskData) {
@@ -182,7 +184,7 @@ class MaintenanceService
             'is_completed' => true,
             'completed_at' => now(),
             'completed_by' => $userId,
-            'notes'        => $notes,
+            'notes' => $notes,
         ]);
 
         return $task->fresh();
@@ -231,28 +233,29 @@ class MaintenanceService
 
             if ($stockLevel === null) {
                 Log::warning('PM goods movement skipped — no stock found', [
-                    'order_id'   => $order->id,
+                    'order_id' => $order->id,
                     'product_id' => $part->product_id,
                 ]);
+
                 continue;
             }
 
             try {
                 $this->stockService->recordMovement(
-                    productId:     $part->product_id,
-                    warehouseId:   $stockLevel->warehouse_id,
-                    movementType:  'maintenance_issue', // movement type 261
-                    direction:     'OUT',
-                    quantity:      (float) $part->quantity_used,
-                    unitCost:      (float) ($part->unit_cost ?? $stockLevel->average_cost ?? 0),
+                    productId: $part->product_id,
+                    warehouseId: $stockLevel->warehouse_id,
+                    movementType: 'maintenance_issue', // movement type 261
+                    direction: 'OUT',
+                    quantity: (float) $part->quantity_used,
+                    unitCost: (float) ($part->unit_cost ?? $stockLevel->average_cost ?? 0),
                     referenceType: 'maintenance_order',
-                    referenceId:   $order->id,
+                    referenceId: $order->id,
                 );
             } catch (\Throwable $e) {
                 Log::warning('PM goods movement failed', [
-                    'order_id'   => $order->id,
+                    'order_id' => $order->id,
                     'product_id' => $part->product_id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -294,7 +297,7 @@ class MaintenanceService
     public function getMaintenanceStats(int $orgId, string $from, string $to): array
     {
         $base = MaintenanceOrder::forOrganization($orgId)
-            ->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            ->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59']);
 
         $total = (clone $base)->count();
 
@@ -315,23 +318,23 @@ class MaintenanceService
             ->where('status', MaintenanceOrder::STATUS_COMPLETED)
             ->whereNotNull('actual_start')
             ->whereNotNull('actual_end')
-            ->selectRaw('TIMESTAMPDIFF(MINUTE, actual_start, actual_end) as repair_minutes, downtime_hours')
-            ->get();
+            ->get(['actual_start', 'actual_end', 'downtime_hours']);
 
         $mttrHours = 0.0;
         $totalDowntime = 0.0;
 
         if ($completedOrders->isNotEmpty()) {
-            $avgMinutes = $completedOrders->avg('repair_minutes');
-            $mttrHours  = round($avgMinutes / 60, 2);
+            // Minutes counted here: TIMESTAMPDIFF is MySQL only.
+            $avgMinutes = $completedOrders->avg(fn ($o) => $o->actual_start->diffInMinutes($o->actual_end));
+            $mttrHours = round($avgMinutes / 60, 2);
             $totalDowntime = round((float) $completedOrders->sum('downtime_hours'), 2);
         }
 
         return [
-            'total_orders'        => $total,
-            'by_type'             => $byType,
-            'by_status'           => $byStatus,
-            'mttr_hours'          => $mttrHours,
+            'total_orders' => $total,
+            'by_type' => $byType,
+            'by_status' => $byStatus,
+            'mttr_hours' => $mttrHours,
             'total_downtime_hours' => $totalDowntime,
         ];
     }

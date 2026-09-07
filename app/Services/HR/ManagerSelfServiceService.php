@@ -20,15 +20,15 @@ class ManagerSelfServiceService
      */
     public function getTeam(int $managerId, bool $includeIndirect = false): Collection
     {
-        $query = ManagerTeamView::query()
-            ->with(['employee.department', 'employee.designation'])
-            ->forManager($managerId);
+        $employeeIds = ManagerTeamView::query()
+            ->forManager($managerId)
+            ->when(! $includeIndirect, fn ($q) => $q->directReports())
+            ->pluck('employee_id');
 
-        if (! $includeIndirect) {
-            $query->directReports();
-        }
-
-        return $query->get()->pluck('employee')->filter()->values();
+        return Employee::query()
+            ->with(['department', 'designation'])
+            ->whereIn('id', $employeeIds)
+            ->get();
     }
 
     /**
@@ -54,7 +54,7 @@ class ManagerSelfServiceService
 
         return [
             'leave_requests' => $pendingLeaveRequests,
-            'counts'         => [
+            'counts' => [
                 'leave_requests' => $pendingLeaveRequests->count(),
             ],
         ];
@@ -71,7 +71,7 @@ class ManagerSelfServiceService
             ->toArray();
 
         if (empty($teamEmployeeIds)) {
-            return new Collection();
+            return new Collection;
         }
 
         return Attendance::query()
@@ -106,7 +106,7 @@ class ManagerSelfServiceService
             ->orderBy('start_date')
             ->get();
 
-        return $leaveRequests->groupBy(fn($lr) => $lr->start_date->toDateString())->toArray();
+        return $leaveRequests->groupBy(fn ($lr) => $lr->start_date->toDateString())->toArray();
     }
 
     /**
@@ -119,13 +119,13 @@ class ManagerSelfServiceService
         }
 
         return ManagerDelegation::create([
-            'manager_id'      => $data['manager_id'],
-            'delegate_id'     => $data['delegate_id'],
+            'manager_id' => $data['manager_id'],
+            'delegate_id' => $data['delegate_id'],
             'delegation_type' => $data['delegation_type'] ?? ManagerDelegation::TYPE_FULL,
-            'valid_from'      => $data['valid_from'],
-            'valid_to'        => $data['valid_to'] ?? null,
-            'is_active'       => true,
-            'reason'          => $data['reason'] ?? null,
+            'valid_from' => $data['valid_from'],
+            'valid_to' => $data['valid_to'] ?? null,
+            'is_active' => true,
+            'reason' => $data['reason'] ?? null,
         ]);
     }
 
@@ -153,9 +153,9 @@ class ManagerSelfServiceService
                 ->whereHas('user', function ($q) use ($managerId) {
                     $q->where('id', $managerId);
                 })
-                ->orWhere(function ($q) use ($managerId) {
+                ->orWhere(function ($q) {
                     // Employees whose manager user_id matches
-                    $q->whereHas('department', function ($dq) use ($managerId) {
+                    $q->whereHas('department', function ($dq) {
                         // fallback: no-op, handled below
                     });
                 })
@@ -171,7 +171,7 @@ class ManagerSelfServiceService
                 ManagerTeamView::updateOrCreate(
                     ['manager_id' => $managerId, 'employee_id' => $employee->id],
                     [
-                        'organization_id'   => $employee->organization_id,
+                        'organization_id' => $employee->organization_id,
                         'relationship_type' => ManagerTeamView::RELATIONSHIP_DIRECT,
                     ]
                 );

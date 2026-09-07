@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
+use App\Models\Inventory\StockMovement;
 use App\Models\Manufacturing\BomTemplate;
 use App\Models\Manufacturing\MaterialTransaction;
 use App\Models\Manufacturing\ProductionLog;
 use App\Models\Manufacturing\WorkOrder;
 use App\Models\Manufacturing\WorkOrderMaterial;
 use App\Models\Manufacturing\WorkOrderOperation;
-use App\Models\Inventory\StockMovement;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class WorkOrderService
@@ -32,7 +33,7 @@ class WorkOrderService
     {
         $bom->loadMissing(['lines.product', 'operations']);
 
-        if (!$bom->isActive()) {
+        if (! $bom->isActive()) {
             throw new \InvalidArgumentException('BOM template must be active to create a work order.');
         }
 
@@ -134,7 +135,7 @@ class WorkOrderService
      */
     public function update(WorkOrder $workOrder, array $data): WorkOrder
     {
-        if (!$workOrder->canBeEdited()) {
+        if (! $workOrder->canBeEdited()) {
             throw new \InvalidArgumentException('Work order cannot be edited in its current status.');
         }
 
@@ -148,7 +149,7 @@ class WorkOrderService
      */
     public function release(WorkOrder $workOrder): WorkOrder
     {
-        if (!$workOrder->isDraft()) {
+        if (! $workOrder->isDraft()) {
             throw new \InvalidArgumentException('Only draft work orders can be released.');
         }
 
@@ -175,12 +176,13 @@ class WorkOrderService
      */
     public function schedule(WorkOrder $workOrder, array $data): WorkOrder
     {
-        if (!$workOrder->isPending()) {
-            throw new \InvalidArgumentException('Only pending work orders can be scheduled.');
+        $unstarted = [WorkOrder::STATUS_DRAFT, WorkOrder::STATUS_RELEASED];
+
+        if (! in_array($workOrder->status, $unstarted, true)) {
+            throw new \InvalidArgumentException('Only a work order that has not started can be scheduled.');
         }
 
         $workOrder->update([
-            'status' => WorkOrder::STATUS_SCHEDULED,
             'planned_start_date' => $data['planned_start_date'] ?? $workOrder->planned_start_date,
             'planned_end_date' => $data['planned_end_date'] ?? $workOrder->planned_end_date,
             'assigned_to' => $data['assigned_to'] ?? $workOrder->assigned_to,
@@ -194,7 +196,7 @@ class WorkOrderService
      */
     public function start(WorkOrder $workOrder): WorkOrder
     {
-        if (!$workOrder->canBeStarted()) {
+        if (! $workOrder->canBeStarted()) {
             throw new \InvalidArgumentException('Work order cannot be started in its current status.');
         }
 
@@ -208,7 +210,7 @@ class WorkOrderService
      */
     public function issueMaterials(WorkOrder $workOrder, array $issues, int $userId): WorkOrder
     {
-        if (!$workOrder->isInProgress()) {
+        if (! $workOrder->isInProgress()) {
             throw new \InvalidArgumentException('Materials can only be issued to in-progress work orders.');
         }
 
@@ -399,7 +401,7 @@ class WorkOrderService
      */
     public function recordProduction(WorkOrder $workOrder, array $data, int $userId): ProductionLog
     {
-        if (!$workOrder->isInProgress()) {
+        if (! $workOrder->isInProgress()) {
             throw new \InvalidArgumentException('Production can only be recorded for in-progress work orders.');
         }
 
@@ -454,7 +456,7 @@ class WorkOrderService
      */
     public function complete(WorkOrder $workOrder): WorkOrder
     {
-        if (!$workOrder->canBeCompleted()) {
+        if (! $workOrder->canBeCompleted()) {
             throw new \InvalidArgumentException('Work order cannot be completed in its current status.');
         }
 
@@ -470,7 +472,7 @@ class WorkOrderService
                 ->values()
                 ->toArray();
 
-            if (!empty($returns)) {
+            if (! empty($returns)) {
                 $this->returnMaterials($workOrder, $returns);
             }
 
@@ -496,7 +498,7 @@ class WorkOrderService
      */
     public function cancel(WorkOrder $workOrder, string $reason): WorkOrder
     {
-        if (!$workOrder->canBeCancelled()) {
+        if (! $workOrder->canBeCancelled()) {
             throw new \InvalidArgumentException('Work order cannot be cancelled in its current status.');
         }
 
@@ -513,7 +515,7 @@ class WorkOrderService
                 ->values()
                 ->toArray();
 
-            if (!empty($returns)) {
+            if (! empty($returns)) {
                 $this->returnMaterials($workOrder, $returns);
             }
 
@@ -576,10 +578,10 @@ class WorkOrderService
      */
     protected function postCompletionJournal(WorkOrder $workOrder): void
     {
-        $fgAccount  = config('erp.default_accounts.fg_inventory');
+        $fgAccount = config('erp.default_accounts.fg_inventory');
         $wipAccount = config('erp.default_accounts.wip_inventory');
 
-        if (!$fgAccount || !$wipAccount) {
+        if (! $fgAccount || ! $wipAccount) {
             return;
         }
 
@@ -594,23 +596,23 @@ class WorkOrderService
         }
 
         $this->journalService->create([
-            'entry_date'   => now(),
-            'reference'    => $workOrder->work_order_number,
-            'description'  => "Work Order Completion: {$workOrder->work_order_number}",
-            'source_type'  => WorkOrder::class,
-            'source_id'    => $workOrder->id,
+            'entry_date' => now(),
+            'reference' => $workOrder->work_order_number,
+            'description' => "Work Order Completion: {$workOrder->work_order_number}",
+            'source_type' => WorkOrder::class,
+            'source_id' => $workOrder->id,
         ], [
             [
-                'account_id'  => $fgAccount,
+                'account_id' => $fgAccount,
                 'description' => "FG Receipt - {$workOrder->work_order_number}",
-                'debit'       => $totalCost,
-                'credit'      => 0,
+                'debit' => $totalCost,
+                'credit' => 0,
             ],
             [
-                'account_id'  => $wipAccount,
+                'account_id' => $wipAccount,
                 'description' => "WIP Clearance - {$workOrder->work_order_number}",
-                'debit'       => 0,
-                'credit'      => $totalCost,
+                'debit' => 0,
+                'credit' => $totalCost,
             ],
         ]);
     }
@@ -623,11 +625,11 @@ class WorkOrderService
         $query = WorkOrder::query()
             ->where('organization_id', auth()->user()->organization_id);
 
-        if (!empty($filters['branch_id'])) {
+        if (! empty($filters['branch_id'])) {
             $query->where('branch_id', $filters['branch_id']);
         }
 
-        if (!empty($filters['start_date']) && !empty($filters['end_date'])) {
+        if (! empty($filters['start_date']) && ! empty($filters['end_date'])) {
             $query->startingBetween($filters['start_date'], $filters['end_date']);
         }
 
@@ -673,8 +675,8 @@ class WorkOrderService
     public function getProductionSchedule($startDate, $endDate): array
     {
         // Cap to 90 days to prevent unbounded loads.
-        $start = \Carbon\Carbon::parse($startDate);
-        $end   = \Carbon\Carbon::parse($endDate)->min($start->copy()->addDays(90));
+        $start = Carbon::parse($startDate);
+        $end = Carbon::parse($endDate)->min($start->copy()->addDays(90));
 
         $workOrders = WorkOrder::active()
             ->startingBetween($start->toDateString(), $end->toDateString())
@@ -684,8 +686,8 @@ class WorkOrderService
             ->limit(500)
             ->get();
 
-        return $workOrders->groupBy(fn($wo) => $wo->planned_start_date->format('Y-m-d'))
-            ->map(fn($group) => $group->values())
+        return $workOrders->groupBy(fn ($wo) => $wo->planned_start_date->format('Y-m-d'))
+            ->map(fn ($group) => $group->values())
             ->toArray();
     }
 }

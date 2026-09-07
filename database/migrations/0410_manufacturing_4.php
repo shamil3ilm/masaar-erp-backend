@@ -49,7 +49,7 @@ return new class extends Migration
             $table->decimal('actual_overhead_cost', 15, 4)->default(0);
 
             // Status
-            $table->enum('status', ['draft', 'pending', 'scheduled', 'in_progress', 'completed', 'cancelled', 'released', 'closed'])->default('draft');
+            $table->enum('status', ['draft', 'released', 'in_progress', 'completed', 'closed', 'cancelled'])->default('draft');
             $table->enum('priority', ['low', 'normal', 'high', 'urgent'])->default('normal');
 
             // Assignment
@@ -150,7 +150,6 @@ return new class extends Migration
 
             $table->foreign('stock_movement_id', 'prod_log_stock_movement_fk')
                 ->references('id')->on('stock_movements')->nullOnDelete();
-
 
             $table->renameColumn('quality_checked', 'is_quality_checked');
         });
