@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\RealEstate;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RentalUnit extends Model
 {
-    use HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, SoftDeletes;
 
     protected $table = 'rental_units';
 

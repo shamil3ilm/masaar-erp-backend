@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\CRM;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\HR\Employee;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TerritoryAssignment extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
 
     public const ROLE_OWNER  = 'owner';
     public const ROLE_BACKUP = 'backup';

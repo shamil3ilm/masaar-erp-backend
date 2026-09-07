@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Inventory;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockLevelSnapshot extends Model
 {
+    use BelongsToOrganization;
+
     protected $fillable = [
         'organization_id',
         'product_id',

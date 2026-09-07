@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models\HR;
 
-use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AppraisalReviewer extends Model
 {
-    use BelongsToOrganization, HasUuid;
+    use HasUuid;
 
     // Reviewer types
     public const TYPE_SELF        = 'self';

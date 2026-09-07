@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Maintenance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class MaintenanceServiceOrder extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
     use SoftDeletes;
 
     protected $table = 'maintenance_service_orders';

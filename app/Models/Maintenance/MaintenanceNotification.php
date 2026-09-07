@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Maintenance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class MaintenanceNotification extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
     use SoftDeletes;
     use HasAuditTrail;
 

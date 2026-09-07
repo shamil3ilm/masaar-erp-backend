@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\CRM;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TerritoryRoutingRule extends Model
 {
-    use HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     // Entity type constants
     public const ENTITY_LEAD        = 'lead';

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\Warehouse;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WorkOrderCoProductActual extends Model
 {
-    use HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $fillable = [
         'organization_id',

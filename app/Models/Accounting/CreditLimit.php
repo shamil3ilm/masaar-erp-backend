@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\Core\Organization;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CreditLimit extends Model
 {
-    use HasFactory, HasAuditTrail, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasAuditTrail, HasUuid, SoftDeletes;
 
     public const RISK_LOW     = 'low';
     public const RISK_MEDIUM  = 'medium';

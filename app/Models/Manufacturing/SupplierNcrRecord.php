@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Inventory\Product;
 use App\Models\Sales\Contact;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SupplierNcrRecord extends Model
 {
-    use HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, SoftDeletes;
 
     protected $table = 'supplier_ncr_records';
 

@@ -59,7 +59,12 @@ class DpsScreeningRun extends Model
         return $this->hasMany(DpsScreeningResult::class);
     }
 
-    public function isClean(): bool
+    /**
+     * Not isClean(): Eloquent already has that name with a different signature,
+     * and redeclaring it made this class fatal on load — which took denied-party
+     * screening with it, because nothing here has a test.
+     */
+    public function isCleared(): bool
     {
         return $this->status === self::STATUS_CLEAN;
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Purchase;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PurchasingInfoRecordCondition extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $fillable = [
         'organization_id',

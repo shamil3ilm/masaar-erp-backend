@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Sales;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Sales\Contact;
 use App\Models\Sales\SalesReturn;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Refund extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
     use HasUuid;
 
     protected $guarded = ['id'];

@@ -38,7 +38,14 @@ class RecurringProfileLog extends Model
         return $this->belongsTo(RecurringProfile::class, 'recurring_profile_id');
     }
 
-    public function created(): MorphTo
+    /**
+     * The record this run produced.
+     *
+     * Not created(): Eloquent registers model events through a static method of
+     * that name, and declaring an instance method over it made the class fatal
+     * on load. The morph keeps its columns; only the accessor is renamed.
+     */
+    public function createdRecord(): MorphTo
     {
         return $this->morphTo('created', 'created_type', 'created_id');
     }

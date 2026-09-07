@@ -112,7 +112,11 @@ class UserSession extends Model
         ]);
     }
 
-    public function touch(): bool
+    /**
+     * Not touch(): Eloquent's own takes an optional attribute, and narrowing the
+     * signature made this class fatal on load. Nothing called it.
+     */
+    public function markActive(): bool
     {
         return $this->update(['last_activity_at' => now()]);
     }

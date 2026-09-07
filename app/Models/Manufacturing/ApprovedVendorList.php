@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Inventory\Product;
 use App\Models\Sales\Contact;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ApprovedVendorList extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $table = 'approved_vendor_lists';
 
