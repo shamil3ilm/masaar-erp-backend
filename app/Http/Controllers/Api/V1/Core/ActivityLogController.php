@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\UserSession;
+use App\Models\Core\UserSession;
+use App\Models\User;
 use App\Services\Core\ActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,12 +23,12 @@ class ActivityLogController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'user_id'     => 'nullable|integer|exists:users,id',
-            'action'      => 'nullable|string|max:100',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'action' => 'nullable|string|max:100',
             'entity_type' => 'nullable|string|max:100',
-            'from'        => 'nullable|date',
-            'to'          => 'nullable|date|after_or_equal:from',
-            'per_page'    => 'nullable|integer|min:1|max:100',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         $logs = $this->activityLogService->getAll(
@@ -67,11 +68,11 @@ class ActivityLogController extends Controller
      */
     public function getForUser(Request $request, int $userId): JsonResponse
     {
-        $targetUser = \App\Models\User::find($userId);
+        $targetUser = User::find($userId);
         abort_unless($targetUser !== null, 404, 'User not found.');
 
         $authUser = $request->user();
-        if (!$authUser->is_super_admin && $userId !== $authUser->id) {
+        if (! $authUser->is_super_admin && $userId !== $authUser->id) {
             abort(403, 'You are not authorized to view another user\'s activity logs.');
         }
 
@@ -102,7 +103,7 @@ class ActivityLogController extends Controller
      */
     public function allSessions(Request $request): JsonResponse
     {
-        if (!$request->user()->is_super_admin) {
+        if (! $request->user()->is_super_admin) {
             abort(403, 'Only super-admins can view all sessions.');
         }
 
@@ -120,7 +121,7 @@ class ActivityLogController extends Controller
     {
         // Users can only terminate their own sessions unless admin
         $user = $request->user();
-        if ($session->user_id !== $user->id && !$user->is_super_admin) {
+        if ($session->user_id !== $user->id && ! $user->is_super_admin) {
             return $this->error('You cannot terminate other users\' sessions.', 'OPERATION_FAILED', 403);
         }
 

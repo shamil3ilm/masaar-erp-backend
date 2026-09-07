@@ -7,28 +7,29 @@ namespace App\Services\Core;
 use App\Models\Core\ActivityLog;
 use App\Models\Core\EntityView;
 use App\Models\Core\LoginHistory;
-use App\Models\UserSession;
+use App\Models\Core\UserSession;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ActivityLogService
 {
     protected const CRITICAL_ACTIONS = [
-        \App\Models\Core\ActivityLog::ACTION_CREATED,
-        \App\Models\Core\ActivityLog::ACTION_UPDATED,
-        \App\Models\Core\ActivityLog::ACTION_DELETED,
-        \App\Models\Core\ActivityLog::ACTION_RESTORED,
-        \App\Models\Core\ActivityLog::ACTION_APPROVED,
-        \App\Models\Core\ActivityLog::ACTION_REJECTED,
-        \App\Models\Core\ActivityLog::ACTION_SUBMITTED,
-        \App\Models\Core\ActivityLog::ACTION_EXPORTED,
-        \App\Models\Core\ActivityLog::ACTION_EMAILED,
-        \App\Models\Core\ActivityLog::ACTION_PRINTED,
-        \App\Models\Core\ActivityLog::ACTION_ARCHIVED,
-        \App\Models\Core\ActivityLog::ACTION_IMPERSONATION_STARTED,
-        \App\Models\Core\ActivityLog::ACTION_IMPERSONATION_ENDED,
+        ActivityLog::ACTION_CREATED,
+        ActivityLog::ACTION_UPDATED,
+        ActivityLog::ACTION_DELETED,
+        ActivityLog::ACTION_RESTORED,
+        ActivityLog::ACTION_APPROVED,
+        ActivityLog::ACTION_REJECTED,
+        ActivityLog::ACTION_SUBMITTED,
+        ActivityLog::ACTION_EXPORTED,
+        ActivityLog::ACTION_EMAILED,
+        ActivityLog::ACTION_PRINTED,
+        ActivityLog::ACTION_ARCHIVED,
+        ActivityLog::ACTION_IMPERSONATION_STARTED,
+        ActivityLog::ACTION_IMPERSONATION_ENDED,
     ];
 
     /**
@@ -48,9 +49,9 @@ class ActivityLogService
             && in_array($data['action'], self::CRITICAL_ACTIONS, true);
 
         if ($impersonationSessionId !== null && $impersonatedById === null) {
-            \Illuminate\Support\Facades\Log::warning('ActivityLogService: impersonation_session_id present but impersonated_by_id is null — stamp skipped.', [
+            Log::warning('ActivityLogService: impersonation_session_id present but impersonated_by_id is null — stamp skipped.', [
                 'session_id' => $impersonationSessionId,
-                'action'     => $data['action'] ?? null,
+                'action' => $data['action'] ?? null,
             ]);
         }
 
@@ -75,7 +76,7 @@ class ActivityLogService
             'module' => $data['module'] ?? null,
             'severity' => $data['severity'] ?? ActivityLog::SEVERITY_INFO,
             'is_system' => $data['is_system'] ?? false,
-            'impersonated_by_id'       => $shouldStamp ? $impersonatedById : null,
+            'impersonated_by_id' => $shouldStamp ? $impersonatedById : null,
             'impersonation_session_id' => $shouldStamp ? $impersonationSessionId : null,
         ]);
     }
@@ -148,23 +149,23 @@ class ActivityLogService
             ->with('user')
             ->orderByDesc('created_at');
 
-        if (!empty($filters['user_id'])) {
+        if (! empty($filters['user_id'])) {
             $query->byUser((int) $filters['user_id']);
         }
 
-        if (!empty($filters['action'])) {
+        if (! empty($filters['action'])) {
             $query->byAction($filters['action']);
         }
 
-        if (!empty($filters['entity_type'])) {
+        if (! empty($filters['entity_type'])) {
             $query->where('entity_type', $filters['entity_type']);
         }
 
-        if (!empty($filters['module'])) {
+        if (! empty($filters['module'])) {
             $query->byModule($filters['module']);
         }
 
-        if (!empty($filters['severity'])) {
+        if (! empty($filters['severity'])) {
             $query->bySeverity($filters['severity']);
         }
 
@@ -172,18 +173,18 @@ class ActivityLogService
             $filters['is_system'] ? $query->systemOnly() : $query->userOnly();
         }
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $query->where(function ($q) use ($filters) {
-                $q->where('description', 'like', '%' . $filters['search'] . '%')
-                  ->orWhere('entity_name', 'like', '%' . $filters['search'] . '%');
+                $q->where('description', 'like', '%'.$filters['search'].'%')
+                    ->orWhere('entity_name', 'like', '%'.$filters['search'].'%');
             });
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->where('created_at', '>=', $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->where('created_at', '<=', $filters['date_to']);
         }
 

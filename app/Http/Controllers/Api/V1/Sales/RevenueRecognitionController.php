@@ -11,6 +11,7 @@ use App\Services\Sales\RevenueRecognitionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 
 class RevenueRecognitionController extends Controller
@@ -27,9 +28,9 @@ class RevenueRecognitionController extends Controller
         $orgId = auth()->user()->organization_id;
 
         $query = RevenueContract::with(['customer', 'performanceObligations'])
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->contact_id, fn($q, $v) => $q->where('contact_id', $v))
-            ->when($request->search, fn($q, $s) => $q->where('contract_number', 'like', "%{$s}%"))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
+            ->when($request->contact_id, fn ($q, $v) => $q->where('contact_id', $v))
+            ->when($request->search, fn ($q, $s) => $q->where('contract_number', 'like', "%{$s}%"))
             ->orderBy('contract_date', 'desc');
 
         $contracts = $query->paginate($request->integer('per_page', 15));
@@ -45,29 +46,29 @@ class RevenueRecognitionController extends Controller
         $orgId = auth()->user()->organization_id;
 
         $validated = $request->validate([
-            'contract_number'         => ['required', 'string', 'max:100', Rule::unique('revenue_contracts')->where('organization_id', $orgId)],
-            'contact_id'              => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
-            'contract_date'           => 'required|date',
+            'contract_number' => ['required', 'string', 'max:100', Rule::unique('revenue_contracts')->where('organization_id', $orgId)],
+            'contact_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
+            'contract_date' => 'required|date',
             'total_transaction_price' => 'required|numeric|min:0',
-            'recognition_method'      => ['required', Rule::in([RevenueContract::METHOD_POINT_IN_TIME, RevenueContract::METHOD_OVER_TIME])],
-            'start_date'              => 'nullable|date',
-            'end_date'                => 'nullable|date|after_or_equal:start_date',
-            'status'                  => ['nullable', Rule::in([RevenueContract::STATUS_DRAFT, RevenueContract::STATUS_ACTIVE])],
+            'recognition_method' => ['required', Rule::in([RevenueContract::METHOD_POINT_IN_TIME, RevenueContract::METHOD_OVER_TIME])],
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'status' => ['nullable', Rule::in([RevenueContract::STATUS_DRAFT, RevenueContract::STATUS_ACTIVE])],
 
-            'obligations'                                      => 'required|array|min:1',
-            'obligations.*.description'                        => 'required|string|max:500',
-            'obligations.*.standalone_selling_price'           => 'required|numeric|min:0',
-            'obligations.*.recognition_method'                 => ['required', Rule::in([
+            'obligations' => 'required|array|min:1',
+            'obligations.*.description' => 'required|string|max:500',
+            'obligations.*.standalone_selling_price' => 'required|numeric|min:0',
+            'obligations.*.recognition_method' => ['required', Rule::in([
                 PerformanceObligation::METHOD_POINT_IN_TIME,
                 PerformanceObligation::METHOD_OVER_TIME,
                 PerformanceObligation::METHOD_MILESTONE,
             ])],
-            'obligations.*.revenue_account_id'                 => 'nullable|exists:chart_of_accounts,id',
-            'obligations.*.deferred_account_id'                => 'nullable|exists:chart_of_accounts,id',
+            'obligations.*.revenue_account_id' => 'nullable|exists:chart_of_accounts,id',
+            'obligations.*.deferred_account_id' => 'nullable|exists:chart_of_accounts,id',
         ]);
 
         $contractData = array_merge(
-            array_except($validated, ['obligations']),
+            Arr::except($validated, ['obligations']),
             ['organization_id' => $orgId, 'status' => $validated['status'] ?? RevenueContract::STATUS_DRAFT]
         );
 
@@ -95,19 +96,19 @@ class RevenueRecognitionController extends Controller
      */
     public function update(Request $request, RevenueContract $revenueContract): JsonResponse
     {
-        if (!$revenueContract->isDraft()) {
+        if (! $revenueContract->isDraft()) {
             return $this->error('Only draft contracts can be updated.', 'INVALID_STATUS', 422);
         }
 
         $orgId = auth()->user()->organization_id;
 
         $validated = $request->validate([
-            'contract_date'           => 'sometimes|date',
+            'contract_date' => 'sometimes|date',
             'total_transaction_price' => 'sometimes|numeric|min:0',
-            'recognition_method'      => ['sometimes', Rule::in([RevenueContract::METHOD_POINT_IN_TIME, RevenueContract::METHOD_OVER_TIME])],
-            'start_date'              => 'nullable|date',
-            'end_date'                => 'nullable|date|after_or_equal:start_date',
-            'status'                  => ['sometimes', Rule::in([
+            'recognition_method' => ['sometimes', Rule::in([RevenueContract::METHOD_POINT_IN_TIME, RevenueContract::METHOD_OVER_TIME])],
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'status' => ['sometimes', Rule::in([
                 RevenueContract::STATUS_DRAFT,
                 RevenueContract::STATUS_ACTIVE,
                 RevenueContract::STATUS_CANCELLED,
@@ -138,11 +139,11 @@ class RevenueRecognitionController extends Controller
     public function recognize(Request $request, PerformanceObligation $performanceObligation): JsonResponse
     {
         $validated = $request->validate([
-            'amount'         => 'required|numeric|min:0.01',
-            'event_date'     => 'nullable|date',
-            'method'         => ['nullable', Rule::in(['point_in_time', 'progress'])],
+            'amount' => 'required|numeric|min:0.01',
+            'event_date' => 'nullable|date',
+            'method' => ['nullable', Rule::in(['point_in_time', 'progress'])],
             'completion_pct' => 'required_if:method,progress|nullable|numeric|min:0|max:100',
-            'notes'          => 'nullable|string|max:500',
+            'notes' => 'nullable|string|max:500',
         ]);
 
         $method = $validated['method'] ?? 'amount';

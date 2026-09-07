@@ -22,7 +22,7 @@ class EvmBaselineController extends Controller
     {
         $baselines = $this->service->getBaselines($project->id);
 
-        return $this->successResponse($baselines, 'Baselines retrieved');
+        return $this->success($baselines, 'Baselines retrieved');
     }
 
     /**
@@ -31,22 +31,22 @@ class EvmBaselineController extends Controller
     public function store(Request $request, Project $project): JsonResponse
     {
         $data = $request->validate([
-            'name'          => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255'],
             'baseline_type' => ['required', 'in:original,revised,current'],
             'set_as_active' => ['boolean'],
-            'notes'         => ['nullable', 'string'],
+            'notes' => ['nullable', 'string'],
         ]);
 
         $baseline = $this->service->capture(
-            project:     $project,
-            name:        $data['name'],
+            project: $project,
+            name: $data['name'],
             baselineType: $data['baseline_type'],
             setAsActive: (bool) ($data['set_as_active'] ?? false),
-            createdBy:   $request->user(),
-            notes:       $data['notes'] ?? null,
+            createdBy: $request->user(),
+            notes: $data['notes'] ?? null,
         );
 
-        return $this->successResponse($baseline, 'Baseline captured', 201);
+        return $this->success($baseline, 'Baseline captured', 201);
     }
 
     /**
@@ -54,7 +54,7 @@ class EvmBaselineController extends Controller
      */
     public function show(EvmBaseline $baseline): JsonResponse
     {
-        return $this->successResponse($baseline->load('lines'), 'Baseline retrieved');
+        return $this->success($baseline->load('lines'), 'Baseline retrieved');
     }
 
     /**
@@ -64,7 +64,7 @@ class EvmBaselineController extends Controller
     {
         $baseline = $this->service->approve($baseline, $request->user());
 
-        return $this->successResponse($baseline, 'Baseline approved');
+        return $this->success($baseline, 'Baseline approved');
     }
 
     /**
@@ -74,7 +74,7 @@ class EvmBaselineController extends Controller
     {
         $baseline = $this->service->activate($baseline);
 
-        return $this->successResponse($baseline, 'Baseline activated');
+        return $this->success($baseline, 'Baseline activated');
     }
 
     /**
@@ -84,6 +84,6 @@ class EvmBaselineController extends Controller
     {
         $result = $this->service->compareToBaseline($project);
 
-        return $this->successResponse($result, 'Baseline comparison retrieved');
+        return $this->success($result, 'Baseline comparison retrieved');
     }
 }

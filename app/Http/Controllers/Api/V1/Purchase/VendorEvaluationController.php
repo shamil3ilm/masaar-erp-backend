@@ -26,22 +26,22 @@ class VendorEvaluationController extends Controller
     {
         $criteria = $this->service->getCriteria($request->user()->organization_id);
 
-        return $this->successResponse($criteria, 'Evaluation criteria retrieved');
+        return $this->success($criteria, 'Evaluation criteria retrieved');
     }
 
     /** POST /vendor-evaluation/criteria */
     public function storeCriterion(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'           => ['required', 'string', 'max:255'],
-            'description'    => ['nullable', 'string'],
-            'category'       => ['required', 'in:quality,delivery,price,service,compliance'],
+            'name' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+            'category' => ['required', 'in:quality,delivery,price,service,compliance'],
             'weight_percent' => ['required', 'numeric', 'min:0', 'max:100'],
         ]);
 
         $criterion = $this->service->createCriterion($request->user()->organization_id, $data);
 
-        return $this->successResponse($criterion, 'Evaluation criterion created', 201);
+        return $this->success($criterion, 'Evaluation criterion created', 201);
     }
 
     // ----------------------------------------------------------------
@@ -53,8 +53,8 @@ class VendorEvaluationController extends Controller
     {
         $scorecards = $this->service->listScorecards(
             organizationId: $request->user()->organization_id,
-            filters:        $request->only(['supplier_id', 'status']),
-            perPage:        (int) $request->get('per_page', 20),
+            filters: $request->only(['supplier_id', 'status']),
+            perPage: (int) $request->get('per_page', 20),
         );
 
         return $this->paginated($scorecards, null, 'Supplier scorecards retrieved');
@@ -64,26 +64,26 @@ class VendorEvaluationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'supplier_id'  => ['required', 'integer'],
+            'supplier_id' => ['required', 'integer'],
             'period_start' => ['required', 'date'],
-            'period_end'   => ['required', 'date', 'after_or_equal:period_start'],
+            'period_end' => ['required', 'date', 'after_or_equal:period_start'],
         ]);
 
         $scorecard = $this->service->createScorecard(
             organizationId: $request->user()->organization_id,
-            supplierId:     $data['supplier_id'],
-            periodStart:    $data['period_start'],
-            periodEnd:      $data['period_end'],
-            createdBy:      $request->user()->id,
+            supplierId: $data['supplier_id'],
+            periodStart: $data['period_start'],
+            periodEnd: $data['period_end'],
+            createdBy: $request->user()->id,
         );
 
-        return $this->successResponse($scorecard, 'Supplier scorecard created', 201);
+        return $this->success($scorecard, 'Supplier scorecard created', 201);
     }
 
     /** GET /vendor-evaluation/scorecards/{scorecard} */
     public function show(SupplierScorecard $supplierScorecard): JsonResponse
     {
-        return $this->successResponse(
+        return $this->success(
             $supplierScorecard->load(['supplier:id,name', 'ratings.criterion', 'evaluator:id,name']),
             'Scorecard retrieved',
         );
@@ -93,15 +93,15 @@ class VendorEvaluationController extends Controller
     public function updateRatings(Request $request, SupplierScorecard $supplierScorecard): JsonResponse
     {
         $data = $request->validate([
-            'ratings'               => ['required', 'array', 'min:1'],
+            'ratings' => ['required', 'array', 'min:1'],
             'ratings.*.criterion_id' => ['required', 'integer'],
-            'ratings.*.score'       => ['required', 'numeric', 'min:0', 'max:100'],
-            'ratings.*.comments'    => ['nullable', 'string'],
+            'ratings.*.score' => ['required', 'numeric', 'min:0', 'max:100'],
+            'ratings.*.comments' => ['nullable', 'string'],
         ]);
 
         $scorecard = $this->service->updateRatings($supplierScorecard, $data['ratings']);
 
-        return $this->successResponse($scorecard, 'Ratings updated');
+        return $this->success($scorecard, 'Ratings updated');
     }
 
     /** POST /vendor-evaluation/scorecards/{scorecard}/finalize */
@@ -109,7 +109,7 @@ class VendorEvaluationController extends Controller
     {
         $scorecard = $this->service->finalize($supplierScorecard, $request->user()->id);
 
-        return $this->successResponse($scorecard, 'Scorecard finalized');
+        return $this->success($scorecard, 'Scorecard finalized');
     }
 
     // ----------------------------------------------------------------
@@ -121,7 +121,7 @@ class VendorEvaluationController extends Controller
     {
         $data = $request->validate([
             'period_start' => ['required', 'date'],
-            'period_end'   => ['required', 'date'],
+            'period_end' => ['required', 'date'],
         ]);
 
         $ranking = $this->service->supplierRanking(
@@ -130,7 +130,7 @@ class VendorEvaluationController extends Controller
             $data['period_end'],
         );
 
-        return $this->successResponse($ranking, 'Supplier ranking retrieved');
+        return $this->success($ranking, 'Supplier ranking retrieved');
     }
 
     /** GET /vendor-evaluation/suppliers/{supplierId}/trend */
@@ -141,6 +141,6 @@ class VendorEvaluationController extends Controller
             $supplierId,
         );
 
-        return $this->successResponse($trend, 'Supplier score trend retrieved');
+        return $this->success($trend, 'Supplier score trend retrieved');
     }
 }

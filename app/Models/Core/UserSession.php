@@ -5,18 +5,21 @@ declare(strict_types=1);
 namespace App\Models\Core;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class UserSession extends Model
 {
     use HasFactory;
+
     public $timestamps = false;
 
     // Logout reasons
     public const LOGOUT_MANUAL = 'manual';
+
     public const LOGOUT_EXPIRED = 'expired';
+
     public const LOGOUT_FORCED = 'forced';
 
     public const LOGOUT_REASONS = [
@@ -27,7 +30,9 @@ class UserSession extends Model
 
     // Device types
     public const DEVICE_DESKTOP = 'desktop';
+
     public const DEVICE_MOBILE = 'mobile';
+
     public const DEVICE_TABLET = 'tablet';
 
     public const DEVICE_TYPES = [

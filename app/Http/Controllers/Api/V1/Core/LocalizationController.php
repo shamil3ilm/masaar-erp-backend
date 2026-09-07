@@ -11,6 +11,7 @@ use App\Models\Core\Translation;
 use App\Services\Core\LocalizationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 
 class LocalizationController extends Controller
@@ -31,7 +32,7 @@ class LocalizationController extends Controller
     {
         return $this->success([
             'languages' => Language::active()->ordered()->get(),
-            'default'   => Language::getDefault(),
+            'default' => Language::getDefault(),
         ]);
     }
 
@@ -41,8 +42,8 @@ class LocalizationController extends Controller
 
         return $this->success([
             'translations' => Translation::getAllForLanguage($languageCode, $organizationId),
-            'language'     => $languageCode,
-            'direction'    => $this->localizationService->getDirection($languageCode),
+            'language' => $languageCode,
+            'direction' => $this->localizationService->getDirection($languageCode),
         ]);
     }
 
@@ -52,16 +53,16 @@ class LocalizationController extends Controller
 
         return $this->success([
             'translations' => Translation::getGroup($group, $languageCode, $organizationId),
-            'group'        => $group,
-            'language'     => $languageCode,
+            'group' => $group,
+            'language' => $languageCode,
         ]);
     }
 
     public function updateTranslation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'key'           => 'required|string',
-            'value'         => 'required|string',
+            'key' => 'required|string',
+            'value' => 'required|string',
             'language_code' => 'required|string|max:10',
         ]);
 
@@ -78,15 +79,15 @@ class LocalizationController extends Controller
     public function updateTranslations(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'language_code'          => 'required|string|max:10',
-            'translations'           => 'required|array',
-            'translations.*.key'     => 'required|string',
-            'translations.*.value'   => 'required|string',
+            'language_code' => 'required|string|max:10',
+            'translations' => 'required|array',
+            'translations.*.key' => 'required|string',
+            'translations.*.value' => 'required|string',
         ]);
 
-        $languageCode   = $validated['language_code'];
+        $languageCode = $validated['language_code'];
         $organizationId = $request->user()->organization_id;
-        $count          = 0;
+        $count = 0;
 
         foreach ($validated['translations'] as $item) {
             Translation::set($item['key'], $item['value'], $languageCode, $organizationId);
@@ -103,39 +104,39 @@ class LocalizationController extends Controller
         $branding = OrganizationBranding::getForOrganization($request->user()->organization_id);
 
         return $this->success([
-            'branding'             => $branding,
-            'css_variables'        => $branding->getCssVariables(),
-            'presets'              => OrganizationBranding::COLOR_PRESETS,
-            'font_options'         => OrganizationBranding::FONT_OPTIONS,
-            'arabic_font_options'  => OrganizationBranding::ARABIC_FONT_OPTIONS,
+            'branding' => $branding,
+            'css_variables' => $branding->getCssVariables(),
+            'presets' => OrganizationBranding::COLOR_PRESETS,
+            'font_options' => OrganizationBranding::FONT_OPTIONS,
+            'arabic_font_options' => OrganizationBranding::ARABIC_FONT_OPTIONS,
         ]);
     }
 
     public function updateBranding(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'primary_color'       => 'nullable|string|max:20',
-            'secondary_color'     => 'nullable|string|max:20',
-            'accent_color'        => 'nullable|string|max:20',
-            'danger_color'        => 'nullable|string|max:20',
-            'warning_color'       => 'nullable|string|max:20',
-            'success_color'       => 'nullable|string|max:20',
-            'info_color'          => 'nullable|string|max:20',
-            'text_color'          => 'nullable|string|max:20',
-            'background_color'    => 'nullable|string|max:20',
-            'sidebar_color'       => 'nullable|string|max:20',
-            'header_color'        => 'nullable|string|max:20',
-            'font_family'         => 'nullable|string|max:100',
-            'font_family_arabic'  => 'nullable|string|max:100',
-            'base_font_size'      => 'nullable|integer|min:10|max:20',
-            'theme'               => 'nullable|string|in:light,dark,auto',
-            'enable_dark_mode'    => 'nullable|boolean',
-            'custom_css'          => 'nullable|string|max:10000',
-            'email_header_color'  => 'nullable|string|max:20',
-            'email_footer_text'   => 'nullable|string|max:500',
-            'document_watermark'  => 'nullable|string|max:100',
+            'primary_color' => 'nullable|string|max:20',
+            'secondary_color' => 'nullable|string|max:20',
+            'accent_color' => 'nullable|string|max:20',
+            'danger_color' => 'nullable|string|max:20',
+            'warning_color' => 'nullable|string|max:20',
+            'success_color' => 'nullable|string|max:20',
+            'info_color' => 'nullable|string|max:20',
+            'text_color' => 'nullable|string|max:20',
+            'background_color' => 'nullable|string|max:20',
+            'sidebar_color' => 'nullable|string|max:20',
+            'header_color' => 'nullable|string|max:20',
+            'font_family' => 'nullable|string|max:100',
+            'font_family_arabic' => 'nullable|string|max:100',
+            'base_font_size' => 'nullable|integer|min:10|max:20',
+            'theme' => 'nullable|string|in:light,dark,auto',
+            'enable_dark_mode' => 'nullable|boolean',
+            'custom_css' => 'nullable|string|max:10000',
+            'email_header_color' => 'nullable|string|max:20',
+            'email_footer_text' => 'nullable|string|max:500',
+            'document_watermark' => 'nullable|string|max:100',
             'document_footer_text' => 'nullable|string|max:500',
-            'preset'              => 'nullable|string',
+            'preset' => 'nullable|string',
         ]);
 
         $branding = OrganizationBranding::getForOrganization($request->user()->organization_id);
@@ -144,11 +145,11 @@ class LocalizationController extends Controller
             $branding->applyPreset($validated['preset']);
         }
 
-        $branding->fill(array_except($validated, ['preset']) ?? collect($validated)->except('preset')->all());
+        $branding->fill(Arr::except($validated, ['preset']) ?? collect($validated)->except('preset')->all());
         $branding->save();
 
         return $this->success([
-            'branding'      => $branding,
+            'branding' => $branding,
             'css_variables' => $branding->getCssVariables(),
         ], 'Branding updated successfully');
     }
@@ -160,18 +161,18 @@ class LocalizationController extends Controller
             'type' => 'required|string|in:logo,logo_dark,favicon,login_background',
         ]);
 
-        $type           = $validated['type'];
+        $type = $validated['type'];
         $organizationId = $request->user()->organization_id;
 
         $path = $request->file('logo')->store("organizations/{$organizationId}/branding", 'public');
-        $url  = Storage::disk('public')->url($path);
+        $url = Storage::disk('public')->url($path);
 
         $branding = OrganizationBranding::getForOrganization($organizationId);
 
         $fieldMap = [
-            'logo'             => 'logo_url',
-            'logo_dark'        => 'logo_dark_url',
-            'favicon'          => 'favicon_url',
+            'logo' => 'logo_url',
+            'logo_dark' => 'logo_dark_url',
+            'favicon' => 'favicon_url',
             'login_background' => 'login_background_url',
         ];
 

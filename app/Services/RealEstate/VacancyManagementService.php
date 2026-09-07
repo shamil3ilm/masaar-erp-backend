@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Services\RealEstate;
 
 use App\Models\RealEstate\Building;
-use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\OccupancySnapshot;
 use App\Models\RealEstate\Portfolio;
+use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\RentalUnit;
 use App\Models\RealEstate\VacancyPeriod;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 
 /**
  * RE-FX Vacancy Management Service.
@@ -39,15 +39,15 @@ class VacancyManagementService
 
         $vacancy = VacancyPeriod::create([
             'organization_id' => $unit->organization_id,
-            'rental_unit_id'  => $unit->id,
-            'building_id'     => $unit->building_id,
-            'property_id'     => $unit->building?->property_id ?? null,
-            'portfolio_id'    => $unit->building?->property?->portfolio_id ?? null,
-            'vacant_from'     => $vacantFrom,
-            'vacant_to'       => null,
-            'vacancy_reason'  => $reason,
-            'market_rent'     => $marketRent,
-            'notes'           => $notes,
+            'rental_unit_id' => $unit->id,
+            'building_id' => $unit->building_id,
+            'property_id' => $unit->building?->property_id ?? null,
+            'portfolio_id' => $unit->building?->property?->portfolio_id ?? null,
+            'vacant_from' => $vacantFrom,
+            'vacant_to' => null,
+            'vacancy_reason' => $reason,
+            'market_rent' => $marketRent,
+            'notes' => $notes,
         ]);
 
         $unit->update(['status' => 'vacant']);
@@ -78,12 +78,12 @@ class VacancyManagementService
             ->where('is_active', true)
             ->get();
 
-        $occupied      = $units->where('status', 'occupied');
-        $vacant        = $units->where('status', 'vacant');
-        $totalArea     = (float) $units->sum('area_sqm');
-        $occupiedArea  = (float) $occupied->sum('area_sqm');
+        $occupied = $units->where('status', 'occupied');
+        $vacant = $units->where('status', 'vacant');
+        $totalArea = (float) $units->sum('area_sqm');
+        $occupiedArea = (float) $occupied->sum('area_sqm');
         $occupancyRate = $units->count() > 0 ? round($occupied->count() / $units->count() * 100, 2) : 0.0;
-        $areaRate      = $totalArea > 0 ? round($occupiedArea / $totalArea * 100, 2) : 0.0;
+        $areaRate = $totalArea > 0 ? round($occupiedArea / $totalArea * 100, 2) : 0.0;
 
         $potentialRent = (float) RentalContract::whereIn('rental_unit_id', $units->pluck('id'))
             ->where('status', 'active')
@@ -98,20 +98,20 @@ class VacancyManagementService
         return OccupancySnapshot::updateOrCreate(
             [
                 'organization_id' => $building->organization_id,
-                'snapshot_type'   => OccupancySnapshot::TYPE_BUILDING,
-                'reference_id'    => $building->id,
-                'snapshot_date'   => $snapDate,
+                'snapshot_type' => OccupancySnapshot::TYPE_BUILDING,
+                'reference_id' => $building->id,
+                'snapshot_date' => $snapDate,
             ],
             [
-                'total_units'         => $units->count(),
-                'occupied_units'      => $occupied->count(),
-                'vacant_units'        => $vacant->count(),
-                'occupancy_rate'      => $occupancyRate,
-                'total_area_sqm'      => $totalArea,
-                'occupied_area_sqm'   => $occupiedArea,
+                'total_units' => $units->count(),
+                'occupied_units' => $occupied->count(),
+                'vacant_units' => $vacant->count(),
+                'occupancy_rate' => $occupancyRate,
+                'total_area_sqm' => $totalArea,
+                'occupied_area_sqm' => $occupiedArea,
                 'area_occupancy_rate' => $areaRate,
-                'potential_rent'      => $potentialRent,
-                'actual_rent'         => $potentialRent,
+                'potential_rent' => $potentialRent,
+                'actual_rent' => $potentialRent,
             ]
         );
     }
@@ -136,14 +136,15 @@ class VacancyManagementService
     /**
      * Get vacancy history for a unit.
      */
-    public function getVacancyHistory(RentalUnit $unit): \Illuminate\Support\Collection
+    public function getVacancyHistory(RentalUnit $unit): Collection
     {
         return VacancyPeriod::where('rental_unit_id', $unit->id)
             ->orderByDesc('vacant_from')
             ->get()
             ->map(function (VacancyPeriod $v) {
-                $v->days_vacant    = $v->getDaysVacant();
-                $v->vacancy_loss   = $v->computeVacancyLoss();
+                $v->days_vacant = $v->getDaysVacant();
+                $v->vacancy_loss = $v->computeVacancyLoss();
+
                 return $v;
             });
     }
@@ -151,7 +152,7 @@ class VacancyManagementService
     /**
      * Vacancy report for a building: all vacant units with open periods.
      */
-    public function getVacantUnits(int $buildingId, int $organizationId): \Illuminate\Support\Collection
+    public function getVacantUnits(int $buildingId, int $organizationId): Collection
     {
         return VacancyPeriod::where('organization_id', $organizationId)
             ->where('building_id', $buildingId)
@@ -159,8 +160,9 @@ class VacancyManagementService
             ->with('rentalUnit:id,code,name,unit_type,area_sqm,floor_id')
             ->get()
             ->map(function (VacancyPeriod $v) {
-                $v->days_vacant  = $v->getDaysVacant();
+                $v->days_vacant = $v->getDaysVacant();
                 $v->vacancy_loss = $v->computeVacancyLoss();
+
                 return $v;
             });
     }
@@ -168,11 +170,14 @@ class VacancyManagementService
     /**
      * Historical occupancy trend for a building (monthly snapshots).
      */
-    public function getOccupancyTrend(int $buildingId, int $organizationId, string $from, string $to): \Illuminate\Support\Collection
+    /**
+     * @param  int|null  $buildingId  null for every building in the organization
+     */
+    public function getOccupancyTrend(?int $buildingId, int $organizationId, string $from, string $to): Collection
     {
         return OccupancySnapshot::where('organization_id', $organizationId)
             ->where('snapshot_type', OccupancySnapshot::TYPE_BUILDING)
-            ->where('reference_id', $buildingId)
+            ->when($buildingId !== null, fn ($q) => $q->where('reference_id', $buildingId))
             ->whereBetween('snapshot_date', [$from, $to])
             ->orderBy('snapshot_date')
             ->get();
@@ -192,7 +197,7 @@ class VacancyManagementService
 
         $loss = $open->computeVacancyLoss();
         $open->update([
-            'vacant_to'    => $closedAt,
+            'vacant_to' => $closedAt,
             'vacancy_loss' => $loss,
         ]);
 

@@ -32,22 +32,22 @@ class BudgetTransferController extends Controller
             $request->only(['status', 'from_budget_id', 'to_budget_id']),
         );
 
-        return $this->successResponse($transfers);
+        return $this->success($transfers);
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'from_budget_line_id' => 'required|integer|exists:budget_lines,id',
-            'to_budget_line_id'   => 'required|integer|exists:budget_lines,id|different:from_budget_line_id',
-            'amount'              => 'required|numeric|min:0.01',
-            'reason'              => 'required|string|max:500',
-            'notes'               => 'nullable|string|max:2000',
+            'to_budget_line_id' => 'required|integer|exists:budget_lines,id|different:from_budget_line_id',
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'required|string|max:500',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $transfer = $this->service->create($validated, $request->user());
 
-        return $this->successResponse($transfer->load([
+        return $this->success($transfer->load([
             'fromBudget:id,name',
             'fromBudgetLine:id,budget_id,total_amount,committed_amount,actual_amount',
             'toBudget:id,name',
@@ -62,15 +62,15 @@ class BudgetTransferController extends Controller
             'requester:id,name', 'approver:id,name',
         ])->findOrFail($id);
 
-        return $this->successResponse($transfer);
+        return $this->success($transfer);
     }
 
     public function submit(Request $request, string $id): JsonResponse
     {
         $transfer = BudgetTransfer::findOrFail($id);
-        $updated  = $this->service->submit($transfer);
+        $updated = $this->service->submit($transfer);
 
-        return $this->successResponse($updated, 'Budget transfer submitted for approval');
+        return $this->success($updated, 'Budget transfer submitted for approval');
     }
 
     public function review(Request $request, string $id): JsonResponse
@@ -84,10 +84,12 @@ class BudgetTransferController extends Controller
 
         if ($validated['action'] === 'approve') {
             $updated = $this->service->approve($transfer, $request->user());
+
             return $this->success($updated, 'Budget transfer approved and posted');
         }
 
         $updated = $this->service->reject($transfer, $request->user(), $validated['reason']);
+
         return $this->success($updated, 'Budget transfer rejected');
     }
 }
