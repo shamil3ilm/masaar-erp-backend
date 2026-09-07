@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Maintenance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MaintenanceRca extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $table = 'maintenance_root_cause_analyses';
 

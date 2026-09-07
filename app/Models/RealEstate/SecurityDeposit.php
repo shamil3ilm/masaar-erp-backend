@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\RealEstate;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SecurityDeposit extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $table = 'security_deposits';
 

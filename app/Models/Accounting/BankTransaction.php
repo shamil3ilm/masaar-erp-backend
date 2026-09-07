@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 class BankTransaction extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
     use HasUuid;
 
     public const STATUS_UNMATCHED   = 'unmatched';

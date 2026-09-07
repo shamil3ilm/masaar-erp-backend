@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SpcSubgroup extends Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'spc_subgroups';
 
     protected $fillable = [

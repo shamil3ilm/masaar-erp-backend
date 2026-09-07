@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Sales;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Core\Organization;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AdvancePayment extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
     public const STATUS_DRAFT            = 'draft';
     public const STATUS_RECEIVED         = 'received';

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\TaskBoard;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class BoardTask extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
     protected $table = 'tasks';
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Purchase;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Sales\Contact;
 use Illuminate\Database\Eloquent\Builder;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class QuotaArrangementItem extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $fillable = [
         'organization_id',

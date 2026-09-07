@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Sales;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\Warehouse;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ConsignmentStock extends Model
 {
+    use BelongsToOrganization;
+
     protected $guarded = ['id'];
 
     protected function casts(): array

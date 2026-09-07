@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Messaging;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Sales\Contact;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OutboundMessage extends Model
 {
-    use HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $guarded = ['id'];
 

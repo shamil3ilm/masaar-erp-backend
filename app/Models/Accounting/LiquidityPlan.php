@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Core\Organization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LiquidityPlan extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
 
     public const GRANULARITY_DAILY   = 'daily';
     public const GRANULARITY_WEEKLY  = 'weekly';

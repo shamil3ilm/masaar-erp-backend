@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CapaEightD extends Model
 {
-    use HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid;
     use SoftDeletes;
     use HasAuditTrail;
 

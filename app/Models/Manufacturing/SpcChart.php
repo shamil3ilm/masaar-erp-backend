@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SpcChart extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $table = 'spc_charts';
 

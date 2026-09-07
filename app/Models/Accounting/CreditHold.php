@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\Core\Organization;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CreditHold extends Model
 {
-    use HasFactory, HasAuditTrail, HasUuid;
+    use BelongsToOrganization, HasFactory, HasAuditTrail, HasUuid;
 
     protected $guarded = ['id'];
 

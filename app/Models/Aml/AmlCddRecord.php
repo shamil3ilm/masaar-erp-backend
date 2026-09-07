@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Aml;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Core\Organization;
 use App\Models\Sales\Contact;
 use App\Models\User;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AmlCddRecord extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
 
     // CDD level constants
     public const LEVEL_STANDARD   = 'standard';

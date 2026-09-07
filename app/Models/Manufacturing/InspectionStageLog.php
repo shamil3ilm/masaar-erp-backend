@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InspectionStageLog extends Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'inspection_stage_logs';
 
     public const STAGE_TIGHTENED = 'tightened';

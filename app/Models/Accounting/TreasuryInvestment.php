@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Core\Organization;
 use App\Models\User;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TreasuryInvestment extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
     public const STATUS_ACTIVE        = 'active';
     public const STATUS_MATURED       = 'matured';

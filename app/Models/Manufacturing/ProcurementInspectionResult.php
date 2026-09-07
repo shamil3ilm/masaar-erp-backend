@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
-use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProcurementInspectionResult extends Model
 {
-    use BelongsToOrganization, HasUuid;
+    use HasUuid;
 
     protected $fillable = [
         'procurement_inspection_id',

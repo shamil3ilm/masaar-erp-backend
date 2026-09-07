@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Compliance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GrcRiskCategory extends Model
 {
-    use HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $table = 'grc_risk_categories';
 

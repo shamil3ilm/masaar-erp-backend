@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Compliance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class GrcCsaQuestionnaire extends Model
 {
-    use HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
     protected $table = 'grc_csa_questionnaires';
 

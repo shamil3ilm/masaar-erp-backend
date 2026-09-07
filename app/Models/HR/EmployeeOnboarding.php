@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\HR;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EmployeeOnboarding extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $table = 'hr_onboardings';
 

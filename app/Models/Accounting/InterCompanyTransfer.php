@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Accounting;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\Loan;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InterCompanyTransfer extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
     use HasStateMachine;
 
     public const STATUS_PENDING   = 'pending';

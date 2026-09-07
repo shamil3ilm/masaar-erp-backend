@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\HR;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ManagerTeamView extends Model
 {
+    use BelongsToOrganization;
+
     public const RELATIONSHIP_DIRECT = 'direct_report';
     public const RELATIONSHIP_INDIRECT = 'indirect_report';
 

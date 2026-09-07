@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Manufacturing;
 
+use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Sales\Contact;
 use App\Models\User;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SupplierQualityRating extends Model
 {
-    use HasUuid;
+    use BelongsToOrganization, HasUuid;
 
     protected $fillable = [
         'uuid', 'organization_id', 'supplier_id', 'rating_period_start', 'rating_period_end',

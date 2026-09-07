@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models\Maintenance;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MaintenanceFaultCode extends Model
 {
+    use BelongsToOrganization;
+
     protected $table = 'maintenance_fault_codes';
 
     protected $fillable = [
