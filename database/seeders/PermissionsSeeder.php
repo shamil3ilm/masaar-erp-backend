@@ -1102,7 +1102,24 @@ class PermissionsSeeder extends Seeder
         ];
     }
 
+    /**
+     * The five system roles, which belong to no organization.
+     *
+     * Role carries BelongsToOrganization, and that guard refuses to persist a
+     * row whose organization_id is empty — which is exactly what a system role
+     * is. So this seeder threw on its first role and had never run: the only
+     * test naming it reflects over getPermissions() and never calls run().
+     * Every deployment that seeded would have failed here.
+     */
     protected function createDefaultRoles(): void
+    {
+        Role::withoutTenantCheck(
+            fn () => $this->createSystemRoles(),
+            'system roles belong to no organization',
+        );
+    }
+
+    private function createSystemRoles(): void
     {
         // Admin role - all permissions
         $admin = Role::updateOrCreate(

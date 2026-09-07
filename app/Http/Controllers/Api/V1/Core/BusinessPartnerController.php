@@ -23,7 +23,7 @@ class BusinessPartnerController extends Controller
             perPage:        (int) $request->get('per_page', 25),
         );
 
-        return $this->paginatedResponse($bps, 'Business partners retrieved');
+        return $this->paginated($bps, null, 'Business partners retrieved');
     }
 
     /** POST /business-partners */

@@ -32,7 +32,7 @@ class RebateController extends Controller
             ->orderByDesc('valid_from')
             ->paginate((int) $request->get('per_page', 20));
 
-        return $this->paginatedResponse($rebates, 'Rebate masters retrieved');
+        return $this->paginated($rebates, null, 'Rebate masters retrieved');
     }
 
     /** GET /rebates/{rebate} */

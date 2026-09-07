@@ -57,7 +57,7 @@ class VendorEvaluationController extends Controller
             perPage:        (int) $request->get('per_page', 20),
         );
 
-        return $this->paginatedResponse($scorecards, 'Supplier scorecards retrieved');
+        return $this->paginated($scorecards, null, 'Supplier scorecards retrieved');
     }
 
     /** POST /vendor-evaluation/scorecards */
