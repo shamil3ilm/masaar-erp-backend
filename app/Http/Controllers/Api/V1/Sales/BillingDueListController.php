@@ -36,7 +36,7 @@ class BillingDueListController extends Controller
             perPage:        (int) $request->get('per_page', 25),
         );
 
-        return $this->paginatedResponse($items, 'Billing due list retrieved');
+        return $this->paginated($items, null, 'Billing due list retrieved');
     }
 
     /**
