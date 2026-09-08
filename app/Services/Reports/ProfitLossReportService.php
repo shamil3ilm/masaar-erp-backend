@@ -8,7 +8,6 @@ use App\Models\Accounting\Account;
 use App\Models\Accounting\JournalEntryLine;
 use App\Models\Core\Organization;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ProfitLossReportService
@@ -123,6 +122,7 @@ class ProfitLossReportService
     protected function getOperatingExpensesSection(int $orgId, Carbon $start, Carbon $end, ?int $branchId, ?int $costCenterId): array
     {
         $subTypes = ['administrative', 'selling', 'operating', 'salaries', 'rent', 'utilities', 'depreciation'];
+
         return $this->getAccountBalances($orgId, 'expense', $subTypes, $start, $end, $branchId, $costCenterId);
     }
 
@@ -132,6 +132,7 @@ class ProfitLossReportService
     protected function getOtherIncomeSection(int $orgId, Carbon $start, Carbon $end, ?int $branchId, ?int $costCenterId): array
     {
         $subTypes = ['other_income', 'interest_income', 'dividend_income', 'gain'];
+
         return $this->getAccountBalances($orgId, 'income', $subTypes, $start, $end, $branchId, $costCenterId);
     }
 
@@ -141,6 +142,7 @@ class ProfitLossReportService
     protected function getOtherExpensesSection(int $orgId, Carbon $start, Carbon $end, ?int $branchId, ?int $costCenterId): array
     {
         $subTypes = ['other_expense', 'interest_expense', 'loss', 'finance_cost'];
+
         return $this->getAccountBalances($orgId, 'expense', $subTypes, $start, $end, $branchId, $costCenterId);
     }
 
@@ -150,6 +152,7 @@ class ProfitLossReportService
     protected function getTaxExpense(int $orgId, Carbon $start, Carbon $end, ?int $branchId): string
     {
         $accounts = $this->getAccountBalances($orgId, 'expense', 'tax', $start, $end, $branchId, null);
+
         return $this->sumSection($accounts);
     }
 
@@ -170,7 +173,7 @@ class ProfitLossReportService
         }
 
         $accounts = Account::where('organization_id', $orgId)
-            ->where('type', $type)
+            ->where('account_type', $type)
             ->whereIn('sub_type', $subTypes)
             ->where('is_active', true)
             ->orderBy('code')
@@ -226,6 +229,7 @@ class ProfitLossReportService
         foreach ($section as $item) {
             $total = bcadd($total, $item['balance'], 4);
         }
+
         return $total;
     }
 
@@ -237,6 +241,7 @@ class ProfitLossReportService
         if (bccomp($base, '0', 4) === 0) {
             return '0';
         }
+
         return bcmul(bcdiv($value, $base, 6), '100', 2);
     }
 
@@ -262,7 +267,7 @@ class ProfitLossReportService
         $prevOperatingProfit = bcsub($prevGrossProfit, $prevTotalOperatingExpenses, 4);
 
         return [
-            'period' => $compareStart->format('Y-m-d') . ' to ' . $compareEnd->format('Y-m-d'),
+            'period' => $compareStart->format('Y-m-d').' to '.$compareEnd->format('Y-m-d'),
             'total_revenue' => $prevTotalRevenue,
             'total_cost_of_sales' => $prevTotalCostOfSales,
             'gross_profit' => $prevGrossProfit,

@@ -4,20 +4,23 @@ declare(strict_types=1);
 
 namespace App\Services\HR;
 
+use App\Models\Accounting\FiscalYear;
+use App\Models\Accounting\JournalEntry;
+use App\Models\Concerns\ChecksIdempotency;
 use App\Models\Core\UserEvent;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
 use App\Models\HR\EmployeeLoan;
 use App\Models\HR\LeaveRequest;
+use App\Models\HR\PayrollPeriod;
 use App\Models\HR\Payslip;
 use App\Models\HR\PayslipItem;
-use App\Models\HR\PayrollPeriod;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Core\UserEventService;
-use App\Models\Concerns\ChecksIdempotency;
 use App\Traits\StructuredLogger;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -60,6 +63,7 @@ use Illuminate\Support\Facades\DB;
 class PayrollService
 {
     use ChecksIdempotency, StructuredLogger;
+
     public function __construct(
         private JournalService $journalService,
         private JournalEntryFactory $journalEntryFactory,
@@ -124,7 +128,7 @@ class PayrollService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if (!$period->canBeProcessed()) {
+            if (! $period->canBeProcessed()) {
                 throw new \InvalidArgumentException('Payroll period cannot be processed.');
             }
 
@@ -176,7 +180,7 @@ class PayrollService
 
         $salary = $employee->currentSalary;
 
-        if (!$salary) {
+        if (! $salary) {
             throw new \InvalidArgumentException('Employee has no active salary assignment.');
         }
 
@@ -191,7 +195,7 @@ class PayrollService
         $unpaidLeaveDays = LeaveRequest::forEmployee($employee->id)
             ->approved()
             ->inDateRange($period->start_date, $period->end_date)
-            ->whereHas('leaveType', fn($q) => $q->where('is_paid', false))
+            ->whereHas('leaveType', fn ($q) => $q->where('is_paid', false))
             ->sum('total_days');
 
         // Create payslip
@@ -254,7 +258,7 @@ class PayrollService
 
             // Apply pro-rata if component supports it
             if ($component->salaryComponent->is_pro_rata) {
-                $amount = bcmul((string)$amount, (string)$proRataFactor, 4);
+                $amount = bcmul((string) $amount, (string) $proRataFactor, 4);
             }
 
             if ($amount > 0) {
@@ -286,7 +290,7 @@ class PayrollService
 
             // Apply pro-rata if component supports it
             if ($component->salaryComponent->is_pro_rata) {
-                $amount = bcmul((string)$amount, (string)$proRataFactor, 4);
+                $amount = bcmul((string) $amount, (string) $proRataFactor, 4);
             }
 
             if ($amount > 0) {
@@ -329,15 +333,15 @@ class PayrollService
             }
 
             PayslipItem::create([
-                'payslip_id'          => $payslip->id,
+                'payslip_id' => $payslip->id,
                 'salary_component_id' => null,
-                'type'                => 'deduction',
-                'name'                => $deduction['name'],
-                'amount'              => $deduction['amount'],
-                'reference_type'      => 'statutory',
-                'reference_id'        => null,
-                'ytd_amount'          => 0,
-                'sort_order'          => $sortOrder++,
+                'type' => 'deduction',
+                'name' => $deduction['name'],
+                'amount' => $deduction['amount'],
+                'reference_type' => 'statutory',
+                'reference_id' => null,
+                'ytd_amount' => 0,
+                'sort_order' => $sortOrder++,
             ]);
 
             $totalDeductions = bcadd((string) $totalDeductions, (string) $deduction['amount'], 4);
@@ -351,7 +355,7 @@ class PayrollService
                 ->where('reference_id', $loanItem['schedule_id'])
                 ->exists();
 
-            if (!$exists) {
+            if (! $exists) {
                 PayslipItem::create([
                     'payslip_id' => $payslip->id,
                     'salary_component_id' => null,
@@ -417,20 +421,20 @@ class PayrollService
         $orgId = auth()->user()?->organization_id;
 
         $fiscalYear = $orgId
-            ? \App\Models\Accounting\FiscalYear::where('organization_id', $orgId)
-                ->where('status', 'open')
+            ? FiscalYear::where('organization_id', $orgId)
+                ->where('is_closed', false)
                 ->first()
             : null;
 
         $ytdStart = $fiscalYear
-            ? \Illuminate\Support\Carbon::parse($fiscalYear->start_date)
-            : \Illuminate\Support\Carbon::now()->startOfYear();
+            ? Carbon::parse($fiscalYear->start_date)
+            : Carbon::now()->startOfYear();
 
         return (float) PayslipItem::whereHas('payslip', function ($q) use ($employeeId, $orgId, $ytdStart) {
             $q->where('employee_id', $employeeId)
                 ->where('created_at', '>=', $ytdStart)
                 ->whereIn('status', [Payslip::STATUS_APPROVED, Payslip::STATUS_PAID])
-                ->when($orgId, fn($q2) => $q2->where('organization_id', $orgId));
+                ->when($orgId, fn ($q2) => $q2->where('organization_id', $orgId));
         })
             ->where('salary_component_id', $componentId)
             ->sum('amount');
@@ -499,7 +503,7 @@ class PayrollService
     /**
      * Create journal entry for payslip.
      */
-    protected function createJournalEntry(Payslip $payslip): \App\Models\Accounting\JournalEntry
+    protected function createJournalEntry(Payslip $payslip): JournalEntry
     {
         return $this->journalEntryFactory->forPayslip($payslip);
     }
@@ -526,7 +530,7 @@ class PayrollService
      */
     public function closePeriod(PayrollPeriod $period, int $userId): PayrollPeriod
     {
-        if (!$period->canBeClosed()) {
+        if (! $period->canBeClosed()) {
             throw new \InvalidArgumentException('Payroll period cannot be closed.');
         }
 
@@ -578,13 +582,13 @@ class PayrollService
 
         return [
             'total_employees' => (int) ($aggregates->total_payslips ?? 0),
-            'total_gross'     => (float) ($aggregates->total_gross ?? 0),
+            'total_gross' => (float) ($aggregates->total_gross ?? 0),
             'total_deductions' => (float) ($aggregates->total_deductions ?? 0),
-            'total_net'       => (float) ($aggregates->total_net ?? 0),
-            'draft_count'     => (int) ($aggregates->draft_count ?? 0),
-            'pending_count'   => (int) ($aggregates->pending_count ?? 0),
-            'approved_count'  => (int) ($aggregates->approved_count ?? 0),
-            'paid_count'      => (int) ($aggregates->paid_count ?? 0),
+            'total_net' => (float) ($aggregates->total_net ?? 0),
+            'draft_count' => (int) ($aggregates->draft_count ?? 0),
+            'pending_count' => (int) ($aggregates->pending_count ?? 0),
+            'approved_count' => (int) ($aggregates->approved_count ?? 0),
+            'paid_count' => (int) ($aggregates->paid_count ?? 0),
         ];
     }
 }

@@ -225,7 +225,7 @@ class FinancialReportService
 
         // Get bank/cash account IDs
         $cashAccountIds = Account::where('organization_id', $orgId)
-            ->where('type', 'asset')
+            ->where('account_type', 'asset')
             ->whereIn('sub_type', ['bank', 'cash'])
             ->pluck('id');
 

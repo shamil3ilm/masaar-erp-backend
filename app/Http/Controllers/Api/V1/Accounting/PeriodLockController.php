@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\AccountingPeriod;
-use App\Models\Accounting\PeriodLockOverride;
 use App\Services\Accounting\PeriodLockService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -14,9 +13,7 @@ use Illuminate\Http\Request;
 
 class PeriodLockController extends Controller
 {
-    public function __construct(private readonly PeriodLockService $periodLockService)
-    {
-    }
+    public function __construct(private readonly PeriodLockService $periodLockService) {}
 
     /**
      * List all active period lock overrides for the authenticated organisation.
@@ -37,22 +34,22 @@ class PeriodLockController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'period_id'   => ['required', 'integer', 'exists:accounting_periods,id'],
-            'user_id'     => ['required', 'integer', 'exists:users,id'],
-            'reason'      => ['required', 'string', 'max:1000'],
+            'period_id' => ['required', 'integer', 'exists:accounting_periods,id'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'reason' => ['required', 'string', 'max:1000'],
             'valid_until' => ['nullable', 'date', 'after:now'],
         ]);
 
         $organizationId = $this->organizationId($request);
-        $grantedBy      = auth()->id();
+        $grantedBy = auth()->id();
 
         $override = $this->periodLockService->grantOverride(
             organizationId: $organizationId,
-            periodId:        (int) $validated['period_id'],
-            userId:          (int) $validated['user_id'],
-            grantedBy:       $grantedBy,
-            validUntil:      isset($validated['valid_until']) ? Carbon::parse($validated['valid_until']) : null,
-            reason:          $validated['reason'],
+            periodId: (int) $validated['period_id'],
+            userId: (int) $validated['user_id'],
+            grantedBy: $grantedBy,
+            validUntil: isset($validated['valid_until']) ? Carbon::parse($validated['valid_until']) : null,
+            reason: $validated['reason'],
         );
 
         $override->load(['user:id,name,email', 'grantedByUser:id,name', 'period']);
@@ -81,9 +78,9 @@ class PeriodLockController extends Controller
             'date' => ['required', 'date_format:Y-m-d'],
         ]);
 
-        $date           = $request->query('date');
+        $date = $request->query('date');
         $organizationId = $this->organizationId($request);
-        $userId         = auth()->id();
+        $userId = auth()->id();
 
         $locked = $this->periodLockService->isLockedForUser($organizationId, $date, $userId);
 
@@ -93,7 +90,7 @@ class PeriodLockController extends Controller
             })
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
-            ->first(['id', 'uuid', 'period_number', 'period_type', 'start_date', 'end_date', 'is_closed']);
+            ->first(['id', 'period_number', 'period_type', 'start_date', 'end_date', 'is_closed']);
 
         return $this->success([
             'locked' => $locked,

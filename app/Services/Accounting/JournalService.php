@@ -264,7 +264,7 @@ class JournalService
             ? $entry->entry_date->format('Y-m-d')
             : (string) $entry->entry_date;
 
-        $lines = $entry->lines()->with('account:id,type')->get();
+        $lines = $entry->lines()->with('account:id,account_type')->get();
 
         foreach ($lines as $line) {
             // Only check expense accounts with a cost center assigned.
