@@ -6,12 +6,12 @@ namespace App\Models\Sales;
 
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\JournalEntry;
-use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Core\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,20 +21,28 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PaymentReceived extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes, DispatchesWebhooks;
+    use BelongsToOrganization, DispatchesWebhooks, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, SoftDeletes;
 
     protected $table = 'payments_received';
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_VOIDED = 'voided';
+
     public const STATUS_BOUNCED = 'bounced';
 
     public const METHOD_CASH = 'cash';
+
     public const METHOD_BANK_TRANSFER = 'bank_transfer';
+
     public const METHOD_CHEQUE = 'cheque';
+
     public const METHOD_CREDIT_CARD = 'credit_card';
+
     public const METHOD_ONLINE = 'online';
+
     public const METHOD_OTHER = 'other';
 
     protected $fillable = [
@@ -116,7 +124,7 @@ class PaymentReceived extends Model
      */
     public function getAllocatedAmount(): float
     {
-        return $this->allocations()->sum('amount');
+        return (float) $this->allocations()->sum('amount');
     }
 
     /**

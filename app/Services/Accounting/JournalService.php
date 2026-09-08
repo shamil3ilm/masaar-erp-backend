@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ApiException;
+use App\Exceptions\ERP\ValidationException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\AccountingPeriod;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntryLine;
 use App\Models\Budget\BudgetLine;
+use App\Models\Core\Organization;
 use App\Services\Core\CacheService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -68,9 +71,9 @@ class JournalService
     /**
      * Create a journal entry with lines.
      *
-     * @param array $entryData Entry header data
-     * @param array $lines Array of line items [['account_id' => X, 'debit' => 0, 'credit' => 100], ...]
-     * @return JournalEntry
+     * @param  array  $entryData  Entry header data
+     * @param  array  $lines  Array of line items [['account_id' => X, 'debit' => 0, 'credit' => 100], ...]
+     *
      * @throws InvalidArgumentException
      */
     public function createEntry(array $entryData, array $lines): JournalEntry
@@ -80,7 +83,7 @@ class JournalService
 
         return DB::transaction(function () use ($entryData, $lines) {
             // Set fiscal year if not provided
-            if (!isset($entryData['fiscal_year_id'])) {
+            if (! isset($entryData['fiscal_year_id'])) {
                 $organizationId = $entryData['organization_id'] ?? auth()->user()?->organization_id;
                 $entryDate = $entryData['entry_date'] ?? now();
 
@@ -88,7 +91,7 @@ class JournalService
                     $fiscalYear = FiscalYear::forDate($organizationId, $entryDate);
 
                     // Auto-create fiscal year only when no fiscal years exist yet for this organization
-                    if (!$fiscalYear) {
+                    if (! $fiscalYear) {
                         $hasAnyFiscalYear = FiscalYear::withoutGlobalScopes()
                             ->where('organization_id', $organizationId)
                             ->exists();
@@ -98,7 +101,7 @@ class JournalService
                         }
 
                         $date = is_string($entryDate) ? now()->parse($entryDate) : $entryDate;
-                        $org = \App\Models\Core\Organization::find($organizationId);
+                        $org = Organization::find($organizationId);
                         $startMonth = $org?->fiscal_year_start_month ?? 1;
                         $startDay = $org?->fiscal_year_start_day ?? 1;
 
@@ -110,7 +113,7 @@ class JournalService
 
                         $fiscalYear = FiscalYear::create([
                             'organization_id' => $organizationId,
-                            'name' => 'FY ' . $yearStart->format('Y') . '-' . $yearEnd->format('Y'),
+                            'name' => 'FY '.$yearStart->format('Y').'-'.$yearEnd->format('Y'),
                             'start_date' => $yearStart,
                             'end_date' => $yearEnd,
                             'is_closed' => false,
@@ -125,13 +128,16 @@ class JournalService
 
                     // Fix 7: Also check if the specific accounting sub-period is closed.
                     $entryDateStr = is_string($entryDate) ? $entryDate : $entryDate->toDateString();
+                    // A period belongs to a fiscal year, and the fiscal year to
+                    // the organisation. Filtering periods by organization_id asks
+                    // for a column the table does not have.
                     $period = AccountingPeriod::withoutGlobalScopes()
-                        ->where('organization_id', $organizationId)
+                        ->where('fiscal_year_id', $fiscalYear->id)
                         ->where('start_date', '<=', $entryDateStr)
                         ->where('end_date', '>=', $entryDateStr)
                         ->first();
                     if ($period && $period->is_closed) {
-                        throw new \App\Exceptions\ERP\ValidationException(
+                        throw new ValidationException(
                             'Cannot post to a closed accounting period.'
                         );
                     }
@@ -139,7 +145,7 @@ class JournalService
                     // Fix 9: Assert the period is not locked for the current user.
                     $userId = $entryData['created_by'] ?? auth()->id();
                     if ($userId) {
-                        app(\App\Services\Accounting\PeriodLockService::class)
+                        app(PeriodLockService::class)
                             ->assertNotLocked($organizationId, $entryDateStr, $userId);
                     }
                 }
@@ -152,7 +158,7 @@ class JournalService
                     ->where('id', $entryData['fiscal_year_id'])
                     ->first();
 
-                if (!$fiscalYear || ($organizationId && (int) $fiscalYear->organization_id !== (int) $organizationId)) {
+                if (! $fiscalYear || ($organizationId && (int) $fiscalYear->organization_id !== (int) $organizationId)) {
                     throw new InvalidArgumentException('Fiscal year not found or does not belong to this organization.');
                 }
 
@@ -182,7 +188,7 @@ class JournalService
             $totalDebits = $entry->lines()->sum('debit');
             $totalCredits = $entry->lines()->sum('credit');
             if (bccomp((string) $totalDebits, (string) $totalCredits, 4) !== 0) {
-                throw new \App\Exceptions\ApiException('Journal entry is unbalanced after line creation.');
+                throw new ApiException('Journal entry is unbalanced after line creation.');
             }
 
             return $entry->fresh(['lines', 'lines.account']);
@@ -224,7 +230,7 @@ class JournalService
             throw new InvalidArgumentException('Cannot post entry in a closed fiscal year.');
         }
 
-        if (!$entry->isBalanced()) {
+        if (! $entry->isBalanced()) {
             throw new InvalidArgumentException(
                 "Journal entry is not balanced. Debit: {$entry->total_debit}, Credit: {$entry->total_credit}"
             );
@@ -232,7 +238,7 @@ class JournalService
 
         $this->checkBudgetAvailability($entry);
 
-        if (!$entry->post()) {
+        if (! $entry->post()) {
             throw new \RuntimeException('Journal entry could not be posted. The fiscal year or period may be closed.');
         }
 
@@ -262,23 +268,23 @@ class JournalService
 
         foreach ($lines as $line) {
             // Only check expense accounts with a cost center assigned.
-            if (!$line->cost_center_id || (float) $line->debit <= 0) {
+            if (! $line->cost_center_id || (float) $line->debit <= 0) {
                 continue;
             }
-            if ($line->account && !in_array($line->account->type, ['expense', 'cost_of_goods'], true)) {
+            if ($line->account && ! in_array($line->account->type, ['expense', 'cost_of_goods'], true)) {
                 continue;
             }
 
             $budgetLine = BudgetLine::whereHas('budget', function ($q) use ($entry, $entryDate): void {
                 $q->where('organization_id', $entry->organization_id)
-                  ->whereIn('status', ['approved', 'active'])
-                  ->where('period_start', '<=', $entryDate)
-                  ->where('period_end', '>=', $entryDate);
+                    ->whereIn('status', ['approved', 'active'])
+                    ->where('period_start', '<=', $entryDate)
+                    ->where('period_end', '>=', $entryDate);
             })
-            ->where('account_id', $line->account_id)
-            ->where('cost_center_id', $line->cost_center_id)
-            ->lockForUpdate()
-            ->first();
+                ->where('account_id', $line->account_id)
+                ->where('cost_center_id', $line->cost_center_id)
+                ->lockForUpdate()
+                ->first();
 
             if ($budgetLine === null) {
                 continue; // No budget configured for this account/cost center — allow posting.
@@ -289,7 +295,7 @@ class JournalService
             if ((float) $line->debit > $available) {
                 throw new InvalidArgumentException(
                     "Budget exceeded for account {$line->account_id} / cost center {$line->cost_center_id}. "
-                    . "Available: {$available}, Requested: {$line->debit}."
+                    ."Available: {$available}, Requested: {$line->debit}."
                 );
             }
         }
@@ -338,7 +344,7 @@ class JournalService
 
         $reversal = $entry->reverse($reason);
 
-        if (!$reversal) {
+        if (! $reversal) {
             throw new InvalidArgumentException('Failed to create reversal entry.');
         }
 
@@ -376,7 +382,7 @@ class JournalService
     protected function resolveAccountCodes(array $lines, ?int $orgId): array
     {
         $codes = collect($lines)
-            ->filter(fn($l) => isset($l['account_code']) && !isset($l['account_id']))
+            ->filter(fn ($l) => isset($l['account_code']) && ! isset($l['account_id']))
             ->pluck('account_code')
             ->unique()
             ->values()
@@ -393,16 +399,15 @@ class JournalService
         $codeMap = $query->pluck('id', 'code');
 
         return array_map(function (array $line) use ($codeMap): array {
-            if (isset($line['account_code']) && !isset($line['account_id'])) {
+            if (isset($line['account_code']) && ! isset($line['account_id'])) {
                 $line['account_id'] = $codeMap->get($line['account_code']);
                 unset($line['account_code']);
             }
+
             return $line;
         }, $lines);
     }
 
-    /**
-     */
     protected function validateLines(array $lines): void
     {
         if (count($lines) < 2) {
@@ -417,7 +422,7 @@ class JournalService
         $accounts = Account::whereIn('id', $accountIds)->get()->keyBy('id');
 
         foreach ($lines as $index => $line) {
-            if (!isset($line['account_id'])) {
+            if (! isset($line['account_id'])) {
                 throw new InvalidArgumentException("Line {$index}: account_id is required.");
             }
 
@@ -438,7 +443,7 @@ class JournalService
 
             // Validate account exists and is postable using the pre-loaded map.
             $account = $accounts->get($line['account_id']);
-            if (!$account) {
+            if (! $account) {
                 throw new InvalidArgumentException("Line {$index}: account not found.");
             }
 
@@ -446,7 +451,7 @@ class JournalService
                 throw new InvalidArgumentException("Line {$index}: cannot post to header account '{$account->name}'.");
             }
 
-            if (!$account->is_active) {
+            if (! $account->is_active) {
                 throw new InvalidArgumentException("Line {$index}: account '{$account->name}' is inactive.");
             }
 
@@ -456,7 +461,7 @@ class JournalService
 
         if (bccomp($totalDebit, $totalCredit, 4) !== 0) {
             throw new InvalidArgumentException(
-                'Journal entry must be balanced. Debit: ' . $totalDebit . ', Credit: ' . $totalCredit
+                'Journal entry must be balanced. Debit: '.$totalDebit.', Credit: '.$totalCredit
             );
         }
     }

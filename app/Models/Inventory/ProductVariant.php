@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProductVariant extends Model
 {
-    use SoftDeletes, HasFactory;
+    use HasFactory, SoftDeletes;
 
     // The DB column is `attributes` (JSON), matching the migration.
     // `cost_price`, `weight`, and `dimensions` do not exist in the variants table;
@@ -32,10 +32,10 @@ class ProductVariant extends Model
     protected function casts(): array
     {
         return [
-            'attributes'    => 'array',
+            'attributes' => 'array',
             'purchase_price' => 'decimal:4',
-            'selling_price'  => 'decimal:4',
-            'is_active'      => 'boolean',
+            'selling_price' => 'decimal:4',
+            'is_active' => 'boolean',
         ];
     }
 
@@ -75,7 +75,7 @@ class ProductVariant extends Model
      */
     public function getTotalStock(): float
     {
-        return $this->stockLevels()->sum('quantity');
+        return (float) $this->stockLevels()->sum('quantity');
     }
 
     /**

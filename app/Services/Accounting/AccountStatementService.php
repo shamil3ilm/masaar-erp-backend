@@ -11,7 +11,6 @@ use App\Models\Sales\Invoice;
 use App\Models\Sales\PaymentReceived;
 use App\Services\Core\EmailService;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class AccountStatementService
@@ -47,13 +46,13 @@ class AccountStatementService
 
         // Opening balance: sum of invoices issued before fromDate minus payments received before fromDate
         $invoicesBeforePeriod = Invoice::where('organization_id', $orgId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereDate('invoice_date', '<', $fromDate)
             ->whereNotIn('status', [Invoice::STATUS_VOIDED])
             ->sum('amount_due');
 
         $paymentsBeforePeriod = PaymentReceived::where('organization_id', $orgId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereDate('payment_date', '<', $fromDate)
             ->whereNotIn('status', ['voided'])
             ->sum('amount');
@@ -61,12 +60,12 @@ class AccountStatementService
         $openingBalance = (float) $invoicesBeforePeriod - (float) $paymentsBeforePeriod;
 
         // Transactions within the period
-        $transactions  = [];
+        $transactions = [];
         $runningBalance = $openingBalance;
 
         // Invoices in period
         $invoices = Invoice::where('organization_id', $orgId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereBetween('invoice_date', [$fromDate, $toDate])
             ->whereNotIn('status', [Invoice::STATUS_VOIDED])
             ->orderBy('invoice_date')
@@ -75,20 +74,20 @@ class AccountStatementService
         foreach ($invoices as $inv) {
             $runningBalance += (float) $inv->total;
             $transactions[] = [
-                'date'            => $inv->invoice_date->toDateString(),
-                'type'            => 'invoice',
-                'reference'       => $inv->invoice_number,
-                'description'     => "Invoice #{$inv->invoice_number}",
-                'debit'           => (float) $inv->total,
-                'credit'          => 0.0,
+                'date' => $inv->invoice_date->toDateString(),
+                'type' => 'invoice',
+                'reference' => $inv->invoice_number,
+                'description' => "Invoice #{$inv->invoice_number}",
+                'debit' => (float) $inv->total,
+                'credit' => 0.0,
                 'running_balance' => round($runningBalance, 4),
-                'status'          => $inv->status,
+                'status' => $inv->status,
             ];
         }
 
         // Payments received in period
         $payments = PaymentReceived::where('organization_id', $orgId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereBetween('payment_date', [$fromDate, $toDate])
             ->whereNotIn('status', ['voided'])
             ->orderBy('payment_date')
@@ -97,14 +96,14 @@ class AccountStatementService
         foreach ($payments as $pmt) {
             $runningBalance -= (float) $pmt->amount;
             $transactions[] = [
-                'date'            => $pmt->payment_date->toDateString(),
-                'type'            => 'payment',
-                'reference'       => $pmt->payment_number ?? $pmt->reference ?? '',
-                'description'     => "Payment received",
-                'debit'           => 0.0,
-                'credit'          => (float) $pmt->amount,
+                'date' => $pmt->payment_date->toDateString(),
+                'type' => 'payment',
+                'reference' => $pmt->payment_number ?? $pmt->reference ?? '',
+                'description' => 'Payment received',
+                'debit' => 0.0,
+                'credit' => (float) $pmt->amount,
                 'running_balance' => round($runningBalance, 4),
-                'status'          => $pmt->status,
+                'status' => $pmt->status,
             ];
         }
 
@@ -121,19 +120,19 @@ class AccountStatementService
 
         // Overdue amount: all unpaid/partially-paid invoices past due date
         $overdueAmount = (float) Invoice::where('organization_id', $orgId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereIn('status', [Invoice::STATUS_PARTIAL, 'overdue'])
             ->where('due_date', '<', now()->toDateString())
             ->sum('amount_due');
 
         return [
-            'contact'         => $contact,
-            'period'          => ['from' => $fromDate, 'to' => $toDate],
+            'contact' => $contact,
+            'period' => ['from' => $fromDate, 'to' => $toDate],
             'opening_balance' => round($openingBalance, 4),
-            'transactions'    => $transactions,
+            'transactions' => $transactions,
             'closing_balance' => round($runningBalance, 4),
-            'overdue_amount'  => round($overdueAmount, 4),
-            'currency'        => $contact->currency_code ?? 'SAR',
+            'overdue_amount' => round($overdueAmount, 4),
+            'currency' => $contact->currency_code ?? 'SAR',
         ];
     }
 
@@ -167,7 +166,7 @@ class AccountStatementService
 
         $openingBalance = (float) $billsBeforePeriod - (float) $paymentsBeforePeriod;
 
-        $transactions   = [];
+        $transactions = [];
         $runningBalance = $openingBalance;
 
         // Bills in period
@@ -181,14 +180,14 @@ class AccountStatementService
         foreach ($bills as $bill) {
             $runningBalance += (float) $bill->total;
             $transactions[] = [
-                'date'            => $bill->bill_date->toDateString(),
-                'type'            => 'bill',
-                'reference'       => $bill->bill_number,
-                'description'     => "Bill #{$bill->bill_number}",
-                'debit'           => (float) $bill->total,
-                'credit'          => 0.0,
+                'date' => $bill->bill_date->toDateString(),
+                'type' => 'bill',
+                'reference' => $bill->bill_number,
+                'description' => "Bill #{$bill->bill_number}",
+                'debit' => (float) $bill->total,
+                'credit' => 0.0,
                 'running_balance' => round($runningBalance, 4),
-                'status'          => $bill->status,
+                'status' => $bill->status,
             ];
         }
 
@@ -203,14 +202,14 @@ class AccountStatementService
         foreach ($payments as $pmt) {
             $runningBalance -= (float) $pmt->amount;
             $transactions[] = [
-                'date'            => $pmt->payment_date->toDateString(),
-                'type'            => 'payment',
-                'reference'       => $pmt->payment_number ?? $pmt->reference ?? '',
-                'description'     => "Payment made",
-                'debit'           => 0.0,
-                'credit'          => (float) $pmt->amount,
+                'date' => $pmt->payment_date->toDateString(),
+                'type' => 'payment',
+                'reference' => $pmt->payment_number ?? $pmt->reference ?? '',
+                'description' => 'Payment made',
+                'debit' => 0.0,
+                'credit' => (float) $pmt->amount,
                 'running_balance' => round($runningBalance, 4),
-                'status'          => $pmt->status,
+                'status' => $pmt->status,
             ];
         }
 
@@ -230,13 +229,13 @@ class AccountStatementService
             ->sum('amount_due');
 
         return [
-            'contact'         => $contact,
-            'period'          => ['from' => $fromDate, 'to' => $toDate],
+            'contact' => $contact,
+            'period' => ['from' => $fromDate, 'to' => $toDate],
             'opening_balance' => round($openingBalance, 4),
-            'transactions'    => $transactions,
+            'transactions' => $transactions,
             'closing_balance' => round($runningBalance, 4),
-            'overdue_amount'  => round($overdueAmount, 4),
-            'currency'        => $contact->currency_code ?? 'SAR',
+            'overdue_amount' => round($overdueAmount, 4),
+            'currency' => $contact->currency_code ?? 'SAR',
         ];
     }
 
@@ -257,8 +256,8 @@ class AccountStatementService
             );
         } catch (\Throwable $e) {
             Log::warning('Account statement email failed', [
-                'email'   => $email,
-                'error'   => $e->getMessage(),
+                'email' => $email,
+                'error' => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -282,7 +281,7 @@ class AccountStatementService
 
         if ($type === 'customer') {
             $records = Invoice::where('organization_id', $orgId)
-                ->where('contact_id', $contactId)
+                ->where('customer_id', $contactId)
                 ->whereIn('status', [Invoice::STATUS_SENT, Invoice::STATUS_PARTIAL, 'overdue'])
                 ->orderBy('due_date')
                 ->get();
@@ -337,10 +336,10 @@ class AccountStatementService
     ): void {
         Log::info('Statement reconciliation confirmed', [
             'organization_id' => $orgId,
-            'contact_id'      => $contactId,
-            'type'            => $type,
-            'confirmed_date'  => $confirmedDate,
-            'confirmed_by'    => auth()->id(),
+            'contact_id' => $contactId,
+            'type' => $type,
+            'confirmed_date' => $confirmedDate,
+            'confirmed_by' => auth()->id(),
         ]);
     }
 
@@ -356,25 +355,25 @@ class AccountStatementService
         float $balanceDue,
         string $transactionDate,
     ): array {
-        $due     = $dueDate instanceof Carbon ? $dueDate : Carbon::parse($dueDate);
+        $due = $dueDate instanceof Carbon ? $dueDate : Carbon::parse($dueDate);
         $daysOverdue = $today->diffInDays($due, false); // negative = overdue
 
         $ageBucket = match (true) {
-            $daysOverdue >= 0  => 'current',
+            $daysOverdue >= 0 => 'current',
             $daysOverdue >= -30 => '1_30',
             $daysOverdue >= -60 => '31_60',
             $daysOverdue >= -90 => '61_90',
-            default             => '90_plus',
+            default => '90_plus',
         };
 
         return [
-            'reference'        => $reference,
-            'type'             => $type,
+            'reference' => $reference,
+            'type' => $type,
             'transaction_date' => $transactionDate,
-            'due_date'         => $due->toDateString(),
-            'days_overdue'     => max(0, (int) abs($daysOverdue)),
-            'balance_due'      => $balanceDue,
-            'age_bucket'       => $ageBucket,
+            'due_date' => $due->toDateString(),
+            'days_overdue' => max(0, (int) abs($daysOverdue)),
+            'balance_due' => $balanceDue,
+            'age_bucket' => $ageBucket,
         ];
     }
 }

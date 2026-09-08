@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\FinancialCloseTask;
 use App\Models\Accounting\FinancialClosePeriod;
+use App\Models\Accounting\FinancialCloseTask;
 use App\Models\Accounting\FinancialCloseTemplate;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
@@ -20,7 +21,7 @@ class FinancialCloseCockpitService
     {
         return DB::transaction(function () use ($data): FinancialClosePeriod {
             $period = FinancialClosePeriod::create(array_merge($data, [
-                'status'    => FinancialClosePeriod::STATUS_OPEN,
+                'status' => FinancialClosePeriod::STATUS_OPEN,
                 'opened_at' => now(),
             ]));
 
@@ -33,12 +34,12 @@ class FinancialCloseCockpitService
                     foreach ($template->tasks as $tmplTask) {
                         FinancialCloseTask::create([
                             'financial_close_period_id' => $period->id,
-                            'template_task_id'          => $tmplTask->id,
-                            'task_name'                 => $tmplTask->task_name,
-                            'description'               => $tmplTask->description,
-                            'task_type'                 => $tmplTask->task_type,
-                            'status'                    => FinancialCloseTask::STATUS_PENDING,
-                            'sort_order'                => $tmplTask->sort_order,
+                            'template_task_id' => $tmplTask->id,
+                            'task_name' => $tmplTask->task_name,
+                            'description' => $tmplTask->description,
+                            'task_type' => $tmplTask->task_type,
+                            'status' => FinancialCloseTask::STATUS_PENDING,
+                            'sort_order' => $tmplTask->sort_order,
                         ]);
                     }
                 }
@@ -59,14 +60,14 @@ class FinancialCloseCockpitService
             );
         }
 
-        if (!$this->canStartTask($task)) {
+        if (! $this->canStartTask($task)) {
             throw new RuntimeException(
                 "Task [{$task->task_name}] has unresolved dependencies."
             );
         }
 
         $task->update([
-            'status'     => FinancialCloseTask::STATUS_IN_PROGRESS,
+            'status' => FinancialCloseTask::STATUS_IN_PROGRESS,
             'started_at' => now(),
             'assigned_to' => $userId,
         ]);
@@ -77,7 +78,7 @@ class FinancialCloseCockpitService
      */
     public function completeTask(FinancialCloseTask $task, int $userId, string $notes = ''): void
     {
-        if (!in_array($task->status, [
+        if (! in_array($task->status, [
             FinancialCloseTask::STATUS_IN_PROGRESS,
             FinancialCloseTask::STATUS_PENDING,
         ], true)) {
@@ -87,10 +88,10 @@ class FinancialCloseCockpitService
         }
 
         $task->update([
-            'status'       => FinancialCloseTask::STATUS_COMPLETED,
+            'status' => FinancialCloseTask::STATUS_COMPLETED,
             'completed_at' => now(),
             'completed_by' => $userId,
-            'notes'        => $notes ?: $task->notes,
+            'notes' => $notes ?: $task->notes,
         ]);
     }
 
@@ -109,7 +110,7 @@ class FinancialCloseCockpitService
      */
     public function skipTask(FinancialCloseTask $task, int $userId, string $reason = ''): void
     {
-        if (!in_array($task->status, [
+        if (! in_array($task->status, [
             FinancialCloseTask::STATUS_PENDING,
             FinancialCloseTask::STATUS_BLOCKED,
         ], true)) {
@@ -119,10 +120,10 @@ class FinancialCloseCockpitService
         }
 
         $task->update([
-            'status'       => FinancialCloseTask::STATUS_SKIPPED,
+            'status' => FinancialCloseTask::STATUS_SKIPPED,
             'completed_at' => now(),
             'completed_by' => $userId,
-            'notes'        => $reason ?: $task->notes,
+            'notes' => $reason ?: $task->notes,
         ]);
     }
 
@@ -152,9 +153,9 @@ class FinancialCloseCockpitService
         }
 
         $period->update([
-            'signed_off_by'   => $userId,
-            'signed_off_at'   => now(),
-            'sign_off_notes'  => $notes,
+            'signed_off_by' => $userId,
+            'signed_off_at' => now(),
+            'sign_off_notes' => $notes,
         ]);
     }
 
@@ -165,23 +166,26 @@ class FinancialCloseCockpitService
      */
     public function getPeriodProgress(FinancialClosePeriod $period): array
     {
+        // reorder() drops the relation's sort_order, which is not in the
+        // GROUP BY and which a strict MySQL refuses to order by.
         $counts = $period->tasks()
+            ->reorder()
             ->selectRaw('status, COUNT(*) as cnt')
             ->groupBy('status')
             ->pluck('cnt', 'status')
             ->toArray();
 
-        $total     = (int) array_sum($counts);
+        $total = (int) array_sum($counts);
         $completed = (int) ($counts[FinancialCloseTask::STATUS_COMPLETED] ?? 0);
-        $percent   = $total > 0 ? round(($completed / $total) * 100, 2) : 0.0;
+        $percent = $total > 0 ? round(($completed / $total) * 100, 2) : 0.0;
 
         return [
-            'total'            => $total,
-            'pending'          => (int) ($counts[FinancialCloseTask::STATUS_PENDING] ?? 0),
-            'in_progress'      => (int) ($counts[FinancialCloseTask::STATUS_IN_PROGRESS] ?? 0),
-            'completed'        => $completed,
-            'blocked'          => (int) ($counts[FinancialCloseTask::STATUS_BLOCKED] ?? 0),
-            'skipped'          => (int) ($counts[FinancialCloseTask::STATUS_SKIPPED] ?? 0),
+            'total' => $total,
+            'pending' => (int) ($counts[FinancialCloseTask::STATUS_PENDING] ?? 0),
+            'in_progress' => (int) ($counts[FinancialCloseTask::STATUS_IN_PROGRESS] ?? 0),
+            'completed' => $completed,
+            'blocked' => (int) ($counts[FinancialCloseTask::STATUS_BLOCKED] ?? 0),
+            'skipped' => (int) ($counts[FinancialCloseTask::STATUS_SKIPPED] ?? 0),
             'percent_complete' => $percent,
         ];
     }
@@ -198,15 +202,15 @@ class FinancialCloseCockpitService
             $period = $this->createPeriod($data);
 
             $dueDate = isset($data['due_date'])
-                ? \Illuminate\Support\Carbon::parse($data['due_date'])
+                ? Carbon::parse($data['due_date'])
                 : now()->endOfMonth();
 
-            $tasks      = $period->tasks()->orderBy('sort_order')->get();
-            $taskCount  = $tasks->count();
+            $tasks = $period->tasks()->orderBy('sort_order')->get();
+            $taskCount = $tasks->count();
 
             foreach ($tasks as $i => $task) {
                 $daysBack = $taskCount - $i - 1;
-                $taskDue  = $dueDate->copy()->subDays($daysBack);
+                $taskDue = $dueDate->copy()->subDays($daysBack);
 
                 $task->update(['due_date' => $taskDue->toDateString()]);
             }
@@ -282,7 +286,7 @@ class FinancialCloseCockpitService
         }
 
         $period->update([
-            'status'    => FinancialClosePeriod::STATUS_CLOSED,
+            'status' => FinancialClosePeriod::STATUS_CLOSED,
             'closed_at' => now(),
             'closed_by' => $userId,
         ]);

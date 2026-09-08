@@ -56,8 +56,11 @@ class EnumConstraintTest extends TestCase
 
     public function test_declared_enums_are_enforced(): void
     {
-        $this->assertSame('sqlite', DB::connection()->getDriverName(),
-            'This guard reads CHECK constraints out of sqlite_master.');
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            // MySQL enforces enum() itself; this guard exists because SQLite does
+            // not, and it reads the constraints out of sqlite_master to prove it.
+            $this->markTestSkipped('Reads CHECK constraints out of sqlite_master.');
+        }
 
         $declared = $this->declaredEnums();
         $this->assertNotEmpty($declared, 'No enum() declarations found — the parser is broken.');
@@ -78,8 +81,8 @@ class EnumConstraintTest extends TestCase
         sort($unenforced);
 
         $this->assertSame(self::ACCEPTED, $unenforced, sprintf(
-            "The set of columns declared enum() but carrying no CHECK constraint "
-            ."has changed. A new one means the tests can no longer fail on a value "
+            'The set of columns declared enum() but carrying no CHECK constraint '
+            .'has changed. A new one means the tests can no longer fail on a value '
             ."MySQL would reject, usually because a Schema::table() rebuilt the table.\n%s",
             implode("\n", $unenforced)
         ));
