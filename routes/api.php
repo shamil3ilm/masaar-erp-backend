@@ -259,16 +259,10 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
             require __DIR__.'/api/v1/pm-condition.php';
         });
 
-        // Project Systems module routes (with module check)
-        Route::prefix('ps')->middleware(['check.module:projects'])->group(function () {
-            require __DIR__.'/api/v1/projects.php';
-
-            // PS EVM — WBS, Earned Value Management, Project Settlement
-            require __DIR__.'/api/v1/ps-evm.php';
-
-            // PS Budget Availability Control — versions, supplements, availability checks
-            require __DIR__.'/api/v1/ps-budget.php';
-        });
+        // Project Systems is not registered. Its eighty routes had no client
+        // and no test, and one of its models names a table no migration
+        // creates. The controllers, services, models and migrations stay; the
+        // three route files are in git history and this block brings them back.
 
         // Automation module routes (with module check)
         Route::prefix('automation')->middleware(['check.module:automation'])->group(function () {
