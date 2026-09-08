@@ -6,8 +6,8 @@ namespace App\Http\Controllers\Api\V1\Compliance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Core\Branch;
-use App\Services\Compliance\MasaarClient;
 use App\Services\Compliance\ComplianceResult;
+use App\Services\Compliance\MasaarClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -149,10 +149,21 @@ class OnboardingController extends Controller
     }
 
     /**
-     * Determine whether an onboarding call succeeded (i.e. no error status).
+     * Whether an onboarding call actually advanced the branch.
+     *
+     * Absence of an error is not success. The compliance check answers 200
+     * with passed false when ZATCA refuses one of its six test invoices, and
+     * recording that as a completed step would leave a branch believing it is
+     * onboarded when it is not.
      */
     private function isOnboardingSuccess(ComplianceResult $result): bool
     {
-        return $result->status !== 'error' && $result->status !== 'not_applicable';
+        if (in_array($result->status, ['error', 'not_applicable', 'rejected', 'failed'], true)) {
+            return false;
+        }
+
+        $passed = $result->response['data']['passed'] ?? $result->response['passed'] ?? null;
+
+        return $passed !== false;
     }
 }
