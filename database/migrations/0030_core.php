@@ -244,7 +244,10 @@ return new class extends Migration
             // Location & Tax Configuration
             $table->string('country_code', 2); // SA, AE, QA, OM, BH, KW, IN
             $table->string('tax_scheme', 10)->default('VAT'); // VAT, GST, NONE
-            $table->string('tax_number', 50)->nullable(); // TRN for GCC, GSTIN for India
+            // TRN for GCC, GSTIN for India.
+            // Encrypted by the model. Ciphertext is 200 characters at its shortest,
+            // so the column is sized for the ciphertext, not the value.
+            $table->text('tax_number')->nullable();
             $table->string('base_currency', 3)->default('SAR');
 
             // Fiscal Year
@@ -283,8 +286,8 @@ return new class extends Migration
             $table->index('tax_scheme');
             $table->index('is_active');
 
-                $table->string('subscription_tier', 20)->default('standard');
-                $table->timestamp('subscription_expires_at')->nullable();
+            $table->string('subscription_tier', 20)->default('standard');
+            $table->timestamp('subscription_expires_at')->nullable();
         });
 
         Schema::create('api_call_logs', function (Blueprint $table) {

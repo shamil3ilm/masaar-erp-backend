@@ -465,7 +465,10 @@ return new class extends Migration
             $table->string('website', 255)->nullable();
 
             // Tax info
-            $table->string('tax_number', 50)->nullable(); // TRN for GCC, GSTIN for India
+            // TRN for GCC, GSTIN for India.
+            // Encrypted by the model. Ciphertext is 200 characters at its shortest,
+            // so the column is sized for the ciphertext, not the value.
+            $table->text('tax_number')->nullable();
             $table->string('tax_registration_name', 200)->nullable();
 
             // Financial terms
@@ -502,7 +505,6 @@ return new class extends Migration
 
             $table->index(['organization_id', 'contact_type']);
             $table->index(['organization_id', 'company_name']);
-            $table->index('tax_number');
 
             $table->foreignId('customer_group_id')->nullable()
                 ->constrained()->nullOnDelete();
@@ -512,16 +514,13 @@ return new class extends Migration
             $table->string('tax_exemption_number', 50)->nullable();
             $table->date('tax_exemption_expiry')->nullable();
 
-
             $table->string('import_export_code', 30)->nullable(); // IEC for India, etc.
             $table->string('default_incoterm', 10)->nullable();
             $table->string('default_port')->nullable();
 
-
-                $table->unsignedBigInteger('customer_account_group_id')->nullable();
-                $table->foreign('customer_account_group_id', 'contact_cag_fk')
-                    ->references('id')->on('customer_account_groups')->onDelete('set null');
-
+            $table->unsignedBigInteger('customer_account_group_id')->nullable();
+            $table->foreign('customer_account_group_id', 'contact_cag_fk')
+                ->references('id')->on('customer_account_groups')->onDelete('set null');
 
             $table->boolean('payment_block')->default(false);
             $table->string('payment_block_reason', 500)->nullable();

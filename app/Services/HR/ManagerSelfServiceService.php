@@ -101,12 +101,12 @@ class ManagerSelfServiceService
             ->with(['employee', 'leaveType'])
             ->whereIn('employee_id', $teamEmployeeIds)
             ->where('status', 'approved')
-            ->whereYear('start_date', (int) $year)
-            ->whereMonth('start_date', (int) $monthNum)
-            ->orderBy('start_date')
+            ->whereYear('from_date', (int) $year)
+            ->whereMonth('from_date', (int) $monthNum)
+            ->orderBy('from_date')
             ->get();
 
-        return $leaveRequests->groupBy(fn ($lr) => $lr->start_date->toDateString())->toArray();
+        return $leaveRequests->groupBy(fn ($lr) => $lr->from_date->toDateString())->toArray();
     }
 
     /**

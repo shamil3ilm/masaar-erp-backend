@@ -1,0 +1,35 @@
+# Models declaring an attribute that no column backs.
+#
+# Each line is a model, its table, and the attributes it lists in $fillable or
+# $casts that the table does not have. Two have no table at all.
+#
+# These are not typos in the main. They are designs that were half migrated:
+# the model describes the feature that was intended and the migration describes
+# what was built. Writing such an attribute is an error on MySQL; reading one
+# gives null; filtering by one on SQLite silently matches nothing rather than
+# failing, which is why the suite never noticed.
+#
+# A ratchet, not an approval. The list may shrink and may not grow, and the
+# test fails if an entry here has been fixed and not removed.
+
+App\Models\Accounting\CopaLineItem (copa_line_items): fiscal_year
+App\Models\Accounting\PettyCashFund (petty_cash_funds): max_transaction_amount
+App\Models\Admin\FeatureFlag (feature_flags): config, disabled_at, enabled_at
+App\Models\Core\FeatureFlag (feature_flags): config, disabled_at, enabled_at, feature, organization_id
+App\Models\Core\NumberSequence (number_sequences): branch_id, current_number, include_month, include_year, last_reset_month, last_reset_year, padding, prefix, reset_monthly, reset_yearly, suffix, type
+App\Models\Core\OrganizationSubscription (organization_subscriptions): addons, billing_cycle, custom_limits, expires_at, external_subscription_id, payment_method, started_at
+App\Models\Core\SubscriptionPlan (subscription_plans): limits, monthly_price, sort_order, storage_gb, yearly_price
+App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
+App\Models\HR\AppraisalReviewer (appraisal_reviewers): organization_id
+App\Models\HR\Leave\LeaveBalance (leave_balances): accrued_days, adjustment_days, available_balance, carried_forward, encashed_days, entitled_days, lapsed_days, last_accrual_date, leave_tier_id, pending_days, used_days
+App\Models\HR\Leave\LeaveType (leave_types): accrual_day, allowed_days_of_week, blackout_dates, count_holidays, count_weekends, display_order, employment_type_restriction, gender_restriction, icon, is_carryforward_allowed, leave_policy_id, max_carryforward_days, max_days_per_request, min_days_per_request, min_service_months, requires_reason
+App\Models\Projects\ProjectBudgetAvailabilityLog -> no table named project_budget_availability_logs
+App\Models\Reports\ReportExecution (report_executions): file_format, report_type
+App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, is_public, parameters, recipients, report_type
+App\Models\Sales\AdvancePayment (advance_payments): advance_date, advance_number, balance_amount, created_by
+App\Models\Sales\AdvancePaymentApplication (advance_payment_applications): created_by, invoice_id, notes
+App\Models\Sales\DebitNote (debit_notes): approved_at, approved_by, notes, supplier_id
+App\Models\Tax\TdsConfiguration (tds_configurations): is_active, rate_non_resident, rate_resident, threshold_amount
+App\Models\Tax\TdsEntry (tds_deductions): transaction_amount, transaction_date
+App\Models\Tax\VatReturn (vat_return_periods): due_date, filed_at, input_vat, net_vat_payable, output_vat, total_purchases, total_sales
+App\Models\Tax\VatReturnLineItem -> no table named vat_return_line_items

@@ -50,7 +50,9 @@ return new class extends Migration
 
             // Two-factor authentication
             $table->boolean('two_factor_enabled')->default(false);
-            $table->string('two_factor_secret')->nullable();
+            // Encrypted by the model: a 32-character secret is 256 characters
+            // of ciphertext, one more than a default string column holds.
+            $table->text('two_factor_secret')->nullable();
 
             // Status flags
             $table->boolean('is_active')->default(true);
@@ -68,7 +70,6 @@ return new class extends Migration
             $table->index('is_active');
             $table->index('is_super_admin');
 
-
             $table->timestamp('onboarding_completed_at')->nullable();
             $table->timestamp('deactivated_at')->nullable();
             $table->foreignId('deactivated_by')->nullable()
@@ -76,20 +77,16 @@ return new class extends Migration
             $table->string('deactivation_reason', 255)->nullable();
             $table->timestamp('roles_updated_at')->nullable();
 
-
             $table->json('module_access')->nullable();
-
 
             $table->string('email_verification_code', 255)->nullable();
             $table->timestamp('email_verification_code_sent_at')->nullable();
-
 
             // Hashed recovery codes stored as a JSON array, shown plaintext only once on 2FA enable
             $table->json('two_factor_recovery_codes')->nullable();
 
             // Timestamp of when the user last completed 2FA setup confirmation
             $table->timestamp('two_factor_confirmed_at')->nullable();
-
 
             $table->string('registration_source', 30)->nullable();
             $table->string('utm_source', 100)->nullable();
@@ -105,7 +102,6 @@ return new class extends Migration
             $table->foreign('invited_by_user_id')
                 ->references('id')->on('users')
                 ->nullOnDelete();
-
 
             //
         });
@@ -813,7 +809,7 @@ return new class extends Migration
             $table->index(['organization_id', 'type']);
             $table->index(['notifiable_type', 'notifiable_id']);
 
-                $table->index(['notifiable_type', 'notifiable_id', 'read_at'], 'notifications_notifiable_read_at_index');
+            $table->index(['notifiable_type', 'notifiable_id', 'read_at'], 'notifications_notifiable_read_at_index');
         });
 
         Schema::create('organization_module_access', function (Blueprint $table) {

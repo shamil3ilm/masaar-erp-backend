@@ -147,7 +147,9 @@ return new class extends Migration
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->string('name');
             $table->string('provider', 30); // stripe, paypal, tap, moyasar, hyperpay, mada
-            $table->json('credentials')->nullable(); // Encrypted
+            // Encrypted by the model. Ciphertext is 200 characters at its shortest,
+            // so the column is sized for the ciphertext, not the value.
+            $table->text('credentials')->nullable();
             $table->json('settings')->nullable();
             $table->string('mode', 10)->default('test'); // test, live
             $table->boolean('is_active')->default(true);

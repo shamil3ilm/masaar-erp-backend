@@ -32,10 +32,10 @@ class DashboardStatisticsService
     public function getDashboardStats(?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $startDate = $startDate ?? now()->startOfMonth();
-        $endDate   = $endDate   ?? now()->endOfMonth();
+        $endDate = $endDate ?? now()->endOfMonth();
 
-        $orgId    = (int) auth()->user()?->organization_id;
-        $cacheKey = 'dashboard:' . $startDate->format('Y-m-d') . ':' . $endDate->format('Y-m-d');
+        $orgId = (int) auth()->user()?->organization_id;
+        $cacheKey = 'dashboard:'.$startDate->format('Y-m-d').':'.$endDate->format('Y-m-d');
 
         return $this->cache->rememberTransact($orgId, $cacheKey, function () use ($startDate, $endDate): array {
             return $this->computeDashboardStats($startDate, $endDate);
@@ -95,7 +95,7 @@ class DashboardStatisticsService
             ->groupBy('month')
             ->orderBy('month')
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'month' => $item->month,
                 'total' => (float) $item->total,
                 'count' => $item->count,
@@ -111,7 +111,7 @@ class DashboardStatisticsService
             ->orderByDesc('total_amount')
             ->limit(5)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'customer_id' => $item->customer_id,
                 'customer_name' => $item->customer?->company_name ?? $item->customer?->contact_name ?? 'Unknown',
                 'total_amount' => (float) $item->total_amount,
@@ -165,7 +165,7 @@ class DashboardStatisticsService
             ->orderByDesc('total_amount')
             ->limit(5)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'supplier_id' => $item->supplier_id,
                 'supplier_name' => $item->supplier?->company_name ?? $item->supplier?->contact_name ?? 'Unknown',
                 'total_amount' => (float) $item->total_amount,
@@ -211,7 +211,7 @@ class DashboardStatisticsService
             ->orderBy('quantity')
             ->limit(10)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'product_id' => $item->product_id,
                 'product_sku' => $item->product?->sku,
                 'product_name' => $item->product?->name,
@@ -226,7 +226,7 @@ class DashboardStatisticsService
             ->where('quantity', '<=', 0)
             ->limit(10)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'product_id' => $item->product_id,
                 'product_sku' => $item->product?->sku,
                 'product_name' => $item->product?->name,
@@ -241,7 +241,7 @@ class DashboardStatisticsService
             ->orderByDesc('total_value')
             ->limit(10)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'product_id' => $item->product_id,
                 'product_sku' => $item->product?->sku,
                 'product_name' => $item->product?->name,
@@ -286,13 +286,13 @@ class DashboardStatisticsService
         // Leave statistics
         $pendingLeaves = LeaveRequest::where('organization_id', $orgId)->pending()->count();
         $approvedLeaves = LeaveRequest::where('organization_id', $orgId)->approved()
-            ->whereBetween('start_date', [$startDate, $endDate])
+            ->whereBetween('from_date', [$startDate, $endDate])
             ->count();
 
         // Employees on leave today
         $onLeaveToday = LeaveRequest::where('organization_id', $orgId)->approved()
-            ->where('start_date', '<=', now())
-            ->where('end_date', '>=', now())
+            ->where('from_date', '<=', now())
+            ->where('to_date', '>=', now())
             ->count();
 
         // Department breakdown
@@ -301,7 +301,7 @@ class DashboardStatisticsService
             ->selectRaw('department_id, COUNT(*) as count')
             ->groupBy('department_id')
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'department_id' => $item->department_id,
                 'department_name' => $item->department?->name ?? 'Unassigned',
                 'count' => $item->count,
@@ -364,7 +364,7 @@ class DashboardStatisticsService
             ->selectRaw('pipeline_stage_id, COUNT(*) as count, SUM(amount) as total_value')
             ->groupBy('pipeline_stage_id')
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'stage_id' => $item->pipeline_stage_id,
                 'stage_name' => $item->pipelineStage?->name ?? 'Unknown',
                 'color' => $item->pipelineStage?->color,
@@ -379,7 +379,7 @@ class DashboardStatisticsService
             ->selectRaw('lead_source_id, COUNT(*) as count')
             ->groupBy('lead_source_id')
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'source_id' => $item->lead_source_id,
                 'source_name' => $item->leadSource?->name ?? 'Unknown',
                 'count' => $item->count,
@@ -495,11 +495,11 @@ class DashboardStatisticsService
             ->latest()
             ->limit(5)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'type' => 'invoice',
                 'id' => $item->id,
                 'title' => "Invoice {$item->invoice_number}",
-                'description' => "Customer: " . ($item->customer?->company_name ?? $item->customer_name),
+                'description' => 'Customer: '.($item->customer?->company_name ?? $item->customer_name),
                 'amount' => (float) $item->total,
                 'status' => $item->status,
                 'created_at' => $item->created_at,
@@ -511,11 +511,11 @@ class DashboardStatisticsService
             ->latest()
             ->limit(5)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'type' => 'work_order',
                 'id' => $item->id,
                 'title' => "Work Order {$item->work_order_number}",
-                'description' => "Product: " . ($item->product?->name ?? 'Unknown'),
+                'description' => 'Product: '.($item->product?->name ?? 'Unknown'),
                 'quantity' => (float) $item->planned_quantity,
                 'status' => $item->status,
                 'created_at' => $item->created_at,
@@ -527,7 +527,7 @@ class DashboardStatisticsService
             ->latest()
             ->limit(5)
             ->get()
-            ->map(fn($item) => [
+            ->map(fn ($item) => [
                 'type' => 'leave_request',
                 'id' => $item->id,
                 'title' => "Leave Request: {$item->leaveType?->name}",

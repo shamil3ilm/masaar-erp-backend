@@ -363,7 +363,7 @@ class HRReportService
     public function generateLeaveReport(string $startDate, string $endDate, ?int $departmentId = null): array
     {
         $query = LeaveRequest::where('organization_id', $this->organizationId)
-            ->whereBetween('start_date', [$startDate, $endDate])
+            ->whereBetween('from_date', [$startDate, $endDate])
             ->with(['employee.department', 'leaveType']);
 
         if ($this->branchId) {
@@ -425,7 +425,7 @@ class HRReportService
 
         // By month
         $byMonth = (clone $query)
-            ->selectRaw('SUBSTR(start_date, 1, 7) as month, COUNT(*) as requests, COALESCE(SUM(total_days), 0) as days')
+            ->selectRaw('SUBSTR(from_date, 1, 7) as month, COUNT(*) as requests, COALESCE(SUM(total_days), 0) as days')
             ->groupBy('month')
             ->orderBy('month')
             ->get()->toArray();
@@ -586,8 +586,8 @@ class HRReportService
         // Employees on leave today
         $onLeaveToday = LeaveRequest::where('organization_id', $this->organizationId)
             ->where('status', 'approved')
-            ->where('start_date', '<=', $today)
-            ->where('end_date', '>=', $today)
+            ->where('from_date', '<=', $today)
+            ->where('to_date', '>=', $today)
             ->when($this->branchId, fn ($q) => $q->whereHas('employee', fn ($e) => $e->where('branch_id', $this->branchId)))
             ->count();
 

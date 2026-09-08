@@ -86,7 +86,9 @@ return new class extends Migration
             $table->string('channel_type', 30); // email, sms, whatsapp, push_notification
             $table->string('name');
             $table->string('provider', 50); // smtp, sendgrid, twilio, vonage, firebase, whatsapp_business
-            $table->json('credentials'); // Encrypted API keys/config
+            // Encrypted by the model. Ciphertext is 200 characters at its shortest,
+            // so the column is sized for the ciphertext, not the value.
+            $table->text('credentials');
             $table->json('settings')->nullable(); // Rate limits, sender defaults, etc.
             $table->string('sender_name')->nullable();
             $table->string('sender_address')->nullable(); // Email, phone number

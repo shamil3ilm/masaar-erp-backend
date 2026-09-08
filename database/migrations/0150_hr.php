@@ -252,8 +252,11 @@ return new class extends Migration
             $table->json('work_days')->nullable(); // ['monday', 'tuesday', ...]
 
             // Documents
-            $table->string('national_id', 50)->nullable(); // Aadhaar, Emirates ID, etc.
-            $table->string('passport_number', 50)->nullable();
+            // Aadhaar, Emirates ID, etc.
+            // Encrypted by the model. Ciphertext is 200 characters at its shortest,
+            // so the column is sized for the ciphertext, not the value.
+            $table->text('national_id')->nullable();
+            $table->text('passport_number')->nullable();
             $table->date('passport_expiry')->nullable();
             $table->string('visa_number', 50)->nullable();
             $table->date('visa_expiry')->nullable();
@@ -269,9 +272,9 @@ return new class extends Migration
             $table->string('currency_code', 3)->default('SAR');
             $table->string('payment_mode', 20)->default('bank_transfer');
             $table->string('bank_name', 100)->nullable();
-            $table->string('bank_account_number', 50)->nullable();
+            $table->text('bank_account_number')->nullable();
             $table->string('bank_ifsc_code', 20)->nullable(); // IFSC for India
-            $table->string('bank_iban', 50)->nullable(); // IBAN for GCC
+            $table->text('bank_iban')->nullable(); // IBAN for GCC
 
             // Other
             $table->text('notes')->nullable();
