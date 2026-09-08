@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ApiException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\AssetCategory;
 use App\Models\Accounting\AssetTransaction;
 use App\Models\Accounting\DepreciationRun;
 use App\Models\Accounting\DepreciationRunLine;
 use App\Models\Accounting\FixedAsset;
-use App\Models\Accounting\FiscalYear;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -113,7 +113,7 @@ class AssetAccountingService
 
             if ($existingRun !== null) {
                 throw new InvalidArgumentException(
-                    'A depreciation run already exists for this period (ID: ' . $existingRun->id . ').'
+                    'A depreciation run already exists for this period (ID: '.$existingRun->id.').'
                 );
             }
 
@@ -158,11 +158,11 @@ class AssetAccountingService
                     }
 
                     $openingBookValue = (float) $asset->book_value;
-                    $tentativeClosing = bcsub((string)$openingBookValue, (string)$depreciationAmount, 4);
-                    $closingBookValue = bccomp($tentativeClosing, (string)(float)$asset->salvage_value, 4) < 0
-                        ? (string)(float)$asset->salvage_value
+                    $tentativeClosing = bcsub((string) $openingBookValue, (string) $depreciationAmount, 4);
+                    $closingBookValue = bccomp($tentativeClosing, (string) (float) $asset->salvage_value, 4) < 0
+                        ? (string) (float) $asset->salvage_value
                         : $tentativeClosing;
-                    $actualDepreciation = bcsub((string)$openingBookValue, (string)$closingBookValue, 4);
+                    $actualDepreciation = bcsub((string) $openingBookValue, (string) $closingBookValue, 4);
 
                     DepreciationRunLine::create([
                         'depreciation_run_id' => $run->id,
@@ -200,7 +200,7 @@ class AssetAccountingService
     {
         if ($run->status !== DepreciationRun::STATUS_PENDING) {
             throw new InvalidArgumentException(
-                'Only pending depreciation runs can be posted. Current status: ' . $run->status
+                'Only pending depreciation runs can be posted. Current status: '.$run->status
             );
         }
 
@@ -225,7 +225,7 @@ class AssetAccountingService
                             'fiscal_year_id' => $run->fiscal_year_id,
                             'entry_date' => $run->period_end->toDateString(),
                             'description' => "Depreciation for {$asset->name} ({$asset->asset_number}) "
-                                . "period {$run->period_start->format('Y-m-d')} to {$run->period_end->format('Y-m-d')}",
+                                ."period {$run->period_start->format('Y-m-d')} to {$run->period_end->format('Y-m-d')}",
                             'reference' => "DEP-{$run->id}-{$asset->asset_number}",
                             'created_by' => $userId,
                         ],
@@ -346,7 +346,7 @@ class AssetAccountingService
                     $bankCashAccount = Account::where('organization_id', $orgId)
                         ->where(function ($q) {
                             $q->where('account_type', 'bank')
-                              ->orWhere('account_type', 'cash');
+                                ->orWhere('account_type', 'cash');
                         })
                         ->orderBy('id')
                         ->first();
@@ -360,7 +360,7 @@ class AssetAccountingService
                     }
 
                     if ($bankCashAccount === null) {
-                        throw new \App\Exceptions\ApiException(
+                        throw new ApiException(
                             'No bank or cash account configured. Please set up a bank/cash account before recording asset disposals.'
                         );
                     }
@@ -475,8 +475,8 @@ class AssetAccountingService
                 break;
             }
 
-            $newBookValue = bcsub((string)$bookValue, (string)$depreciation, 4);
-            $bookValue = bccomp($newBookValue, (string)$salvageValue, 4) < 0 ? (string)$salvageValue : $newBookValue;
+            $newBookValue = bcsub((string) $bookValue, (string) $depreciation, 4);
+            $bookValue = bccomp($newBookValue, (string) $salvageValue, 4) < 0 ? (string) $salvageValue : $newBookValue;
 
             $schedule[] = [
                 'period' => $currentDate->format('Y-m'),
@@ -532,44 +532,44 @@ class AssetAccountingService
         return DB::transaction(function () use ($aucAsset, $targetAsset, $amount, $settlementDate, $userId): array {
             // 1. Transfer transaction on AuC (deduction)
             AssetTransaction::create([
-                'organization_id'  => $aucAsset->organization_id,
-                'fixed_asset_id'   => $aucAsset->id,
+                'organization_id' => $aucAsset->organization_id,
+                'fixed_asset_id' => $aucAsset->id,
                 'transaction_type' => AssetTransaction::TYPE_TRANSFER,
                 'transaction_date' => $settlementDate,
-                'amount'           => -$amount,
-                'description'      => "AuC settlement to asset {$targetAsset->asset_number}",
-                'created_by'       => $userId,
+                'amount' => -$amount,
+                'description' => "AuC settlement to asset {$targetAsset->asset_number}",
+                'created_by' => $userId,
             ]);
 
             $newAucBookValue = (float) $aucAsset->book_value - $amount;
 
-            $aucAsset->book_value            = max(0.0, $newAucBookValue);
-            $aucAsset->auc_settled_amount    = (float) $aucAsset->auc_settled_amount + $amount;
+            $aucAsset->book_value = max(0.0, $newAucBookValue);
+            $aucAsset->auc_settled_amount = (float) $aucAsset->auc_settled_amount + $amount;
 
             if ($aucAsset->book_value <= 0.0001) {
                 $aucAsset->auc_settled_at = now();
-                $aucAsset->status         = FixedAsset::STATUS_DISPOSED;
+                $aucAsset->status = FixedAsset::STATUS_DISPOSED;
             }
 
             $aucAsset->save();
 
             // 2. Acquisition transaction on target asset
             AssetTransaction::create([
-                'organization_id'  => $targetAsset->organization_id,
-                'fixed_asset_id'   => $targetAsset->id,
+                'organization_id' => $targetAsset->organization_id,
+                'fixed_asset_id' => $targetAsset->id,
                 'transaction_type' => AssetTransaction::TYPE_ACQUISITION,
                 'transaction_date' => $settlementDate,
-                'amount'           => $amount,
-                'description'      => "Settlement from AuC {$aucAsset->asset_number}",
-                'created_by'       => $userId,
+                'amount' => $amount,
+                'description' => "Settlement from AuC {$aucAsset->asset_number}",
+                'created_by' => $userId,
             ]);
 
             $targetAsset->acquisition_cost = (float) $targetAsset->acquisition_cost + $amount;
-            $targetAsset->book_value       = (float) $targetAsset->book_value + $amount;
+            $targetAsset->book_value = (float) $targetAsset->book_value + $amount;
             $targetAsset->save();
 
             // 3. GL journal entry
-            $aucCategory    = $aucAsset->category;
+            $aucCategory = $aucAsset->category;
             $targetCategory = $targetAsset->category;
 
             $journalEntry = null;
@@ -577,24 +577,24 @@ class AssetAccountingService
             if ($aucCategory?->gl_asset_account_id && $targetCategory?->gl_asset_account_id) {
                 $entry = $this->journalService->createSimpleEntry(
                     organizationId: $aucAsset->organization_id,
-                    branchId:       $aucAsset->branch_id ?? 1,
+                    branchId: $aucAsset->branch_id,
                     debitAccountId: $targetCategory->gl_asset_account_id,
                     creditAccountId: $aucCategory->gl_asset_account_id,
-                    amount:         $amount,
-                    description:    "AuC settlement {$aucAsset->asset_number} → {$targetAsset->asset_number}",
-                    reference:      "AUC-SETTLE-{$aucAsset->asset_number}",
-                    date:           $settlementDate
+                    amount: $amount,
+                    description: "AuC settlement {$aucAsset->asset_number} → {$targetAsset->asset_number}",
+                    reference: "AUC-SETTLE-{$aucAsset->asset_number}",
+                    date: $settlementDate
                 );
                 $journalEntry = $this->journalService->postEntry($entry);
             }
 
             return [
-                'auc_asset'         => $aucAsset->fresh(),
-                'target_asset'      => $targetAsset->fresh(),
-                'settled_amount'    => $amount,
-                'auc_remaining'     => (float) $aucAsset->book_value,
-                'fully_settled'     => $aucAsset->auc_settled_at !== null,
-                'journal_entry_id'  => $journalEntry?->id,
+                'auc_asset' => $aucAsset->fresh(),
+                'target_asset' => $targetAsset->fresh(),
+                'settled_amount' => $amount,
+                'auc_remaining' => (float) $aucAsset->book_value,
+                'fully_settled' => $aucAsset->auc_settled_at !== null,
+                'journal_entry_id' => $journalEntry?->id,
             ];
         });
     }
@@ -633,6 +633,6 @@ class AssetAccountingService
 
         $sequence = $last !== null ? (int) substr($last, strlen($prefix)) + 1 : 1;
 
-        return $prefix . str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
     }
 }

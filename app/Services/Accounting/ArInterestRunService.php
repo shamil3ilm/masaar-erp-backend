@@ -30,13 +30,13 @@ class ArInterestRunService
     {
         $invoices = $this->selectOverdueInvoices($organizationId, $params);
 
-        $lines        = [];
+        $lines = [];
         $totalInterest = 0.0;
 
         foreach ($invoices as $invoice) {
-            $daysOverdue  = $invoice->getDaysPastDue();
-            $annualRate   = (float) ($params['annual_rate'] ?? 12.0);   // default 12% p.a.
-            $interest     = $this->calculateInterest(
+            $daysOverdue = $invoice->getDaysPastDue();
+            $annualRate = (float) ($params['annual_rate'] ?? 12.0);   // default 12% p.a.
+            $interest = $this->calculateInterest(
                 (float) $invoice->amount_due,
                 $daysOverdue,
                 $annualRate
@@ -49,21 +49,21 @@ class ArInterestRunService
             $totalInterest += $interest;
 
             $lines[] = [
-                'invoice_id'     => $invoice->id,
+                'invoice_id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
-                'contact_name'   => $invoice->contact?->company_name ?? $invoice->contact?->contact_name,
-                'due_date'       => $invoice->due_date?->toDateString(),
-                'days_overdue'   => $daysOverdue,
-                'outstanding'    => (float) $invoice->amount_due,
-                'annual_rate'    => $annualRate,
-                'interest'       => round($interest, 2),
+                'contact_name' => $invoice->contact?->company_name ?? $invoice->contact?->contact_name,
+                'due_date' => $invoice->due_date?->toDateString(),
+                'days_overdue' => $daysOverdue,
+                'outstanding' => (float) $invoice->amount_due,
+                'annual_rate' => $annualRate,
+                'interest' => round($interest, 2),
             ];
         }
 
         return [
-            'lines'          => $lines,
+            'lines' => $lines,
             'total_interest' => round($totalInterest, 2),
-            'invoice_count'  => count($lines),
+            'invoice_count' => count($lines),
         ];
     }
 
@@ -72,7 +72,7 @@ class ArInterestRunService
      *
      * @return array{lines: array[], total_interest: float, journal_entries_posted: int}
      */
-    public function execute(int $organizationId, int $branchId, array $params, int $_userId): array
+    public function execute(int $organizationId, ?int $branchId, array $params, int $_userId): array
     {
         $preview = $this->preview($organizationId, $params);
 
@@ -80,12 +80,12 @@ class ArInterestRunService
             return array_merge($preview, ['journal_entries_posted' => 0]);
         }
 
-        $arAccount      = Account::where('organization_id', $organizationId)
+        $arAccount = Account::where('organization_id', $organizationId)
             ->where('sub_type', Account::SUBTYPE_RECEIVABLE)
             ->where('is_active', true)
             ->first();
 
-        $incomeAccount  = Account::where('organization_id', $organizationId)
+        $incomeAccount = Account::where('organization_id', $organizationId)
             ->where('sub_type', Account::SUBTYPE_OTHER_INCOME)
             ->where('is_active', true)
             ->first();
@@ -109,13 +109,13 @@ class ArInterestRunService
 
                 $entry = $this->journalService->createSimpleEntry(
                     organizationId: $organizationId,
-                    branchId:       $branchId,
+                    branchId: $branchId,
                     debitAccountId: $arAccount->id,
                     creditAccountId: $incomeAccount->id,
-                    amount:         $line['interest'],
-                    description:    "Interest on overdue invoice {$line['invoice_number']} ({$line['days_overdue']} days overdue)",
-                    reference:      "INT-{$line['invoice_number']}",
-                    date:           $runDate
+                    amount: $line['interest'],
+                    description: "Interest on overdue invoice {$line['invoice_number']} ({$line['days_overdue']} days overdue)",
+                    reference: "INT-{$line['invoice_number']}",
+                    date: $runDate
                 );
 
                 $this->journalService->postEntry($entry);

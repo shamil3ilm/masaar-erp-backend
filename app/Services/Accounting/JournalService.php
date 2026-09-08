@@ -356,7 +356,7 @@ class JournalService
      */
     public function createSimpleEntry(
         int $organizationId,
-        int $branchId,
+        ?int $branchId,
         int $debitAccountId,
         int $creditAccountId,
         float $amount,
