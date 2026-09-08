@@ -18,37 +18,41 @@ class AdvancePayment extends Model
 {
     use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
-    public const STATUS_DRAFT            = 'draft';
-    public const STATUS_RECEIVED         = 'received';
+    public const STATUS_DRAFT = 'draft';
+
+    public const STATUS_RECEIVED = 'received';
+
     public const STATUS_PARTIALLY_APPLIED = 'partially_applied';
-    public const STATUS_FULLY_APPLIED    = 'fully_applied';
-    public const STATUS_REFUNDED         = 'refunded';
+
+    public const STATUS_FULLY_APPLIED = 'fully_applied';
+
+    public const STATUS_REFUNDED = 'refunded';
 
     protected $fillable = [
         'organization_id',
         'contact_id',
-        'advance_number',
-        'advance_date',
+        'payment_number',
+        'payment_date',
         'amount',
         'applied_amount',
-        'balance_amount',
+        'available_amount',
         'currency_code',
         'payment_method',
         'reference',
         'bank_account_id',
         'status',
         'notes',
-        'created_by',
+        'received_by',
         'journal_entry_id',
     ];
 
     protected function casts(): array
     {
         return [
-            'advance_date'   => 'date',
-            'amount'         => 'decimal:4',
+            'payment_date' => 'date',
+            'amount' => 'decimal:4',
             'applied_amount' => 'decimal:4',
-            'balance_amount' => 'decimal:4',
+            'available_amount' => 'decimal:4',
         ];
     }
 

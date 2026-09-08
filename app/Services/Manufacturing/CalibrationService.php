@@ -28,18 +28,18 @@ class CalibrationService
                 ->orderByDesc('completed_date')
                 ->first();
 
-            $baseDate   = $lastCompleted?->completed_date ?? now()->toDateTimeImmutable();
-            $nextDate   = $plan->calculateNextDueDate($baseDate);
+            $baseDate = $lastCompleted?->completed_date ?? now()->toDateTimeImmutable();
+            $nextDate = $plan->calculateNextDueDate($baseDate);
             $orderNumber = CalibrationOrder::generateOrderNumber($orgId);
 
             return CalibrationOrder::create([
-                'organization_id'          => $orgId,
+                'organization_id' => $orgId,
                 'calibration_equipment_id' => $plan->calibration_equipment_id,
-                'calibration_plan_id'      => $plan->id,
-                'order_number'             => $orderNumber,
-                'scheduled_date'           => $nextDate->format('Y-m-d'),
-                'status'                   => CalibrationOrder::STATUS_PLANNED,
-                'external_lab'             => $plan->external_lab,
+                'calibration_plan_id' => $plan->id,
+                'order_number' => $orderNumber,
+                'scheduled_date' => $nextDate->format('Y-m-d'),
+                'status' => CalibrationOrder::STATUS_PLANNED,
+                'external_lab' => $plan->external_lab,
             ]);
         });
     }
@@ -55,33 +55,33 @@ class CalibrationService
             // Determine next calibration date
             $nextDate = null;
             if ($order->calibration_plan_id !== null) {
-                $plan     = $order->plan ?? CalibrationPlan::find($order->calibration_plan_id);
+                $plan = $order->plan ?? CalibrationPlan::find($order->calibration_plan_id);
                 $baseDate = \DateTimeImmutable::createFromFormat('Y-m-d', $completedDate);
                 $nextDate = $plan?->calculateNextDueDate($baseDate)->format('Y-m-d');
             }
 
             $order->update([
-                'status'                => CalibrationOrder::STATUS_COMPLETED,
-                'completed_date'        => $completedDate,
-                'result'                => $results['result'] ?? null,
-                'actual_measurement'    => $results['actual_measurement'] ?? null,
-                'notes'                 => $results['notes'] ?? $order->notes,
-                'calibrated_by'         => $results['calibrated_by'] ?? $order->calibrated_by,
+                'status' => CalibrationOrder::STATUS_COMPLETED,
+                'completed_date' => $completedDate,
+                'result' => $results['result'] ?? null,
+                'actual_measurement' => $results['actual_measurement'] ?? null,
+                'notes' => $results['notes'] ?? $order->notes,
+                'calibrated_by' => $results['calibrated_by'] ?? $order->calibrated_by,
                 'next_calibration_date' => $nextDate,
             ]);
 
             // Issue certificate if provided
-            if (!empty($results['certificate'])) {
+            if (! empty($results['certificate'])) {
                 $cert = $results['certificate'];
                 CalibrationCertificate::create([
-                    'organization_id'      => $order->organization_id,
+                    'organization_id' => $order->organization_id,
                     'calibration_order_id' => $order->id,
-                    'certificate_number'   => $cert['certificate_number'],
-                    'issued_date'          => $cert['issued_date'] ?? $completedDate,
-                    'valid_until'          => $cert['valid_until'] ?? $nextDate ?? $completedDate,
-                    'issued_by'            => $cert['issued_by'] ?? null,
-                    'accreditation_body'   => $cert['accreditation_body'] ?? null,
-                    'certificate_data'     => $cert['certificate_data'] ?? null,
+                    'certificate_number' => $cert['certificate_number'],
+                    'issued_date' => $cert['issued_date'] ?? $completedDate,
+                    'valid_until' => $cert['valid_until'] ?? $nextDate ?? $completedDate,
+                    'issued_by' => $cert['issued_by'] ?? null,
+                    'accreditation_body' => $cert['accreditation_body'] ?? null,
+                    'certificate_data' => $cert['certificate_data'] ?? null,
                 ]);
             }
 
@@ -107,7 +107,7 @@ class CalibrationService
             ->whereIn('status', [CalibrationOrder::STATUS_PLANNED, CalibrationOrder::STATUS_OVERDUE])
             ->where('scheduled_date', '<', now()->toDateString())
             ->distinct()
-            ->pluck('equipment_id');
+            ->pluck('calibration_equipment_id');
 
         if ($equipmentIds->isEmpty()) {
             return collect();

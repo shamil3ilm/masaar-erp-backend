@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Messaging;
 
 use App\Http\Controllers\Controller;
 use App\Models\Messaging\NotificationPreference;
+use App\Models\Sales\Contact;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +19,7 @@ class NotificationPreferenceController extends Controller
     {
         $preference = NotificationPreference::where('contact_id', $contactId)->first();
 
-        if (!$preference) {
+        if (! $preference) {
             // Return default preferences if none exist
             return $this->success([
                 'contact_id' => $contactId,
@@ -61,6 +62,10 @@ class NotificationPreferenceController extends Controller
             'quiet_hours.end' => 'required_with:quiet_hours|string',
         ]);
 
+        // The contact is resolved through its tenant scope first: without it
+        // a preference row is written for any id, in any organisation.
+        Contact::findOrFail($contactId);
+
         $validated['contact_id'] = $contactId;
 
         $preference = NotificationPreference::updateOrCreate(
@@ -80,6 +85,8 @@ class NotificationPreferenceController extends Controller
             'reason' => 'nullable|string|max:255',
         ]);
 
+        Contact::findOrFail($contactId);
+
         $preference = NotificationPreference::firstOrCreate(
             ['contact_id' => $contactId],
             ['organization_id' => $this->organizationId($request)]
@@ -97,7 +104,7 @@ class NotificationPreferenceController extends Controller
     {
         $preference = NotificationPreference::where('contact_id', $contactId)->first();
 
-        if (!$preference) {
+        if (! $preference) {
             return $this->notFound('No preferences found for this contact.');
         }
 

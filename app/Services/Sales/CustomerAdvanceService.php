@@ -27,7 +27,7 @@ class CustomerAdvanceService
     {
         $query = AdvancePayment::with(['contact:id,contact_name,company_name', 'applications'])
             ->where('organization_id', $filters['organization_id'])
-            ->orderByDesc('advance_date');
+            ->orderByDesc('payment_date');
 
         if (! empty($filters['contact_id'])) {
             $query->where('contact_id', $filters['contact_id']);
@@ -38,11 +38,11 @@ class CustomerAdvanceService
         }
 
         if (! empty($filters['from_date'])) {
-            $query->whereDate('advance_date', '>=', $filters['from_date']);
+            $query->whereDate('payment_date', '>=', $filters['from_date']);
         }
 
         if (! empty($filters['to_date'])) {
-            $query->whereDate('advance_date', '<=', $filters['to_date']);
+            $query->whereDate('payment_date', '<=', $filters['to_date']);
         }
 
         return $query->paginate((int) ($filters['per_page'] ?? 20));
@@ -59,42 +59,42 @@ class CustomerAdvanceService
             $orgId = (int) $data['organization_id'];
 
             // Auto-generate advance number when not supplied
-            if (empty($data['advance_number'])) {
+            if (empty($data['payment_number'])) {
                 $count = AdvancePayment::where('organization_id', $orgId)->withTrashed()->count() + 1;
-                $data['advance_number'] = 'ADV-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+                $data['payment_number'] = 'ADV-'.str_pad((string) $count, 6, '0', STR_PAD_LEFT);
             }
 
             $amount = (float) $data['amount'];
 
             $advance = AdvancePayment::create(array_merge($data, [
                 'applied_amount' => 0,
-                'balance_amount' => $amount,
-                'status'         => AdvancePayment::STATUS_RECEIVED,
+                'available_amount' => $amount,
+                'status' => AdvancePayment::STATUS_RECEIVED,
             ]));
 
             // Create journal entry if bank/cash GL account is resolvable
             if (! empty($data['bank_account_id'])) {
                 $je = $this->journalService->create([
                     'organization_id' => $orgId,
-                    'reference'       => $advance->advance_number,
-                    'description'     => "Customer advance received — {$advance->advance_number}",
-                    'entry_date'      => $advance->advance_date->toDateString(),
-                    'currency_code'   => $advance->currency_code,
-                    'created_by'      => $data['created_by'],
+                    'reference' => $advance->payment_number,
+                    'description' => "Customer advance received — {$advance->payment_number}",
+                    'entry_date' => $advance->payment_date->toDateString(),
+                    'currency_code' => $advance->currency_code,
+                    'created_by' => $data['received_by'],
                 ], [
                     // Debit: Bank — resolved by linked bank account's GL account
                     [
                         'account_code' => '1020', // Bank / Cash (default)
-                        'debit'        => $amount,
-                        'credit'       => 0,
-                        'description'  => "Advance received from customer",
+                        'debit' => $amount,
+                        'credit' => 0,
+                        'description' => 'Advance received from customer',
                     ],
                     // Credit: Customer Advance Liability
                     [
                         'account_code' => '2100', // Customer Deposits / Advances Received
-                        'debit'        => 0,
-                        'credit'       => $amount,
-                        'description'  => "Customer advance liability — {$advance->advance_number}",
+                        'debit' => 0,
+                        'credit' => $amount,
+                        'description' => "Customer advance liability — {$advance->payment_number}",
                     ],
                 ]);
 
@@ -122,11 +122,11 @@ class CustomerAdvanceService
             ], true)) {
                 throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
                     'advance_status' => $advance->status,
-                    'message'        => 'Advance is not open for application.',
+                    'message' => 'Advance is not open for application.',
                 ]);
             }
 
-            $balance = (float) $advance->balance_amount;
+            $balance = (float) $advance->available_amount;
             $balanceDue = (float) $invoice->amount_due;
 
             if ($amount <= 0) {
@@ -137,80 +137,80 @@ class CustomerAdvanceService
 
             if ($amount > $balance) {
                 throw ApiException::fromError(ErrorCodes::VALIDATION_FAILED, [
-                    'message'          => 'Application amount exceeds advance balance.',
-                    'advance_balance'  => $balance,
+                    'message' => 'Application amount exceeds advance balance.',
+                    'advance_balance' => $balance,
                     'requested_amount' => $amount,
                 ]);
             }
 
             if ($amount > $balanceDue) {
                 throw ApiException::fromError(ErrorCodes::VALIDATION_FAILED, [
-                    'message'          => 'Application amount exceeds invoice balance due.',
-                    'invoice_balance'  => $balanceDue,
+                    'message' => 'Application amount exceeds invoice balance due.',
+                    'invoice_balance' => $balanceDue,
                     'requested_amount' => $amount,
                 ]);
             }
 
             $application = AdvancePaymentApplication::create([
                 'advance_payment_id' => $advance->id,
-                'invoice_id'         => $invoice->id,
-                'applied_amount'     => $amount,
-                'applied_date'       => now()->toDateString(),
-                'notes'              => $notes,
-                'created_by'         => $advance->created_by,
+                'invoice_id' => $invoice->id,
+                'applied_amount' => $amount,
+                'applied_date' => now()->toDateString(),
+                'notes' => $notes,
+                'created_by' => $advance->received_by,
             ]);
 
             // Update advance balances
-            $newApplied  = (float) bcadd((string) $advance->applied_amount, (string) $amount, 4);
-            $newBalance  = (float) bcsub((string) $advance->amount, (string) $newApplied, 4);
+            $newApplied = (float) bcadd((string) $advance->applied_amount, (string) $amount, 4);
+            $newBalance = (float) bcsub((string) $advance->amount, (string) $newApplied, 4);
 
             $newStatus = match (true) {
                 $newBalance <= 0 => AdvancePayment::STATUS_FULLY_APPLIED,
-                default          => AdvancePayment::STATUS_PARTIALLY_APPLIED,
+                default => AdvancePayment::STATUS_PARTIALLY_APPLIED,
             };
 
             $advance->update([
                 'applied_amount' => $newApplied,
-                'balance_amount' => max(0, $newBalance),
-                'status'         => $newStatus,
+                'available_amount' => max(0, $newBalance),
+                'status' => $newStatus,
             ]);
 
             // Update invoice payment tracking
             $newAmountPaid = (float) bcadd((string) $invoice->amount_paid, (string) $amount, 4);
-            $newAmountDue  = (float) bcsub((string) $invoice->total, (string) $newAmountPaid, 4);
+            $newAmountDue = (float) bcsub((string) $invoice->total, (string) $newAmountPaid, 4);
 
             $invoiceStatus = match (true) {
-                $newAmountDue <= 0      => Invoice::STATUS_PAID,
-                $newAmountPaid > 0      => Invoice::STATUS_PARTIAL,
-                default                 => $invoice->status,
+                $newAmountDue <= 0 => Invoice::STATUS_PAID,
+                $newAmountPaid > 0 => Invoice::STATUS_PARTIAL,
+                default => $invoice->status,
             };
 
             $invoice->update([
                 'amount_paid' => $newAmountPaid,
-                'amount_due'  => max(0, $newAmountDue),
-                'status'      => $invoiceStatus,
+                'amount_due' => max(0, $newAmountDue),
+                'status' => $invoiceStatus,
             ]);
 
             // Create clearing journal entry
             $this->journalService->create([
                 'organization_id' => $advance->organization_id,
-                'reference'       => $advance->advance_number,
-                'description'     => "Advance clearing — {$advance->advance_number} against {$invoice->invoice_number}",
-                'entry_date'      => now()->toDateString(),
-                'currency_code'   => $advance->currency_code,
-                'created_by'      => $advance->created_by,
+                'reference' => $advance->payment_number,
+                'description' => "Advance clearing — {$advance->payment_number} against {$invoice->invoice_number}",
+                'entry_date' => now()->toDateString(),
+                'currency_code' => $advance->currency_code,
+                'created_by' => $advance->received_by,
             ], [
                 [
                     'account_code' => '2100', // Debit: Customer Advance Liability (clear the liability)
-                    'debit'        => $amount,
-                    'credit'       => 0,
-                    'description'  => "Clear advance liability — {$advance->advance_number}",
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'description' => "Clear advance liability — {$advance->payment_number}",
                 ],
                 [
                     'account_code' => '1200', // Credit: Accounts Receivable (reduce outstanding AR)
-                    'debit'        => 0,
-                    'credit'       => $amount,
-                    'description'  => "Applied to invoice {$invoice->invoice_number}",
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'description' => "Applied to invoice {$invoice->invoice_number}",
                 ],
             ]);
 
@@ -226,9 +226,9 @@ class CustomerAdvanceService
         return AdvancePayment::open()
             ->where('organization_id', $orgId)
             ->where('contact_id', $contactId)
-            ->where('balance_amount', '>', 0)
+            ->where('available_amount', '>', 0)
             ->with('applications')
-            ->orderByDesc('advance_date')
+            ->orderByDesc('payment_date')
             ->get();
     }
 
@@ -244,11 +244,11 @@ class CustomerAdvanceService
             ], true)) {
                 throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
                     'advance_status' => $advance->status,
-                    'message'        => 'Only open advances can be refunded.',
+                    'message' => 'Only open advances can be refunded.',
                 ]);
             }
 
-            $refundAmount = (float) $advance->balance_amount;
+            $refundAmount = (float) $advance->available_amount;
 
             if ($refundAmount <= 0) {
                 throw ApiException::fromError(ErrorCodes::VALIDATION_FAILED, [
@@ -257,30 +257,30 @@ class CustomerAdvanceService
             }
 
             $advance->update([
-                'balance_amount' => 0,
-                'status'         => AdvancePayment::STATUS_REFUNDED,
+                'available_amount' => 0,
+                'status' => AdvancePayment::STATUS_REFUNDED,
             ]);
 
             // Journal entry: Dr Customer Advance Liability / Cr Bank
             $this->journalService->create([
                 'organization_id' => $advance->organization_id,
-                'reference'       => $advance->advance_number,
-                'description'     => "Advance refund — {$advance->advance_number}",
-                'entry_date'      => now()->toDateString(),
-                'currency_code'   => $advance->currency_code,
-                'created_by'      => $advance->created_by,
+                'reference' => $advance->payment_number,
+                'description' => "Advance refund — {$advance->payment_number}",
+                'entry_date' => now()->toDateString(),
+                'currency_code' => $advance->currency_code,
+                'created_by' => $advance->received_by,
             ], [
                 [
                     'account_code' => '2100',
-                    'debit'        => $refundAmount,
-                    'credit'       => 0,
-                    'description'  => "Refund of customer advance — {$advance->advance_number}",
+                    'debit' => $refundAmount,
+                    'credit' => 0,
+                    'description' => "Refund of customer advance — {$advance->payment_number}",
                 ],
                 [
                     'account_code' => '1020',
-                    'debit'        => 0,
-                    'credit'       => $refundAmount,
-                    'description'  => "Cash/bank payment for advance refund",
+                    'debit' => 0,
+                    'credit' => $refundAmount,
+                    'description' => 'Cash/bank payment for advance refund',
                 ],
             ]);
         });
