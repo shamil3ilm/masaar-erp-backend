@@ -22,10 +22,15 @@ class TravelExpenseController extends Controller
     // Per Diem Rates
     // ---------------------------------------------------------------
 
+    /**
+     * These three resources share one controller and are told apart by the
+     * path. The group prefix is 'travel' for all of them, so reading that
+     * told them apart never: every route answered with travel requests.
+     */
     public function index(Request $request): JsonResponse
     {
         // Determine context from route prefix to multiplex index
-        $prefix = $request->route()->getPrefix() ?? '';
+        $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
             return $this->perDiemIndex($request);
@@ -51,7 +56,7 @@ class TravelExpenseController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $prefix = $request->route()->getPrefix() ?? '';
+        $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
             return $this->storePerDiemRate($request);
@@ -66,25 +71,28 @@ class TravelExpenseController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $prefix = $request->route()->getPrefix() ?? '';
+        $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
             $rate = PerDiemRate::findOrFail($id);
+
             return $this->success($rate);
         }
 
         if (str_contains($prefix, 'claims')) {
             $claim = TravelExpenseClaim::with(['employee', 'travelRequest', 'lines', 'approver'])->findOrFail($id);
+
             return $this->success($claim);
         }
 
         $travelRequest = TravelRequest::with(['employee', 'expenseClaims', 'approver'])->findOrFail($id);
+
         return $this->success($travelRequest);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $prefix = $request->route()->getPrefix() ?? '';
+        $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
             return $this->updatePerDiemRate($request, $id);
@@ -95,28 +103,31 @@ class TravelExpenseController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $prefix = $request->route()->getPrefix() ?? '';
+        $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
             $rate = PerDiemRate::findOrFail($id);
             $rate->delete();
+
             return $this->success(null, 'Per diem rate deleted.');
         }
 
         if (str_contains($prefix, 'claims')) {
             $claim = TravelExpenseClaim::findOrFail($id);
-            if (!$claim->isDraft()) {
+            if (! $claim->isDraft()) {
                 return $this->error('Only draft claims can be deleted.', 'INVALID_STATE', 422);
             }
             $claim->delete();
+
             return $this->success(null, 'Claim deleted.');
         }
 
         $travelRequest = TravelRequest::findOrFail($id);
-        if (!$travelRequest->isDraft()) {
+        if (! $travelRequest->isDraft()) {
             return $this->error('Only draft requests can be deleted.', 'INVALID_STATE', 422);
         }
         $travelRequest->delete();
+
         return $this->success(null, 'Travel request deleted.');
     }
 
@@ -128,15 +139,15 @@ class TravelExpenseController extends Controller
     {
         $validated = $request->validate([
             'destination_country' => 'required|string|size:3',
-            'destination_city'    => 'nullable|string|max:100',
-            'daily_allowance'     => 'required|numeric|min:0',
-            'currency_code'       => 'nullable|string|size:3',
+            'destination_city' => 'nullable|string|max:100',
+            'daily_allowance' => 'required|numeric|min:0',
+            'currency_code' => 'nullable|string|size:3',
             'meal_allowance_type' => 'nullable|in:included,separate',
-            'meal_breakfast'      => 'nullable|numeric|min:0',
-            'meal_lunch'          => 'nullable|numeric|min:0',
-            'meal_dinner'         => 'nullable|numeric|min:0',
-            'mileage_rate'        => 'nullable|numeric|min:0',
-            'is_active'           => 'nullable|boolean',
+            'meal_breakfast' => 'nullable|numeric|min:0',
+            'meal_lunch' => 'nullable|numeric|min:0',
+            'meal_dinner' => 'nullable|numeric|min:0',
+            'mileage_rate' => 'nullable|numeric|min:0',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -155,14 +166,14 @@ class TravelExpenseController extends Controller
         $rate = PerDiemRate::findOrFail($id);
 
         $validated = $request->validate([
-            'daily_allowance'     => 'sometimes|required|numeric|min:0',
-            'currency_code'       => 'sometimes|required|string|size:3',
+            'daily_allowance' => 'sometimes|required|numeric|min:0',
+            'currency_code' => 'sometimes|required|string|size:3',
             'meal_allowance_type' => 'sometimes|required|in:included,separate',
-            'meal_breakfast'      => 'sometimes|nullable|numeric|min:0',
-            'meal_lunch'          => 'sometimes|nullable|numeric|min:0',
-            'meal_dinner'         => 'sometimes|nullable|numeric|min:0',
-            'mileage_rate'        => 'sometimes|nullable|numeric|min:0',
-            'is_active'           => 'sometimes|boolean',
+            'meal_breakfast' => 'sometimes|nullable|numeric|min:0',
+            'meal_lunch' => 'sometimes|nullable|numeric|min:0',
+            'meal_dinner' => 'sometimes|nullable|numeric|min:0',
+            'mileage_rate' => 'sometimes|nullable|numeric|min:0',
+            'is_active' => 'sometimes|boolean',
         ]);
 
         $rate->update($validated);
@@ -174,8 +185,8 @@ class TravelExpenseController extends Controller
     {
         $validated = $request->validate([
             'destination_country' => 'required|string|size:3',
-            'destination_city'    => 'nullable|string|max:100',
-            'days'                => 'required|integer|min:1',
+            'destination_city' => 'nullable|string|max:100',
+            'days' => 'required|integer|min:1',
         ]);
 
         $result = $this->service->calculatePerDiem(
@@ -208,19 +219,19 @@ class TravelExpenseController extends Controller
     private function storeRequest(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'         => 'required|integer|exists:employees,id',
-            'purpose'             => 'required|string|max:500',
-            'departure_date'      => 'required|date',
-            'return_date'         => 'required|date|after_or_equal:departure_date',
+            'employee_id' => 'required|integer|exists:employees,id',
+            'purpose' => 'required|string|max:500',
+            'departure_date' => 'required|date',
+            'return_date' => 'required|date|after_or_equal:departure_date',
             'destination_country' => 'required|string|size:3',
-            'destination_city'    => 'nullable|string|max:100',
-            'travel_type'         => 'nullable|in:domestic,international',
-            'estimated_cost'      => 'nullable|numeric|min:0',
-            'advance_requested'   => 'nullable|numeric|min:0',
+            'destination_city' => 'nullable|string|max:100',
+            'travel_type' => 'nullable|in:domestic,international',
+            'estimated_cost' => 'nullable|numeric|min:0',
+            'advance_requested' => 'nullable|numeric|min:0',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
-        $validated['created_by']      = auth()->id();
+        $validated['created_by'] = auth()->id();
 
         try {
             $travelRequest = $this->service->createRequest($validated);
@@ -240,6 +251,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelRequest) {
                 $this->service->submit($travelRequest);
+
                 return $travelRequest->refresh();
             },
             'Travel request submitted.',
@@ -256,6 +268,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelRequest, $validated) {
                 $this->service->approve($travelRequest, (float) ($validated['advance_approved'] ?? 0));
+
                 return $travelRequest->refresh();
             },
             'Travel request approved.',
@@ -272,6 +285,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelRequest, $validated) {
                 $this->service->reject($travelRequest, $validated['reason']);
+
                 return $travelRequest->refresh();
             },
             'Travel request rejected.',
@@ -299,14 +313,14 @@ class TravelExpenseController extends Controller
     private function storeClaim(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'       => 'required|integer|exists:employees,id',
+            'employee_id' => 'required|integer|exists:employees,id',
             'travel_request_id' => 'nullable|integer|exists:travel_requests,id',
-            'claim_date'        => 'nullable|date',
-            'advance_paid'      => 'nullable|numeric|min:0',
+            'claim_date' => 'nullable|date',
+            'advance_paid' => 'nullable|numeric|min:0',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
-        $validated['created_by']      = auth()->id();
+        $validated['created_by'] = auth()->id();
 
         try {
             $claim = $this->service->createClaim($validated);
@@ -324,15 +338,15 @@ class TravelExpenseController extends Controller
     public function addLine(Request $request, TravelExpenseClaim $travelExpenseClaim): JsonResponse
     {
         $validated = $request->validate([
-            'expense_date'      => 'required|date',
-            'expense_category'  => 'required|in:flight,hotel,meal,transport,per_diem,mileage,visa,other',
-            'description'       => 'nullable|string|max:255',
-            'amount'            => 'required|numeric|min:0.01',
-            'mileage_km'        => 'nullable|numeric|min:0',
-            'currency_code'     => 'nullable|string|size:3',
-            'exchange_rate'     => 'nullable|numeric|min:0.000001',
+            'expense_date' => 'required|date',
+            'expense_category' => 'required|in:flight,hotel,meal,transport,per_diem,mileage,visa,other',
+            'description' => 'nullable|string|max:255',
+            'amount' => 'required|numeric|min:0.01',
+            'mileage_km' => 'nullable|numeric|min:0',
+            'currency_code' => 'nullable|string|size:3',
+            'exchange_rate' => 'nullable|numeric|min:0.000001',
             'receipt_reference' => 'nullable|string|max:100',
-            'receipt_attached'  => 'nullable|boolean',
+            'receipt_attached' => 'nullable|boolean',
         ]);
 
         try {
@@ -349,6 +363,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelExpenseClaim) {
                 $this->service->submitClaim($travelExpenseClaim);
+
                 return $travelExpenseClaim->refresh();
             },
             'Claim submitted.',
@@ -361,6 +376,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelExpenseClaim) {
                 $this->service->approveClaim($travelExpenseClaim);
+
                 return $travelExpenseClaim->refresh();
             },
             'Claim approved.',
@@ -373,6 +389,7 @@ class TravelExpenseController extends Controller
         return $this->tryAction(
             function () use ($travelExpenseClaim) {
                 $this->service->processClaim($travelExpenseClaim);
+
                 return $travelExpenseClaim->refresh();
             },
             'Claim processed for payment.',

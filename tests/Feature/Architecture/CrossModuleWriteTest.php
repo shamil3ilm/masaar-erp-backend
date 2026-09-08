@@ -6,6 +6,7 @@ namespace Tests\Feature\Architecture;
 
 use App\Models\Core\OrganizationModule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -69,7 +70,7 @@ class CrossModuleWriteTest extends TestCase
             'channel order import' => ['/ecommerce/orders/import'],
             'gateway creation' => ['/ecommerce/payment-gateways'],
             'channel creation' => ['/ecommerce/channels'],
-            'campaign creation' => ['/campaigns'],
+            'campaign creation' => ['/crm/campaigns'],
             'fraud rule creation' => ['/fraud/rules'],
             'suspicious activity report' => ['/aml/sar'],
             'warehouse load' => ['/analytics/warehouse/sync'],
@@ -79,11 +80,11 @@ class CrossModuleWriteTest extends TestCase
             'audit plan' => ['/manufacturing/audit-plans'],
             'scrap report' => ['/manufacturing/scrap-reports'],
             'process order' => ['/manufacturing/process/orders'],
-            'work permit' => ['/manufacturing/maintenance-permits'],
+            'work permit' => ['/maintenance/permits'],
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('writeEndpoints')]
+    #[DataProvider('writeEndpoints')]
     public function test_other_modules_are_refused(string $uri): void
     {
         $response = $this->apiPost($uri, []);

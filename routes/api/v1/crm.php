@@ -9,6 +9,9 @@ use App\Http\Controllers\Api\V1\CRM\LeadController;
 use App\Http\Controllers\Api\V1\CRM\OpportunityController;
 use App\Http\Controllers\Api\V1\CRM\ServiceTicketController;
 use App\Http\Controllers\Api\V1\Sales\ContactController;
+use App\Models\Sales\Contact;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -170,8 +173,8 @@ Route::middleware(['auth:api'])->group(function () {
     | CRM Accounts (companies / organisations — contacts with company_name)
     |--------------------------------------------------------------------------
     */
-    Route::get('accounts', function (\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse {
-        $contacts = \App\Models\Sales\Contact::where('organization_id', $request->user()->organization_id)
+    Route::get('accounts', function (Request $request): JsonResponse {
+        $contacts = Contact::where('organization_id', $request->user()->organization_id)
             ->whereNotNull('company_name')
             ->paginate(20);
 
@@ -194,6 +197,10 @@ Route::middleware(['auth:api'])->group(function () {
             ->withoutMiddleware('check.permission:crm.campaigns.view')
             ->middleware('check.permission:crm.campaigns.edit')
             ->name('crm.campaigns.update');
+        Route::delete('/{id}', [CampaignController::class, 'destroy'])
+            ->withoutMiddleware('check.permission:crm.campaigns.view')
+            ->middleware('check.permission:crm.campaigns.delete')
+            ->name('crm.campaigns.destroy');
         Route::post('/{id}/activate', [CampaignController::class, 'activate'])
             ->withoutMiddleware('check.permission:crm.campaigns.view')
             ->middleware('check.permission:crm.campaigns.edit')
