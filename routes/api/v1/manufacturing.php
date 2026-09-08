@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\V1\Maintenance\MaintenancePermitController;
 use App\Http\Controllers\Api\V1\Manufacturing\AuditManagementController;
 use App\Http\Controllers\Api\V1\Manufacturing\BomAlternativeController;
 use App\Http\Controllers\Api\V1\Manufacturing\BomController;
@@ -432,24 +431,6 @@ Route::middleware(['auth:api'])->group(function (): void {
         Route::get('/{id}', [QInfoRecordController::class, 'show'])->name('show')->middleware('check.permission:manufacturing.quality.view');
         Route::put('/{id}', [QInfoRecordController::class, 'update'])->name('update')->middleware('check.permission:manufacturing.quality.manage');
         Route::delete('/{id}', [QInfoRecordController::class, 'destroy'])->name('destroy')->middleware('check.permission:manufacturing.quality.manage');
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | PM: Maintenance Permits (Work Permits)
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('maintenance-permits')->name('pm.permits.')->group(function (): void {
-        Route::get('/', [MaintenancePermitController::class, 'index'])->name('index')->middleware('check.permission:maintenance.permits.view');
-        Route::post('/', [MaintenancePermitController::class, 'store'])->name('store')->middleware('check.permission:maintenance.permits.manage');
-        Route::get('/{id}', [MaintenancePermitController::class, 'show'])->name('show')->middleware('check.permission:maintenance.permits.view');
-        Route::put('/{id}', [MaintenancePermitController::class, 'update'])->name('update')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/approve', [MaintenancePermitController::class, 'approve'])->name('approve')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/activate', [MaintenancePermitController::class, 'activate'])->name('activate')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/suspend', [MaintenancePermitController::class, 'suspend'])->name('suspend')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/close', [MaintenancePermitController::class, 'close'])->name('close')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/safety-checks', [MaintenancePermitController::class, 'addSafetyCheck'])->name('checks.add')->middleware('check.permission:maintenance.permits.manage');
-        Route::post('/{id}/safety-checks/{checkId}/complete', [MaintenancePermitController::class, 'completeSafetyCheck'])->name('checks.complete')->middleware('check.permission:maintenance.permits.manage');
     });
 
     /*

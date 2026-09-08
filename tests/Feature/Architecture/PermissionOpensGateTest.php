@@ -6,6 +6,7 @@ namespace Tests\Feature\Architecture;
 
 use App\Models\Core\OrganizationModule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -44,7 +45,7 @@ class PermissionOpensGateTest extends TestCase
             'leave policy' => ['hr.leave.manage', '/hr/leave-management/policies'],
             'engineering change' => ['manufacturing.planning.manage', '/manufacturing/engineering-changes'],
             'scrap report' => ['manufacturing.production.manage', '/manufacturing/scrap-reports'],
-            'work permit' => ['maintenance.permits.manage', '/manufacturing/maintenance-permits'],
+            'work permit' => ['maintenance.permits.manage', '/maintenance/permits'],
             'audit plan' => ['manufacturing.quality.manage', '/manufacturing/audit-plans'],
             'rental contract' => ['real_estate.contracts.manage', '/real-estate/contracts'],
             'carrier' => ['tm.carriers.manage', '/tm/carriers'],
@@ -52,13 +53,13 @@ class PermissionOpensGateTest extends TestCase
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('gatedEndpoints')]
+    #[DataProvider('gatedEndpoints')]
     public function test_the_named_permission_admits(string $permission, string $uri): void
     {
         $this->setUpOrganization('SA');
         $this->setUpAuthenticatedUser([$permission]);
 
-        foreach (['real_estate', 'tm', 'ecommerce', 'manufacturing'] as $module) {
+        foreach (['real_estate', 'tm', 'ecommerce', 'manufacturing', 'maintenance'] as $module) {
             OrganizationModule::updateOrCreate(
                 ['organization_id' => $this->organization->id, 'module_code' => $module],
                 ['is_enabled' => true, 'enabled_at' => now()],

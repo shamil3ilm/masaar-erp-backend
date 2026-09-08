@@ -366,7 +366,6 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
         require __DIR__.'/api/v1/edi.php';
 
         // Campaign & Segment routes (core, always available)
-        require __DIR__.'/api/v1/campaigns.php';
 
         // Analytics routes (core, always available)
         Route::prefix('analytics')->group(function () {
