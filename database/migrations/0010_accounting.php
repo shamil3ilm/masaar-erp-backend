@@ -261,7 +261,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['session_id', 'match_status']);
-            $table->index(['organization_id', 'reference_number']);
+            // Named: the generated name is 72 characters, and MySQL stops at 64.
+            $table->index(['organization_id', 'reference_number'], 'icr_items_org_reference_index');
             $table->foreign('session_id')->references('id')->on('intercompany_reconciliation_sessions')->cascadeOnDelete();
         });
 

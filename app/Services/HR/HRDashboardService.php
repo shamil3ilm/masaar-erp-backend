@@ -166,7 +166,7 @@ class HRDashboardService
         })->whereDate('attendance_date', $today);
 
         $present = (clone $attendanceQuery)->where('status', 'present')->count();
-        $late = (clone $attendanceQuery)->where('is_late', true)->count();
+        $late = (clone $attendanceQuery)->where('late_minutes', '>', 0)->count();
         $absent = (clone $attendanceQuery)->where('status', 'absent')->count();
         $onLeave = (clone $attendanceQuery)->whereIn('status', ['on_leave', 'half_day_leave'])->count();
         $workFromHome = (clone $attendanceQuery)->where('status', 'work_from_home')->count();
@@ -255,13 +255,13 @@ class HRDashboardService
             'pending_approval' => (clone $query)->where('status', 'pending')->count(),
             'on_leave_today' => (clone $query)
                 ->where('status', 'approved')
-                ->where('start_date', '<=', $today)
-                ->where('end_date', '>=', $today)
+                ->where('from_date', '<=', $today)
+                ->where('to_date', '>=', $today)
                 ->count(),
             'approved_this_month' => (clone $query)
                 ->where('status', 'approved')
-                ->whereYear('start_date', $currentYear)
-                ->whereMonth('start_date', $currentMonth)
+                ->whereYear('from_date', $currentYear)
+                ->whereMonth('from_date', $currentMonth)
                 ->count(),
             'rejected_this_month' => (clone $query)
                 ->where('status', 'rejected')
@@ -284,7 +284,7 @@ class HRDashboardService
         })->where('status', 'pending');
 
         $pendingLeaves = $query->with(['employee:id,first_name,last_name,employee_number', 'leaveType:id,name,code'])
-            ->orderBy('start_date')
+            ->orderBy('from_date')
             ->limit(5)
             ->get()
             ->map(fn ($lr) => [
@@ -292,8 +292,8 @@ class HRDashboardService
                 'employee' => $lr->employee->first_name.' '.$lr->employee->last_name,
                 'employee_number' => $lr->employee->employee_number,
                 'leave_type' => $lr->leaveType->name ?? 'N/A',
-                'start_date' => $lr->start_date->format('Y-m-d'),
-                'end_date' => $lr->end_date->format('Y-m-d'),
+                'start_date' => $lr->from_date->format('Y-m-d'),
+                'end_date' => $lr->to_date->format('Y-m-d'),
                 'days' => $lr->total_days,
                 'submitted_at' => $lr->created_at->format('Y-m-d H:i'),
             ]);

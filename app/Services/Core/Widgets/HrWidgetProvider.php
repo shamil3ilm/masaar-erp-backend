@@ -61,7 +61,7 @@ class HrWidgetProvider extends WidgetProvider
         })->whereDate('attendance_date', $today);
 
         $present = (clone $attendanceQuery)->where('status', 'present')->count();
-        $late = (clone $attendanceQuery)->where('is_late', true)->count();
+        $late = (clone $attendanceQuery)->where('late_minutes', '>', 0)->count();
         $onLeave = (clone $attendanceQuery)->whereIn('status', ['on_leave', 'half_day_leave'])->count();
 
         return [

@@ -21,7 +21,7 @@ class LeaveAccrualService
      */
     public function processAccruals(int $organizationId, ?string $accrualDate = null): int
     {
-        $accrualDate = $accrualDate ? new \DateTime($accrualDate) : new \DateTime();
+        $accrualDate = $accrualDate ? new \DateTime($accrualDate) : new \DateTime;
         $processed = 0;
 
         $policies = LeavePolicy::where('organization_id', $organizationId)
@@ -34,13 +34,13 @@ class LeaveAccrualService
             ->get();
 
         $employees = Employee::where('organization_id', $organizationId)
-            ->where('status', 'active')
+            ->where('employment_status', 'active')
             ->get();
 
         foreach ($employees as $employee) {
             foreach ($policies as $policy) {
                 foreach ($policy->leaveTypes as $leaveType) {
-                    if (!$leaveType->isApplicableToEmployee($employee)) {
+                    if (! $leaveType->isApplicableToEmployee($employee)) {
                         continue;
                     }
 
@@ -49,7 +49,7 @@ class LeaveAccrualService
                     }
 
                     $tier = $this->getApplicableTier($leaveType, $employee);
-                    if (!$tier) {
+                    if (! $tier) {
                         continue;
                     }
 
@@ -95,7 +95,7 @@ class LeaveAccrualService
                 'reason' => $data['reason'],
                 'effective_date' => $data['effective_date'] ?? now()->toDateString(),
                 'approved_by' => $data['approved_by'] ?? null,
-                'approved_at' => !empty($data['approved_by']) ? now() : null,
+                'approved_at' => ! empty($data['approved_by']) ? now() : null,
                 'created_by' => $data['created_by'],
             ]);
 
@@ -127,7 +127,7 @@ class LeaveAccrualService
 
             $leaveType = LeaveType::findOrFail($data['leave_type_id']);
 
-            if (!$leaveType->is_encashable) {
+            if (! $leaveType->is_encashable) {
                 throw new \InvalidArgumentException('This leave type is not encashable.');
             }
 
@@ -219,15 +219,15 @@ class LeaveAccrualService
                 ->lockForUpdate()
                 ->first();
 
-            if (!$balance) {
+            if (! $balance) {
                 $balance = LeaveBalance::create([
-                    'employee_id'      => $employee->id,
-                    'leave_type_id'    => $leaveType->id,
-                    'year'             => $year,
-                    'organization_id'  => $employee->organization_id,
-                    'leave_tier_id'    => $tier->id,
-                    'opening_balance'  => 0,
-                    'entitled_days'    => $tier->entitled_days,
+                    'employee_id' => $employee->id,
+                    'leave_type_id' => $leaveType->id,
+                    'year' => $year,
+                    'organization_id' => $employee->organization_id,
+                    'leave_tier_id' => $tier->id,
+                    'opening_balance' => 0,
+                    'entitled_days' => $tier->entitled_days,
                     'available_balance' => $tier->entitled_days,
                 ]);
             }
@@ -238,11 +238,11 @@ class LeaveAccrualService
 
             LeaveAccrual::create([
                 'leave_balance_id' => $balance->id,
-                'employee_id'      => $employee->id,
-                'accrual_date'     => $accrualDate->format('Y-m-d'),
-                'accrual_type'     => LeaveAccrual::TYPE_MONTHLY,
-                'days'             => $accrualDays,
-                'description'      => 'Monthly accrual',
+                'employee_id' => $employee->id,
+                'accrual_date' => $accrualDate->format('Y-m-d'),
+                'accrual_type' => LeaveAccrual::TYPE_MONTHLY,
+                'days' => $accrualDays,
+                'description' => 'Monthly accrual',
             ]);
 
             $balance->accrued_days = bcadd((string) $balance->accrued_days, (string) $accrualDays, 2);

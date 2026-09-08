@@ -482,14 +482,12 @@ return new class extends Migration
             $table->integer('print_count')->default(0);
             $table->timestamp('last_printed_at')->nullable();
 
-
             $table->string('incoterm', 10)->nullable();
             $table->string('port_of_loading')->nullable();
             $table->string('port_of_discharge')->nullable();
             $table->string('country_of_destination', 3)->nullable();
             $table->boolean('is_international')->default(false);
             $table->boolean('is_export')->default(false);
-
 
             $table->foreign('quotation_id')
                 ->references('id')
@@ -504,23 +502,7 @@ return new class extends Migration
             $table->index('quotation_id');
             $table->index('sales_order_id');
 
-
-
-                $table->foreign('quotation_id')->references('id')->on('quotations')->nullOnDelete();
-
-
-                $table->foreign('sales_order_id')->references('id')->on('sales_orders')->nullOnDelete();
-
-
-
             $table->text('compliance_notes')->nullable();
-
-
-            $table->foreign('quotation_id', 'inv_quotation_fk')
-                ->references('id')->on('quotations')->nullOnDelete();
-            $table->foreign('sales_order_id', 'inv_sales_order_fk')
-                ->references('id')->on('sales_orders')->nullOnDelete();
-
 
             $table->index('compliance_status', 'inv_compliance_status_idx');
         });
