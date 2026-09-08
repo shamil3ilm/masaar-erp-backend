@@ -33,8 +33,8 @@ class AssetTransferController extends Controller
     public function show(AssetTransfer $assetTransfer): JsonResponse
     {
         $assetTransfer->load([
-            'fixedAsset:id,uuid,asset_number,asset_name,book_value',
-            'receivingAsset:id,uuid,asset_number,asset_name',
+            'fixedAsset:id,uuid,asset_number,name,book_value',
+            'receivingAsset:id,uuid,asset_number,name',
             'sendingOrganization:id,name',
             'receivingOrganization:id,name',
             'createdBy:id,name',
@@ -50,10 +50,10 @@ class AssetTransferController extends Controller
     {
         $validated = $request->validate([
             'receiving_organization_id' => ['required', 'integer', 'exists:organizations,id'],
-            'transfer_date'             => ['required', 'date'],
-            'transfer_type'             => ['sometimes', 'in:book_value,gross_value,negotiated_price'],
-            'transfer_price'            => ['required_if:transfer_type,negotiated_price', 'nullable', 'numeric', 'min:0'],
-            'notes'                     => ['nullable', 'string', 'max:1000'],
+            'transfer_date' => ['required', 'date'],
+            'transfer_type' => ['sometimes', 'in:book_value,gross_value,negotiated_price'],
+            'transfer_price' => ['required_if:transfer_type,negotiated_price', 'nullable', 'numeric', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         try {
@@ -75,12 +75,12 @@ class AssetTransferController extends Controller
     public function execute(Request $request, AssetTransfer $assetTransfer): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->transferService->execute(
+            fn () => $this->transferService->execute(
                 $assetTransfer,
                 [
                     'organization_id' => $this->organizationId($request),
-                    'branch_id'       => $request->header('X-Branch-Id'),
-                    'entry_date'      => $assetTransfer->transfer_date->toDateString(),
+                    'branch_id' => $request->header('X-Branch-Id'),
+                    'entry_date' => $assetTransfer->transfer_date->toDateString(),
                 ]
             ),
             'Asset transfer executed successfully.',
@@ -98,7 +98,7 @@ class AssetTransferController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->transferService->cancel($assetTransfer, $validated['reason']),
+            fn () => $this->transferService->cancel($assetTransfer, $validated['reason']),
             'Asset transfer cancelled.',
             'CANCEL_FAILED'
         );

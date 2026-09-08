@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ApiException;
+use App\Exceptions\ERP\ValidationException;
+use App\Exceptions\ErrorCodes;
 use App\Models\Accounting\Account;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\CreditNoteApplication;
 use App\Models\Sales\Invoice;
-use App\Exceptions\ApiException;
-use App\Exceptions\ErrorCodes;
-use App\Exceptions\ERP\ValidationException;
+use App\Services\Accounting\JournalService;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -24,7 +26,7 @@ class CreditNoteService
 
             // Generate credit note number if not provided
             if (empty($data['credit_note_number'])) {
-                $data['credit_note_number'] = app(\App\Services\Core\NumberGeneratorService::class)->generate('credit_note');
+                $data['credit_note_number'] = app(NumberGeneratorService::class)->generate('credit_note');
             }
 
             $creditNote = CreditNote::create(array_merge($data, [
@@ -53,52 +55,55 @@ class CreditNoteService
             try {
                 $orgId = $creditNote->organization_id ?? $data['organization_id'] ?? null;
 
+                // An account is classified by account_type and narrowed by
+                // sub_type. There is no type column, and no revenue value:
+                // income is the type, receivable is a sub_type.
                 $receivableAccount = Account::where('organization_id', $orgId)
-                    ->where('type', 'receivable')
+                    ->where('sub_type', 'receivable')
                     ->first()
                     ?? Account::where('organization_id', $orgId)
                         ->where('code', '1200')
                         ->first();
 
                 $revenueAccount = Account::where('organization_id', $orgId)
-                    ->where('type', 'revenue')
+                    ->where('account_type', 'income')
                     ->where(function ($q) {
                         $q->where('name', 'like', '%return%')
-                          ->orWhere('name', 'like', '%credit%');
+                            ->orWhere('name', 'like', '%credit%');
                     })
                     ->first()
                     ?? Account::where('organization_id', $orgId)
-                        ->where('type', 'revenue')
+                        ->where('account_type', 'income')
                         ->first();
 
                 if ($receivableAccount && $revenueAccount) {
                     $amount = (float) ($creditNote->total ?? 0);
 
-                    app(\App\Services\Accounting\JournalService::class)->create([
-                        'entry_date'   => $creditNote->credit_note_date ?? now(),
-                        'reference'    => $creditNote->credit_note_number,
-                        'description'  => "Credit Note - {$creditNote->credit_note_number}",
-                        'source_type'  => CreditNote::class,
-                        'source_id'    => $creditNote->id,
+                    app(JournalService::class)->create([
+                        'entry_date' => $creditNote->credit_note_date ?? now(),
+                        'reference' => $creditNote->credit_note_number,
+                        'description' => "Credit Note - {$creditNote->credit_note_number}",
+                        'source_type' => CreditNote::class,
+                        'source_id' => $creditNote->id,
                     ], [
                         [
-                            'account_id'  => $receivableAccount->id,
+                            'account_id' => $receivableAccount->id,
                             'description' => "Credit note {$creditNote->credit_note_number} - AR reduction",
-                            'debit'       => 0,
-                            'credit'      => $amount,
+                            'debit' => 0,
+                            'credit' => $amount,
                         ],
                         [
-                            'account_id'  => $revenueAccount->id,
+                            'account_id' => $revenueAccount->id,
                             'description' => "Credit note {$creditNote->credit_note_number} - Sales return",
-                            'debit'       => $amount,
-                            'credit'      => 0,
+                            'debit' => $amount,
+                            'credit' => 0,
                         ],
                     ]);
                 }
             } catch (\Throwable $e) {
                 Log::error('CreditNoteService: GL journal entry failed — rolling back credit note creation', [
                     'credit_note_id' => $creditNote->id ?? null,
-                    'error'          => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
                 throw $e; // Let the DB::transaction roll back
             }
@@ -141,7 +146,7 @@ class CreditNoteService
 
         return DB::transaction(function () use ($creditNote, $invoice, $amount) {
             $creditNote = CreditNote::lockForUpdate()->findOrFail($creditNote->id);
-            $invoice = \App\Models\Sales\Invoice::lockForUpdate()->findOrFail($invoice->id);
+            $invoice = Invoice::lockForUpdate()->findOrFail($invoice->id);
 
             if (! $creditNote->hasAvailableBalance()) {
                 throw ApiException::fromError(ErrorCodes::BIZ_INSUFFICIENT_BALANCE);

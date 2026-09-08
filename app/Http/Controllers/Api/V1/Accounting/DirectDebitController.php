@@ -34,19 +34,19 @@ class DirectDebitController extends Controller
     public function createMandate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'mandate_reference'      => ['required', 'string', 'max:50'],
-            'mandate_type'           => ['sometimes', 'in:core,b2b,standing_order'],
-            'direction'              => ['sometimes', 'in:collection,payment'],
-            'counterparty_id'        => ['required', 'exists:contacts,id'],
-            'bank_account_id'        => ['nullable', 'exists:bank_accounts,id'],
-            'iban'                   => ['nullable', 'string', 'max:34'],
-            'bic'                    => ['nullable', 'string', 'max:11'],
-            'currency_code'          => ['nullable', 'string', 'size:3'],
-            'amount'                 => ['nullable', 'numeric', 'min:0.0001'],
-            'frequency'              => ['sometimes', 'in:weekly,biweekly,monthly,quarterly,annually,one_time'],
-            'first_collection_date'  => ['nullable', 'date'],
-            'max_collections'        => ['nullable', 'integer', 'min:1'],
-            'signed_date'            => ['nullable', 'date'],
+            'mandate_reference' => ['required', 'string', 'max:50'],
+            'mandate_type' => ['sometimes', 'in:core,b2b,standing_order'],
+            'direction' => ['sometimes', 'in:collection,payment'],
+            'counterparty_id' => ['required', 'exists:contacts,id'],
+            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'iban' => ['nullable', 'string', 'max:34'],
+            'bic' => ['nullable', 'string', 'max:11'],
+            'currency_code' => ['nullable', 'string', 'size:3'],
+            'amount' => ['nullable', 'numeric', 'min:0.0001'],
+            'frequency' => ['sometimes', 'in:weekly,biweekly,monthly,quarterly,annually,one_time'],
+            'first_collection_date' => ['nullable', 'date'],
+            'max_collections' => ['nullable', 'integer', 'min:1'],
+            'signed_date' => ['nullable', 'date'],
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -62,7 +62,7 @@ class DirectDebitController extends Controller
 
     public function showMandate(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::with(['counterparty:id,name', 'bankAccount:id,account_name'])->findOrFail($id);
+        $mandate = DirectDebitMandate::with(['counterparty:id,contact_name', 'bankAccount:id,account_name'])->findOrFail($id);
 
         return $this->success($mandate);
     }
@@ -72,19 +72,19 @@ class DirectDebitController extends Controller
         $mandate = DirectDebitMandate::findOrFail($id);
 
         $validated = $request->validate([
-            'iban'                  => ['nullable', 'string', 'max:34'],
-            'bic'                   => ['nullable', 'string', 'max:11'],
-            'currency_code'         => ['nullable', 'string', 'size:3'],
-            'amount'                => ['nullable', 'numeric', 'min:0.0001'],
-            'frequency'             => ['sometimes', 'in:weekly,biweekly,monthly,quarterly,annually,one_time'],
+            'iban' => ['nullable', 'string', 'max:34'],
+            'bic' => ['nullable', 'string', 'max:11'],
+            'currency_code' => ['nullable', 'string', 'size:3'],
+            'amount' => ['nullable', 'numeric', 'min:0.0001'],
+            'frequency' => ['sometimes', 'in:weekly,biweekly,monthly,quarterly,annually,one_time'],
             'first_collection_date' => ['nullable', 'date'],
-            'next_collection_date'  => ['nullable', 'date'],
-            'max_collections'       => ['nullable', 'integer', 'min:1'],
-            'signed_date'           => ['nullable', 'date'],
+            'next_collection_date' => ['nullable', 'date'],
+            'max_collections' => ['nullable', 'integer', 'min:1'],
+            'signed_date' => ['nullable', 'date'],
         ]);
 
         return $this->tryAction(
-            fn() => $this->service->update($mandate, $validated),
+            fn () => $this->service->update($mandate, $validated),
             'Mandate updated.',
             'INVALID_STATE',
         );
@@ -95,7 +95,7 @@ class DirectDebitController extends Controller
         $mandate = DirectDebitMandate::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->activate($mandate),
+            fn () => $this->service->activate($mandate),
             'Mandate activated.',
             'INVALID_STATE',
         );
@@ -106,7 +106,7 @@ class DirectDebitController extends Controller
         $mandate = DirectDebitMandate::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->pause($mandate),
+            fn () => $this->service->pause($mandate),
             'Mandate paused.',
             'INVALID_STATE',
         );
@@ -117,7 +117,7 @@ class DirectDebitController extends Controller
         $mandate = DirectDebitMandate::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->cancel($mandate),
+            fn () => $this->service->cancel($mandate),
             'Mandate cancelled.',
             'INVALID_STATE',
         );
@@ -149,8 +149,8 @@ class DirectDebitController extends Controller
 
         return $this->success([
             'generated' => count($created),
-            'items'     => $created,
-        ], count($created) . ' collection(s) generated.');
+            'items' => $created,
+        ], count($created).' collection(s) generated.');
     }
 
     public function processCollection(string $collectionId): JsonResponse
@@ -158,7 +158,7 @@ class DirectDebitController extends Controller
         $collection = DirectDebitCollection::findOrFail($collectionId);
 
         return $this->tryAction(
-            fn() => $this->service->processCollection($collection),
+            fn () => $this->service->processCollection($collection),
             'Collection processed.',
             'INVALID_STATE',
         );

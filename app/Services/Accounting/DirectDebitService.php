@@ -18,13 +18,13 @@ class DirectDebitService
      */
     public function list(array $filters = [], int $perPage = 20): LengthAwarePaginator
     {
-        $query = DirectDebitMandate::with(['counterparty:id,name'])->orderByDesc('created_at');
+        $query = DirectDebitMandate::with(['counterparty:id,contact_name'])->orderByDesc('created_at');
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
-        if (!empty($filters['direction'])) {
+        if (! empty($filters['direction'])) {
             $query->where('direction', $filters['direction']);
         }
 
@@ -37,7 +37,7 @@ class DirectDebitService
     public function create(array $data): DirectDebitMandate
     {
         return DB::transaction(static function () use ($data): DirectDebitMandate {
-            if (empty($data['next_collection_date']) && !empty($data['first_collection_date'])) {
+            if (empty($data['next_collection_date']) && ! empty($data['first_collection_date'])) {
                 $data['next_collection_date'] = $data['first_collection_date'];
             }
 
@@ -50,7 +50,7 @@ class DirectDebitService
      */
     public function update(DirectDebitMandate $mandate, array $data): DirectDebitMandate
     {
-        if (!in_array($mandate->status, ['draft', 'paused'], true)) {
+        if (! in_array($mandate->status, ['draft', 'paused'], true)) {
             throw new InvalidArgumentException('Mandate can only be updated when in draft or paused status.');
         }
 
@@ -97,7 +97,7 @@ class DirectDebitService
         }
 
         $mandate->update([
-            'status'            => 'cancelled',
+            'status' => 'cancelled',
             'cancellation_date' => now()->toDateString(),
         ]);
 
@@ -121,11 +121,11 @@ class DirectDebitService
                 $amount = $mandate->amount ?? 0;
 
                 $collection = DirectDebitCollection::create([
-                    'organization_id'         => $mandate->organization_id,
+                    'organization_id' => $mandate->organization_id,
                     'direct_debit_mandate_id' => $mandate->id,
-                    'collection_date'         => $mandate->next_collection_date,
-                    'amount'                  => $amount,
-                    'status'                  => 'scheduled',
+                    'collection_date' => $mandate->next_collection_date,
+                    'amount' => $amount,
+                    'status' => 'scheduled',
                 ]);
 
                 // Advance the mandate
@@ -140,8 +140,8 @@ class DirectDebitService
                 $mandate->update([
                     'last_collection_date' => $mandate->next_collection_date,
                     'next_collection_date' => $nextDate?->toDateString(),
-                    'total_collections'    => $totalCollections,
-                    'status'               => $newStatus,
+                    'total_collections' => $totalCollections,
+                    'status' => $newStatus,
                 ]);
 
                 return $collection;
