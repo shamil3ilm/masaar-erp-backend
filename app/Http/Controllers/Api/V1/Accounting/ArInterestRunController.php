@@ -24,8 +24,8 @@ class ArInterestRunController extends Controller
     public function preview(Request $request): JsonResponse
     {
         $params = $request->validate([
-            'annual_rate'     => ['nullable', 'numeric', 'min:0.01', 'max:100'],
-            'contact_id'      => ['nullable', 'integer', 'exists:contacts,id'],
+            'annual_rate' => ['nullable', 'numeric', 'min:0.01', 'max:100'],
+            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
             'min_days_overdue' => ['nullable', 'integer', 'min:1'],
             'max_days_overdue' => ['nullable', 'integer', 'min:1'],
         ]);
@@ -46,16 +46,19 @@ class ArInterestRunController extends Controller
     public function execute(Request $request): JsonResponse
     {
         $params = $request->validate([
-            'annual_rate'      => ['nullable', 'numeric', 'min:0.01', 'max:100'],
-            'contact_id'       => ['nullable', 'integer', 'exists:contacts,id'],
+            'annual_rate' => ['nullable', 'numeric', 'min:0.01', 'max:100'],
+            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
             'min_days_overdue' => ['nullable', 'integer', 'min:1'],
             'max_days_overdue' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $orgId    = $this->organizationId($request);
-        $branchId = $request->user()->branch_id ?? 1;
+        $orgId = $this->organizationId($request);
 
-        $result = $this->service->execute($orgId, $branchId, $params, $request->user()->id);
+        // The run covers every overdue invoice in the organisation, so its
+        // entries carry no branch. A user has no branch_id either — a branch
+        // is assigned per role, on user_roles — and the previous reading of
+        // it fell back to 1, posting against whichever branch held that id.
+        $result = $this->service->execute($orgId, null, $params, $request->user()->id);
 
         return $this->success($result, "Interest run complete. {$result['journal_entries_posted']} journal entries posted.");
     }
