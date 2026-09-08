@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Reports;
 
 use App\Http\Controllers\Controller;
+use App\Models\Core\Organization;
 use App\Models\Reports\ReportExecution;
 use App\Models\Reports\SavedReport;
 use App\Services\Reports\FinancialReportService;
 use App\Services\Reports\InventoryReportService;
-use App\Services\Reports\SalesReportService;
 use App\Services\Reports\ReportExportService;
+use App\Services\Reports\SalesReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportsController extends Controller
@@ -401,7 +401,7 @@ class ReportsController extends Controller
         ]);
 
         // Get organization data for export
-        $organization = \App\Models\Core\Organization::find($user->organization_id);
+        $organization = Organization::find($user->organization_id);
         $orgData = $organization ? $organization->toArray() : [];
 
         // Export
@@ -412,7 +412,7 @@ class ReportsController extends Controller
 
             if ($request->boolean('download')) {
                 return response()->download(
-                    storage_path('app/' . $filePath),
+                    storage_path('app/'.$filePath),
                     basename($filePath)
                 )->deleteFileAfterSend(false);
             }
@@ -425,6 +425,7 @@ class ReportsController extends Controller
             ]);
         } catch (\Exception $e) {
             report($e);
+
             return $this->serverError();
         }
     }
@@ -439,12 +440,12 @@ class ReportsController extends Controller
         $execution = ReportExecution::where('organization_id', $user->organization_id)
             ->findOrFail($executionId);
 
-        if (!$execution->isFileAvailable()) {
+        if (! $execution->isFileAvailable()) {
             return $this->notFound('File not available or expired');
         }
 
         return response()->download(
-            storage_path('app/' . $execution->file_path),
+            storage_path('app/'.$execution->file_path),
             basename($execution->file_path)
         );
     }
@@ -463,7 +464,7 @@ class ReportsController extends Controller
         $reports = SavedReport::where('organization_id', $user->organization_id)
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
-                    ->orWhere('is_public', true);
+                    ->orWhere('is_shared', true);
             })
             ->with('latestExecution')
             ->orderBy('name')
@@ -488,7 +489,7 @@ class ReportsController extends Controller
             'recipients' => 'nullable|array',
             'recipients.*' => 'email',
             'export_format' => 'nullable|string|in:pdf,xlsx,csv,json',
-            'is_public' => 'nullable|boolean',
+            'is_shared' => 'nullable|boolean',
         ]);
 
         $user = $request->user();
@@ -527,7 +528,7 @@ class ReportsController extends Controller
             'schedule_time' => 'nullable|date_format:H:i',
             'recipients' => 'nullable|array',
             'export_format' => 'nullable|string|in:pdf,xlsx,csv,json',
-            'is_public' => 'nullable|boolean',
+            'is_shared' => 'nullable|boolean',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -567,7 +568,7 @@ class ReportsController extends Controller
         $report = SavedReport::where('organization_id', $user->organization_id)
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
-                    ->orWhere('is_public', true);
+                    ->orWhere('is_shared', true);
             })
             ->findOrFail($id);
 

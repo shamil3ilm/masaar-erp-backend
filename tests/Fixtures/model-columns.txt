@@ -25,8 +25,7 @@ App\Models\HR\Leave\LeaveBalance (leave_balances): accrued_days, adjustment_days
 App\Models\HR\Leave\LeaveType (leave_types): accrual_day, allowed_days_of_week, blackout_dates, count_holidays, count_weekends, display_order, employment_type_restriction, gender_restriction, icon, is_carryforward_allowed, leave_policy_id, max_carryforward_days, max_days_per_request, min_days_per_request, min_service_months, requires_reason
 App\Models\Projects\ProjectBudgetAvailabilityLog -> no table named project_budget_availability_logs
 App\Models\Reports\ReportExecution (report_executions): file_format, report_type
-App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, is_public, parameters, recipients, report_type
-App\Models\Sales\AdvancePayment (advance_payments): advance_date, advance_number, balance_amount, created_by
+App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, parameters, recipients, report_type
 App\Models\Sales\AdvancePaymentApplication (advance_payment_applications): created_by, invoice_id, notes
 App\Models\Sales\DebitNote (debit_notes): approved_at, approved_by, notes, supplier_id
 App\Models\Tax\TdsConfiguration (tds_configurations): is_active, rate_non_resident, rate_resident, threshold_amount

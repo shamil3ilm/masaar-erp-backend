@@ -14,30 +14,50 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SavedReport extends Model
 {
-    use HasFactory, HasUuid, BelongsToOrganization;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     public const TYPE_BALANCE_SHEET = 'balance_sheet';
+
     public const TYPE_INCOME_STATEMENT = 'income_statement';
+
     public const TYPE_CASH_FLOW = 'cash_flow';
+
     public const TYPE_TRIAL_BALANCE = 'trial_balance';
+
     public const TYPE_GENERAL_LEDGER = 'general_ledger';
+
     public const TYPE_ACCOUNTS_RECEIVABLE = 'accounts_receivable';
+
     public const TYPE_ACCOUNTS_PAYABLE = 'accounts_payable';
+
     public const TYPE_AGED_RECEIVABLES = 'aged_receivables';
+
     public const TYPE_AGED_PAYABLES = 'aged_payables';
+
     public const TYPE_STOCK_VALUATION = 'stock_valuation';
+
     public const TYPE_STOCK_MOVEMENT = 'stock_movement';
+
     public const TYPE_SALES_BY_CUSTOMER = 'sales_by_customer';
+
     public const TYPE_SALES_BY_PRODUCT = 'sales_by_product';
+
     public const TYPE_SALES_BY_SALESPERSON = 'sales_by_salesperson';
+
     public const TYPE_PURCHASE_BY_SUPPLIER = 'purchase_by_supplier';
+
     public const TYPE_TAX_REPORT = 'tax_report';
+
     public const TYPE_VAT_RETURN = 'vat_return';
+
     public const TYPE_GST_RETURN = 'gst_return';
 
     public const SCHEDULE_DAILY = 'daily';
+
     public const SCHEDULE_WEEKLY = 'weekly';
+
     public const SCHEDULE_MONTHLY = 'monthly';
+
     public const SCHEDULE_QUARTERLY = 'quarterly';
 
     protected $fillable = [
@@ -52,7 +72,7 @@ class SavedReport extends Model
         'schedule_time',
         'recipients',
         'export_format',
-        'is_public',
+        'is_shared',
         'last_run_at',
         'next_run_at',
         'is_active',
@@ -62,7 +82,7 @@ class SavedReport extends Model
         'parameters' => 'array',
         'columns' => 'array',
         'recipients' => 'array',
-        'is_public' => 'boolean',
+        'is_shared' => 'boolean',
         'is_active' => 'boolean',
         'last_run_at' => 'datetime',
         'next_run_at' => 'datetime',
@@ -237,7 +257,7 @@ class SavedReport extends Model
      */
     public function calculateNextRunAt(): ?\DateTime
     {
-        if (!$this->schedule_frequency) {
+        if (! $this->schedule_frequency) {
             return null;
         }
 

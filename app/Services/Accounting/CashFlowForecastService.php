@@ -93,7 +93,9 @@ class CashFlowForecastService
             // --- Outflows from open purchase orders ---
             $purchaseOrders = PurchaseOrder::where('organization_id', $organization->id)
                 ->whereIn('status', ['approved', 'partial'])
-                ->where('amount_due', '>', 0)
+                // A purchase order carries no payment record, so the whole of it
+                // is still to be paid.
+                ->where('total', '>', 0)
                 ->whereBetween('expected_delivery_date', [$today, $horizon])
                 ->get();
 
@@ -107,12 +109,12 @@ class CashFlowForecastService
                     'source_type' => CashFlowLine::SOURCE_PURCHASE_ORDER,
                     'source_id' => $po->id,
                     'description' => "PO #{$po->order_number}",
-                    'amount' => $po->amount_due,
+                    'amount' => $po->total,
                     'confidence' => CashFlowLine::CONFIDENCE_PROBABLE,
                     'is_actual' => false,
                 ]);
 
-                $totalOutflows = bcadd($totalOutflows, (string) $po->amount_due, 4);
+                $totalOutflows = bcadd($totalOutflows, (string) $po->total, 4);
             }
 
             // --- Outflows from loan schedules ---

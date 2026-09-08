@@ -36,19 +36,19 @@ class CustomerAdvanceController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'     => ['required', 'exists:contacts,id'],
-            'advance_date'   => ['required', 'date'],
-            'amount'         => ['required', 'numeric', 'min:0.01'],
-            'currency_code'  => ['required', 'string', 'size:3'],
+            'contact_id' => ['required', 'exists:contacts,id'],
+            'payment_date' => ['required', 'date'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'currency_code' => ['required', 'string', 'size:3'],
             'payment_method' => ['nullable', 'string', 'max:50'],
-            'reference'      => ['nullable', 'string', 'max:100'],
+            'reference' => ['nullable', 'string', 'max:100'],
             'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
-            'notes'          => ['nullable', 'string', 'max:1000'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $advance = $this->advanceService->store(array_merge($validated, [
             'organization_id' => $request->user()->organization_id,
-            'created_by'      => $request->user()->id,
+            'received_by' => $request->user()->id,
         ]));
 
         return $this->created($advance->load(['contact:id,contact_name,company_name', 'applications']));
@@ -84,12 +84,12 @@ class CustomerAdvanceController extends Controller
     public function applyToInvoice(Request $request, AdvancePayment $advancePayment): JsonResponse
     {
         $validated = $request->validate([
-            'invoice_id'    => ['required', 'exists:invoices,id'],
-            'amount'        => ['required', 'numeric', 'min:0.01'],
-            'notes'         => ['nullable', 'string', 'max:500'],
+            'invoice_id' => ['required', 'exists:invoices,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $invoice     = Invoice::findOrFail($validated['invoice_id']);
+        $invoice = Invoice::findOrFail($validated['invoice_id']);
         $application = $this->advanceService->applyToInvoice(
             $advancePayment,
             $invoice,

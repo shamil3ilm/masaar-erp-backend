@@ -17,12 +17,15 @@ class ManufacturingWidgetProvider extends WidgetProvider
         $query = WorkOrder::where('organization_id', $this->organizationId);
 
         $total = (clone $query)->count();
-        $pending = (clone $query)->where('status', 'pending')->count();
-        $inProgress = (clone $query)->where('status', 'in_progress')->count();
-        $completed = (clone $query)->where('status', 'completed')->count();
+        $pending = (clone $query)
+            ->whereIn('status', [WorkOrder::STATUS_DRAFT, WorkOrder::STATUS_RELEASED])
+            ->count();
+        $inProgress = (clone $query)->where('status', WorkOrder::STATUS_IN_PROGRESS)->count();
+        $completed = (clone $query)->where('status', WorkOrder::STATUS_COMPLETED)->count();
         $overdue = (clone $query)
-            ->where('status', '!=', 'completed')
-            ->where('due_date', '<', Carbon::today())
+            ->where('status', '!=', WorkOrder::STATUS_COMPLETED)
+            ->whereNotNull('planned_end_date')
+            ->where('planned_end_date', '<', Carbon::today())
             ->count();
 
         return [
@@ -47,7 +50,7 @@ class ManufacturingWidgetProvider extends WidgetProvider
             ->get();
 
         return [
-            'items' => $workOrders->map(fn($wo) => [
+            'items' => $workOrders->map(fn ($wo) => [
                 'id' => $wo->id,
                 'work_order_number' => $wo->work_order_number,
                 'product' => $wo->product->name ?? 'Unknown',
@@ -73,8 +76,7 @@ class ManufacturingWidgetProvider extends WidgetProvider
             ->where('completed_at', '>=', $thisMonth)
             ->get();
 
-        $onTime = $completed->filter(fn($wo) =>
-            $wo->completed_at && $wo->due_date && $wo->completed_at->lte($wo->due_date)
+        $onTime = $completed->filter(fn ($wo) => $wo->completed_at && $wo->due_date && $wo->completed_at->lte($wo->due_date)
         )->count();
 
         $totalCompleted = $completed->count();

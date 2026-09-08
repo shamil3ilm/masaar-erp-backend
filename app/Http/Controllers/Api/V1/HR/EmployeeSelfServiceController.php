@@ -7,6 +7,9 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
+use App\Models\HR\EmployeeDocument;
+use App\Models\HR\EmployeeLoan;
+use App\Models\HR\Holiday;
 use App\Models\HR\LeaveBalance;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\Payslip;
@@ -14,6 +17,7 @@ use App\Services\HR\AttendanceService;
 use App\Services\HR\LeaveService;
 use App\Services\HR\StatutoryDeductionService;
 use App\Services\Print\PrintService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -35,7 +39,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -66,13 +70,13 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
         $month = $request->get('month', now()->format('Y-m'));
-        $startDate = \Carbon\Carbon::parse($month)->startOfMonth();
-        $endDate = \Carbon\Carbon::parse($month)->endOfMonth();
+        $startDate = Carbon::parse($month)->startOfMonth();
+        $endDate = Carbon::parse($month)->endOfMonth();
 
         $attendance = Attendance::where('employee_id', $employee->id)
             ->whereBetween('attendance_date', [$startDate, $endDate])
@@ -96,7 +100,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -116,7 +120,7 @@ class EmployeeSelfServiceController extends Controller
             $request->get('device_id')
         );
 
-        return $this->success($attendance, 'Checked in successfully at ' . $attendance->check_in->format('H:i'));
+        return $this->success($attendance, 'Checked in successfully at '.$attendance->check_in->format('H:i'));
     }
 
     /**
@@ -127,7 +131,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -138,7 +142,7 @@ class EmployeeSelfServiceController extends Controller
             $request->get('longitude') ? (float) $request->get('longitude') : null
         );
 
-        return $this->success($attendance, 'Checked out successfully at ' . $attendance->check_out->format('H:i'));
+        return $this->success($attendance, 'Checked out successfully at '.$attendance->check_out->format('H:i'));
     }
 
     /**
@@ -149,7 +153,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -158,7 +162,7 @@ class EmployeeSelfServiceController extends Controller
             ->with('leaveType')
             ->get();
 
-        return $this->success($balances->map(fn($b) => [
+        return $this->success($balances->map(fn ($b) => [
             'leave_type' => $b->leaveType->name,
             'leave_type_code' => $b->leaveType->code,
             'entitled' => $b->entitled_days,
@@ -177,15 +181,15 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
         $query = LeaveRequest::where('employee_id', $employee->id)
             ->with('leaveType')
             ->orderByDesc('created_at')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->get('status')))
-            ->when($request->has('year'), fn($q) => $q->whereYear('from_date', $request->get('year')));
+            ->when($request->has('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->when($request->has('year'), fn ($q) => $q->whereYear('from_date', $request->get('year')));
 
         $requests = $query->paginate($request->get('per_page', 15));
 
@@ -200,7 +204,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -226,6 +230,7 @@ class EmployeeSelfServiceController extends Controller
             return $this->created($leaveRequest->load('leaveType'), 'Leave request submitted successfully');
         } catch (\Exception $e) {
             report($e);
+
             return $this->serverError('An unexpected error occurred. Please try again.');
         }
     }
@@ -238,14 +243,14 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
         $leaveRequest = LeaveRequest::where('employee_id', $employee->id)
             ->findOrFail($id);
 
-        if (!in_array($leaveRequest->status, ['draft', 'pending'])) {
+        if (! in_array($leaveRequest->status, ['draft', 'pending'])) {
             return $this->error('Cannot cancel this request.', 'INVALID_STATUS', 400);
         }
 
@@ -262,14 +267,14 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
         $query = Payslip::where('employee_id', $employee->id)
             ->with('payrollPeriod')
             ->orderByDesc('created_at')
-            ->when($request->has('year'), fn($q) => $q->whereYear('created_at', $request->get('year')));
+            ->when($request->has('year'), fn ($q) => $q->whereYear('created_at', $request->get('year')));
 
         $payslips = $query->paginate($request->get('per_page', 12));
 
@@ -284,7 +289,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -303,7 +308,7 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
@@ -330,13 +335,13 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
         $salary = $employee->currentSalary;
 
-        if (!$salary) {
+        if (! $salary) {
             return $this->notFound('No salary structure assigned.');
         }
 
@@ -354,12 +359,12 @@ class EmployeeSelfServiceController extends Controller
         return $this->success([
             'gross_salary' => $grossSalary,
             'currency' => $salary->currency_code,
-            'earnings' => $salary->getEarnings()->map(fn($c) => [
+            'earnings' => $salary->getEarnings()->map(fn ($c) => [
                 'name' => $c->salaryComponent->name,
                 'amount' => $c->amount,
                 'is_taxable' => $c->salaryComponent->is_taxable,
             ]),
-            'deductions' => $salary->getDeductions()->map(fn($c) => [
+            'deductions' => $salary->getDeductions()->map(fn ($c) => [
                 'name' => $c->salaryComponent->name,
                 'amount' => $c->amount,
             ]),
@@ -382,16 +387,16 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
-        $loans = \App\Models\HR\EmployeeLoan::where('employee_id', $employee->id)
+        $loans = EmployeeLoan::where('employee_id', $employee->id)
             ->with('repayments')
             ->orderByDesc('created_at')
             ->get();
 
-        return $this->success($loans->map(fn($loan) => [
+        return $this->success($loans->map(fn ($loan) => [
             'id' => $loan->id,
             'loan_type' => $loan->loan_type,
             'principal_amount' => $loan->principal_amount,
@@ -403,7 +408,7 @@ class EmployeeSelfServiceController extends Controller
             'total_paid' => $loan->repayments->where('status', 'paid')->sum('total_amount'),
             'outstanding' => $loan->outstanding_amount,
             'status' => $loan->status,
-            'repayments' => $loan->repayments->map(fn($r) => [
+            'repayments' => $loan->repayments->map(fn ($r) => [
                 'due_date' => $r->due_date,
                 'amount' => $r->total_amount,
                 'status' => $r->status,
@@ -420,15 +425,15 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        if (!$employee) {
+        if (! $employee) {
             return $this->notFound('No employee record found.');
         }
 
-        $documents = \App\Models\HR\EmployeeDocument::where('employee_id', $employee->id)
+        $documents = EmployeeDocument::where('employee_id', $employee->id)
             ->orderBy('document_type')
             ->get();
 
-        return $this->success($documents->map(fn($doc) => [
+        return $this->success($documents->map(fn ($doc) => [
             'id' => $doc->id,
             'document_type' => $doc->document_type,
             'document_number' => $doc->document_number,
@@ -449,7 +454,7 @@ class EmployeeSelfServiceController extends Controller
         $query = Employee::where('organization_id', $user->organization_id)
             ->where('employment_status', 'active')
             ->with(['department', 'designation', 'branch'])
-            ->when($request->has('department_id'), fn($q) => $q->where('department_id', $request->get('department_id')))
+            ->when($request->has('department_id'), fn ($q) => $q->where('department_id', $request->get('department_id')))
             ->when($request->has('search'), function ($q) use ($request) {
                 $search = $request->get('search');
                 $q->where(function ($q) use ($search) {
@@ -463,7 +468,7 @@ class EmployeeSelfServiceController extends Controller
         $employees = $query->select([
             'id', 'employee_number', 'first_name', 'last_name',
             'email', 'phone', 'department_id', 'designation_id',
-            'branch_id', 'profile_photo_path'
+            'branch_id', 'profile_photo_path',
         ])
             ->orderBy('first_name')
             ->paginate($request->get('per_page', 20));
@@ -479,9 +484,9 @@ class EmployeeSelfServiceController extends Controller
         $user = $request->user();
         $year = $request->get('year', now()->year);
 
-        $holidays = \App\Models\HR\Holiday::where('organization_id', $user->organization_id)
-            ->whereYear('date', $year)
-            ->orderBy('date')
+        $holidays = Holiday::where('organization_id', $user->organization_id)
+            ->whereYear('holiday_date', $year)
+            ->orderBy('holiday_date')
             ->get();
 
         return $this->success([
