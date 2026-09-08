@@ -26,27 +26,28 @@ class ImpersonationAuditControllerTest extends TestCase
         // global tenant scope can resolve activity logs correctly.
         $this->setUpOrganization();
 
-        $admin  = User::factory()->superAdmin()->create(['organization_id' => $this->organization->id]);
+        $admin = User::factory()->superAdmin()->create(['organization_id' => $this->organization->id]);
         $target = User::factory()->create(['organization_id' => $this->organization->id]);
 
-        $sessionId = 'sess-' . Str::uuid();
+        // The service writes a bare uuid, and the column is a char(36).
+        $sessionId = Str::uuid()->toString();
 
         ActivityLog::forceCreate([
-            'organization_id'          => $this->organization->id,
-            'user_id'                  => $target->id,
-            'impersonated_by_id'       => $admin->id,
+            'organization_id' => $this->organization->id,
+            'user_id' => $target->id,
+            'impersonated_by_id' => $admin->id,
             'impersonation_session_id' => $sessionId,
-            'action'                   => ActivityLog::ACTION_IMPERSONATION_STARTED,
-            'entity_type'              => 'user',
-            'entity_id'                => (string) $target->id,
-            'description'              => 'Admin started impersonation session',
-            'ip_address'               => '127.0.0.1',
+            'action' => ActivityLog::ACTION_IMPERSONATION_STARTED,
+            'entity_type' => 'user',
+            'entity_id' => (string) $target->id,
+            'description' => 'Admin started impersonation session',
+            'ip_address' => '127.0.0.1',
         ]);
 
-        $token    = JWTAuth::fromUser($admin);
+        $token = JWTAuth::fromUser($admin);
         $response = $this->getJson('/api/v1/admin/impersonation-sessions', [
-            'Authorization' => 'Bearer ' . $token,
-            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertOk()
@@ -64,8 +65,8 @@ class ImpersonationAuditControllerTest extends TestCase
         $this->setUpAuthenticatedUser();
 
         $response = $this->getJson('/api/v1/admin/impersonation-sessions', [
-            'Authorization' => 'Bearer ' . $this->token,
-            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer '.$this->token,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertStatus(403)
@@ -80,55 +81,56 @@ class ImpersonationAuditControllerTest extends TestCase
     {
         $this->setUpOrganization();
 
-        $admin  = User::factory()->superAdmin()->create(['organization_id' => $this->organization->id]);
+        $admin = User::factory()->superAdmin()->create(['organization_id' => $this->organization->id]);
         $target = User::factory()->create(['organization_id' => $this->organization->id]);
 
-        $sessionId = 'sess-' . Str::uuid();
+        // The service writes a bare uuid, and the column is a char(36).
+        $sessionId = Str::uuid()->toString();
 
         // Start event
         ActivityLog::forceCreate([
-            'organization_id'          => $this->organization->id,
-            'user_id'                  => $target->id,
-            'impersonated_by_id'       => $admin->id,
+            'organization_id' => $this->organization->id,
+            'user_id' => $target->id,
+            'impersonated_by_id' => $admin->id,
             'impersonation_session_id' => $sessionId,
-            'action'                   => ActivityLog::ACTION_IMPERSONATION_STARTED,
-            'entity_type'              => 'user',
-            'entity_id'                => (string) $target->id,
-            'description'              => 'Admin started impersonation session',
-            'ip_address'               => '127.0.0.1',
-            'metadata'                 => ['reason' => 'Support investigation'],
+            'action' => ActivityLog::ACTION_IMPERSONATION_STARTED,
+            'entity_type' => 'user',
+            'entity_id' => (string) $target->id,
+            'description' => 'Admin started impersonation session',
+            'ip_address' => '127.0.0.1',
+            'metadata' => ['reason' => 'Support investigation'],
         ]);
 
         // An action taken during the session
         ActivityLog::forceCreate([
-            'organization_id'          => $this->organization->id,
-            'user_id'                  => $target->id,
-            'impersonated_by_id'       => $admin->id,
+            'organization_id' => $this->organization->id,
+            'user_id' => $target->id,
+            'impersonated_by_id' => $admin->id,
             'impersonation_session_id' => $sessionId,
-            'action'                   => ActivityLog::ACTION_VIEWED,
-            'entity_type'              => 'invoice',
-            'entity_id'                => '42',
-            'description'              => 'Viewed invoice during impersonation',
-            'ip_address'               => '127.0.0.1',
+            'action' => ActivityLog::ACTION_VIEWED,
+            'entity_type' => 'invoice',
+            'entity_id' => '42',
+            'description' => 'Viewed invoice during impersonation',
+            'ip_address' => '127.0.0.1',
         ]);
 
         // End event
         ActivityLog::forceCreate([
-            'organization_id'          => $this->organization->id,
-            'user_id'                  => $target->id,
-            'impersonated_by_id'       => $admin->id,
+            'organization_id' => $this->organization->id,
+            'user_id' => $target->id,
+            'impersonated_by_id' => $admin->id,
             'impersonation_session_id' => $sessionId,
-            'action'                   => ActivityLog::ACTION_IMPERSONATION_ENDED,
-            'entity_type'              => 'user',
-            'entity_id'                => (string) $target->id,
-            'description'              => 'Admin ended impersonation session',
-            'ip_address'               => '127.0.0.1',
+            'action' => ActivityLog::ACTION_IMPERSONATION_ENDED,
+            'entity_type' => 'user',
+            'entity_id' => (string) $target->id,
+            'description' => 'Admin ended impersonation session',
+            'ip_address' => '127.0.0.1',
         ]);
 
-        $token    = JWTAuth::fromUser($admin);
+        $token = JWTAuth::fromUser($admin);
         $response = $this->getJson("/api/v1/admin/impersonation-sessions/{$sessionId}", [
-            'Authorization' => 'Bearer ' . $token,
-            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertOk()
@@ -157,8 +159,8 @@ class ImpersonationAuditControllerTest extends TestCase
 
         $token = JWTAuth::fromUser($regularUser);
         $response = $this->getJson(route('admin.impersonation-sessions.show', 'any-session-id'), [
-            'Authorization' => 'Bearer ' . $token,
-            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertStatus(403);
@@ -170,10 +172,10 @@ class ImpersonationAuditControllerTest extends TestCase
 
         $admin = User::factory()->superAdmin()->create(['organization_id' => $this->organization->id]);
 
-        $token    = JWTAuth::fromUser($admin);
+        $token = JWTAuth::fromUser($admin);
         $response = $this->getJson('/api/v1/admin/impersonation-sessions/non-existent-session-uuid-99999', [
-            'Authorization' => 'Bearer ' . $token,
-            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
         ]);
 
         $response->assertNotFound()

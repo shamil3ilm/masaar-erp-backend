@@ -15,11 +15,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockTransfer extends Model
 {
-    use BelongsToOrganization, HasUuid, HasStateMachine, HasFactory;
+    use BelongsToOrganization, HasFactory, HasStateMachine, HasUuid;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_IN_TRANSIT = 'in_transit';
+
     public const STATUS_RECEIVED = 'received';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
@@ -138,7 +141,7 @@ class StockTransfer extends Model
      */
     public function getTotalQuantity(): float
     {
-        return $this->lines()->sum('quantity_sent');
+        return (float) $this->lines()->sum('quantity_sent');
     }
 
     /**

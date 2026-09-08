@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Accounting\AccountingPeriod;
 use App\Models\Sales\BackdatedTransaction;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class BackdatedTransactionService
@@ -58,8 +60,8 @@ class BackdatedTransactionService
         return DB::transaction(function () use ($transaction, $reason) {
             $transaction->update([
                 'reason' => $transaction->reason
-                    ? $transaction->reason . "\n\nRejected: " . ($reason ?? 'No reason provided')
-                    : "Rejected: " . ($reason ?? 'No reason provided'),
+                    ? $transaction->reason."\n\nRejected: ".($reason ?? 'No reason provided')
+                    : 'Rejected: '.($reason ?? 'No reason provided'),
             ]);
 
             // Optionally, delete or mark as rejected
@@ -74,7 +76,7 @@ class BackdatedTransactionService
      */
     public function validateDate(string $transactionDate, ?int $organizationId = null): bool
     {
-        $date = \Carbon\Carbon::parse($transactionDate);
+        $date = Carbon::parse($transactionDate);
         $today = now();
 
         // Cannot be in the future
@@ -88,12 +90,15 @@ class BackdatedTransactionService
             throw new \InvalidArgumentException("Transaction date cannot be more than {$maxBackdateDays} days in the past.");
         }
 
-        // Check if the date falls in a closed fiscal period
-        // This would check against AccountingPeriod if applicable
-        $closedPeriod = \App\Models\Accounting\AccountingPeriod::where('organization_id', $organizationId ?? auth()->user()->organization_id)
+        // A period belongs to a fiscal year, and the fiscal year to the
+        // organisation; and a closed period is flagged is_closed, not status.
+        $orgId = $organizationId ?? auth()->user()->organization_id;
+
+        $closedPeriod = AccountingPeriod::withoutGlobalScopes()
+            ->whereHas('fiscalYear', fn ($q) => $q->withoutGlobalScopes()->where('organization_id', $orgId))
             ->where('start_date', '<=', $transactionDate)
             ->where('end_date', '>=', $transactionDate)
-            ->where('status', 'closed')
+            ->where('is_closed', true)
             ->exists();
 
         if ($closedPeriod) {

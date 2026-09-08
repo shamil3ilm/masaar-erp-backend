@@ -14,9 +14,13 @@ class WarehouseLocation extends Model
     use HasFactory;
 
     public const TYPE_ZONE = 'zone';
+
     public const TYPE_AISLE = 'aisle';
+
     public const TYPE_RACK = 'rack';
+
     public const TYPE_SHELF = 'shelf';
+
     public const TYPE_BIN = 'bin';
 
     protected $fillable = [
@@ -85,7 +89,7 @@ class WarehouseLocation extends Model
     public function getFullPath(): string
     {
         $ancestors = $this->ancestors();
-        $path = array_map(fn($a) => $a->name, $ancestors);
+        $path = array_map(fn ($a) => $a->name, $ancestors);
         $path[] = $this->name;
 
         return implode(' > ', $path);
@@ -97,7 +101,7 @@ class WarehouseLocation extends Model
     public function getFullCode(): string
     {
         $ancestors = $this->ancestors();
-        $codes = array_map(fn($a) => $a->code, $ancestors);
+        $codes = array_map(fn ($a) => $a->code, $ancestors);
         $codes[] = $this->code;
 
         return implode('-', $codes);
@@ -116,7 +120,7 @@ class WarehouseLocation extends Model
      */
     public function getTotalStockValue(): float
     {
-        return $this->stockLevels()->sum('total_value');
+        return (float) $this->stockLevels()->sum('total_value');
     }
 
     public function scopeActive($query)

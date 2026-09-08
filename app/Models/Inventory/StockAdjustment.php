@@ -16,17 +16,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockAdjustment extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, HasFactory;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasStateMachine, HasUuid;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_POSTED = 'posted';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const REASON_DAMAGE = 'damage';
+
     public const REASON_THEFT = 'theft';
+
     public const REASON_EXPIRY = 'expiry';
+
     public const REASON_COUNT_CORRECTION = 'count_correction';
+
     public const REASON_OPENING_BALANCE = 'opening_balance';
+
     public const REASON_OTHER = 'other';
 
     protected $fillable = [
@@ -105,7 +112,7 @@ class StockAdjustment extends Model
      */
     public function getTotalValue(): float
     {
-        return $this->lines()->sum('total_cost');
+        return (float) $this->lines()->sum('total_cost');
     }
 
     /**
@@ -113,7 +120,7 @@ class StockAdjustment extends Model
      */
     public function getNetQuantityChange(): float
     {
-        return $this->lines()->sum('difference');
+        return (float) $this->lines()->sum('difference');
     }
 
     /**
