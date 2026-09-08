@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Core;
 use App\Http\Controllers\Controller;
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\NumberSequence;
+use App\Models\Core\Organization;
 use App\Models\Core\UserPreference;
 use App\Models\System\Setting;
 use App\Services\Core\RegionalDefaultsService;
@@ -76,7 +77,6 @@ class SettingsController extends Controller
     public function update(Request $request, string $key): JsonResponse
     {
 
-
         $request->validate([
             'value' => 'present',
         ]);
@@ -115,7 +115,7 @@ class SettingsController extends Controller
             }
         }
 
-        if (!empty($errors)) {
+        if (! empty($errors)) {
             return $this->validationError($errors);
         }
 
@@ -127,7 +127,6 @@ class SettingsController extends Controller
      */
     public function updateGroup(Request $request, string $group): JsonResponse
     {
-
 
         $request->validate([
             'settings' => 'required|array',
@@ -144,7 +143,7 @@ class SettingsController extends Controller
             }
         }
 
-        if (!empty($errors)) {
+        if (! empty($errors)) {
             return $this->validationError($errors);
         }
 
@@ -292,7 +291,6 @@ class SettingsController extends Controller
     public function enableFeature(Request $request, string $feature): JsonResponse
     {
 
-
         $organizationId = auth()->user()->organization_id;
         $config = $request->input('config');
 
@@ -309,7 +307,6 @@ class SettingsController extends Controller
      */
     public function disableFeature(string $feature): JsonResponse
     {
-
 
         $organizationId = auth()->user()->organization_id;
 
@@ -343,7 +340,7 @@ class SettingsController extends Controller
         $sequences = NumberSequence::where('organization_id', $organizationId)
             ->orderBy('type')
             ->get()
-            ->map(fn($seq) => [
+            ->map(fn ($seq) => [
                 'id' => $seq->id,
                 'type' => $seq->type,
                 'branch_id' => $seq->branch_id,
@@ -374,9 +371,10 @@ class SettingsController extends Controller
             ->where('branch_id', $branchId)
             ->first();
 
-        if (!$sequence) {
+        if (! $sequence) {
             // Return default configuration
-            $default = NumberSequence::DEFAULT_CONFIGS[$type] ?? ['prefix' => strtoupper($type) . '-', 'padding' => 5];
+            $default = NumberSequence::DEFAULT_CONFIGS[$type] ?? ['prefix' => strtoupper($type).'-', 'padding' => 5];
+
             return $this->success([
                 'type' => $type,
                 'prefix' => $default['prefix'] ?? null,
@@ -414,7 +412,6 @@ class SettingsController extends Controller
     public function updateNumberSequence(Request $request, string $type): JsonResponse
     {
 
-
         $request->validate([
             'branch_id' => 'nullable|exists:branches,id',
             'prefix' => 'nullable|string|max:20',
@@ -447,7 +444,7 @@ class SettingsController extends Controller
                 'current_number' => $request->input('current_number'),
                 'last_reset_year' => now()->year,
                 'last_reset_month' => now()->month,
-            ], fn($v) => $v !== null)
+            ], fn ($v) => $v !== null)
         );
 
         return $this->success([
@@ -489,16 +486,16 @@ class SettingsController extends Controller
     public function clearCache(): JsonResponse
     {
 
-
         $organizationId = auth()->user()->organization_id;
 
         $this->settingsService->clearAllCache($organizationId);
 
         // Clear feature flags cache
-        $features = FeatureFlag::where('organization_id', $organizationId)
-            ->pluck('feature');
-        foreach ($features as $feature) {
-            Cache::forget("feature_flag:{$organizationId}:{$feature}");
+        $flagKeys = FeatureFlag::where('organization_id', $organizationId)
+            ->pluck('flag_key');
+
+        foreach ($flagKeys as $flagKey) {
+            Cache::forget("feature_flag:{$organizationId}:{$flagKey}");
         }
 
         return $this->success(null, 'Settings cache cleared');
@@ -525,13 +522,13 @@ class SettingsController extends Controller
      */
     public function previewRegionDefaults(string $countryCode): JsonResponse
     {
-        $service  = app(RegionalDefaultsService::class);
+        $service = app(RegionalDefaultsService::class);
         $defaults = $service->getDefaultsForCountry(strtoupper($countryCode));
 
         return $this->success([
             'country_code' => strtoupper($countryCode),
-            'region'       => $service->getRegionLabel($countryCode),
-            'defaults'     => $defaults,
+            'region' => $service->getRegionLabel($countryCode),
+            'defaults' => $defaults,
         ], 'Regional defaults preview.');
     }
 
@@ -546,20 +543,19 @@ class SettingsController extends Controller
     public function initializeRegion(Request $request): JsonResponse
     {
 
-
         $validated = $request->validate([
             'country_code' => ['required', 'string', 'size:2'],
-            'force'        => ['sometimes', 'boolean'],
+            'force' => ['sometimes', 'boolean'],
         ]);
 
-        $orgId  = $this->organizationId($request);
-        if (!$orgId) {
+        $orgId = $this->organizationId($request);
+        if (! $orgId) {
             return $this->error('Organization not found.', 'ORGANIZATION_NOT_FOUND', 422);
         }
         $result = $this->settingsService->initializeByCountry(
             organizationId: $orgId,
-            countryCode:    strtoupper($validated['country_code']),
-            force:          (bool) ($validated['force'] ?? false),
+            countryCode: strtoupper($validated['country_code']),
+            force: (bool) ($validated['force'] ?? false),
         );
 
         return $this->success($result, 'Regional defaults applied.');
@@ -573,10 +569,10 @@ class SettingsController extends Controller
     public function resetToRegion(Request $request): JsonResponse
     {
         $orgId = $this->organizationId($request);
-        if (!$orgId) {
+        if (! $orgId) {
             return $this->error('Organization not found.', 'ORGANIZATION_NOT_FOUND', 422);
         }
-        $org   = \App\Models\Core\Organization::findOrFail($orgId);
+        $org = Organization::findOrFail($orgId);
 
         if (empty($org->country_code)) {
             return $this->error('Organization has no country_code set.', 'MISSING_COUNTRY_CODE', 422);
@@ -584,8 +580,8 @@ class SettingsController extends Controller
 
         $result = $this->settingsService->initializeByCountry(
             organizationId: $orgId,
-            countryCode:    $org->country_code,
-            force:          true,
+            countryCode: $org->country_code,
+            force: true,
         );
 
         return $this->success($result, 'All settings reset to regional defaults.');

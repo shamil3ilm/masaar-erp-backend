@@ -4,17 +4,20 @@ declare(strict_types=1);
 
 namespace App\Models\Core;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Cache;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class FeatureFlag extends Model
 {
     use HasFactory;
+
+    protected $table = 'organization_feature_flags';
+
     protected $fillable = [
         'organization_id',
-        'feature',
+        'flag_key',
         'is_enabled',
         'config',
         'enabled_at',
@@ -147,6 +150,7 @@ class FeatureFlag extends Model
 
         $this->save();
         $this->clearCache();
+
         return $this;
     }
 
@@ -156,6 +160,7 @@ class FeatureFlag extends Model
         $this->disabled_at = now();
         $this->save();
         $this->clearCache();
+
         return $this;
     }
 
@@ -168,7 +173,7 @@ class FeatureFlag extends Model
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($organizationId, $feature) {
             // Check organization-specific flag first
             $flag = static::where('organization_id', $organizationId)
-                ->where('feature', $feature)
+                ->where('flag_key', $feature)
                 ->first();
 
             if ($flag) {
@@ -177,7 +182,7 @@ class FeatureFlag extends Model
 
             // Fall back to global flag
             $globalFlag = static::whereNull('organization_id')
-                ->where('feature', $feature)
+                ->where('flag_key', $feature)
                 ->first();
 
             return $globalFlag?->is_enabled ?? false;
@@ -187,7 +192,7 @@ class FeatureFlag extends Model
     public static function enableFeature(int $organizationId, string $feature, ?array $config = null): static
     {
         $flag = static::updateOrCreate(
-            ['organization_id' => $organizationId, 'feature' => $feature],
+            ['organization_id' => $organizationId, 'flag_key' => $feature],
             [
                 'is_enabled' => true,
                 'config' => $config,
@@ -204,7 +209,7 @@ class FeatureFlag extends Model
     public static function disableFeature(int $organizationId, string $feature): static
     {
         $flag = static::updateOrCreate(
-            ['organization_id' => $organizationId, 'feature' => $feature],
+            ['organization_id' => $organizationId, 'flag_key' => $feature],
             [
                 'is_enabled' => false,
                 'disabled_at' => now(),
@@ -219,7 +224,7 @@ class FeatureFlag extends Model
     public static function getConfig(int $organizationId, string $feature): ?array
     {
         $flag = static::where('organization_id', $organizationId)
-            ->where('feature', $feature)
+            ->where('flag_key', $feature)
             ->first();
 
         return $flag?->config;
@@ -234,27 +239,27 @@ class FeatureFlag extends Model
 
         // Global flags as base
         foreach ($globalFlags as $flag) {
-            $result[$flag->feature] = [
+            $result[$flag->flag_key] = [
                 'enabled' => $flag->is_enabled,
                 'config' => $flag->config,
                 'source' => 'global',
-                'description' => static::FEATURES[$flag->feature] ?? null,
+                'description' => static::FEATURES[$flag->flag_key] ?? null,
             ];
         }
 
         // Organization flags override
         foreach ($orgFlags as $flag) {
-            $result[$flag->feature] = [
+            $result[$flag->flag_key] = [
                 'enabled' => $flag->is_enabled,
                 'config' => $flag->config,
                 'source' => 'organization',
-                'description' => static::FEATURES[$flag->feature] ?? null,
+                'description' => static::FEATURES[$flag->flag_key] ?? null,
             ];
         }
 
         // Add all available features with default state
         foreach (static::FEATURES as $feature => $description) {
-            if (!isset($result[$feature])) {
+            if (! isset($result[$feature])) {
                 $result[$feature] = [
                     'enabled' => false,
                     'config' => null,
@@ -275,7 +280,7 @@ class FeatureFlag extends Model
     protected function clearCache(): void
     {
         if ($this->organization_id) {
-            Cache::forget("feature_flag:{$this->organization_id}:{$this->feature}");
+            Cache::forget("feature_flag:{$this->organization_id}:{$this->flag_key}");
         }
     }
 }

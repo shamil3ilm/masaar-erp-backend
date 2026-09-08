@@ -555,6 +555,23 @@ return new class extends Migration
             $table->index(['organization_id', 'feature_key'], 'fae_org_feature_idx');
         });
 
+        // Per-organisation feature flags. The platform's own feature_flags
+        // table (0020_admin) is a different thing: a global flag with a
+        // rollout percentage. This is the tenant's own on/off switch, and its
+        // two companion tables below key on the same organisation and flag.
+        Schema::create('organization_feature_flags', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
+            $table->string('flag_key', 100);
+            $table->boolean('is_enabled')->default(false);
+            $table->json('config')->nullable();
+            $table->timestamp('enabled_at')->nullable();
+            $table->timestamp('disabled_at')->nullable();
+            $table->timestamps();
+
+            $table->unique(['organization_id', 'flag_key'], 'off_org_flag_unique');
+        });
+
         Schema::create('feature_flag_rollout_logs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
@@ -936,6 +953,7 @@ return new class extends Migration
         Schema::dropIfExists('import_jobs');
         Schema::dropIfExists('gdpr_data_subject_requests');
         Schema::dropIfExists('feature_flag_targets');
+        Schema::dropIfExists('organization_feature_flags');
         Schema::dropIfExists('feature_flag_rollout_logs');
         Schema::dropIfExists('feature_adoption_events');
         Schema::dropIfExists('export_jobs');
