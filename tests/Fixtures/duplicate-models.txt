@@ -1,0 +1,26 @@
+# Tables with more than one Eloquent model.
+#
+# In every case the two disagree about what the table holds, and one of them
+# is wrong. leave_types has App\Models\HR\LeaveType, whose annual_quota and
+# carry_forward match the migration, and App\Models\HR\Leave\LeaveType, whose
+# leave_policy_id and gender_restriction do not exist — so LeaveService works
+# and LeavePolicyController answers 500 on every request. feature_flags had
+# the same split until it was recorded, an organisation-scoped model sitting
+# on a platform-wide table.
+#
+# This is most of tests/Fixtures/model-columns.txt as well: seven of the
+# models listed there are the second model on a table already listed here.
+# Resolving the duplicate resolves the phantom columns with it.
+#
+# Which model survives is a decision per table, not a rename. A ratchet: the
+# list may shrink and may not grow, and the test fails if an entry here has
+# been resolved and not removed.
+
+leave_balances: App\Models\HR\LeaveBalance, App\Models\HR\Leave\LeaveBalance
+leave_types: App\Models\HR\LeaveType, App\Models\HR\Leave\LeaveType
+organization_subscriptions: App\Models\Billing\OrganizationSubscription, App\Models\Core\OrganizationSubscription
+petty_cash_funds: App\Models\Accounting\PettyCashFund, App\Models\Finance\PettyCashFund
+subscription_plans: App\Models\Billing\SubscriptionPlan, App\Models\Core\SubscriptionPlan
+task_comments: App\Models\Calendar\CalendarTaskComment, App\Models\TaskBoard\BoardTaskComment
+tds_deductions: App\Models\Tax\TdsDeduction, App\Models\Tax\TdsEntry
+vat_return_periods: App\Models\Tax\VatReturn, App\Models\Tax\VatReturnPeriod
