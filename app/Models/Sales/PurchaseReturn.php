@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Models\Sales;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PurchaseReturn extends Model
 {
-    use BelongsToOrganization, HasFactory;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $guarded = ['id'];
 }
