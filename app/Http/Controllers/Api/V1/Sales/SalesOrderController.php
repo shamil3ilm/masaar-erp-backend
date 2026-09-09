@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
+use App\Models\Accounting\CreditHold;
 use App\Models\Core\NumberSequence;
 use App\Models\Sales\Contact;
 use App\Models\Sales\SalesOrder;
@@ -15,7 +16,6 @@ use App\Services\Sales\SalesOrderDeliveryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class SalesOrderController extends Controller
@@ -31,12 +31,12 @@ class SalesOrderController extends Controller
     {
         $query = SalesOrder::with(['customer', 'salesperson', 'warehouse'])
             ->latest('order_date')
-            ->when($request->customer_id, fn($q, $id) => $q->forCustomer((int) $id))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->from_date, fn($q, $v) => $q->where('order_date', '>=', $v))
-            ->when($request->to_date, fn($q, $v) => $q->where('order_date', '<=', $v))
-            ->when($request->salesperson_id, fn($q, $id) => $q->where('salesperson_id', (int) $id))
-            ->when($request->warehouse_id, fn($q, $id) => $q->where('warehouse_id', (int) $id))
+            ->when($request->customer_id, fn ($q, $id) => $q->forCustomer((int) $id))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
+            ->when($request->from_date, fn ($q, $v) => $q->where('order_date', '>=', $v))
+            ->when($request->to_date, fn ($q, $v) => $q->where('order_date', '<=', $v))
+            ->when($request->salesperson_id, fn ($q, $id) => $q->where('salesperson_id', (int) $id))
+            ->when($request->warehouse_id, fn ($q, $id) => $q->where('warehouse_id', (int) $id))
             ->when($request->search, function ($q, $search) {
                 $q->where(function ($inner) use ($search) {
                     $inner->where('order_number', 'like', "%{$search}%")
@@ -92,16 +92,7 @@ class SalesOrderController extends Controller
             ?? $user->getDefaultBranch()?->id;
 
         $salesOrder = DB::transaction(function () use ($validated, $organizationId, $branchId, $user) {
-            try {
-                $orderNumber = NumberSequence::getNext($organizationId, 'sales_order', $branchId);
-            } catch (\Exception $e) {
-                Log::warning('NumberSequence unavailable for sales_order; using fallback counter', [
-                    'organization_id' => $organizationId,
-                    'error' => $e->getMessage(),
-                ]);
-                $count = SalesOrder::where('organization_id', $organizationId)->count() + 1;
-                $orderNumber = 'SO-' . date('Y') . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
-            }
+            $orderNumber = NumberSequence::getNext($organizationId, 'sales_order', $branchId);
 
             $customer = Contact::find($validated['customer_id']);
 
@@ -305,7 +296,7 @@ class SalesOrderController extends Controller
 
         // SAP SD credit check at order confirmation (VKM1/VKM3 equivalent).
         // We check here (not just at invoicing) so sales reps get early warning.
-        $customer    = $salesOrder->customer;
+        $customer = $salesOrder->customer;
         $orderAmount = (float) $salesOrder->total;
 
         if ($customer && ! $this->creditService->checkCreditLimit($customer, $orderAmount)) {
@@ -336,26 +327,26 @@ class SalesOrderController extends Controller
             return $this->error('Order has no customer assigned.', 'NO_CUSTOMER', 422);
         }
 
-        $exposure    = $this->creditService->getCreditExposure($customer);
+        $exposure = $this->creditService->getCreditExposure($customer);
         $orderAmount = (float) $salesOrder->total;
-        $available   = (float) $exposure['available_credit'];
+        $available = (float) $exposure['available_credit'];
 
-        $onHold = \App\Models\Accounting\CreditHold::where('organization_id', $customer->organization_id)
+        $onHold = CreditHold::where('organization_id', $customer->organization_id)
             ->where('contact_id', $customer->id)
             ->whereNull('released_at')
             ->exists();
 
         return $this->success([
-            'customer_id'      => $customer->id,
-            'customer_name'    => $customer->getDisplayName(),
-            'credit_limit'     => (float) $exposure['credit_limit'],
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->getDisplayName(),
+            'credit_limit' => (float) $exposure['credit_limit'],
             'current_exposure' => (float) $exposure['total_exposure'],
             'available_credit' => $available,
-            'utilization_pct'  => (float) $exposure['utilization_pct'],
-            'order_amount'     => $orderAmount,
-            'will_exceed'      => ($available - $orderAmount) < 0,
-            'on_credit_hold'   => $onHold,
-            'currency_code'    => $exposure['currency_code'],
+            'utilization_pct' => (float) $exposure['utilization_pct'],
+            'order_amount' => $orderAmount,
+            'will_exceed' => ($available - $orderAmount) < 0,
+            'on_credit_hold' => $onHold,
+            'currency_code' => $exposure['currency_code'],
         ], 'Credit check completed.');
     }
 
@@ -371,7 +362,7 @@ class SalesOrderController extends Controller
             SalesOrder::STATUS_PARTIALLY_DELIVERED,
         ];
 
-        if (!in_array($salesOrder->status, $allowedStatuses, true)) {
+        if (! in_array($salesOrder->status, $allowedStatuses, true)) {
             return $this->error(
                 'Sales order cannot be cancelled in its current status.',
                 'VALIDATION_ERROR',
@@ -390,7 +381,7 @@ class SalesOrderController extends Controller
      */
     public function convertToInvoice(SalesOrder $salesOrder): JsonResponse
     {
-        if (!$salesOrder->canBeInvoiced()) {
+        if (! $salesOrder->canBeInvoiced()) {
             return $this->error(
                 'Sales order cannot be invoiced in its current status. Order must be partially delivered or delivered.',
                 'VALIDATION_ERROR',
@@ -419,8 +410,8 @@ class SalesOrderController extends Controller
     {
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'line_ids'     => ['nullable', 'array'],
-            'line_ids.*'   => ['integer'],
+            'line_ids' => ['nullable', 'array'],
+            'line_ids.*' => ['integer'],
         ]);
 
         try {

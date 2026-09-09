@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Sales;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\QuotationResource;
 use App\Models\Core\NumberSequence;
+use App\Models\Sales\Contact;
 use App\Models\Sales\Quotation;
 use App\Models\Sales\QuotationLine;
 use App\Models\Sales\SalesOrder;
@@ -15,7 +16,6 @@ use App\Services\Sales\InvoiceConversionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class QuotationController extends Controller
@@ -27,10 +27,10 @@ class QuotationController extends Controller
     {
         $query = Quotation::with(['customer', 'salesperson'])
             ->latest('quotation_date')
-            ->when($request->has('customer_id'), fn($q) => $q->forCustomer($request->integer('customer_id')))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('from_date'), fn($q) => $q->where('quotation_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('quotation_date', '<=', $request->input('to_date')));
+            ->when($request->has('customer_id'), fn ($q) => $q->forCustomer($request->integer('customer_id')))
+            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($request->has('from_date'), fn ($q) => $q->where('quotation_date', '>=', $request->input('from_date')))
+            ->when($request->has('to_date'), fn ($q) => $q->where('quotation_date', '<=', $request->input('to_date')));
 
         $quotations = $query->paginate($request->integer('per_page', 15));
 
@@ -77,20 +77,10 @@ class QuotationController extends Controller
             ?? $user->getDefaultBranch()?->id;
 
         $quotation = DB::transaction(function () use ($validated, $organizationId, $branchId, $user) {
-            try {
-                $quotationNumber = NumberSequence::getNext($organizationId, 'quotation', $branchId);
-            } catch (\Exception $e) {
-                // Fallback to simple number generation if NumberSequence schema is incomplete
-                Log::warning('NumberSequence unavailable for quotation; using fallback counter', [
-                    'organization_id' => $organizationId,
-                    'error' => $e->getMessage(),
-                ]);
-                $count = \App\Models\Sales\Quotation::where('organization_id', $organizationId)->count() + 1;
-                $quotationNumber = 'QUO-' . date('Y') . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
-            }
+            $quotationNumber = NumberSequence::getNext($organizationId, 'quotation', $branchId);
 
             // Populate customer details from contact
-            $customer = \App\Models\Sales\Contact::find($validated['customer_id']);
+            $customer = Contact::find($validated['customer_id']);
 
             $quotation = Quotation::create([
                 'organization_id' => $organizationId,
@@ -159,7 +149,7 @@ class QuotationController extends Controller
      */
     public function update(Request $request, Quotation $quotation): JsonResponse
     {
-        if (!$quotation->isEditable()) {
+        if (! $quotation->isEditable()) {
             return $this->error(
                 'Quotation cannot be updated in its current status.',
                 'VALIDATION_ERROR',
@@ -251,7 +241,7 @@ class QuotationController extends Controller
      */
     public function send(Quotation $quotation): JsonResponse
     {
-        if (!in_array($quotation->status, [Quotation::STATUS_DRAFT, Quotation::STATUS_EXPIRED])) {
+        if (! in_array($quotation->status, [Quotation::STATUS_DRAFT, Quotation::STATUS_EXPIRED])) {
             return $this->error(
                 'Quotation cannot be sent in its current status.',
                 'VALIDATION_ERROR',
@@ -275,7 +265,7 @@ class QuotationController extends Controller
             'action' => 'required|in:accept,decline',
         ]);
 
-        if (!in_array($quotation->status, [Quotation::STATUS_SENT, Quotation::STATUS_DRAFT])) {
+        if (! in_array($quotation->status, [Quotation::STATUS_SENT, Quotation::STATUS_DRAFT])) {
             return $this->error(
                 'Quotation cannot be reviewed in its current status.',
                 'VALIDATION_ERROR',
@@ -302,7 +292,7 @@ class QuotationController extends Controller
      */
     public function convert(Request $request, Quotation $quotation): JsonResponse
     {
-        if (!$quotation->canBeConverted()) {
+        if (! $quotation->canBeConverted()) {
             return $this->error(
                 'Only accepted quotations can be converted.',
                 'VALIDATION_ERROR',
@@ -324,16 +314,11 @@ class QuotationController extends Controller
             }
 
             if ($convertTo === 'sales_order') {
-                try {
-                    $soNumber = NumberSequence::getNext(
-                        $quotation->organization_id,
-                        'sales_order',
-                        $quotation->branch_id
-                    );
-                } catch (\Exception $e) {
-                    $count = SalesOrder::where('organization_id', $quotation->organization_id)->count() + 1;
-                    $soNumber = 'SO-' . date('Y') . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
-                }
+                $soNumber = NumberSequence::getNext(
+                    $quotation->organization_id,
+                    'sales_order',
+                    $quotation->branch_id
+                );
 
                 $salesOrder = SalesOrder::create([
                     'organization_id' => $quotation->organization_id,

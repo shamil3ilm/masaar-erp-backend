@@ -15,7 +15,6 @@
 App\Models\Accounting\CopaLineItem (copa_line_items): fiscal_year
 App\Models\Accounting\PettyCashFund (petty_cash_funds): max_transaction_amount
 App\Models\Admin\FeatureFlag (feature_flags): config, disabled_at, enabled_at
-App\Models\Core\NumberSequence (number_sequences): branch_id, current_number, include_month, include_year, last_reset_month, last_reset_year, padding, prefix, reset_monthly, reset_yearly, suffix, type
 App\Models\Core\OrganizationSubscription (organization_subscriptions): addons, billing_cycle, custom_limits, expires_at, external_subscription_id, payment_method, started_at
 App\Models\Core\SubscriptionPlan (subscription_plans): limits, monthly_price, sort_order, storage_gb, yearly_price
 App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
