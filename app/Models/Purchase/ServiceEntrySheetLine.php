@@ -30,7 +30,7 @@ class ServiceEntrySheetLine extends Model
 
     public function entrySheet(): BelongsTo
     {
-        return $this->belongsTo(ServiceEntrySheet::class);
+        return $this->belongsTo(ServiceEntrySheet::class, 'service_entry_sheet_id');
     }
 
     public function poLine(): BelongsTo

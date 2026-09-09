@@ -1,0 +1,38 @@
+# Relations naming a column that does not exist.
+#
+# Eloquent does not check a foreign key against the schema. The relation
+# builds its query, finds nothing, and returns null or an empty collection,
+# so the record simply looks like it has no parent or no children. Nothing
+# raises, on either database.
+#
+# Four were a wrong name where the right column existed and are fixed:
+# revaluation_id, ml_closing_entry_id and service_entry_sheet_id twice.
+# These are not renames — the column is absent altogether, so each is either
+# a migration that was never written or a relation to something that no
+# longer exists.
+#
+# Several belong to problems already recorded elsewhere. The three leave
+# relations and both TDS ones are second models on a shared table, listed in
+# duplicate-models.txt; resolving that table resolves these with it.
+#
+# A ratchet: the list may shrink and may not grow, and the test fails if an
+# entry here has been fixed and not removed.
+
+App\Models\Accounting\BankTransaction::journalEntry -> bank_transactions.journal_entry_id
+App\Models\Accounting\BankTransaction::journalLine -> bank_transactions.journal_line_id
+App\Models\Billing\SubscriptionPlan::addons -> subscription_addons.plan_id
+App\Models\Calendar\CalendarTask::creator -> calendar_tasks.created_by
+App\Models\Calendar\CalendarTask::parentTask -> calendar_tasks.parent_task_id
+App\Models\Calendar\CalendarTask::subtasks -> calendar_tasks.parent_task_id
+App\Models\HR\Leave\LeaveBalance::leaveTier -> leave_balances.leave_tier_id
+App\Models\HR\Leave\LeaveTier::leaveBalances -> leave_balances.leave_tier_id
+App\Models\HR\Leave\LeaveType::leavePolicy -> leave_types.leave_policy_id
+App\Models\Sales\AdvancePaymentApplication::invoice -> advance_payment_applications.invoice_id
+App\Models\Sales\CouponCode::usages -> promotion_usages.coupon_code_id
+App\Models\Sales\DebitNote::approvedBy -> debit_notes.approved_by
+App\Models\Sales\DebitNote::supplier -> debit_notes.supplier_id
+App\Models\Tax\TdsConfiguration::deductions -> tds_deductions.tds_section_id
+App\Models\Tax\TdsEntry::tdsSection -> tds_deductions.tds_section_id
+App\Models\Tax\VatReturn::filedBy -> vat_return_periods.filed_by
+App\Models\Tax\VatReturnPeriod::transactions -> vat_transactions.vat_return_period_id
+App\Models\Trade\LcAmendment::letterOfCredit -> lc_amendments.letter_of_credit_id

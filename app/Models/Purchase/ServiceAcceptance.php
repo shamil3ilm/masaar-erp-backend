@@ -15,6 +15,7 @@ class ServiceAcceptance extends Model
     use BelongsToOrganization, HasUuid;
 
     public const STATUS_ACCEPTED = 'accepted';
+
     public const STATUS_REJECTED = 'rejected';
 
     protected $fillable = [
@@ -35,7 +36,7 @@ class ServiceAcceptance extends Model
 
     public function entrySheet(): BelongsTo
     {
-        return $this->belongsTo(ServiceEntrySheet::class);
+        return $this->belongsTo(ServiceEntrySheet::class, 'service_entry_sheet_id');
     }
 
     public function acceptedBy(): BelongsTo
