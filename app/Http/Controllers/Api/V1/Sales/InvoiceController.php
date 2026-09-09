@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ConcurrencyException;
 use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\InvoiceResource;
@@ -18,6 +19,7 @@ use Illuminate\Validation\Rule;
 class InvoiceController extends Controller
 {
     use SupportsAgGrid;
+
     public function __construct(
         private readonly InvoiceService $invoiceService,
         private readonly InvoiceConversionService $invoiceConversion,
@@ -31,19 +33,19 @@ class InvoiceController extends Controller
     {
         $query = Invoice::with(['customer', 'salesperson'])
             ->latest('invoice_date')
-            ->when($request->customer_id, fn($q, $id) => $q->forCustomer((int) $id))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->type, fn($q, $v) => $q->ofType($v))
+            ->when($request->customer_id, fn ($q, $id) => $q->forCustomer((int) $id))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
+            ->when($request->type, fn ($q, $v) => $q->ofType($v))
             ->when(
                 $request->input('from_date', $request->input('start_date')),
-                fn($q, $v) => $q->where('invoice_date', '>=', $v)
+                fn ($q, $v) => $q->where('invoice_date', '>=', $v)
             )
             ->when(
                 $request->input('to_date', $request->input('end_date')),
-                fn($q, $v) => $q->where('invoice_date', '<=', $v)
+                fn ($q, $v) => $q->where('invoice_date', '<=', $v)
             )
-            ->when($request->boolean('overdue', false), fn($q) => $q->overdue())
-            ->when($request->boolean('unpaid', false), fn($q) => $q->unpaid());
+            ->when($request->boolean('overdue', false), fn ($q) => $q->overdue())
+            ->when($request->boolean('unpaid', false), fn ($q) => $q->unpaid());
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -102,6 +104,7 @@ class InvoiceController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -166,10 +169,11 @@ class InvoiceController extends Controller
             );
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
-        } catch (\App\Exceptions\ConcurrencyException $e) {
+        } catch (ConcurrencyException $e) {
             return $this->error($e->getMessage(), 'CONCURRENCY_ERROR', 409);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -187,6 +191,7 @@ class InvoiceController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -208,6 +213,7 @@ class InvoiceController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -239,6 +245,7 @@ class InvoiceController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -250,7 +257,7 @@ class InvoiceController extends Controller
      */
     public function complianceStatus(Invoice $invoice): JsonResponse
     {
-        if (!$invoice->compliance_uuid) {
+        if (! $invoice->compliance_uuid) {
             return $this->success([
                 'status' => $invoice->compliance_status,
                 'message' => 'Not submitted to compliance system.',
@@ -265,13 +272,21 @@ class InvoiceController extends Controller
                 'uuid' => $invoice->compliance_uuid,
                 'qr_code' => $invoice->compliance_qr_code,
                 'submitted_at' => $invoice->compliance_submitted_at?->toISOString(),
+                'live' => true,
             ]);
         } catch (\Exception $e) {
+            // Falling back to the status recorded here is fine; letting it pass
+            // for a live answer is not. Whether the compliance service actually
+            // confirmed this invoice is the whole question being asked.
+            report($e);
+
             return $this->success([
                 'status' => $invoice->compliance_status,
                 'uuid' => $invoice->compliance_uuid,
                 'qr_code' => $invoice->compliance_qr_code,
                 'submitted_at' => $invoice->compliance_submitted_at?->toISOString(),
+                'live' => false,
+                'message' => 'The compliance service could not be reached. This is the status last recorded here.',
             ]);
         }
     }
@@ -296,8 +311,8 @@ class InvoiceController extends Controller
     public function summary(Request $request): JsonResponse
     {
         $query = Invoice::query()
-            ->when($request->has('from_date'), fn($q) => $q->where('invoice_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('invoice_date', '<=', $request->input('to_date')));
+            ->when($request->has('from_date'), fn ($q) => $q->where('invoice_date', '>=', $request->input('from_date')))
+            ->when($request->has('to_date'), fn ($q) => $q->where('invoice_date', '<=', $request->input('to_date')));
 
         $stats = [
             'total_invoices' => $query->count(),
