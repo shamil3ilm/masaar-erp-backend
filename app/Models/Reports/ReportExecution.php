@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Reports;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\HasUuid;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,11 +13,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReportExecution extends Model
 {
-    use HasFactory, BelongsToOrganization;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_PROCESSING = 'processing';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_FAILED = 'failed';
 
     protected $fillable = [
@@ -106,7 +110,7 @@ class ReportExecution extends Model
      */
     public function isFileAvailable(): bool
     {
-        if (!$this->file_path) {
+        if (! $this->file_path) {
             return false;
         }
 
@@ -114,7 +118,7 @@ class ReportExecution extends Model
             return false;
         }
 
-        return file_exists(storage_path('app/' . $this->file_path));
+        return file_exists(storage_path('app/'.$this->file_path));
     }
 
     /**

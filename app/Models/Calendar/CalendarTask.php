@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models\Calendar;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\HasUuid;
+use App\Models\Core\Comment;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CalendarTask extends Model
 {
-    use BelongsToOrganization, HasFactory;
+    use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $guarded = ['id'];
 
@@ -39,7 +41,7 @@ class CalendarTask extends Model
 
     public function comments(): HasMany
     {
-        return $this->hasMany(\App\Models\Core\Comment::class, 'commentable_id')
+        return $this->hasMany(Comment::class, 'commentable_id')
             ->where('commentable_type', self::class);
     }
 }
