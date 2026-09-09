@@ -10,6 +10,7 @@ use Database\Seeders\PermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
@@ -309,20 +310,34 @@ class RouteSmokeTest extends TestCase
      * Only the entries this pass could have produced are compared, so one pass
      * does not report another's as fixed.
      *
-     * @param  list<string>  $found
-     */
-    /**
+     * An entry may end in a driver, as "GET api/v1/thing [mysql]", and then
+     * counts only when running on that driver. SQLite reads an unknown quoted
+     * identifier as a string rather than failing, so an endpoint querying a
+     * column that does not exist answers 200 there and 500 on MySQL. Without
+     * this the same file cannot describe both.
+     *
      * @param  list<string>  $found  what failed in this pass
      * @param  list<string>  $attempted  every endpoint this pass called
      */
     private function assertBaseline(array $found, array $attempted, string $message): void
     {
         $declared = [];
+        $driver = DB::connection()->getDriverName();
 
         foreach (file(self::BASELINE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-            if (! str_starts_with($line, '#')) {
-                $declared[] = $line;
+            if (str_starts_with($line, '#')) {
+                continue;
             }
+
+            if (preg_match('/^(.*?)\s+\[([a-z]+)\]$/', $line, $m) === 1) {
+                if ($m[2] === $driver) {
+                    $declared[] = trim($m[1]);
+                }
+
+                continue;
+            }
+
+            $declared[] = $line;
         }
 
         $new = array_values(array_diff($found, $declared));

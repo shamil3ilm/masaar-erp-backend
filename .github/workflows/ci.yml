@@ -69,6 +69,73 @@ jobs:
       - name: Run test suite
         run: php artisan test
 
+  # The suite runs on SQLite for speed, and the application runs on MySQL.
+  # Until this job existed, nothing had ever run the migrations against MySQL
+  # and they did not work: an index name over the 64-character limit stopped
+  # the schema being built at all, invoices declared the same foreign key three
+  # times, and every encrypted column was sized for its plaintext.
+  #
+  # Worse than the schema, SQLite reads an unknown double-quoted identifier as
+  # a string literal rather than failing, so a query filtering on a column that
+  # does not exist matches no rows instead of raising. Twenty-three endpoints
+  # answered 200 with nothing in them on SQLite and 500 on MySQL. A green
+  # SQLite run does not mean the query is valid; this job is what says that.
+  mysql:
+    name: Tests on MySQL
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_DATABASE: masaar_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, bcmath, dom, xml, curl, zip, fileinfo, tokenizer, pdo_mysql
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # phpunit.xml declares sqlite, and PHPUnit leaves an <env> alone when the
+      # variable is already set, so these win without editing the file.
+      - name: Run test suite against MySQL
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: masaar_test
+          DB_USERNAME: root
+          DB_PASSWORD: ''
+        run: php artisan test
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
