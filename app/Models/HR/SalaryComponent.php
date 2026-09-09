@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Support\Formula;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -13,18 +14,27 @@ class SalaryComponent extends Model
     use BelongsToOrganization, HasFactory;
 
     public const TYPE_EARNING = 'earning';
+
     public const TYPE_DEDUCTION = 'deduction';
 
     public const CATEGORY_BASIC = 'basic';
+
     public const CATEGORY_ALLOWANCE = 'allowance';
+
     public const CATEGORY_BONUS = 'bonus';
+
     public const CATEGORY_REIMBURSEMENT = 'reimbursement';
+
     public const CATEGORY_STATUTORY_DEDUCTION = 'statutory_deduction';
+
     public const CATEGORY_VOLUNTARY_DEDUCTION = 'voluntary_deduction';
+
     public const CATEGORY_TAX = 'tax';
 
     public const CALC_FIXED = 'fixed';
+
     public const CALC_PERCENTAGE = 'percentage';
+
     public const CALC_FORMULA = 'formula';
 
     protected $fillable = [
@@ -83,36 +93,28 @@ class SalaryComponent extends Model
 
     protected function calculatePercentage(array $context): float
     {
-        if (!$this->percentage_of) {
+        if (! $this->percentage_of) {
             return 0;
         }
 
         $baseAmount = $context[$this->percentage_of] ?? 0;
+
         return round($baseAmount * ($this->default_value / 100), 4);
     }
 
     protected function evaluateFormula(array $context): float
     {
-        if (!$this->formula) {
+        if (! $this->formula) {
             return 0;
         }
 
-        // Simple formula evaluation - in production use a proper expression parser
         $formula = $this->formula;
+
         foreach ($context as $key => $value) {
-            $formula = str_replace('{' . $key . '}', (string) $value, $formula);
+            $formula = str_replace('{'.$key.'}', (string) $value, $formula);
         }
 
-        try {
-            // Only for simple math expressions
-            if (preg_match('/^[\d\s\+\-\*\/\(\)\.]+$/', $formula)) {
-                return (float) eval("return {$formula};");
-            }
-        } catch (\Throwable) {
-            return 0;
-        }
-
-        return 0;
+        return Formula::evaluate($formula);
     }
 
     public function scopeActive($query)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\HR;
 
+use App\Support\Formula;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -52,11 +53,12 @@ class SalaryStructureComponent extends Model
     {
         $percentageOf = $this->percentage_of ?? $this->salaryComponent->percentage_of;
 
-        if (!$percentageOf) {
+        if (! $percentageOf) {
             return 0;
         }
 
         $baseAmount = $context[$percentageOf] ?? 0;
+
         return round($baseAmount * ($value / 100), 4);
     }
 
@@ -64,22 +66,14 @@ class SalaryStructureComponent extends Model
     {
         $formula = $this->formula ?? $this->salaryComponent->formula;
 
-        if (!$formula) {
+        if (! $formula) {
             return 0;
         }
 
         foreach ($context as $key => $val) {
-            $formula = str_replace('{' . $key . '}', (string) $val, $formula);
+            $formula = str_replace('{'.$key.'}', (string) $val, $formula);
         }
 
-        try {
-            if (preg_match('/^[\d\s\+\-\*\/\(\)\.]+$/', $formula)) {
-                return (float) eval("return {$formula};");
-            }
-        } catch (\Throwable) {
-            return 0;
-        }
-
-        return 0;
+        return Formula::evaluate($formula);
     }
 }
