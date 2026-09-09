@@ -537,14 +537,35 @@ return new class extends Migration
             $table->unique(['organization_id', 'name', 'entity_type']);
         });
 
+        // Two things number documents. NumberGeneratorService keeps a plain
+        // counter per sequence_key; the NumberSequence model keeps a formatted
+        // sequence per organisation, branch and document type, and Sales calls
+        // it to number quotations and sales orders. The model's columns were
+        // never created, so both of those writes failed. Both sets are here
+        // until one generator replaces the other.
         Schema::create('number_sequences', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->nullable()->constrained()->cascadeOnDelete();
             $table->string('sequence_key', 100)->nullable()->unique();
             $table->unsignedBigInteger('current_value')->default(0);
+
+            $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
+            $table->string('type', 50)->nullable();
+            $table->string('prefix', 20)->nullable();
+            $table->string('suffix', 20)->nullable();
+            $table->unsignedBigInteger('current_number')->default(0);
+            $table->unsignedTinyInteger('padding')->default(5);
+            $table->boolean('include_year')->default(true);
+            $table->boolean('include_month')->default(false);
+            $table->boolean('reset_yearly')->default(true);
+            $table->boolean('reset_monthly')->default(false);
+            $table->unsignedSmallInteger('last_reset_year')->nullable();
+            $table->unsignedTinyInteger('last_reset_month')->nullable();
+
             $table->timestamps();
 
             $table->index('organization_id');
+            $table->unique(['organization_id', 'branch_id', 'type'], 'number_sequences_org_branch_type');
         });
 
         Schema::create('onboarding_templates', function (Blueprint $table) {
