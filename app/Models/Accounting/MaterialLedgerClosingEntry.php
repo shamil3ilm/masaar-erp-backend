@@ -23,12 +23,12 @@ class MaterialLedgerClosingEntry extends Model
     protected function casts(): array
     {
         return [
-            'period'                  => 'integer',
-            'fiscal_year'             => 'integer',
-            'total_price_difference'  => 'decimal:4',
-            'revaluation_amount'      => 'decimal:4',
+            'period' => 'integer',
+            'fiscal_year' => 'integer',
+            'total_price_difference' => 'decimal:4',
+            'revaluation_amount' => 'decimal:4',
             'actual_price_calculated' => 'decimal:4',
-            'run_at'                  => 'datetime',
+            'run_at' => 'datetime',
         ];
     }
 
@@ -44,6 +44,6 @@ class MaterialLedgerClosingEntry extends Model
 
     public function priceDifferences(): HasMany
     {
-        return $this->hasMany(MaterialLedgerPriceDifference::class);
+        return $this->hasMany(MaterialLedgerPriceDifference::class, 'ml_closing_entry_id');
     }
 }
