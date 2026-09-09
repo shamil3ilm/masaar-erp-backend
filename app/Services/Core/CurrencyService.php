@@ -9,6 +9,8 @@ use App\Models\Accounting\ExchangeRate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
 class CurrencyService
 {
@@ -63,7 +65,7 @@ class CurrencyService
         $formatted = number_format($amount, $decimals);
 
         if ($showSymbol && $currency) {
-            return $currency['symbol'] . ' ' . $formatted;
+            return $currency['symbol'].' '.$formatted;
         }
 
         return $formatted;
@@ -128,7 +130,7 @@ class CurrencyService
         // Use a free exchange rate API (you can replace with your preferred provider)
         $apiKey = config('services.exchange_rate.api_key');
 
-        if (!$apiKey) {
+        if (! $apiKey) {
             // Return default rates for common pairs if no API key
             return $this->getDefaultRate($from, $to);
         }
@@ -149,7 +151,7 @@ class CurrencyService
                 }
             }
         } catch (\Exception $e) {
-            \Log::warning("Failed to fetch exchange rate: {$e->getMessage()}");
+            Log::warning("Failed to fetch exchange rate: {$e->getMessage()}");
         }
 
         return $this->getDefaultRate($from, $to);
@@ -160,6 +162,14 @@ class CurrencyService
      */
     protected function getDefaultRate(string $from, string $to): float
     {
+        // Converting at a rate nobody chose is worth a line in the log. These
+        // are a snapshot, and an invoice converted with one is wrong by
+        // however far the market has moved since.
+        Log::warning('Converting currency at a built-in rate, not a live one.', [
+            'from' => $from,
+            'to' => $to,
+        ]);
+
         // Default rates as of a baseline (these should be updated regularly)
         $defaultRates = [
             'USD' => [
@@ -198,8 +208,11 @@ class CurrencyService
             return $fromToUsd * $usdToTo;
         }
 
-        // Default fallback
-        return 1.0;
+        // Not 1.0. A pair with no rate is not a pair at parity, and returning
+        // one copies the amount across and calls it converted.
+        throw new InvalidArgumentException(
+            "No exchange rate is available for {$from} to {$to}."
+        );
     }
 
     /**
@@ -323,7 +336,7 @@ class CurrencyService
             ->whereBetween('rate_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
             ->orderBy('rate_date')
             ->get()
-            ->map(fn($rate) => [
+            ->map(fn ($rate) => [
                 'date' => $rate->rate_date,
                 'rate' => (float) $rate->rate,
             ])

@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // CurrencyService reads this to decide whether to fetch a live rate. There
+    // was no entry for it, so it read null whatever the environment held, and
+    // every conversion used the built-in rates instead.
+    'exchange_rate' => [
+        'api_key' => env('EXCHANGE_RATE_API_KEY'),
+    ],
+
 ];
