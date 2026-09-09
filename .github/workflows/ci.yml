@@ -35,6 +35,19 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
 
+    # composer install runs artisan package:discover, which boots the
+    # application before .env exists. config/cache.php falls back to redis
+    # and config/telescope.php to enabled, so discovery registered
+    # Telescope, which touched the cache, which asked for a Redis class no
+    # runner has. composer install failed, and the job reported an exit
+    # code with nothing about a test in it. These match what phpunit.xml
+    # already uses.
+    env:
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      TELESCOPE_ENABLED: false
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -65,6 +78,9 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
+          # .env.example ships an empty JWT_SECRET and nothing filled it,
+          # so every authenticated test failed with "Key cannot be empty".
+          php artisan jwt:secret --force
 
       - name: Run test suite
         run: php artisan test --log-junit junit.xml
@@ -90,6 +106,19 @@ jobs:
   mysql:
     name: Tests on MySQL
     runs-on: ubuntu-latest
+
+    # composer install runs artisan package:discover, which boots the
+    # application before .env exists. config/cache.php falls back to redis
+    # and config/telescope.php to enabled, so discovery registered
+    # Telescope, which touched the cache, which asked for a Redis class no
+    # runner has. composer install failed, and the job reported an exit
+    # code with nothing about a test in it. These match what phpunit.xml
+    # already uses.
+    env:
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      TELESCOPE_ENABLED: false
 
     services:
       mysql:
@@ -130,6 +159,9 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
+          # .env.example ships an empty JWT_SECRET and nothing filled it,
+          # so every authenticated test failed with "Key cannot be empty".
+          php artisan jwt:secret --force
 
       # phpunit.xml declares sqlite, and PHPUnit leaves an <env> alone when the
       # variable is already set, so these win without editing the file.
