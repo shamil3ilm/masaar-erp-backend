@@ -28,7 +28,7 @@ class PettyCashController extends Controller
 
         $funds = PettyCashFund::where('organization_id', $organizationId)
             ->with(['custodian', 'branch', 'account'])
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
+            ->when($request->boolean('active_only', false), fn ($q) => $q->active())
             ->orderBy('name')
             ->paginate($request->integer('per_page', 15));
 
@@ -38,14 +38,14 @@ class PettyCashController extends Controller
     public function storeFund(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id'             => 'nullable|exists:branches,id',
-            'name'                  => 'required|string|max:100',
-            'custodian_id'          => 'required|exists:users,id',
-            'account_id'            => 'required|exists:accounts,id',
-            'opening_balance'       => 'required|numeric|min:0',
+            'branch_id' => 'nullable|exists:branches,id',
+            'name' => 'required|string|max:100',
+            'custodian_id' => 'required|exists:users,id',
+            'account_id' => 'required|exists:chart_of_accounts,id',
+            'opening_balance' => 'required|numeric|min:0',
             'max_transaction_limit' => 'nullable|numeric|min:0',
-            'currency_code'         => 'nullable|string|size:3',
-            'is_active'             => 'nullable|boolean',
+            'currency_code' => 'nullable|string|size:3',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $fund = PettyCashFund::create(array_merge($validated, [
@@ -67,10 +67,10 @@ class PettyCashController extends Controller
     public function updateFund(Request $request, PettyCashFund $pettyCashFund): JsonResponse
     {
         $validated = $request->validate([
-            'name'                  => 'sometimes|string|max:100',
-            'custodian_id'          => 'sometimes|exists:users,id',
+            'name' => 'sometimes|string|max:100',
+            'custodian_id' => 'sometimes|exists:users,id',
             'max_transaction_limit' => 'nullable|numeric|min:0',
-            'is_active'             => 'nullable|boolean',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $pettyCashFund->update($validated);
@@ -86,10 +86,10 @@ class PettyCashController extends Controller
     {
         $vouchers = PettyCashVoucher::where('fund_id', $pettyCashFund->id)
             ->with(['account', 'approvedBy', 'creator'])
-            ->when($request->input('status'), fn($q, $v) => $q->where('status', $v))
-            ->when($request->input('type'), fn($q, $v) => $q->where('transaction_type', $v))
-            ->when($request->input('from_date'), fn($q, $v) => $q->whereDate('voucher_date', '>=', $v))
-            ->when($request->input('to_date'), fn($q, $v) => $q->whereDate('voucher_date', '<=', $v))
+            ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
+            ->when($request->input('type'), fn ($q, $v) => $q->where('transaction_type', $v))
+            ->when($request->input('from_date'), fn ($q, $v) => $q->whereDate('voucher_date', '>=', $v))
+            ->when($request->input('to_date'), fn ($q, $v) => $q->whereDate('voucher_date', '<=', $v))
             ->orderByDesc('voucher_date')
             ->paginate($request->integer('per_page', 15));
 
@@ -99,14 +99,14 @@ class PettyCashController extends Controller
     public function storeVoucher(Request $request, PettyCashFund $pettyCashFund): JsonResponse
     {
         $validated = $request->validate([
-            'voucher_date'     => 'nullable|date',
+            'voucher_date' => 'nullable|date',
             'transaction_type' => 'required|in:receipt,payment',
-            'amount'           => 'required|numeric|min:0.0001',
-            'description'      => 'required|string|max:500',
-            'category'         => 'nullable|string|max:100',
-            'payee_payer'      => 'nullable|string|max:200',
-            'receipt_number'   => 'nullable|string|max:100',
-            'account_id'       => 'nullable|exists:accounts,id',
+            'amount' => 'required|numeric|min:0.0001',
+            'description' => 'required|string|max:500',
+            'category' => 'nullable|string|max:100',
+            'payee_payer' => 'nullable|string|max:200',
+            'receipt_number' => 'nullable|string|max:100',
+            'account_id' => 'nullable|exists:chart_of_accounts,id',
         ]);
 
         $voucher = $this->pettyCashService->createVoucher($pettyCashFund, $validated);
@@ -136,7 +136,7 @@ class PettyCashController extends Controller
     {
         $replenishments = PettyCashReplenishment::where('fund_id', $pettyCashFund->id)
             ->with(['requestedBy', 'approvedBy', 'journalEntry'])
-            ->when($request->input('status'), fn($q, $v) => $q->where('status', $v))
+            ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
             ->orderByDesc('replenishment_date')
             ->paginate($request->integer('per_page', 15));
 
@@ -147,7 +147,7 @@ class PettyCashController extends Controller
     {
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.0001',
-            'notes'  => 'nullable|string|max:2000',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $replenishment = $this->pettyCashService->requestReplenishment(

@@ -28,8 +28,8 @@ class TrainingController extends Controller
     public function indexProviders(Request $request): JsonResponse
     {
         $query = TrainingProvider::query()
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->search, fn($q, $s) => $q->where('name', 'like', "%{$s}%"))
+            ->when($request->boolean('active_only'), fn ($q) => $q->active())
+            ->when($request->search, fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
             ->orderBy('name');
 
         $providers = $query->paginate($request->integer('per_page', 15));
@@ -40,12 +40,12 @@ class TrainingController extends Controller
     public function storeProvider(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'         => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             'contact_name' => 'nullable|string|max:255',
-            'email'        => 'nullable|email|max:255',
-            'phone'        => 'nullable|string|max:50',
-            'website'      => 'nullable|url|max:255',
-            'is_active'    => 'nullable|boolean',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
+            'website' => 'nullable|url|max:255',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -75,12 +75,12 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'name'         => 'sometimes|required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
             'contact_name' => 'nullable|string|max:255',
-            'email'        => 'nullable|email|max:255',
-            'phone'        => 'nullable|string|max:50',
-            'website'      => 'nullable|url|max:255',
-            'is_active'    => 'nullable|boolean',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
+            'website' => 'nullable|url|max:255',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $provider->update($validated);
@@ -108,11 +108,11 @@ class TrainingController extends Controller
     public function indexCourses(Request $request): JsonResponse
     {
         $query = TrainingCourse::with('provider')
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->boolean('mandatory_only'), fn($q) => $q->mandatory())
-            ->when($request->category, fn($q, $v) => $q->where('category', $v))
-            ->when($request->delivery_type, fn($q, $v) => $q->where('delivery_type', $v))
-            ->when($request->search, fn($q, $s) => $q->where(function ($q) use ($s): void {
+            ->when($request->boolean('active_only'), fn ($q) => $q->active())
+            ->when($request->boolean('mandatory_only'), fn ($q) => $q->mandatory())
+            ->when($request->category, fn ($q, $v) => $q->where('category', $v))
+            ->when($request->delivery_type, fn ($q, $v) => $q->where('delivery_type', $v))
+            ->when($request->search, fn ($q, $s) => $q->where(function ($q) use ($s): void {
                 $q->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%");
             }))
             ->orderBy(
@@ -128,19 +128,19 @@ class TrainingController extends Controller
     public function storeCourse(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'provider_id'           => 'nullable|exists:training_providers,id',
-            'code'                  => 'required|string|max:50',
-            'name'                  => 'required|string|max:255',
-            'description'           => 'nullable|string',
-            'category'              => 'required|in:' . implode(',', TrainingCourse::CATEGORIES),
-            'delivery_type'         => 'required|in:' . implode(',', TrainingCourse::DELIVERY_TYPES),
-            'duration_hours'        => 'nullable|numeric|min:0.5|max:9999',
-            'max_participants'      => 'nullable|integer|min:1',
-            'is_mandatory'          => 'nullable|boolean',
-            'validity_months'       => 'nullable|integer|min:1',
-            'cost_per_participant'  => 'nullable|numeric|min:0',
-            'currency_code'         => 'nullable|string|size:3',
-            'is_active'             => 'nullable|boolean',
+            'provider_id' => 'nullable|exists:training_providers,id',
+            'code' => 'required|string|max:50',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'required|in:'.implode(',', TrainingCourse::CATEGORIES),
+            'delivery_type' => 'required|in:'.implode(',', TrainingCourse::DELIVERY_TYPES),
+            'duration_hours' => 'nullable|numeric|min:0.5|max:9999',
+            'max_participants' => 'nullable|integer|min:1',
+            'is_mandatory' => 'nullable|boolean',
+            'validity_months' => 'nullable|integer|min:1',
+            'cost_per_participant' => 'nullable|numeric|min:0',
+            'currency_code' => 'nullable|string|size:3',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -174,19 +174,19 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'provider_id'           => 'nullable|exists:training_providers,id',
-            'code'                  => 'sometimes|required|string|max:50',
-            'name'                  => 'sometimes|required|string|max:255',
-            'description'           => 'nullable|string',
-            'category'              => 'sometimes|in:' . implode(',', TrainingCourse::CATEGORIES),
-            'delivery_type'         => 'sometimes|in:' . implode(',', TrainingCourse::DELIVERY_TYPES),
-            'duration_hours'        => 'nullable|numeric|min:0.5|max:9999',
-            'max_participants'      => 'nullable|integer|min:1',
-            'is_mandatory'          => 'nullable|boolean',
-            'validity_months'       => 'nullable|integer|min:1',
-            'cost_per_participant'  => 'nullable|numeric|min:0',
-            'currency_code'         => 'nullable|string|size:3',
-            'is_active'             => 'nullable|boolean',
+            'provider_id' => 'nullable|exists:training_providers,id',
+            'code' => 'sometimes|required|string|max:50',
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'sometimes|in:'.implode(',', TrainingCourse::CATEGORIES),
+            'delivery_type' => 'sometimes|in:'.implode(',', TrainingCourse::DELIVERY_TYPES),
+            'duration_hours' => 'nullable|numeric|min:0.5|max:9999',
+            'max_participants' => 'nullable|integer|min:1',
+            'is_mandatory' => 'nullable|boolean',
+            'validity_months' => 'nullable|integer|min:1',
+            'cost_per_participant' => 'nullable|numeric|min:0',
+            'currency_code' => 'nullable|string|size:3',
+            'is_active' => 'nullable|boolean',
         ]);
 
         try {
@@ -218,10 +218,10 @@ class TrainingController extends Controller
     public function indexSessions(Request $request): JsonResponse
     {
         $query = TrainingSession::with(['course', 'course.provider'])
-            ->when($request->course_id, fn($q, $v) => $q->where('course_id', $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->from, fn($q, $v) => $q->where('start_date', '>=', $v))
-            ->when($request->to, fn($q, $v) => $q->where('start_date', '<=', $v))
+            ->when($request->course_id, fn ($q, $v) => $q->where('course_id', $v))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
+            ->when($request->from, fn ($q, $v) => $q->where('start_date', '>=', $v))
+            ->when($request->to, fn ($q, $v) => $q->where('start_date', '<=', $v))
             ->orderBy(
                 $this->safeSortBy($request->sort_by, ['start_date', 'end_date', 'status', 'session_number'], 'start_date'),
                 $this->safeSortOrder($request->sort_order, 'desc')
@@ -235,14 +235,14 @@ class TrainingController extends Controller
     public function storeSession(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'course_id'        => 'required|exists:training_courses,id',
-            'trainer_name'     => 'nullable|string|max:255',
-            'location'         => 'nullable|string|max:255',
-            'meeting_link'     => 'nullable|url|max:500',
-            'start_date'       => 'required|date',
-            'end_date'         => 'required|date|after:start_date',
+            'course_id' => 'required|exists:training_courses,id',
+            'trainer_name' => 'nullable|string|max:255',
+            'location' => 'nullable|string|max:255',
+            'meeting_link' => 'nullable|url|max:500',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after:start_date',
             'max_participants' => 'nullable|integer|min:1',
-            'notes'            => 'nullable|string',
+            'notes' => 'nullable|string',
         ]);
 
         $course = TrainingCourse::find($validated['course_id']);
@@ -280,13 +280,13 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'trainer_name'     => 'nullable|string|max:255',
-            'location'         => 'nullable|string|max:255',
-            'meeting_link'     => 'nullable|url|max:500',
-            'start_date'       => 'sometimes|required|date',
-            'end_date'         => 'sometimes|required|date|after:start_date',
+            'trainer_name' => 'nullable|string|max:255',
+            'location' => 'nullable|string|max:255',
+            'meeting_link' => 'nullable|url|max:500',
+            'start_date' => 'sometimes|required|date',
+            'end_date' => 'sometimes|required|date|after:start_date',
             'max_participants' => 'nullable|integer|min:1',
-            'notes'            => 'nullable|string',
+            'notes' => 'nullable|string',
         ]);
 
         try {
@@ -324,13 +324,13 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'results'                   => 'required|array',
-            'results.*.employee_id'     => 'required|exists:hr_employees,id',
-            'results.*.score'           => 'nullable|numeric|min:0|max:100',
-            'results.*.passed'          => 'nullable|boolean',
-            'results.*.feedback'        => 'nullable|string',
-            'results.*.issued_by'       => 'nullable|string|max:255',
-            'results.*.cert_notes'      => 'nullable|string',
+            'results' => 'required|array',
+            'results.*.employee_id' => 'required|exists:employees,id',
+            'results.*.score' => 'nullable|numeric|min:0|max:100',
+            'results.*.passed' => 'nullable|boolean',
+            'results.*.feedback' => 'nullable|string',
+            'results.*.issued_by' => 'nullable|string|max:255',
+            'results.*.cert_notes' => 'nullable|string',
         ]);
 
         try {
@@ -372,7 +372,7 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'employee_id' => 'required|exists:hr_employees,id',
+            'employee_id' => 'required|exists:employees,id',
         ]);
 
         try {
@@ -393,8 +393,8 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'employee_ids'   => 'required|array|min:1',
-            'employee_ids.*' => 'required|exists:hr_employees,id',
+            'employee_ids' => 'required|array|min:1',
+            'employee_ids.*' => 'required|exists:employees,id',
         ]);
 
         $result = $this->trainingService->bulkEnroll($session, $validated['employee_ids'], auth()->id());
@@ -405,9 +405,9 @@ class TrainingController extends Controller
     public function indexEnrollments(Request $request): JsonResponse
     {
         $query = TrainingEnrollment::with(['session.course', 'employee'])
-            ->when($request->session_id, fn($q, $v) => $q->where('session_id', $v))
-            ->when($request->employee_id, fn($q, $v) => $q->forEmployee((int) $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
+            ->when($request->session_id, fn ($q, $v) => $q->where('session_id', $v))
+            ->when($request->employee_id, fn ($q, $v) => $q->forEmployee((int) $v))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
             ->orderBy('enrolled_at', 'desc');
 
         $enrollments = $query->paginate($request->integer('per_page', 15));
@@ -439,9 +439,9 @@ class TrainingController extends Controller
     public function indexCertifications(Request $request): JsonResponse
     {
         $query = TrainingCertification::with(['employee', 'course'])
-            ->when($request->employee_id, fn($q, $v) => $q->where('employee_id', $v))
-            ->when($request->course_id, fn($q, $v) => $q->where('course_id', $v))
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
+            ->when($request->employee_id, fn ($q, $v) => $q->where('employee_id', $v))
+            ->when($request->course_id, fn ($q, $v) => $q->where('course_id', $v))
+            ->when($request->boolean('active_only'), fn ($q) => $q->active())
             ->orderBy('issued_date', 'desc');
 
         $certs = $query->paginate($request->integer('per_page', 15));
@@ -452,19 +452,19 @@ class TrainingController extends Controller
     public function storeCertification(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'enrollment_id'      => 'nullable|exists:training_enrollments,id',
-            'employee_id'        => 'required|exists:hr_employees,id',
-            'course_id'          => 'required|exists:training_courses,id',
+            'enrollment_id' => 'nullable|exists:training_enrollments,id',
+            'employee_id' => 'required|exists:employees,id',
+            'course_id' => 'required|exists:training_courses,id',
             'certificate_number' => 'nullable|string|max:100',
-            'issued_date'        => 'required|date',
-            'expiry_date'        => 'nullable|date|after:issued_date',
-            'issued_by'          => 'nullable|string|max:255',
-            'notes'              => 'nullable|string',
+            'issued_date' => 'required|date',
+            'expiry_date' => 'nullable|date|after:issued_date',
+            'issued_by' => 'nullable|string|max:255',
+            'notes' => 'nullable|string',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
-        $validated['created_by']      = auth()->id();
-        $validated['is_active']       = true;
+        $validated['created_by'] = auth()->id();
+        $validated['is_active'] = true;
 
         $certification = TrainingCertification::create($validated);
 
@@ -481,7 +481,7 @@ class TrainingController extends Controller
 
         $validated = $request->validate([
             'issued_by' => 'nullable|string|max:255',
-            'notes'     => 'nullable|string',
+            'notes' => 'nullable|string',
         ]);
 
         try {
@@ -495,7 +495,7 @@ class TrainingController extends Controller
 
     public function expiringCertifications(Request $request): JsonResponse
     {
-        $orgId     = $this->organizationId($request);
+        $orgId = $this->organizationId($request);
         $daysAhead = $request->integer('days', 30);
 
         $certifications = $this->trainingService->getExpiringCertifications($orgId, $daysAhead);
@@ -510,10 +510,10 @@ class TrainingController extends Controller
     public function indexNeeds(Request $request): JsonResponse
     {
         $query = TrainingNeed::with(['employee', 'department', 'course'])
-            ->when($request->employee_id, fn($q, $v) => $q->where('employee_id', $v))
-            ->when($request->department_id, fn($q, $v) => $q->where('department_id', $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->priority, fn($q, $v) => $q->where('priority', $v))
+            ->when($request->employee_id, fn ($q, $v) => $q->where('employee_id', $v))
+            ->when($request->department_id, fn ($q, $v) => $q->where('department_id', $v))
+            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
+            ->when($request->priority, fn ($q, $v) => $q->where('priority', $v))
             ->orderBy(
                 $this->safeSortBy($request->sort_by, ['priority', 'status', 'target_date', 'created_at'], 'created_at'),
                 $this->safeSortOrder($request->sort_order, 'desc')
@@ -527,14 +527,14 @@ class TrainingController extends Controller
     public function storeNeed(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'   => 'nullable|exists:hr_employees,id',
-            'department_id' => 'nullable|exists:hr_departments,id',
-            'course_id'     => 'nullable|exists:training_courses,id',
-            'title'         => 'required|string|max:255',
-            'description'   => 'nullable|string',
-            'priority'      => 'required|in:' . implode(',', TrainingNeed::PRIORITIES),
+            'employee_id' => 'nullable|exists:employees,id',
+            'department_id' => 'nullable|exists:departments,id',
+            'course_id' => 'nullable|exists:training_courses,id',
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'priority' => 'required|in:'.implode(',', TrainingNeed::PRIORITIES),
             'identified_by' => 'nullable|exists:users,id',
-            'target_date'   => 'nullable|date',
+            'target_date' => 'nullable|date',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -557,15 +557,15 @@ class TrainingController extends Controller
         }
 
         $validated = $request->validate([
-            'employee_id'   => 'nullable|exists:hr_employees,id',
-            'department_id' => 'nullable|exists:hr_departments,id',
-            'course_id'     => 'nullable|exists:training_courses,id',
-            'title'         => 'sometimes|required|string|max:255',
-            'description'   => 'nullable|string',
-            'priority'      => 'sometimes|in:' . implode(',', TrainingNeed::PRIORITIES),
-            'status'        => 'sometimes|in:' . implode(',', TrainingNeed::STATUSES),
+            'employee_id' => 'nullable|exists:employees,id',
+            'department_id' => 'nullable|exists:departments,id',
+            'course_id' => 'nullable|exists:training_courses,id',
+            'title' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'priority' => 'sometimes|in:'.implode(',', TrainingNeed::PRIORITIES),
+            'status' => 'sometimes|in:'.implode(',', TrainingNeed::STATUSES),
             'identified_by' => 'nullable|exists:users,id',
-            'target_date'   => 'nullable|date',
+            'target_date' => 'nullable|date',
         ]);
 
         try {
@@ -596,7 +596,7 @@ class TrainingController extends Controller
 
     public function mandatoryComplianceReport(Request $request): JsonResponse
     {
-        $orgId  = $this->organizationId($request);
+        $orgId = $this->organizationId($request);
         $report = $this->trainingService->getMandatoryComplianceReport($orgId);
 
         return $this->success($report);
@@ -606,10 +606,10 @@ class TrainingController extends Controller
     {
         $validated = $request->validate([
             'from' => 'required|date',
-            'to'   => 'required|date|after_or_equal:from',
+            'to' => 'required|date|after_or_equal:from',
         ]);
 
-        $orgId    = $this->organizationId($request);
+        $orgId = $this->organizationId($request);
         $sessions = $this->trainingService->getTrainingCalendar($orgId, $validated['from'], $validated['to']);
 
         return $this->success($sessions);
