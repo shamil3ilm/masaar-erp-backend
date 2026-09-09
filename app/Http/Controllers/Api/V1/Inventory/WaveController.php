@@ -30,8 +30,8 @@ class WaveController extends Controller
     {
         $query = PutawayRule::with(['warehouse', 'product', 'productCategory', 'preferredLocation'])
             ->orderBy('priority')
-            ->when($request->has('warehouse_id'), fn($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
-            ->when($request->boolean('active_only'), fn($q) => $q->active());
+            ->when($request->has('warehouse_id'), fn ($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
+            ->when($request->boolean('active_only'), fn ($q) => $q->active());
 
         $rules = $query->paginate($request->integer('per_page', 25));
 
@@ -44,13 +44,13 @@ class WaveController extends Controller
     public function putawayStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'          => 'required|integer|exists:inventory_warehouses,id',
-            'product_id'            => 'nullable|integer|exists:inventory_products,id',
-            'product_category_id'   => 'nullable|integer|exists:inventory_categories,id',
-            'warehouse_zone'        => 'nullable|string|max:100',
-            'preferred_location_id' => 'nullable|integer|exists:inventory_warehouse_locations,id',
-            'priority'              => 'sometimes|integer|min:1|max:255',
-            'is_active'             => 'sometimes|boolean',
+            'warehouse_id' => 'required|integer|exists:warehouses,id',
+            'product_id' => 'nullable|integer|exists:products,id',
+            'product_category_id' => 'nullable|integer|exists:categories,id',
+            'warehouse_zone' => 'nullable|string|max:100',
+            'preferred_location_id' => 'nullable|integer|exists:warehouse_locations,id',
+            'priority' => 'sometimes|integer|min:1|max:255',
+            'is_active' => 'sometimes|boolean',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -68,13 +68,13 @@ class WaveController extends Controller
         $rule = PutawayRule::findOrFail($id);
 
         $validated = $request->validate([
-            'warehouse_id'          => 'sometimes|integer|exists:inventory_warehouses,id',
-            'product_id'            => 'nullable|integer|exists:inventory_products,id',
-            'product_category_id'   => 'nullable|integer|exists:inventory_categories,id',
-            'warehouse_zone'        => 'nullable|string|max:100',
-            'preferred_location_id' => 'nullable|integer|exists:inventory_warehouse_locations,id',
-            'priority'              => 'sometimes|integer|min:1|max:255',
-            'is_active'             => 'sometimes|boolean',
+            'warehouse_id' => 'sometimes|integer|exists:warehouses,id',
+            'product_id' => 'nullable|integer|exists:products,id',
+            'product_category_id' => 'nullable|integer|exists:categories,id',
+            'warehouse_zone' => 'nullable|string|max:100',
+            'preferred_location_id' => 'nullable|integer|exists:warehouse_locations,id',
+            'priority' => 'sometimes|integer|min:1|max:255',
+            'is_active' => 'sometimes|boolean',
         ]);
 
         $rule->update($validated);
@@ -99,9 +99,9 @@ class WaveController extends Controller
     public function putawaySuggest(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'  => 'required|integer|exists:inventory_warehouses,id',
-            'product_id'    => 'required|integer|exists:inventory_products,id',
-            'category_id'   => 'required|integer|exists:inventory_categories,id',
+            'warehouse_id' => 'required|integer|exists:warehouses,id',
+            'product_id' => 'required|integer|exists:products,id',
+            'category_id' => 'required|integer|exists:categories,id',
         ]);
 
         $location = $this->waveService->getPutawayLocation(
@@ -128,11 +128,11 @@ class WaveController extends Controller
     {
         $query = WavePlan::with(['warehouse', 'creator'])
             ->latest()
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('warehouse_id'), fn($q) => $q->forWarehouse($request->integer('warehouse_id')))
-            ->when($request->has('wave_type'), fn($q) => $q->where('wave_type', $request->input('wave_type')))
-            ->when($request->has('from_date'), fn($q) => $q->where('planned_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('planned_date', '<=', $request->input('to_date')));
+            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($request->has('warehouse_id'), fn ($q) => $q->forWarehouse($request->integer('warehouse_id')))
+            ->when($request->has('wave_type'), fn ($q) => $q->where('wave_type', $request->input('wave_type')))
+            ->when($request->has('from_date'), fn ($q) => $q->where('planned_date', '>=', $request->input('from_date')))
+            ->when($request->has('to_date'), fn ($q) => $q->where('planned_date', '<=', $request->input('to_date')));
 
         $waves = $query->paginate($request->integer('per_page', 20));
 
@@ -145,13 +145,13 @@ class WaveController extends Controller
     public function waveStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'      => 'required|integer|exists:inventory_warehouses,id',
-            'wave_number'       => 'nullable|string|max:50',
-            'wave_type'         => 'sometimes|in:outbound,replenishment,returns',
-            'planned_date'      => 'required|date',
-            'orders'            => 'required|array|min:1',
+            'warehouse_id' => 'required|integer|exists:warehouses,id',
+            'wave_number' => 'nullable|string|max:50',
+            'wave_type' => 'sometimes|in:outbound,replenishment,returns',
+            'planned_date' => 'required|date',
+            'orders' => 'required|array|min:1',
             'orders.*.order_type' => 'required|in:sales_order,stock_transfer,purchase_return',
-            'orders.*.order_id'   => 'required|integer|min:1',
+            'orders.*.order_id' => 'required|integer|min:1',
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -214,10 +214,10 @@ class WaveController extends Controller
     {
         $query = PickingList::with(['wave', 'warehouse', 'picker'])
             ->latest()
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('warehouse_id'), fn($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
-            ->when($request->has('picker_id'), fn($q) => $q->forPicker($request->integer('picker_id')))
-            ->when($request->has('wave_id'), fn($q) => $q->where('wave_plan_id', $request->integer('wave_id')));
+            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($request->has('warehouse_id'), fn ($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
+            ->when($request->has('picker_id'), fn ($q) => $q->forPicker($request->integer('picker_id')))
+            ->when($request->has('wave_id'), fn ($q) => $q->where('wave_plan_id', $request->integer('wave_id')));
 
         $lists = $query->paginate($request->integer('per_page', 20));
 
@@ -233,7 +233,7 @@ class WaveController extends Controller
             'wave',
             'warehouse',
             'picker',
-            'lines' => fn($q) => $q->orderBy('sort_order'),
+            'lines' => fn ($q) => $q->orderBy('sort_order'),
             'lines.product',
             'lines.variant',
             'lines.fromLocation',
@@ -287,12 +287,12 @@ class WaveController extends Controller
     {
         $validated = $request->validate([
             'quantity' => 'required|numeric|min:0.0001',
-            'notes'    => 'nullable|string|max:500',
+            'notes' => 'nullable|string|max:500',
         ]);
 
         $line = PickingListLine::findOrFail($id);
 
-        if (!empty($validated['notes'])) {
+        if (! empty($validated['notes'])) {
             $line->notes = $validated['notes'];
             $line->save();
         }
@@ -316,7 +316,7 @@ class WaveController extends Controller
     {
         $validated = $request->validate([
             'from' => 'required|date',
-            'to'   => 'required|date|after_or_equal:from',
+            'to' => 'required|date|after_or_equal:from',
         ]);
 
         $stats = $this->waveService->getWaveStats(

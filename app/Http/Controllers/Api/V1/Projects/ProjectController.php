@@ -69,13 +69,13 @@ class ProjectController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'project_type' => 'nullable|in:internal,customer,rd,capital',
-            'customer_id' => 'nullable|exists:sales_contacts,id',
+            'customer_id' => 'nullable|exists:contacts,id',
             'priority' => 'nullable|in:low,medium,high,critical',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'budget' => 'nullable|numeric|min:0',
             'currency_code' => 'nullable|string|size:3',
-            'manager_id' => 'nullable|exists:hr_employees,id',
+            'manager_id' => 'nullable|exists:employees,id',
             'branch_id' => 'nullable|exists:branches,id',
         ]);
 
@@ -119,14 +119,14 @@ class ProjectController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'project_type' => 'nullable|in:internal,customer,rd,capital',
-            'customer_id' => 'nullable|exists:sales_contacts,id',
+            'customer_id' => 'nullable|exists:contacts,id',
             'status' => 'nullable|in:draft,planning,active,on_hold,completed,cancelled',
             'priority' => 'nullable|in:low,medium,high,critical',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
             'budget' => 'nullable|numeric|min:0',
             'currency_code' => 'nullable|string|size:3',
-            'manager_id' => 'nullable|exists:hr_employees,id',
+            'manager_id' => 'nullable|exists:employees,id',
             'branch_id' => 'nullable|exists:branches,id',
         ]);
 
@@ -222,7 +222,7 @@ class ProjectController extends Controller
             'planned_end_date' => 'nullable|date|after_or_equal:planned_start_date',
             'planned_cost' => 'nullable|numeric|min:0',
             'planned_revenue' => 'nullable|numeric|min:0',
-            'responsible_employee_id' => 'nullable|exists:hr_employees,id',
+            'responsible_employee_id' => 'nullable|exists:employees,id',
             'sort_order' => 'nullable|integer|min:0',
         ]);
 
@@ -268,7 +268,7 @@ class ProjectController extends Controller
             'planned_end_date' => 'nullable|date',
             'planned_cost' => 'nullable|numeric|min:0',
             'planned_revenue' => 'nullable|numeric|min:0',
-            'responsible_employee_id' => 'nullable|exists:hr_employees,id',
+            'responsible_employee_id' => 'nullable|exists:employees,id',
             'sort_order' => 'nullable|integer|min:0',
         ]);
 
@@ -399,7 +399,7 @@ class ProjectController extends Controller
     public function timeEntriesStore(Request $request, Project $project): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:hr_employees,id',
+            'employee_id' => 'required|exists:employees,id',
             'work_date' => 'required|date',
             'hours' => 'required|numeric|min:0.25|max:24',
             'description' => 'nullable|string|max:500',
@@ -470,7 +470,7 @@ class ProjectController extends Controller
             'wbs_element_id' => 'nullable|exists:wbs_elements,id',
             'reference_type' => 'nullable|string|max:255',
             'reference_id' => 'nullable|integer',
-            'journal_entry_id' => 'nullable|exists:accounting_journal_entries,id',
+            'journal_entry_id' => 'nullable|exists:journal_entries,id',
         ]);
 
         $validated['project_id'] = $project->id;
@@ -508,7 +508,7 @@ class ProjectController extends Controller
     public function membersStore(Request $request, Project $project): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:hr_employees,id',
+            'employee_id' => 'required|exists:employees,id',
             'role' => 'nullable|in:manager,member,reviewer,sponsor',
         ]);
 

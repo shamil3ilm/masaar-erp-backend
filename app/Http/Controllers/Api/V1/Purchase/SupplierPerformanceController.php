@@ -26,8 +26,8 @@ class SupplierPerformanceController extends Controller
     public function indexCriteria(Request $request): JsonResponse
     {
         $query = SupplierEvaluationCriteria::query()
-            ->when($request->category, fn($q, $c) => $q->forCategory($c))
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
+            ->when($request->category, fn ($q, $c) => $q->forCategory($c))
+            ->when($request->boolean('active_only'), fn ($q) => $q->active())
             ->orderBy('category')
             ->orderBy('name');
 
@@ -40,11 +40,11 @@ class SupplierPerformanceController extends Controller
     public function storeCriteria(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'           => 'required|string|max:255',
-            'description'    => 'nullable|string',
-            'category'       => 'required|in:quality,delivery,price,service,compliance',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'required|in:quality,delivery,price,service,compliance',
             'weight_percent' => 'nullable|numeric|min:0|max:100',
-            'is_active'      => 'nullable|boolean',
+            'is_active' => 'nullable|boolean',
         ]);
 
         $criteria = $this->performanceService->createCriteria(
@@ -65,11 +65,11 @@ class SupplierPerformanceController extends Controller
         }
 
         $validated = $request->validate([
-            'name'           => 'sometimes|string|max:255',
-            'description'    => 'nullable|string',
-            'category'       => 'sometimes|in:quality,delivery,price,service,compliance',
+            'name' => 'sometimes|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'sometimes|in:quality,delivery,price,service,compliance',
             'weight_percent' => 'sometimes|numeric|min:0|max:100',
-            'is_active'      => 'sometimes|boolean',
+            'is_active' => 'sometimes|boolean',
         ]);
 
         $updated = $this->performanceService->updateCriteria($criteria, $validated, (int) auth()->id());
@@ -97,10 +97,10 @@ class SupplierPerformanceController extends Controller
     public function indexScorecards(Request $request): JsonResponse
     {
         $query = SupplierScorecard::with(['supplier', 'evaluator'])
-            ->when($request->supplier_id, fn($q, $id) => $q->where('supplier_id', $id))
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->from, fn($q, $d) => $q->where('evaluation_period_start', '>=', $d))
-            ->when($request->to, fn($q, $d) => $q->where('evaluation_period_end', '<=', $d))
+            ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
+            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
+            ->when($request->from, fn ($q, $d) => $q->where('evaluation_period_start', '>=', $d))
+            ->when($request->to, fn ($q, $d) => $q->where('evaluation_period_end', '<=', $d))
             ->orderBy('evaluation_period_start', 'desc');
 
         return $this->paginated(
@@ -112,14 +112,14 @@ class SupplierPerformanceController extends Controller
     public function storeScorecard(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id'             => 'required|integer|exists:sales_contacts,id',
+            'supplier_id' => 'required|integer|exists:contacts,id',
             'evaluation_period_start' => 'required|date',
-            'evaluation_period_end'   => 'required|date|after_or_equal:evaluation_period_start',
-            'notes'                   => 'nullable|string',
-            'ratings'                 => 'required|array|min:1',
-            'ratings.*.criterion_id'  => 'required|integer|exists:supplier_evaluation_criteria,id',
-            'ratings.*.score'         => 'required|numeric|min:0|max:100',
-            'ratings.*.comments'      => 'nullable|string',
+            'evaluation_period_end' => 'required|date|after_or_equal:evaluation_period_start',
+            'notes' => 'nullable|string',
+            'ratings' => 'required|array|min:1',
+            'ratings.*.criterion_id' => 'required|integer|exists:supplier_evaluation_criteria,id',
+            'ratings.*.score' => 'required|numeric|min:0|max:100',
+            'ratings.*.comments' => 'nullable|string',
         ]);
 
         $scorecard = $this->performanceService->createScorecard(
@@ -150,19 +150,19 @@ class SupplierPerformanceController extends Controller
             return $this->notFound('Scorecard not found.');
         }
 
-        if (!$scorecard->isDraft()) {
+        if (! $scorecard->isDraft()) {
             return $this->error('Only draft scorecards can be updated.', 'SCORECARD_NOT_EDITABLE', 422);
         }
 
         $validated = $request->validate([
-            'supplier_id'             => 'sometimes|integer|exists:sales_contacts,id',
+            'supplier_id' => 'sometimes|integer|exists:contacts,id',
             'evaluation_period_start' => 'sometimes|date',
-            'evaluation_period_end'   => 'sometimes|date|after_or_equal:evaluation_period_start',
-            'notes'                   => 'nullable|string',
-            'ratings'                 => 'sometimes|array|min:1',
-            'ratings.*.criterion_id'  => 'required_with:ratings|integer|exists:supplier_evaluation_criteria,id',
-            'ratings.*.score'         => 'required_with:ratings|numeric|min:0|max:100',
-            'ratings.*.comments'      => 'nullable|string',
+            'evaluation_period_end' => 'sometimes|date|after_or_equal:evaluation_period_start',
+            'notes' => 'nullable|string',
+            'ratings' => 'sometimes|array|min:1',
+            'ratings.*.criterion_id' => 'required_with:ratings|integer|exists:supplier_evaluation_criteria,id',
+            'ratings.*.score' => 'required_with:ratings|numeric|min:0|max:100',
+            'ratings.*.comments' => 'nullable|string',
         ]);
 
         $updated = $this->performanceService->updateScorecard($scorecard, $validated, (int) auth()->id());
@@ -194,12 +194,12 @@ class SupplierPerformanceController extends Controller
     public function indexDeliveryRecords(Request $request): JsonResponse
     {
         $query = SupplierDeliveryRecord::with(['supplier', 'purchaseOrder'])
-            ->when($request->supplier_id, fn($q, $id) => $q->where('supplier_id', $id))
-            ->when($request->from, fn($q, $d) => $q->where('promised_date', '>=', $d))
-            ->when($request->to, fn($q, $d) => $q->where('promised_date', '<=', $d))
+            ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
+            ->when($request->from, fn ($q, $d) => $q->where('promised_date', '>=', $d))
+            ->when($request->to, fn ($q, $d) => $q->where('promised_date', '<=', $d))
             ->when(
                 $request->has('is_on_time'),
-                fn($q) => $q->where('is_on_time', filter_var($request->is_on_time, FILTER_VALIDATE_BOOLEAN))
+                fn ($q) => $q->where('is_on_time', filter_var($request->is_on_time, FILTER_VALIDATE_BOOLEAN))
             )
             ->orderBy('promised_date', 'desc');
 
@@ -213,14 +213,14 @@ class SupplierPerformanceController extends Controller
     {
         $validated = $request->validate([
             'purchase_order_id' => 'required|integer|exists:purchase_orders,id',
-            'supplier_id'       => 'required|integer|exists:sales_contacts,id',
-            'promised_date'     => 'required|date',
-            'actual_date'       => 'nullable|date',
-            'quantity_ordered'  => 'required|numeric|min:0',
+            'supplier_id' => 'required|integer|exists:contacts,id',
+            'promised_date' => 'required|date',
+            'actual_date' => 'nullable|date',
+            'quantity_ordered' => 'required|numeric|min:0',
             'quantity_received' => 'nullable|numeric|min:0',
-            'quality_accepted'  => 'nullable|boolean',
-            'defect_quantity'   => 'nullable|numeric|min:0',
-            'notes'             => 'nullable|string|max:500',
+            'quality_accepted' => 'nullable|boolean',
+            'defect_quantity' => 'nullable|numeric|min:0',
+            'notes' => 'nullable|string|max:500',
         ]);
 
         $record = $this->performanceService->recordDelivery(
@@ -239,12 +239,12 @@ class SupplierPerformanceController extends Controller
     public function indexIncidents(Request $request): JsonResponse
     {
         $query = SupplierIncident::with(['supplier', 'createdBy'])
-            ->when($request->supplier_id, fn($q, $id) => $q->forSupplier($id))
-            ->when($request->severity, fn($q, $s) => $q->ofSeverity($s))
-            ->when($request->incident_type, fn($q, $t) => $q->where('incident_type', $t))
-            ->when($request->boolean('open_only'), fn($q) => $q->open())
-            ->when($request->from, fn($q, $d) => $q->where('occurred_at', '>=', $d))
-            ->when($request->to, fn($q, $d) => $q->where('occurred_at', '<=', $d))
+            ->when($request->supplier_id, fn ($q, $id) => $q->forSupplier($id))
+            ->when($request->severity, fn ($q, $s) => $q->ofSeverity($s))
+            ->when($request->incident_type, fn ($q, $t) => $q->where('incident_type', $t))
+            ->when($request->boolean('open_only'), fn ($q) => $q->open())
+            ->when($request->from, fn ($q, $d) => $q->where('occurred_at', '>=', $d))
+            ->when($request->to, fn ($q, $d) => $q->where('occurred_at', '<=', $d))
             ->orderBy('occurred_at', 'desc');
 
         return $this->paginated(
@@ -256,11 +256,11 @@ class SupplierPerformanceController extends Controller
     public function storeIncident(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id'   => 'required|integer|exists:sales_contacts,id',
+            'supplier_id' => 'required|integer|exists:contacts,id',
             'incident_type' => 'required|in:late_delivery,quality_issue,pricing_dispute,compliance_breach,communication',
-            'severity'      => 'required|in:low,medium,high,critical',
-            'description'   => 'required|string',
-            'occurred_at'   => 'required|date',
+            'severity' => 'required|in:low,medium,high,critical',
+            'description' => 'required|string',
+            'occurred_at' => 'required|date',
         ]);
 
         $incident = $this->performanceService->createIncident(

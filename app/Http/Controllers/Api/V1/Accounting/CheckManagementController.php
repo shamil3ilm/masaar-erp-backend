@@ -34,11 +34,11 @@ class CheckManagementController extends Controller
     public function createBook(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'bank_account_id'    => ['required', 'exists:bank_accounts,id'],
-            'check_book_number'  => ['required', 'string', 'max:50'],
-            'from_check_number'  => ['required', 'string', 'max:20'],
-            'to_check_number'    => ['required', 'string', 'max:20'],
-            'issued_date'        => ['nullable', 'date'],
+            'bank_account_id' => ['required', 'exists:bank_accounts,id'],
+            'check_book_number' => ['required', 'string', 'max:50'],
+            'from_check_number' => ['required', 'string', 'max:20'],
+            'to_check_number' => ['required', 'string', 'max:20'],
+            'issued_date' => ['nullable', 'date'],
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -58,8 +58,8 @@ class CheckManagementController extends Controller
 
         $validated = $request->validate([
             'check_book_number' => ['sometimes', 'string', 'max:50'],
-            'status'            => ['sometimes', 'in:active,exhausted,cancelled'],
-            'issued_date'       => ['nullable', 'date'],
+            'status' => ['sometimes', 'in:active,exhausted,cancelled'],
+            'issued_date' => ['nullable', 'date'],
         ]);
 
         $book->update($validated);
@@ -92,17 +92,17 @@ class CheckManagementController extends Controller
     public function createCheck(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'check_book_id'        => ['nullable', 'exists:check_books,id'],
-            'check_number'         => ['nullable', 'string', 'max:20'],
-            'check_type'           => ['sometimes', 'in:payment,payroll,refund,other'],
-            'direction'            => ['sometimes', 'in:issued,received'],
-            'payee_id'             => ['nullable', 'exists:contacts,id'],
-            'payment_made_id'      => ['nullable', 'exists:payment_mades,id'],
-            'payment_received_id'  => ['nullable', 'exists:payment_receiveds,id'],
-            'check_date'           => ['required', 'date'],
-            'amount'               => ['required', 'numeric', 'min:0.0001'],
-            'currency_code'        => ['nullable', 'string', 'size:3'],
-            'memo'                 => ['nullable', 'string'],
+            'check_book_id' => ['nullable', 'exists:check_books,id'],
+            'check_number' => ['nullable', 'string', 'max:20'],
+            'check_type' => ['sometimes', 'in:payment,payroll,refund,other'],
+            'direction' => ['sometimes', 'in:issued,received'],
+            'payee_id' => ['nullable', 'exists:contacts,id'],
+            'payment_made_id' => ['nullable', 'exists:payments_made,id'],
+            'payment_received_id' => ['nullable', 'exists:payments_received,id'],
+            'check_date' => ['required', 'date'],
+            'amount' => ['required', 'numeric', 'min:0.0001'],
+            'currency_code' => ['nullable', 'string', 'size:3'],
+            'memo' => ['nullable', 'string'],
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -136,7 +136,7 @@ class CheckManagementController extends Controller
         $check = CheckRegisterEntry::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->print($check),
+            fn () => $this->service->print($check),
             'Check marked as printed.',
             'INVALID_STATE',
         );
@@ -147,7 +147,7 @@ class CheckManagementController extends Controller
         $check = CheckRegisterEntry::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->issue($check),
+            fn () => $this->service->issue($check),
             'Check issued.',
             'INVALID_STATE',
         );
@@ -158,7 +158,7 @@ class CheckManagementController extends Controller
         $check = CheckRegisterEntry::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->markCleared($check),
+            fn () => $this->service->markCleared($check),
             'Check cleared.',
             'INVALID_STATE',
         );
@@ -173,7 +173,7 @@ class CheckManagementController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->service->markBounced($check, $validated['reason']),
+            fn () => $this->service->markBounced($check, $validated['reason']),
             'Check marked as bounced.',
             'INVALID_STATE',
         );
@@ -184,7 +184,7 @@ class CheckManagementController extends Controller
         $check = CheckRegisterEntry::findOrFail($id);
 
         return $this->tryAction(
-            fn() => $this->service->cancel($check),
+            fn () => $this->service->cancel($check),
             'Check cancelled.',
             'INVALID_STATE',
         );

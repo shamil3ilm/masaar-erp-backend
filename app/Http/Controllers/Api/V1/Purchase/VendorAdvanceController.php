@@ -25,9 +25,9 @@ class VendorAdvanceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = VendorAdvanceRequest::with(['contact', 'requester', 'approver', 'purchaseOrder'])
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->contact_id, fn($q, $id) => $q->where('contact_id', $id))
-            ->when($request->purchase_order_id, fn($q, $id) => $q->where('purchase_order_id', $id))
+            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
+            ->when($request->contact_id, fn ($q, $id) => $q->where('contact_id', $id))
+            ->when($request->purchase_order_id, fn ($q, $id) => $q->where('purchase_order_id', $id))
             ->when($request->search, function ($q, $search) {
                 $q->where('request_number', 'like', "%{$search}%");
             })
@@ -104,7 +104,7 @@ class VendorAdvanceController extends Controller
             'payment_date' => 'nullable|date',
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|string|max:50',
-            'bank_account_id' => 'nullable|exists:accounts,id',
+            'bank_account_id' => 'nullable|exists:chart_of_accounts,id',
             'reference' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
         ]);
@@ -165,7 +165,7 @@ class VendorAdvanceController extends Controller
         $clearings = $vendorAdvance->payments()
             ->with(['clearings.bill'])
             ->get()
-            ->flatMap(fn($p) => $p->clearings);
+            ->flatMap(fn ($p) => $p->clearings);
 
         return $this->success($clearings->values()->toArray());
     }
