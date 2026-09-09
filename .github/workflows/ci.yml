@@ -67,7 +67,14 @@ jobs:
           php artisan key:generate
 
       - name: Run test suite
-        run: php artisan test
+        run: php artisan test --log-junit junit.xml
+
+      # A failing suite shows in the Actions UI as an exit code and nothing
+      # else. This puts the failing tests on the run page. If it reports no
+      # JUnit file, the run broke before the suite started.
+      - name: Summarise the suite
+        if: always()
+        run: php .github/junit-summary.php junit.xml Tests
 
   # The suite runs on SQLite for speed, and the application runs on MySQL.
   # Until this job existed, nothing had ever run the migrations against MySQL
@@ -134,7 +141,11 @@ jobs:
           DB_DATABASE: masaar_test
           DB_USERNAME: root
           DB_PASSWORD: ''
-        run: php artisan test
+        run: php artisan test --log-junit junit.xml
+
+      - name: Summarise the suite
+        if: always()
+        run: php .github/junit-summary.php junit.xml "Tests on MySQL"
 
   audit:
     name: Dependency audit
