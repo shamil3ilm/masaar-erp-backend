@@ -47,7 +47,7 @@ class FinancialStatementVersionService
         return DB::transaction(function () use ($data): FinancialStatementVersion {
             $data['created_by'] = $data['created_by'] ?? auth()->id();
 
-            if (!empty($data['is_default']) && $data['is_default']) {
+            if (! empty($data['is_default']) && $data['is_default']) {
                 FinancialStatementVersion::where('organization_id', auth()->user()->organization_id)
                     ->where('type', $data['type'])
                     ->update(['is_default' => false]);
@@ -67,7 +67,7 @@ class FinancialStatementVersionService
         }
 
         return DB::transaction(function () use ($fsv, $data): FinancialStatementVersion {
-            if (!empty($data['is_default']) && $data['is_default']) {
+            if (! empty($data['is_default']) && $data['is_default']) {
                 $type = $data['type'] ?? $fsv->type;
                 FinancialStatementVersion::where('organization_id', $fsv->organization_id)
                     ->where('type', $type)
@@ -135,7 +135,7 @@ class FinancialStatementVersionService
             ->get();
 
         $tree = $rootNodes->map(
-            fn($node) => $this->buildNode($node, $periodEnd)
+            fn ($node) => $this->buildNode($node, $periodEnd)
         )->all();
 
         return [
@@ -173,12 +173,12 @@ class FinancialStatementVersionService
         }
 
         $childNodes = $children->map(
-            fn($child) => $this->buildNode($child, $asOfDate)
+            fn ($child) => $this->buildNode($child, $asOfDate)
         )->all();
 
         $total = array_reduce(
             $childNodes,
-            fn(float $carry, array $item) => $carry + (float) ($item['amount'] ?? 0),
+            fn (float $carry, array $item) => $carry + (float) ($item['amount'] ?? 0),
             0.0
         );
 
@@ -200,18 +200,16 @@ class FinancialStatementVersionService
      */
     private function getAccountBalance(int $accountId, string $asOfDate): float
     {
-        try {
-            $balance = $this->balanceService->getAccountBalance(
-                $accountId,
-                null,
-                $asOfDate,
-                false
-            );
+        // Not wrapped: a balance that cannot be read is not a balance of zero,
+        // and a statement built from one would still add up.
+        $balance = $this->balanceService->getAccountBalance(
+            $accountId,
+            null,
+            $asOfDate,
+            false
+        );
 
-            return (float) ($balance['closing_balance'] ?? 0);
-        } catch (\Throwable) {
-            return 0.0;
-        }
+        return (float) ($balance['closing_balance'] ?? 0);
     }
 
     private function validateType(string $type): void
@@ -222,14 +220,14 @@ class FinancialStatementVersionService
             FinancialStatementVersion::TYPE_CASH_FLOW,
         ];
 
-        if (!in_array($type, $valid, true)) {
+        if (! in_array($type, $valid, true)) {
             throw new InvalidArgumentException("Invalid FSV type '{$type}'.");
         }
     }
 
     private function validateNodeType(string $nodeType): void
     {
-        if (!in_array($nodeType, ['header', 'account', 'total'], true)) {
+        if (! in_array($nodeType, ['header', 'account', 'total'], true)) {
             throw new InvalidArgumentException("Invalid node_type '{$nodeType}'.");
         }
     }
