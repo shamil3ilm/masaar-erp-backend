@@ -311,7 +311,7 @@ class TrainingService
         }
 
         $employees = Employee::where('organization_id', $orgId)
-            ->where('status', 'active')
+            ->where('employment_status', 'active')
             ->with([
                 'certifications' => function ($q) use ($orgId): void {
                     $q->where('organization_id', $orgId)->where('is_active', true);
