@@ -6,8 +6,8 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExecuteScheduledReportJob;
 use App\Models\Reports\SavedReport;
+use App\Services\Reports\ReportExportService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 
 class RunScheduledReportsCommand extends Command
 {
@@ -23,12 +23,14 @@ class RunScheduledReportsCommand extends Command
     {
         $this->info('Checking for scheduled reports...');
 
-        $query = SavedReport::where('is_scheduled', true)
-            ->where('is_active', true);
+        // saved_reports has no is_active column, and the schedule lives in
+        // schedule_frequency. Both filters named columns that do not exist, so
+        // this found no reports to run and said so cheerfully.
+        $query = SavedReport::where('is_scheduled', true);
 
         // Filter by schedule type
         if ($schedule = $this->option('schedule')) {
-            $query->where('schedule', $schedule);
+            $query->where('schedule_frequency', $schedule);
         }
 
         // Filter by organization
@@ -37,7 +39,7 @@ class RunScheduledReportsCommand extends Command
         }
 
         // Filter by due time unless forced
-        if (!$this->option('force')) {
+        if (! $this->option('force')) {
             $query->where(function ($q) {
                 $q->whereNull('next_run_at')
                     ->orWhere('next_run_at', '<=', now());
@@ -48,6 +50,7 @@ class RunScheduledReportsCommand extends Command
 
         if ($reports->isEmpty()) {
             $this->info('No scheduled reports due for execution.');
+
             return self::SUCCESS;
         }
 
@@ -86,12 +89,12 @@ class RunScheduledReportsCommand extends Command
         if ($this->option('sync')) {
             // Run synchronously
             $job = new ExecuteScheduledReportJob($report);
-            $job->handle(app(\App\Services\Reports\ReportExportService::class));
+            $job->handle(app(ReportExportService::class));
         } else {
             // Dispatch to queue
             ExecuteScheduledReportJob::dispatch($report);
         }
 
-        $this->line("  → Dispatched for execution");
+        $this->line('  → Dispatched for execution');
     }
 }

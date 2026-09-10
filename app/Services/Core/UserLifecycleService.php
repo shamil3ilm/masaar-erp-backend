@@ -12,6 +12,11 @@ use InvalidArgumentException;
 
 class UserLifecycleService
 {
+    /**
+     * How long a finished or idle session is kept before it is removed.
+     */
+    private const SESSION_RETENTION_DAYS = 30;
+
     public function __construct(
         private TokenBlacklistService $tokenBlacklistService
     ) {}
@@ -221,7 +226,7 @@ class UserLifecycleService
             ->where('slug', 'admin')
             ->exists();
 
-        if (!$isAdmin) {
+        if (! $isAdmin) {
             return;
         }
 
@@ -230,7 +235,7 @@ class UserLifecycleService
             ->where('id', '!=', $user->id)
             ->where('is_active', true)
             ->whereNull('deleted_at')
-            ->whereHas('roles', fn($q) => $q->where('slug', 'admin'))
+            ->whereHas('roles', fn ($q) => $q->where('slug', 'admin'))
             ->count();
 
         if ($otherAdmins === 0) {
@@ -245,7 +250,7 @@ class UserLifecycleService
      */
     protected function detectDeviceType(?string $userAgent): string
     {
-        if (!$userAgent) {
+        if (! $userAgent) {
             return 'unknown';
         }
 
@@ -267,8 +272,20 @@ class UserLifecycleService
      */
     public function cleanupExpiredSessions(): int
     {
+        // user_sessions has no expires_at. A session ends either by being
+        // logged out or by going quiet, so expiry is measured from the last
+        // activity. The old query filtered on a column that does not exist and
+        // deleted nothing.
+        $cutoff = now()->subDays(self::SESSION_RETENTION_DAYS);
+
         return DB::table('user_sessions')
-            ->where('expires_at', '<', now())
+            ->where(function ($query) use ($cutoff) {
+                $query->where('logout_at', '<', $cutoff)
+                    ->orWhere(function ($stale) use ($cutoff) {
+                        $stale->whereNull('logout_at')
+                            ->where('last_activity_at', '<', $cutoff);
+                    });
+            })
             ->delete();
     }
 }
