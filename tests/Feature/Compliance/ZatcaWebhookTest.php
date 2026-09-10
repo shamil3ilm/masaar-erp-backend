@@ -168,6 +168,42 @@ class ZatcaWebhookTest extends TestCase
         );
     }
 
+    /**
+     * A captured request can be replayed, and this records that.
+     *
+     * The signature covers the body and not the timestamp, so the freshness
+     * check narrows nothing: anyone holding one valid request can send it
+     * again whenever they like with a current timestamp. When the signature
+     * starts covering the timestamp — a change to both sides of the wire —
+     * this expectation flips to a refusal.
+     */
+    public function test_a_captured_request_can_be_replayed_later(): void
+    {
+        Notification::fake();
+
+        $body = $this->body('invoice.rejected', ['errors' => ['captured']]);
+        $signature = $this->sign($body);
+
+        $send = fn (int $timestamp) => $this->call('POST', '/api/v1/webhooks/zatca', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
+            'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
+        ], $body);
+
+        $send(time())->assertStatus(200);
+
+        // The same bytes and the same signature, an hour of wall clock later.
+        $this->travel(1)->hours();
+
+        $send(time())->assertStatus(200);
+
+        $this->assertSame(
+            Invoice::COMPLIANCE_REJECTED,
+            $this->invoice->refresh()->compliance_status
+        );
+    }
+
     public function test_an_unknown_event_is_acknowledged(): void
     {
         // Answering anything else would have ZATCA retry it forever.
