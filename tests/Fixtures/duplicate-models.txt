@@ -15,6 +15,37 @@
 # Which model survives is a decision per table, not a rename. A ratchet: the
 # list may shrink and may not grow, and the test fails if an entry here has
 # been resolved and not removed.
+#
+# ---------------------------------------------------------------------------
+# Which one fits the table
+# ---------------------------------------------------------------------------
+#
+# Counted against the schema: how many attributes each model declares in
+# $fillable or $casts that the table does not have. Seven of the eight pairs
+# have one model that fits exactly and one that does not, so the shape of each
+# decision is the same — keep the one that fits and move its users over, or
+# decide the richer model was the intent and build the columns, which is what
+# number_sequences needed.
+#
+#   leave_balances               HR\LeaveBalance fits;  HR\Leave\LeaveBalance
+#                                misses 11
+#   leave_types                  HR\LeaveType fits;  HR\Leave\LeaveType
+#                                misses 16
+#   organization_subscriptions   Billing fits;  Core misses 7
+#   petty_cash_funds             Finance fits;  Accounting misses 1
+#   subscription_plans           Billing fits;  Core misses 5
+#   tds_deductions               TdsDeduction fits;  TdsEntry misses 2
+#   vat_return_periods           VatReturnPeriod fits;  VatReturn misses 7
+#
+#   task_comments                both fit, so this one is not the same
+#                                problem: two features share a table and
+#                                neither is broken by it.
+#
+# Both halves of each pair are used by real code, which is why half of each
+# feature works and half answers 500. Counting the users precisely is harder
+# than it looks — five of these pairs share a short class name, so a search
+# for "LeaveType::" cannot tell them apart. The column counts above come from
+# the schema and are exact; treat any usage count as needing a look.
 
 leave_balances: App\Models\HR\LeaveBalance, App\Models\HR\Leave\LeaveBalance
 leave_types: App\Models\HR\LeaveType, App\Models\HR\Leave\LeaveType
