@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Services\RealEstate;
 
 use App\Models\Accounting\Account;
-use App\Models\RealEstate\RentalContract;
 use App\Models\RealEstate\PostingRun;
 use App\Models\RealEstate\PostingRunItem;
+use App\Models\RealEstate\RentalContract;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use Carbon\Carbon;
@@ -36,7 +36,7 @@ class LeasePostingService
      */
     public function simulatePostingRun(int $organizationId, string $type, int $year, int $month): array
     {
-        $items       = [];
+        $items = [];
         $totalAmount = '0.0000';
         $postingDate = Carbon::create($year, $month, 1)->endOfMonth()->toDateString();
 
@@ -50,32 +50,32 @@ class LeasePostingService
                             continue;
                         }
 
-                        $amount      = $condition->computeAmount((float) $contract->rentalUnit?->area_sqm ?? 0);
-                        $taxAmount   = $condition->is_taxable ? bcmul($amount, self::VAT_RATE, 4) : '0.0000';
-                        $totalLine   = bcadd($amount, $taxAmount, 4);
+                        $amount = $condition->computeAmount((float) $contract->rentalUnit?->area_sqm ?? 0);
+                        $taxAmount = $condition->is_taxable ? bcmul($amount, self::VAT_RATE, 4) : '0.0000';
+                        $totalLine = bcadd($amount, $taxAmount, 4);
                         $totalAmount = bcadd($totalAmount, $totalLine, 4);
 
                         $items[] = [
                             'contract_number' => $contract->contract_number,
-                            'unit_code'       => $contract->rentalUnit?->code,
-                            'condition_type'  => $condition->condition_type,
-                            'amount'          => $amount,
-                            'tax_amount'      => $taxAmount,
-                            'total_amount'    => $totalLine,
+                            'unit_code' => $contract->rentalUnit?->code,
+                            'condition_type' => $condition->condition_type,
+                            'amount' => $amount,
+                            'tax_amount' => $taxAmount,
+                            'total_amount' => $totalLine,
                         ];
                     }
                 }
             });
 
         return [
-            'organization_id'      => $organizationId,
-            'type'                 => $type,
-            'period_year'          => $year,
-            'period_month'         => $month,
-            'posting_date'         => $postingDate,
+            'organization_id' => $organizationId,
+            'type' => $type,
+            'period_year' => $year,
+            'period_month' => $month,
+            'posting_date' => $postingDate,
             'contracts_to_process' => count(array_unique(array_column($items, 'contract_number'))),
-            'total_amount'         => $totalAmount,
-            'items'                => $items,
+            'total_amount' => $totalAmount,
+            'items' => $items,
         ];
     }
 
@@ -98,21 +98,21 @@ class LeasePostingService
         }
 
         return DB::transaction(function () use ($organizationId, $type, $year, $month) {
-            $runNumber   = $this->numberGenerator->generate('RE-RUN', null, $organizationId);
+            $runNumber = $this->numberGenerator->generate('RE-RUN', null, $organizationId);
             $postingDate = Carbon::create($year, $month, 1)->endOfMonth()->toDateString();
 
             $run = PostingRun::create([
                 'organization_id' => $organizationId,
-                'run_number'      => $runNumber,
-                'type'            => $type,
-                'posting_date'    => $postingDate,
-                'period_year'     => $year,
-                'period_month'    => $month,
-                'status'          => 'draft',
-                'currency_code'   => 'SAR',
+                'run_number' => $runNumber,
+                'type' => $type,
+                'posting_date' => $postingDate,
+                'period_year' => $year,
+                'period_month' => $month,
+                'status' => 'draft',
+                'currency_code' => 'SAR',
             ]);
 
-            $totalAmount        = '0.0000';
+            $totalAmount = '0.0000';
             $contractsProcessed = 0;
 
             RentalContract::where('organization_id', $organizationId)
@@ -127,22 +127,22 @@ class LeasePostingService
                                 continue;
                             }
 
-                            $amount    = $condition->computeAmount((float) $contract->rentalUnit?->area_sqm ?? 0);
+                            $amount = $condition->computeAmount((float) $contract->rentalUnit?->area_sqm ?? 0);
                             $taxAmount = $condition->is_taxable ? bcmul($amount, self::VAT_RATE, 4) : '0.0000';
                             $totalLine = bcadd($amount, $taxAmount, 4);
 
                             PostingRunItem::create([
                                 'posting_run_id' => $run->id,
-                                'contract_id'    => $contract->id,
-                                'condition_id'   => $condition->id,
+                                'contract_id' => $contract->id,
+                                'condition_id' => $condition->id,
                                 'condition_type' => $condition->condition_type,
-                                'amount'         => $amount,
-                                'tax_amount'     => $taxAmount,
-                                'total_amount'   => $totalLine,
-                                'status'         => 'posted',
+                                'amount' => $amount,
+                                'tax_amount' => $taxAmount,
+                                'total_amount' => $totalLine,
+                                'status' => 'posted',
                             ]);
 
-                            $totalAmount      = bcadd($totalAmount, $totalLine, 4);
+                            $totalAmount = bcadd($totalAmount, $totalLine, 4);
                             $contractHasItems = true;
                         }
 
@@ -153,11 +153,11 @@ class LeasePostingService
                 });
 
             $run->update([
-                'status'              => 'posted',
+                'status' => 'posted',
                 'contracts_processed' => $contractsProcessed,
-                'total_amount'        => $totalAmount,
-                'executed_by'         => Auth::id(),
-                'executed_at'         => now(),
+                'total_amount' => $totalAmount,
+                'executed_by' => Auth::id(),
+                'executed_at' => now(),
             ]);
 
             $this->postRunToGeneralLedger($run, $organizationId, $postingDate, $totalAmount);
@@ -178,22 +178,28 @@ class LeasePostingService
             return;
         }
 
+        // There is no type column. receivable is a sub_type and asset is an
+        // account_type, so the original filter matched neither and every lease
+        // posting found no accounts. 'revenue' was not a value of either.
         $arAccount = Account::where('organization_id', $organizationId)
-            ->whereIn('type', ['receivable', 'asset'])
             ->where('is_active', true)
-            ->orderByRaw("CASE WHEN type = 'receivable' THEN 0 ELSE 1 END")
+            ->where(function ($query) {
+                $query->where('sub_type', Account::SUBTYPE_RECEIVABLE)
+                    ->orWhere('account_type', Account::TYPE_ASSET);
+            })
+            ->orderByRaw('CASE WHEN sub_type = ? THEN 0 ELSE 1 END', [Account::SUBTYPE_RECEIVABLE])
             ->first();
 
         $incomeAccount = Account::where('organization_id', $organizationId)
-            ->whereIn('type', ['income', 'revenue'])
             ->where('is_active', true)
+            ->where('account_type', Account::TYPE_INCOME)
             ->first();
 
         if ($arAccount === null || $incomeAccount === null) {
             Log::info('Rent posting run: GL accounts not configured, skipping journal entry', [
                 'run_number' => $run->run_number,
-                'ar_found'   => $arAccount !== null,
-                'inc_found'  => $incomeAccount !== null,
+                'ar_found' => $arAccount !== null,
+                'inc_found' => $incomeAccount !== null,
             ]);
 
             return;
@@ -202,37 +208,37 @@ class LeasePostingService
         try {
             $this->journalService->createEntry(
                 entryData: [
-                    'organization_id'  => $organizationId,
-                    'entry_date'       => $postingDate,
-                    'reference_type'   => 're_posting_run',
-                    'reference_id'     => $run->id,
+                    'organization_id' => $organizationId,
+                    'entry_date' => $postingDate,
+                    'reference_type' => 're_posting_run',
+                    'reference_id' => $run->id,
                     'reference_number' => $run->run_number,
-                    'description'      => "Rent posting run {$run->run_number}",
-                    'currency_code'    => $run->currency_code ?? 'SAR',
-                    'status'           => 'posted',
-                    'created_by'       => Auth::id(),
+                    'description' => "Rent posting run {$run->run_number}",
+                    'currency_code' => $run->currency_code ?? 'SAR',
+                    'status' => 'posted',
+                    'created_by' => Auth::id(),
                 ],
                 lines: [
                     [
-                        'account_id'  => $arAccount->id,
-                        'debit'       => $totalAmount,
-                        'credit'      => 0,
+                        'account_id' => $arAccount->id,
+                        'debit' => $totalAmount,
+                        'credit' => 0,
                         'description' => "Rent receivable — {$run->run_number}",
-                        'line_order'  => 0,
+                        'line_order' => 0,
                     ],
                     [
-                        'account_id'  => $incomeAccount->id,
-                        'debit'       => 0,
-                        'credit'      => $totalAmount,
+                        'account_id' => $incomeAccount->id,
+                        'debit' => 0,
+                        'credit' => $totalAmount,
                         'description' => "Rental income — {$run->run_number}",
-                        'line_order'  => 1,
+                        'line_order' => 1,
                     ],
                 ],
             );
         } catch (\Throwable $e) {
             Log::warning('Rent posting run: GL journal entry failed', [
                 'run_number' => $run->run_number,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }

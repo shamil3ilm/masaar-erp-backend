@@ -46,11 +46,7 @@ app/Services/Fraud/FraudRuleEngine.php:149  user_events.email
 app/Services/Fraud/FraudRuleEngine.php:149  user_events.successful
 app/Services/Fraud/FraudRuleEngine.php:155  login_attempts.created_at
 app/Services/HR/SuccessionPlanningService.php:124  key_positions.readiness
-app/Services/Manufacturing/LongTermPlanningService.php:136  mrp_planned_orders.planned_start
-app/Services/Manufacturing/LongTermPlanningService.php:53  mrp_planned_orders.planned_start
 app/Services/Purchase/PaymentMadeService.php:58  tds_configurations.section_code
-app/Services/RealEstate/LeasePostingService.php:181  chart_of_accounts.type
-app/Services/RealEstate/LeasePostingService.php:187  chart_of_accounts.type
 app/Services/Sales/IntercompanySalesService.php:240  chart_of_accounts.account_subtype
 app/Services/Sales/IntercompanySalesService.php:252  chart_of_accounts.account_subtype
 app/Services/Sales/PriceListService.php:147  price_lists.assignment_id
