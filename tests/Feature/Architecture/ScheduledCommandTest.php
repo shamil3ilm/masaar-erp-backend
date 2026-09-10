@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Architecture;
 
+use App\Jobs\ClusterUsersJob;
+use App\Jobs\ProcessRecurringTransactions;
+use App\Jobs\ReevaluateSegmentMembershipsJob;
+use App\Services\Auth\TokenBlacklistService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -48,6 +53,55 @@ class ScheduledCommandTest extends TestCase
             'bills:mark-overdue' => ['bills:mark-overdue', []],
             'erp:archive' => ['erp:archive', []],
         ];
+    }
+
+    /**
+     * The scheduler also runs three jobs and one closure.
+     *
+     * @return list<array{0: class-string}>
+     */
+    public static function scheduledJobs(): array
+    {
+        return [
+            'ReevaluateSegmentMemberships' => [ReevaluateSegmentMembershipsJob::class],
+            'ClusterUsers' => [ClusterUsersJob::class],
+            'ProcessRecurringTransactions' => [ProcessRecurringTransactions::class],
+        ];
+    }
+
+    /**
+     * @param  class-string  $job
+     */
+    #[DataProvider('scheduledJobs')]
+    public function test_a_scheduled_job_runs(string $job): void
+    {
+        Http::preventStrayRequests();
+        Http::fake();
+        Mail::fake();
+        Notification::fake();
+
+        $this->setUpOrganization('SA');
+
+        // Two of these catch per-organisation failures and log them, so one
+        // bad tenant cannot stop the rest. That also means the job finishes
+        // cleanly when the work inside it is entirely broken, and "it did not
+        // throw" would prove nothing. Watch the log instead.
+        Log::spy();
+
+        // Called through the container so the job's dependencies are injected,
+        // and not through Bus, which a fake would swallow whole.
+        app()->call([app($job), 'handle']);
+
+        Log::shouldNotHaveReceived('error');
+    }
+
+    public function test_the_scheduled_closure_runs(): void
+    {
+        $this->setUpOrganization('SA');
+
+        app(TokenBlacklistService::class)->cleanupExpired();
+
+        $this->expectNotToPerformAssertions();
     }
 
     /**
