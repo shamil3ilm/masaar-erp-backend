@@ -1,0 +1,60 @@
+# Queries naming a column the table does not have.
+#
+# Every one of these filters on something that is not there. SQLite reads an
+# unknown quoted identifier as a string rather than failing, so the clause
+# matches nothing and the caller is told there is no data. MySQL raises. Two
+# scheduled commands sat in this state until CI ran them against MySQL —
+# cleaning up no sessions, and running no reports whatever was scheduled.
+#
+# This check is static, so it finds them without the code having to run, which
+# is the only way to see the ones nothing calls.
+#
+# It only judges the where family. SQL cannot reference a select alias in a
+# WHERE, so a name there must be a column. orderBy, groupBy and pluck are not
+# checked, because selectRaw('COUNT(*) as cnt')->orderBy('cnt') is correct and
+# looks identical to a mistake. Chains containing a join, union or whereHas are
+# skipped, since a bare name may belong to the other table, and qualified
+# names are skipped for the same reason.
+#
+# Spot-checked against the schema: employees has employment_status and no
+# status, chart_of_accounts has account_type and no type, login_attempts has
+# no created_at, invoices has no is_active.
+#
+# A ratchet, not an approval. The list may shrink and may not grow, and the
+# test fails if an entry here has been fixed and not removed.
+
+app/Http/Controllers/Api/V1/Core/CustomFieldController.php:218  custom_field_definitions.entity_id
+app/Http/Controllers/Api/V1/Inventory/PickingListController.php:26  picking_lists.picking_number
+app/Http/Controllers/Api/V1/Inventory/PickingListController.php:26  picking_lists.sales_order_id
+app/Http/Controllers/Api/V1/Sales/PromotionController.php:25  promotions.discount_type
+app/Http/Controllers/Api/V1/Tax/EwayBillController.php:32  eway_bills.supply_type
+app/Http/Controllers/Api/V1/Tax/GstReturnController.php:33  gst_returns.period_year
+app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:33  tds_configurations.is_active
+app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.status
+app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.transaction_date
+app/Services/Admin/SuperAdminDashboardService.php:207  users.last_active_at
+app/Services/CRM/CustomerProfileService.php:93  invoices.contact_id
+app/Services/Campaign/ConditionEvaluator.php:62  invoices.is_active
+app/Services/Campaign/ConditionEvaluator.php:67  payments_received.is_active
+app/Services/Campaign/ConditionEvaluator.php:72  organization_modules.is_active
+app/Services/Core/ModuleReadinessService.php:176  journal_entries.type
+app/Services/Core/UserLifecycleService.php:159  user_sessions.token_id
+app/Services/Core/UserLifecycleService.php:169  user_sessions.expires_at
+app/Services/Core/UserLifecycleService.php:182  user_sessions.token_id
+app/Services/Core/Widgets/ManufacturingWidgetProvider.php:74  work_orders.completed_at
+app/Services/Fraud/FraudRuleEngine.php:149  user_events.email
+app/Services/Fraud/FraudRuleEngine.php:149  user_events.successful
+app/Services/Fraud/FraudRuleEngine.php:155  login_attempts.created_at
+app/Services/HR/SuccessionPlanningService.php:124  key_positions.readiness
+app/Services/Manufacturing/LongTermPlanningService.php:136  mrp_planned_orders.planned_start
+app/Services/Manufacturing/LongTermPlanningService.php:53  mrp_planned_orders.planned_start
+app/Services/Purchase/PaymentMadeService.php:58  tds_configurations.section_code
+app/Services/RealEstate/LeasePostingService.php:181  chart_of_accounts.type
+app/Services/RealEstate/LeasePostingService.php:187  chart_of_accounts.type
+app/Services/Sales/IntercompanySalesService.php:240  chart_of_accounts.account_subtype
+app/Services/Sales/IntercompanySalesService.php:252  chart_of_accounts.account_subtype
+app/Services/Sales/PriceListService.php:147  price_lists.assignment_id
+app/Services/Sales/PriceListService.php:147  price_lists.assignment_type
+app/Services/Tax/Gstr9ReturnService.php:229  gstr1_returns.gstin
+app/Services/Tax/Gstr9ReturnService.php:255  gstr3b_returns.gstin
+app/Services/Tax/TdsService.php:72  tds_deductions.payment_reference
