@@ -73,7 +73,7 @@ class ManufacturingWidgetProvider extends WidgetProvider
 
         $completed = WorkOrder::where('organization_id', $this->organizationId)
             ->where('status', 'completed')
-            ->where('completed_at', '>=', $thisMonth)
+            ->where('actual_end_datetime', '>=', $thisMonth)
             ->get();
 
         $onTime = $completed->filter(fn ($wo) => $wo->completed_at && $wo->due_date && $wo->completed_at->lte($wo->due_date)
