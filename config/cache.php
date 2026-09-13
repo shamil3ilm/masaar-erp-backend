@@ -15,7 +15,10 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'redis'),
+    // Deployments set CACHE_STORE=redis. The fallback must not need the redis
+    // extension, or anything that boots without an .env (composer's
+    // package:discover among them) fails before it starts.
+    'default' => env('CACHE_STORE', 'database'),
 
     /*
     |--------------------------------------------------------------------------
