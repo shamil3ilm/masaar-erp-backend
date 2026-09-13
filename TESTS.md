@@ -30,7 +30,7 @@ php artisan test tests/Unit/            # unit tests only
 | File | Status | Coverage |
 |------|--------|---------|
 | `Accounting/JournalEntryFactoryTest.php` | ✅ | Debit/credit balance, multi-line entries, currency, reversal |
-| `Tax/TaxCalculatorServiceTest.php` | ✅ | VAT, GST, TDS, zero-rate, exempt, reverse-charge |
+| `Tax/TaxCalculatorServiceTest.php` | ✅ | VAT and GST routing, inter/intra-state GST split, inclusive extraction, line subtotals |
 | `Core/FinancialIdempotencyServiceTest.php` | ✅ | Idempotency key generation, duplicate detection, TTL |
 | `Core/FinancialOperationLoggerTest.php` | ✅ | Operation logging, context capture, audit record |
 | `Core/FailedJobMonitorServiceTest.php` | ✅ | Failed job capture, alert thresholds |

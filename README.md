@@ -36,7 +36,6 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 - **Calendar** — Events, attendees, reminders, recurring rules, task integration
 - **Automation Engine** — Rule-based triggers, email templates, scheduled automations
 - **GCC Compliance** — ZATCA Phase 2 (Saudi e-invoicing), VAT (UAE/Qatar/Oman/Bahrain/Kuwait)
-- **India Compliance** — GST (IGST/CGST/SGST), TDS/TCS, HSN/SAC codes, GSTR data preparation
 - **Platform** — RBAC, approval workflows, webhooks, audit trail, document vault, custom fields, notifications, 2FA
 - **Admin / Super Admin** — Platform administration, IP allowlists, support tickets, system announcements, feature flags
 
@@ -240,7 +239,7 @@ Authorization: Bearer <jwt-token>
 │   └── territory/            # Territory hierarchy, routing rules
 │
 ├── compliance/               # ZATCA webhook receiver, onboarding proxy
-├── tax/                      # VAT (GCC), GST/TDS (India), HSN/SAC codes
+├── tax/                      # VAT (GCC), tax determination, HSN/SAC codes
 │   └── customs/              # Customs declarations, tariff codes, excise duties
 │
 ├── real-estate/              # RE-FX: portfolios, properties, rental units
@@ -625,7 +624,7 @@ SAP FI sub-module coverage:
 
 ---
 
-### Module 9 — GCC & India Compliance
+### Module 9 — GCC Compliance
 
 #### Saudi Arabia — ZATCA (Phase 2 e-invoicing)
 
@@ -641,16 +640,13 @@ SAP FI sub-module coverage:
 - Tax group management
 - Reverse charge mechanism
 
-#### India — GST
-- GSTIN validation, HSN/SAC code management
-- IGST / CGST / SGST / UGST split calculation
-- GSTR-1 data preparation, GSTR-3B summary
-- E-way bill data extraction
+#### India — GST rate calculation only
 
-#### India — TDS/TCS
-- TDS deduction at source
-- TCS on high-value / e-commerce sales
-- Certificate generation
+The India compliance module was removed: GSTR-1/3B/9 preparation, e-way
+bills, TDS/TCS and IRP e-invoicing are gone, with their routes, models and
+tables. What remains is rate calculation inside `TaxCalculatorService` —
+the IGST/CGST/SGST split and HSN/SAC lookup — because invoice and bill
+lines still carry those columns.
 
 #### Customs & Excise
 - Customs declarations with line-item detail

@@ -16,21 +16,7 @@
 # skipped, since a bare name may belong to the other table, and qualified
 # names are skipped for the same reason.
 #
-# Spot-checked against the schema: employees has employment_status and no
-# status, chart_of_accounts has account_type and no type, user_sessions has
-# neither token_id nor expires_at.
-#
-# What is left is the India tax module, which is parked.
-#
-# A ratchet, not an approval. The list may shrink and may not grow, and the
-# test fails if an entry here has been fixed and not removed.
-
-app/Http/Controllers/Api/V1/Tax/EwayBillController.php:32  eway_bills.supply_type
-app/Http/Controllers/Api/V1/Tax/GstReturnController.php:33  gst_returns.period_year
-app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:33  tds_configurations.is_active
-app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.status
-app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.transaction_date
-app/Services/Purchase/PaymentMadeService.php:58  tds_configurations.section_code
-app/Services/Tax/Gstr9ReturnService.php:229  gstr1_returns.gstin
-app/Services/Tax/Gstr9ReturnService.php:255  gstr3b_returns.gstin
-app/Services/Tax/TdsService.php:72  tds_deductions.payment_reference
+# The list is empty. It held 26 entries when the check was written: the rest
+# were fixed against the schema one at a time, and the last nine went with the
+# India tax module. Empty is the goal, not the end — the test fails the moment
+# a new one appears, which is the whole point of keeping the file.
