@@ -157,19 +157,29 @@ class EmployeeSelfServiceController extends Controller
             return $this->notFound('No employee record found.');
         }
 
+        $year = (int) $request->get('year', now()->year);
+
         $balances = LeaveBalance::where('employee_id', $employee->id)
-            ->where('year', $request->get('year', now()->year))
+            ->where('year', $year)
             ->with('leaveType')
             ->get();
+
+        // Requested and not yet decided, so not yet taken from the balance.
+        $pending = LeaveRequest::where('employee_id', $employee->id)
+            ->where('status', LeaveRequest::STATUS_PENDING)
+            ->whereYear('from_date', $year)
+            ->get(['leave_type_id', 'total_days'])
+            ->groupBy('leave_type_id')
+            ->map(fn ($requests) => $requests->sum('total_days'));
 
         return $this->success($balances->map(fn ($b) => [
             'leave_type' => $b->leaveType->name,
             'leave_type_code' => $b->leaveType->code,
-            'entitled' => $b->entitled_days,
-            'used' => $b->used_days,
-            'pending' => $b->pending_days,
-            'available' => $b->available_days,
-            'carried_forward' => $b->carried_forward,
+            'entitled' => (float) $b->entitled + (float) $b->accrued,
+            'used' => (float) $b->taken,
+            'pending' => (float) ($pending[$b->leave_type_id] ?? 0),
+            'available' => $b->getAvailableBalance(),
+            'carried_forward' => (float) $b->opening_balance,
         ]));
     }
 

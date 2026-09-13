@@ -798,6 +798,7 @@ return new class extends Migration
         Schema::create('leave_types', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('leave_policy_id')->nullable()->constrained('leave_policies')->nullOnDelete();
             $table->string('name');
             $table->string('code', 20);
             $table->text('description')->nullable();
@@ -816,10 +817,20 @@ return new class extends Migration
             $table->string('applicable_gender', 20)->default('all');
             $table->string('applicable_marital_status', 20)->default('all');
             $table->unsignedSmallInteger('applicable_after_months')->default(0);
-            $table->string('accrual_type', 20)->default('annual'); // annual, monthly, quarterly
+            $table->string('employment_type_restriction', 50)->nullable();
+            $table->boolean('requires_reason')->default(false);
+            $table->decimal('min_days_per_request', 8, 2)->nullable();
+            $table->decimal('max_days_per_request', 8, 2)->nullable();
+            $table->json('allowed_days_of_week')->nullable();
+            $table->json('blackout_dates')->nullable();
+            $table->boolean('count_holidays')->default(false);
+            $table->boolean('count_weekends')->default(false);
+            $table->string('accrual_type', 20)->default('annual'); // annual, monthly, quarterly, none
+            $table->unsignedTinyInteger('accrual_day')->nullable();
             $table->boolean('prorate_on_joining')->default(true);
             $table->boolean('prorate_on_exit')->default(true);
             $table->string('color', 7)->nullable();
+            $table->string('icon')->nullable();
             $table->unsignedSmallInteger('sort_order')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
@@ -833,14 +844,18 @@ return new class extends Migration
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->foreignId('employee_id')->constrained('employees')->cascadeOnDelete();
             $table->foreignId('leave_type_id')->constrained('leave_types')->cascadeOnDelete();
+            // Its key to leave_tiers is added in 0470_deferred_keys: that table comes later.
+            $table->unsignedBigInteger('leave_tier_id')->nullable();
             $table->unsignedSmallInteger('year');
             $table->decimal('opening_balance', 8, 2)->default(0);
+            $table->decimal('entitled', 8, 2)->default(0);
             $table->decimal('accrued', 8, 2)->default(0);
             $table->decimal('taken', 8, 2)->default(0);
             $table->decimal('adjustment', 8, 2)->default(0);
             $table->decimal('encashed', 8, 2)->default(0);
             $table->decimal('lapsed', 8, 2)->default(0);
             $table->decimal('closing_balance', 8, 2)->default(0);
+            $table->date('last_accrual_date')->nullable();
             $table->text('notes')->nullable();
             $table->timestamps();
 

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models\HR\Leave;
 
+use App\Models\HR\LeaveBalance;
+use App\Models\HR\LeaveType;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class LeaveTier extends Model
 {
     use HasFactory;

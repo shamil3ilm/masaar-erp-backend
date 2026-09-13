@@ -7,7 +7,7 @@ namespace App\Services\HR;
 use App\Models\HR\Leave\LeavePolicy;
 use App\Models\HR\Leave\LeaveTier;
 use App\Models\HR\Leave\LeaveTierApprover;
-use App\Models\HR\Leave\LeaveType;
+use App\Models\HR\LeaveType;
 use Illuminate\Support\Facades\DB;
 
 class LeavePolicyService

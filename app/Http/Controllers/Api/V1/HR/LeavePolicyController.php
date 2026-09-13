@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Leave\LeavePolicy;
 use App\Models\HR\Leave\LeaveTier;
-use App\Models\HR\Leave\LeaveType;
+use App\Models\HR\LeaveType;
 use App\Services\HR\LeavePolicyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -132,27 +132,32 @@ class LeavePolicyController extends Controller
             'code' => 'required|string|max:20',
             'description' => 'nullable|string',
             'color' => 'nullable|string|max:7',
-            'icon' => 'nullable|string',
+            'icon' => 'nullable|string|max:255',
+            'annual_quota' => 'nullable|numeric|min:0',
             'is_paid' => 'nullable|boolean',
             'is_encashable' => 'nullable|boolean',
-            'is_carryforward_allowed' => 'nullable|boolean',
-            'max_carryforward_days' => 'nullable|integer|min:0',
+            'carry_forward' => 'nullable|boolean',
+            'max_carry_forward_days' => 'nullable|numeric|min:0',
             'requires_attachment' => 'nullable|boolean',
             'requires_reason' => 'nullable|boolean',
-            'gender_restriction' => 'nullable|in:male,female',
+            'applicable_gender' => 'nullable|in:all,male,female',
             'employment_type_restriction' => 'nullable|string|max:50',
-            'min_service_months' => 'nullable|integer|min:0',
-            'max_consecutive_days' => 'nullable|integer|min:1',
-            'min_days_per_request' => 'nullable|integer|min:1',
-            'max_days_per_request' => 'nullable|integer|min:1',
+            'applicable_after_months' => 'nullable|integer|min:0',
+            'max_consecutive_days' => 'nullable|numeric|min:1',
+            'min_days_per_request' => 'nullable|numeric|min:0.5',
+            'max_days_per_request' => 'nullable|numeric|min:0.5',
             'allowed_days_of_week' => 'nullable|array',
+            'allowed_days_of_week.*' => 'integer|between:0,6',
             'blackout_dates' => 'nullable|array',
-            'accrual_type' => 'nullable|in:yearly,monthly,weekly,none',
+            'blackout_dates.*' => 'date',
+            'accrual_type' => 'nullable|in:annual,monthly,quarterly,none',
             'accrual_day' => 'nullable|integer|min:1|max:31',
             'count_holidays' => 'nullable|boolean',
             'count_weekends' => 'nullable|boolean',
         ]);
 
+        // A null left out, so a column with a default keeps it.
+        $validated = array_filter($validated, fn ($v) => $v !== null);
         $validated['organization_id'] = $this->organizationId($request);
         $validated['leave_policy_id'] = $leavePolicy->id;
 
