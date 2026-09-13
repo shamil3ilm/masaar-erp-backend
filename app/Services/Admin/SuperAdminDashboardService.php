@@ -72,8 +72,8 @@ class SuperAdminDashboardService
     {
         $total = User::count();
         $active = User::where('is_active', true)->count();
-        $activeToday = User::where('last_active_at', '>=', Carbon::today())->count();
-        $activeThisWeek = User::where('last_active_at', '>=', Carbon::now()->subWeek())->count();
+        $activeToday = User::where('last_login_at', '>=', Carbon::today())->count();
+        $activeThisWeek = User::where('last_login_at', '>=', Carbon::now()->subWeek())->count();
 
         $newThisMonth = User::where('created_at', '>=', Carbon::now()->startOfMonth())->count();
 
@@ -100,7 +100,7 @@ class SuperAdminDashboardService
         $billingInvoicesTable = 'billing_invoices';
 
         // Check if billing tables exist
-        if (!DB::getSchemaBuilder()->hasTable($billingInvoicesTable)) {
+        if (! DB::getSchemaBuilder()->hasTable($billingInvoicesTable)) {
             return [
                 'mrr' => 0,
                 'arr' => 0,
@@ -172,7 +172,7 @@ class SuperAdminDashboardService
     {
         $supportTable = 'support_tickets';
 
-        if (!DB::getSchemaBuilder()->hasTable($supportTable)) {
+        if (! DB::getSchemaBuilder()->hasTable($supportTable)) {
             return [
                 'open' => 0,
                 'pending' => 0,
@@ -205,7 +205,7 @@ class SuperAdminDashboardService
 
         $userCount = User::where('organization_id', $organizationId)->count();
         $activeUsers = User::where('organization_id', $organizationId)
-            ->where('last_active_at', '>=', Carbon::now()->subWeek())
+            ->where('last_login_at', '>=', Carbon::now()->subWeek())
             ->count();
 
         $invoiceCount = DB::table('invoices')
@@ -241,10 +241,10 @@ class SuperAdminDashboardService
         return User::where('organization_id', $organizationId)
             ->select([
                 'id', 'name', 'email', 'is_active',
-                'last_active_at', 'created_at',
+                'last_login_at', 'created_at',
             ])
             ->withCount(['loginHistories as login_count'])
-            ->orderByDesc('last_active_at')
+            ->orderByDesc('last_login_at')
             ->paginate($perPage);
     }
 
@@ -287,7 +287,7 @@ class SuperAdminDashboardService
     {
         $subscriptionsTable = 'organization_subscriptions';
 
-        if (!DB::getSchemaBuilder()->hasTable($subscriptionsTable)) {
+        if (! DB::getSchemaBuilder()->hasTable($subscriptionsTable)) {
             return ['labels' => [], 'data' => []];
         }
 

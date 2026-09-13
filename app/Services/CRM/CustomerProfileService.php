@@ -66,20 +66,20 @@ class CustomerProfileService
             ->count();
 
         return [
-            'contact'         => $contact,
-            'financial'       => $invoiceSummary,
-            'opportunities'   => [
-                'total'      => $totalOpportunities,
+            'contact' => $contact,
+            'financial' => $invoiceSummary,
+            'opportunities' => [
+                'total' => $totalOpportunities,
                 'open_value' => $openOpportunityValue,
-                'recent'     => $recentOpportunities,
+                'recent' => $recentOpportunities,
             ],
-            'activities'      => [
-                'total'  => (clone $activitiesQuery)->count(),
+            'activities' => [
+                'total' => (clone $activitiesQuery)->count(),
                 'recent' => $recentActivities,
             ],
             'service_tickets' => [
-                'total'  => (clone $ticketsQuery)->count(),
-                'open'   => $openTicketCount,
+                'total' => (clone $ticketsQuery)->count(),
+                'open' => $openTicketCount,
                 'recent' => $recentTickets,
             ],
         ];
@@ -91,20 +91,20 @@ class CustomerProfileService
     private function getInvoiceSummary(int $organizationId, int $contactId): array
     {
         $invoices = Invoice::where('organization_id', $organizationId)
-            ->where('contact_id', $contactId)
+            ->where('customer_id', $contactId)
             ->whereNull('deleted_at')
-            ->get(['total_amount', 'amount_paid', 'status']);
+            ->get(['total', 'amount_paid', 'status']);
 
-        $totalRevenue = (float) $invoices->sum('total_amount');
-        $totalPaid    = (float) $invoices->sum('amount_paid');
-        $outstanding  = bcsub((string) $totalRevenue, (string) $totalPaid, 4);
+        $totalRevenue = (float) $invoices->sum('total');
+        $totalPaid = (float) $invoices->sum('amount_paid');
+        $outstanding = bcsub((string) $totalRevenue, (string) $totalPaid, 4);
 
         return [
-            'total_invoiced'    => $totalRevenue,
-            'total_paid'        => $totalPaid,
+            'total_invoiced' => $totalRevenue,
+            'total_paid' => $totalPaid,
             'total_outstanding' => $outstanding,
-            'invoice_count'     => $invoices->count(),
-            'overdue_count'     => $invoices->where('status', 'overdue')->count(),
+            'invoice_count' => $invoices->count(),
+            'overdue_count' => $invoices->where('status', 'overdue')->count(),
         ];
     }
 }
