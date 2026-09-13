@@ -18,7 +18,9 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'redis'),
+    // Deployments set SESSION_DRIVER=redis; see config/cache.php for why the
+    // fallback is not redis.
+    'driver' => env('SESSION_DRIVER', 'database'),
 
     /*
     |--------------------------------------------------------------------------
