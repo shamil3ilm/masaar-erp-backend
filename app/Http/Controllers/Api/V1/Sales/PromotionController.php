@@ -14,17 +14,15 @@ use Illuminate\Support\Facades\Validator;
 
 class PromotionController extends Controller
 {
-
     public function __construct(
         protected PromotionService $promotionService
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         $promotions = Promotion::where('organization_id', $request->user()->organization_id)
             ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->when($request->type, fn ($q, $type) => $q->where('discount_type', $type))
+            ->when($request->type, fn ($q, $type) => $q->where('type', $type))
             ->orderBy('created_at', 'desc')
             ->paginate($request->integer('per_page', 20));
 
@@ -37,8 +35,8 @@ class PromotionController extends Controller
 
         // Validate unique code within organization
         $uniqueCodeRule = 'nullable|string|max:50';
-        if (!empty($data['code'])) {
-            $uniqueCodeRule = 'nullable|string|max:50|unique:promotions,code,NULL,id,organization_id,' . $request->user()->organization_id;
+        if (! empty($data['code'])) {
+            $uniqueCodeRule = 'nullable|string|max:50|unique:promotions,code,NULL,id,organization_id,'.$request->user()->organization_id;
         }
 
         $validator = Validator::make($data, [
@@ -83,6 +81,7 @@ class PromotionController extends Controller
             ));
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 
@@ -123,7 +122,7 @@ class PromotionController extends Controller
                 $request->contact_id
             );
 
-            if (!$promotion) {
+            if (! $promotion) {
                 return $this->error('Invalid or expired promotion code.', 'INVALID_PROMO_CODE', 422);
             }
 
@@ -145,6 +144,7 @@ class PromotionController extends Controller
             ]);
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
     }
@@ -166,6 +166,7 @@ class PromotionController extends Controller
             );
         } catch (\Exception $e) {
             report($e);
+
             return $this->error('An unexpected error occurred. Please try again.', 'SERVER_ERROR', 500);
         }
 

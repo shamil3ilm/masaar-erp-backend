@@ -22,7 +22,7 @@ class ConditionEvaluator
 
         try {
             foreach ($conditions as $condition) {
-                if (!$this->evaluateOne($condition, $user)) {
+                if (! $this->evaluateOne($condition, $user)) {
                     return false;
                 }
             }
@@ -30,9 +30,9 @@ class ConditionEvaluator
             return true;
         } catch (\Throwable $e) {
             Log::error('ConditionEvaluator error', [
-                'user_id'    => $user->id,
+                'user_id' => $user->id,
                 'conditions' => $conditions,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return false;
@@ -41,7 +41,7 @@ class ConditionEvaluator
 
     private function evaluateOne(array $condition, User $user): bool
     {
-        $field    = $condition['field'] ?? '';
+        $field = $condition['field'] ?? '';
         $operator = $condition['operator'] ?? '=';
         $expected = $condition['value'] ?? null;
 
@@ -69,9 +69,10 @@ class ConditionEvaluator
                 ->whereNull('deleted_at')
                 ->count(),
 
+            // organization_modules records enablement, not activity.
             'active_modules' => (int) DB::table('organization_modules')
                 ->where('organization_id', $user->organization_id)
-                ->where('is_active', true)
+                ->where('is_enabled', true)
                 ->count(),
 
             'has_phone' => $user->phone !== null ? 1 : 0,
@@ -83,15 +84,15 @@ class ConditionEvaluator
     private function compare(mixed $actual, string $operator, mixed $expected): bool
     {
         return match ($operator) {
-            '='      => $actual == $expected,
-            '!='     => $actual != $expected,
-            '>'      => $actual !== null && $actual > $expected,
-            '<'      => $actual !== null && $actual < $expected,
-            '>='     => $actual !== null && $actual >= $expected,
-            '<='     => $actual !== null && $actual <= $expected,
-            'in'     => is_array($expected) && in_array($actual, $expected),
-            'not_in' => is_array($expected) && !in_array($actual, $expected),
-            default  => false,
+            '=' => $actual == $expected,
+            '!=' => $actual != $expected,
+            '>' => $actual !== null && $actual > $expected,
+            '<' => $actual !== null && $actual < $expected,
+            '>=' => $actual !== null && $actual >= $expected,
+            '<=' => $actual !== null && $actual <= $expected,
+            'in' => is_array($expected) && in_array($actual, $expected),
+            'not_in' => is_array($expected) && ! in_array($actual, $expected),
+            default => false,
         };
     }
 }

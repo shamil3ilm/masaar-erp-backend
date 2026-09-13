@@ -1,17 +1,16 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Inventory\BatchClassificationController;
-use App\Http\Controllers\Api\V1\Inventory\SplitValuationController;
 use App\Http\Controllers\Api\V1\Inventory\BatchWhereUsedController;
 use App\Http\Controllers\Api\V1\Inventory\CategoryController;
-use App\Http\Controllers\Api\V1\Inventory\CycleCountController;
 use App\Http\Controllers\Api\V1\Inventory\CrossDockingController;
+use App\Http\Controllers\Api\V1\Inventory\CycleCountController;
 use App\Http\Controllers\Api\V1\Inventory\GoodsIssueController;
 use App\Http\Controllers\Api\V1\Inventory\HazmatController;
 use App\Http\Controllers\Api\V1\Inventory\MovementTypeController;
-use App\Http\Controllers\Api\V1\Inventory\PickingListController;
 use App\Http\Controllers\Api\V1\Inventory\ProductController;
 use App\Http\Controllers\Api\V1\Inventory\SerialNumberController;
+use App\Http\Controllers\Api\V1\Inventory\SplitValuationController;
 use App\Http\Controllers\Api\V1\Inventory\StockAdjustmentController;
 use App\Http\Controllers\Api\V1\Inventory\StockController;
 use App\Http\Controllers\Api\V1\Inventory\StockTransferController;
@@ -288,20 +287,6 @@ Route::middleware(['auth:api'])->group(function () {
         ->name('inventory.serial-numbers.scrap')->middleware('check.permission:inventory.serial-numbers.manage');
     Route::get('serial-numbers/{serialNumber}/history', [SerialNumberController::class, 'history'])
         ->name('inventory.serial-numbers.history')->middleware('check.permission:inventory.serial-numbers.view');
-
-    /*
-    |--------------------------------------------------------------------------
-    | Picking Lists (SAP LT0A / LT01 — warehouse picking)
-    | Standalone picking list view per warehouse / source document.
-    | Full wave-based picking is available under /inventory/warehouse-mgmt.
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('picking-lists')->name('inventory.picking-lists.')->group(function () {
-        Route::get('/', [PickingListController::class, 'index'])->middleware('check.permission:inventory.picking-lists.view')->name('index');
-        Route::post('/', [PickingListController::class, 'store'])->middleware('check.permission:inventory.picking-lists.create')->name('store');
-        Route::get('{uuid}', [PickingListController::class, 'show'])->middleware('check.permission:inventory.picking-lists.view')->name('show');
-        Route::post('{uuid}/confirm', [PickingListController::class, 'confirmPick'])->middleware('check.permission:inventory.picking-lists.pick')->name('confirm');
-    });
 
     /*
     |--------------------------------------------------------------------------

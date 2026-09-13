@@ -22,9 +22,9 @@ class FraudRuleEngine
      * Severity ordering for comparison purposes.
      */
     private const SEVERITY_ORDER = [
-        FraudRule::LOW      => 1,
-        FraudRule::MEDIUM   => 2,
-        FraudRule::HIGH     => 3,
+        FraudRule::LOW => 1,
+        FraudRule::MEDIUM => 2,
+        FraudRule::HIGH => 3,
         FraudRule::CRITICAL => 4,
     ];
 
@@ -42,10 +42,10 @@ class FraudRuleEngine
             return $this->runEvaluation($entityType, $entityData, $organizationId);
         } catch (\Throwable $e) {
             Log::error('FraudRuleEngine evaluation failed — returning safe non-flagged result', [
-                'entity_type'     => $entityType,
+                'entity_type' => $entityType,
                 'organization_id' => $organizationId,
-                'error'           => $e->getMessage(),
-                'trace'           => $e->getTraceAsString(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return EvaluationResult::noFlag();
@@ -60,21 +60,21 @@ class FraudRuleEngine
             ->where('entity_type', $entityType)
             ->get();
 
-        $triggeredRules  = [];
-        $totalScore      = 0;
-        $shouldBlock     = false;
+        $triggeredRules = [];
+        $totalScore = 0;
+        $shouldBlock = false;
         $highestSeverity = FraudRule::LOW;
 
         foreach ($rules as $rule) {
-            if (!$this->ruleMatches($rule, $entityData, $organizationId)) {
+            if (! $this->ruleMatches($rule, $entityData, $organizationId)) {
                 continue;
             }
 
             $triggeredRules[] = [
-                'rule_id'   => $rule->id,
+                'rule_id' => $rule->id,
                 'rule_name' => $rule->name,
-                'score'     => $rule->score_impact,
-                'severity'  => $rule->severity,
+                'score' => $rule->score_impact,
+                'severity' => $rule->severity,
             ];
 
             $totalScore += $rule->score_impact;
@@ -95,11 +95,11 @@ class FraudRuleEngine
         }
 
         return new EvaluationResult(
-            flagged:         $flagged,
-            totalScore:      $totalScore,
-            triggeredRules:  $triggeredRules,
+            flagged: $flagged,
+            totalScore: $totalScore,
+            triggeredRules: $triggeredRules,
             highestSeverity: $highestSeverity,
-            shouldBlock:     $shouldBlock,
+            shouldBlock: $shouldBlock,
         );
     }
 
@@ -109,12 +109,12 @@ class FraudRuleEngine
     private function ruleMatches(FraudRule $rule, array $entityData, int $organizationId): bool
     {
         return match ($rule->rule_type) {
-            FraudRule::VELOCITY   => $this->evaluateVelocity($rule, $entityData, $organizationId),
-            FraudRule::AMOUNT     => $this->evaluateAmount($rule, $entityData),
-            FraudRule::PATTERN    => $this->evaluatePattern($rule, $entityData, $organizationId),
+            FraudRule::VELOCITY => $this->evaluateVelocity($rule, $entityData, $organizationId),
+            FraudRule::AMOUNT => $this->evaluateAmount($rule, $entityData),
+            FraudRule::PATTERN => $this->evaluatePattern($rule, $entityData, $organizationId),
             FraudRule::BEHAVIORAL => $this->evaluateBehavioral($rule, $entityData, $organizationId),
             FraudRule::GEOGRAPHIC => $this->evaluateGeographic($rule, $entityData),
-            default               => false,
+            default => false,
         };
     }
 
@@ -124,10 +124,10 @@ class FraudRuleEngine
     // -------------------------------------------------------------------------
     private function evaluateVelocity(FraudRule $rule, array $entityData, int $organizationId): bool
     {
-        $conditions    = $rule->conditions;
-        $metric        = $conditions['metric'] ?? null;
+        $conditions = $rule->conditions;
+        $metric = $conditions['metric'] ?? null;
         $windowMinutes = (int) ($conditions['window_minutes'] ?? 60);
-        $threshold     = (int) ($conditions['threshold'] ?? 10);
+        $threshold = (int) ($conditions['threshold'] ?? 10);
 
         if ($metric === null) {
             return false;
@@ -152,10 +152,11 @@ class FraudRuleEngine
                 ->where('created_at', '>=', $since)
                 ->count(),
 
+            // login_attempts timestamps the attempt, and has no created_at.
             'failed_login_count' => DB::table('login_attempts')
                 ->where('email', $entityData['email'] ?? '')
                 ->where('successful', false)
-                ->where('created_at', '>=', $since)
+                ->where('attempted_at', '>=', $since)
                 ->count(),
 
             default => 0,
@@ -171,18 +172,18 @@ class FraudRuleEngine
     private function evaluateAmount(FraudRule $rule, array $entityData): bool
     {
         $conditions = $rule->conditions;
-        $field      = $conditions['field'] ?? 'total';
-        $operator   = $conditions['operator'] ?? '>=';
-        $threshold  = (float) ($conditions['value'] ?? 0);
+        $field = $conditions['field'] ?? 'total';
+        $operator = $conditions['operator'] ?? '>=';
+        $threshold = (float) ($conditions['value'] ?? 0);
 
         $fieldValue = (float) ($entityData[$field] ?? 0);
 
         return match ($operator) {
-            '>='    => $fieldValue >= $threshold,
-            '>'     => $fieldValue > $threshold,
-            '='     => $fieldValue === $threshold,
-            '<='    => $fieldValue <= $threshold,
-            '<'     => $fieldValue < $threshold,
+            '>=' => $fieldValue >= $threshold,
+            '>' => $fieldValue > $threshold,
+            '=' => $fieldValue === $threshold,
+            '<=' => $fieldValue <= $threshold,
+            '<' => $fieldValue < $threshold,
             default => false,
         };
     }
@@ -194,21 +195,21 @@ class FraudRuleEngine
     private function evaluatePattern(FraudRule $rule, array $entityData, int $organizationId): bool
     {
         $conditions = $rule->conditions;
-        $pattern    = $conditions['pattern'] ?? null;
+        $pattern = $conditions['pattern'] ?? null;
 
         return match ($pattern) {
-            'structuring'  => $this->detectStructuring($conditions, $entityData, $organizationId),
+            'structuring' => $this->detectStructuring($conditions, $entityData, $organizationId),
             'rapid_payment' => $this->detectRapidPayment($conditions, $entityData, $organizationId),
             'round_amount' => $this->detectRoundAmount($conditions, $entityData),
-            default        => false,
+            default => false,
         };
     }
 
     private function detectStructuring(array $conditions, array $entityData, int $organizationId): bool
     {
-        $threshold  = (float) ($conditions['threshold'] ?? 9000);
+        $threshold = (float) ($conditions['threshold'] ?? 9000);
         $windowDays = (int) ($conditions['window_days'] ?? 7);
-        $contactId  = (int) ($entityData['contact_id'] ?? 0);
+        $contactId = (int) ($entityData['contact_id'] ?? 0);
 
         if ($contactId === 0) {
             return false;
@@ -232,7 +233,7 @@ class FraudRuleEngine
     private function detectRapidPayment(array $conditions, array $entityData, int $organizationId): bool
     {
         $minAmount = (float) ($conditions['min_amount'] ?? 0);
-        $amount    = (float) ($entityData['amount'] ?? 0);
+        $amount = (float) ($entityData['amount'] ?? 0);
         $contactId = (int) ($entityData['contact_id'] ?? 0);
 
         if ($amount < $minAmount || $contactId === 0) {
@@ -252,7 +253,7 @@ class FraudRuleEngine
     private function detectRoundAmount(array $conditions, array $entityData): bool
     {
         $minAmount = (float) ($conditions['min_amount'] ?? 10000);
-        $amount    = (float) ($entityData['amount'] ?? $entityData['total'] ?? 0);
+        $amount = (float) ($entityData['amount'] ?? $entityData['total'] ?? 0);
 
         if ($amount < $minAmount) {
             return false;
@@ -271,15 +272,15 @@ class FraudRuleEngine
         $behavior = $rule->conditions['behavior'] ?? null;
 
         return match ($behavior) {
-            'new_ip_login'                  => $this->detectNewIpLogin($entityData),
-            'high_value_after_info_change'  => $this->detectHighValueAfterInfoChange($entityData, $organizationId),
-            default                         => false,
+            'new_ip_login' => $this->detectNewIpLogin($entityData),
+            'high_value_after_info_change' => $this->detectHighValueAfterInfoChange($entityData, $organizationId),
+            default => false,
         };
     }
 
     private function detectNewIpLogin(array $entityData): bool
     {
-        $userId    = (int) ($entityData['user_id'] ?? 0);
+        $userId = (int) ($entityData['user_id'] ?? 0);
         $ipAddress = $entityData['ip_address'] ?? null;
 
         if ($userId === 0 || $ipAddress === null) {
@@ -295,13 +296,13 @@ class FraudRuleEngine
             ->where('created_at', '>=', $since)
             ->exists();
 
-        return !$seen;
+        return ! $seen;
     }
 
     private function detectHighValueAfterInfoChange(array $entityData, int $organizationId): bool
     {
-        $userId    = (int) ($entityData['user_id'] ?? 0);
-        $amount    = (float) ($entityData['amount'] ?? $entityData['total'] ?? 0);
+        $userId = (int) ($entityData['user_id'] ?? 0);
+        $amount = (float) ($entityData['amount'] ?? $entityData['total'] ?? 0);
         $threshold = 10000.0;
 
         if ($userId === 0 || $amount < $threshold) {
@@ -325,9 +326,9 @@ class FraudRuleEngine
     // -------------------------------------------------------------------------
     private function evaluateGeographic(FraudRule $rule, array $entityData): bool
     {
-        $conditions      = $rule->conditions;
+        $conditions = $rule->conditions;
         $allowedCountries = $conditions['allowed_countries'] ?? null;
-        $blockHighRisk   = (bool) ($conditions['block_high_risk'] ?? false);
+        $blockHighRisk = (bool) ($conditions['block_high_risk'] ?? false);
 
         $country = $entityData['country_code'] ?? $entityData['billing_country_code'] ?? null;
 
@@ -345,7 +346,7 @@ class FraudRuleEngine
             return true;
         }
 
-        if ($allowedCountries !== null && !in_array($country, $allowedCountries, true)) {
+        if ($allowedCountries !== null && ! in_array($country, $allowedCountries, true)) {
             return true;
         }
 
@@ -356,33 +357,33 @@ class FraudRuleEngine
     // Alert persistence
     // -------------------------------------------------------------------------
     private function persistAlerts(
-        array  $triggeredRules,
+        array $triggeredRules,
         string $entityType,
-        array  $entityData,
-        int    $organizationId,
+        array $entityData,
+        int $organizationId,
         string $highestSeverity,
-        int    $totalScore
+        int $totalScore
     ): void {
         foreach ($triggeredRules as $triggered) {
             try {
                 /** @var FraudAlert $alert */
                 $alert = FraudAlert::create([
                     'organization_id' => $organizationId,
-                    'fraud_rule_id'   => $triggered['rule_id'],
-                    'entity_type'     => $entityType,
-                    'entity_id'       => (int) ($entityData['id'] ?? 0),
-                    'entity_uuid'     => $entityData['uuid'] ?? null,
-                    'user_id'         => $entityData['user_id'] ?? null,
-                    'contact_id'      => $entityData['contact_id'] ?? null,
-                    'severity'        => $triggered['severity'],
-                    'status'          => FraudAlert::OPEN,
-                    'fraud_score'     => $triggered['score'],
-                    'evidence'        => array_filter([
-                        'entity_data'      => $entityData,
-                        'total_score'      => $totalScore,
+                    'fraud_rule_id' => $triggered['rule_id'],
+                    'entity_type' => $entityType,
+                    'entity_id' => (int) ($entityData['id'] ?? 0),
+                    'entity_uuid' => $entityData['uuid'] ?? null,
+                    'user_id' => $entityData['user_id'] ?? null,
+                    'contact_id' => $entityData['contact_id'] ?? null,
+                    'severity' => $triggered['severity'],
+                    'status' => FraudAlert::OPEN,
+                    'fraud_score' => $triggered['score'],
+                    'evidence' => array_filter([
+                        'entity_data' => $entityData,
+                        'total_score' => $totalScore,
                         'highest_severity' => $highestSeverity,
                     ]),
-                    'ip_address'      => $entityData['ip_address'] ?? null,
+                    'ip_address' => $entityData['ip_address'] ?? null,
                 ]);
 
                 // Notify admins for HIGH or CRITICAL alerts
@@ -392,14 +393,14 @@ class FraudRuleEngine
                     } catch (\Throwable $e) {
                         Log::warning('Failed to notify admins of fraud alert', [
                             'alert_id' => $alert->id,
-                            'error'    => $e->getMessage(),
+                            'error' => $e->getMessage(),
                         ]);
                     }
                 }
             } catch (\Throwable $e) {
                 Log::error('Failed to persist fraud alert', [
                     'rule_id' => $triggered['rule_id'],
-                    'error'   => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }

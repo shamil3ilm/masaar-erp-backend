@@ -16,7 +16,7 @@ use RecursiveIteratorIterator;
  * carrying organization_id sits outside the isolation guarantee and is correct
  * only for as long as whoever wrote it remembered a where.
  *
- * 770 of the tables carry organization_id. Twenty-eight files query one
+ * 770 of the tables carry organization_id. Twenty-seven files query one
  * directly, and most are right to: a platform dashboard spans tenants by
  * definition, an audit-log cleanup runs across all of them, and hydrating
  * models to produce a COUNT is waste.
@@ -26,7 +26,7 @@ use RecursiveIteratorIterator;
  * ratchet: the assertion is equality, so adding a raw tenant query fails the
  * build until the file is listed, and removing one fails until it is delisted.
  *
- * What this deliberately does not claim is that the twenty-eight are safe.
+ * What this deliberately does not claim is that the twenty-seven are safe.
  * Telling a genuine cross-tenant read from a find() on an id the surrounding
  * code already scoped needs reading the code, not a pattern - an earlier
  * attempt to classify them automatically produced false positives on exactly
@@ -49,7 +49,6 @@ class RawTenantQueryTest extends TestCase
         'Console/Commands/CleanupAuditLogs.php',
         'Http/Controllers/Api/V1/Core/SensitiveAccessController.php',
         'Http/Controllers/Api/V1/Core/UserEventsController.php',
-        'Http/Controllers/Api/V1/Inventory/PickingListController.php',
         'Services/Accounting/AgingReportService.php',
         'Services/Accounting/AssessmentCycleService.php',
         'Services/Accounting/CopaService.php',
@@ -107,7 +106,7 @@ class RawTenantQueryTest extends TestCase
         $this->assertSame($expected, $found, sprintf(
             "The set of files raw-querying a tenant table has changed.\n"
             ."New ones bypass BelongsToOrganization's global scope, so isolation "
-            ."there depends on a where somebody has to remember. Use the model, or "
+            .'there depends on a where somebody has to remember. Use the model, or '
             ."add the file to DECLARED and say why.\nAdded: %s\nGone: %s",
             implode(', ', array_diff($found, $expected)) ?: 'none',
             implode(', ', array_diff($expected, $found)) ?: 'none'

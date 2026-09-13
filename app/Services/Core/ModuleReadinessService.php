@@ -31,15 +31,15 @@ class ModuleReadinessService
      */
     public function runChecks(int $organizationId, string $module, int $userId): array
     {
-        $checks   = $this->executeChecksForModule($organizationId, $module);
-        $overall  = $this->deriveOverallStatus($checks);
+        $checks = $this->executeChecksForModule($organizationId, $module);
+        $overall = $this->deriveOverallStatus($checks);
         $savedResult = $this->saveResult($organizationId, $module, $checks, $userId);
 
         return [
             'overall_status' => $overall,
-            'results'        => $checks,
-            'result_id'      => $savedResult->uuid,
-            'run_at'         => $savedResult->run_at,
+            'results' => $checks,
+            'result_id' => $savedResult->uuid,
+            'run_at' => $savedResult->run_at,
         ];
     }
 
@@ -78,13 +78,13 @@ class ModuleReadinessService
         $overall = $this->deriveOverallStatus($results);
 
         return ModuleReadinessResult::create([
-            'uuid'            => (string) Str::uuid(),
+            'uuid' => (string) Str::uuid(),
             'organization_id' => $organizationId,
-            'module'          => $module,
-            'run_by'          => $userId,
-            'run_at'          => Carbon::now(),
-            'overall_status'  => $overall,
-            'results'         => $results,
+            'module' => $module,
+            'run_by' => $userId,
+            'run_at' => Carbon::now(),
+            'overall_status' => $overall,
+            'results' => $results,
         ]);
     }
 
@@ -100,13 +100,13 @@ class ModuleReadinessService
     private function executeChecksForModule(int $organizationId, string $module): array
     {
         return match ($module) {
-            'accounting'    => $this->checkAccounting($organizationId),
-            'hr'            => $this->checkHr($organizationId),
-            'inventory'     => $this->checkInventory($organizationId),
-            'sales'         => $this->checkSales($organizationId),
-            'purchase'      => $this->checkPurchase($organizationId),
+            'accounting' => $this->checkAccounting($organizationId),
+            'hr' => $this->checkHr($organizationId),
+            'inventory' => $this->checkInventory($organizationId),
+            'sales' => $this->checkSales($organizationId),
+            'purchase' => $this->checkPurchase($organizationId),
             'manufacturing' => $this->checkManufacturing($organizationId),
-            default         => [],
+            default => [],
         };
     }
 
@@ -172,14 +172,17 @@ class ModuleReadinessService
             ? $this->pass('has_bank_account', 'At least one bank account is configured.', $bankAccountCount)
             : $this->warning('has_bank_account', 'No bank accounts configured. Bank reconciliation will not be available.', 0);
 
-        // opening_balances_entered — proxy: any journal entry of type 'opening'
-        $openingEntries = DB::table('journal_entries')
-            ->where('organization_id', $organizationId)
-            ->where('type', 'opening')
+        // Opening balances are their own table, keyed by account. They were
+        // read as journal entries of type 'opening', but journal_entries has
+        // no type column and its source_type holds a model class name, so the
+        // check reported none however many had been entered.
+        $openingEntries = DB::table('account_opening_balances')
+            ->join('chart_of_accounts', 'chart_of_accounts.id', '=', 'account_opening_balances.account_id')
+            ->where('chart_of_accounts.organization_id', $organizationId)
             ->count();
         $results[] = $openingEntries > 0
             ? $this->pass('opening_balances_entered', 'Opening balances have been entered.', $openingEntries)
-            : $this->warning('opening_balances_entered', 'No opening balance journal entries found.', 0);
+            : $this->warning('opening_balances_entered', 'No opening balances found.', 0);
 
         return $results;
     }
