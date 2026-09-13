@@ -19,7 +19,7 @@ use Illuminate\Notifications\Notifiable;
 
 class Contact extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes, Notifiable, DispatchesWebhooks;
+    use BelongsToOrganization, DispatchesWebhooks, HasAuditTrail, HasFactory, HasUuid, Notifiable, SoftDeletes;
 
     /**
      * Route notifications for mail channel (contact email).
@@ -31,7 +31,9 @@ class Contact extends Model
     }
 
     public const TYPE_CUSTOMER = 'customer';
+
     public const TYPE_SUPPLIER = 'supplier';
+
     public const TYPE_BOTH = 'both';
 
     protected $fillable = [
@@ -69,6 +71,10 @@ class Contact extends Model
         'created_by',
     ];
 
+    protected $hidden = [
+        'tax_number_hash',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -78,6 +84,30 @@ class Contact extends Model
             'payment_block' => 'boolean',
             'tax_number' => 'encrypted',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Contact $contact): void {
+            if ($contact->isDirty('tax_number')) {
+                $contact->tax_number_hash = static::taxNumberHash($contact->tax_number);
+            }
+        });
+    }
+
+    /**
+     * Keyed hash of a tax number, for matching without decrypting.
+     *
+     * tax_number is encrypted with a fresh IV on every write, so neither an
+     * equality nor a LIKE on it can ever match. Spaces, dashes and case are
+     * dropped before hashing, so "300-000 000" and "300000000" are the same
+     * number. Returns null when nothing is left to hash.
+     */
+    public static function taxNumberHash(?string $value): ?string
+    {
+        $normalised = strtoupper((string) preg_replace('/[\s\-]+/', '', (string) $value));
+
+        return $normalised === '' ? null : hash_hmac('sha256', $normalised, (string) config('app.key'));
     }
 
     /**
@@ -203,7 +233,7 @@ class Contact extends Model
      */
     public function isOverCreditLimit(): bool
     {
-        if (!$this->credit_limit || $this->credit_limit <= 0) {
+        if (! $this->credit_limit || $this->credit_limit <= 0) {
             return false;
         }
 
@@ -215,7 +245,7 @@ class Contact extends Model
      */
     public function getAvailableCredit(): float
     {
-        if (!$this->credit_limit || $this->credit_limit <= 0) {
+        if (! $this->credit_limit || $this->credit_limit <= 0) {
             return PHP_FLOAT_MAX;
         }
 
@@ -244,7 +274,10 @@ class Contact extends Model
                 ->orWhere('contact_name', 'like', "%{$term}%")
                 ->orWhere('email', 'like', "%{$term}%")
                 ->orWhere('phone', 'like', "%{$term}%")
-                ->orWhere('tax_number', 'like', "%{$term}%");
+                // Exact match only: the stored value is ciphertext. A term that
+                // hashes to nothing must add no clause, or where(col, null)
+                // becomes whereNull and matches every contact without one.
+                ->when(static::taxNumberHash($term), fn ($q, $hash) => $q->orWhere('tax_number_hash', $hash));
         });
     }
 }
