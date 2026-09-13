@@ -6,32 +6,37 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use Throwable;
 
 /**
- * Verify that a webhook came from the compliance platform.
+ * Verify that a webhook came from the compliance platform, and was not replayed.
  *
- * The signature covers the body alone. The timestamp is checked for freshness
- * but is not signed, so anyone holding a captured body and its signature can
- * replay it whenever they like by sending a current timestamp with it — the
- * one-minute tolerance narrows nothing. Signing the timestamp alongside the
- * body is what closes that, and it has to change on both sides at once, so it
- * is a coordinated release rather than an edit here.
+ * The platform signs the raw body, sha256=HMAC(body, secret), and the body
+ * carries the delivery's own id and timestamp - so both are covered by the
+ * signature. The X-Webhook-Timestamp header is not: it is unsigned, and the
+ * platform sends it as ISO-8601 where this used to demand epoch seconds, which
+ * refused every real delivery before its signature was read.
  *
- * What a replay can do is bounded by ZatcaWebhookController, which refuses to
- * move an invoice to a lower-priority status. The exception is a captured
- * invoice.rejected: rejected outranks cleared, so replaying one turns a
- * cleared invoice rejected and no later clearance undoes it.
+ * Freshness is read from the signed timestamp, so a captured request cannot be
+ * sent again later with a current header. Inside the window a replay is caught
+ * by its id: the platform mints a new id for every attempt, retries included,
+ * so an id seen twice is never a genuine delivery. A repeat is acknowledged
+ * rather than refused, because the platform disables a subscription after ten
+ * failed deliveries.
  */
 class VerifyZatcaWebhook
 {
-    private const TIMESTAMP_TOLERANCE_SECONDS = 60; // 1 minute
+    private const TOLERANCE_SECONDS = 300;
 
     public function handle(Request $request, Closure $next): Response
     {
-        $secret = config('zatca-integration.webhook_secret', '');
-        if (empty($secret)) {
+        $secret = (string) config('zatca-integration.webhook_secret', '');
+
+        if ($secret === '') {
             Log::critical('ZATCA webhook secret is not configured', [
                 'ip' => $request->ip(),
             ]);
@@ -39,56 +44,67 @@ class VerifyZatcaWebhook
             return response()->json(['error' => 'Webhook endpoint not configured.'], 503);
         }
 
-        $signature = $request->header('X-Webhook-Signature');
-        $timestamp = $request->header('X-Webhook-Timestamp');
+        $signature = (string) $request->header('X-Webhook-Signature', '');
 
-        if (empty($signature) || empty($timestamp)) {
-            return $this->missingHeaders();
-        }
-
-        if (! $this->isTimestampFresh((string) $timestamp)) {
-            return $this->invalidSignature('Webhook timestamp is stale or invalid');
+        if ($signature === '') {
+            return $this->missingSignature();
         }
 
         $rawBody = $request->getContent();
 
-        if (! $this->isSignatureValid((string) $signature, $rawBody, $secret)) {
-            return $this->invalidSignature('Webhook signature verification failed');
+        if (! hash_equals('sha256='.hash_hmac('sha256', $rawBody, $secret), $signature)) {
+            return $this->refused('Webhook signature verification failed');
+        }
+
+        // Only a verified body is trusted to name a delivery, so nothing
+        // unsigned ever reaches the cache.
+        $body = json_decode($rawBody, true);
+        $id = is_array($body) ? ($body['id'] ?? null) : null;
+
+        if (! is_string($id) || $id === '' || ! $this->isFresh($body['timestamp'] ?? null)) {
+            return $this->refused('Webhook timestamp is stale or invalid');
+        }
+
+        // A timestamp may sit up to the tolerance in the future and still pass,
+        // so the id is remembered for twice the tolerance.
+        if (! Cache::add('zatca-webhook:'.$id, true, self::TOLERANCE_SECONDS * 2)) {
+            Log::warning('ZATCA webhook: repeated delivery ignored', [
+                'delivery_id' => $id,
+            ]);
+
+            return response()->json(['success' => true, 'message' => 'Already processed'], 200);
         }
 
         return $next($request);
     }
 
-    private function isTimestampFresh(string $timestamp): bool
+    private function isFresh(mixed $timestamp): bool
     {
-        if (! ctype_digit($timestamp)) {
+        if (! is_string($timestamp) || $timestamp === '') {
             return false;
         }
 
-        $diff = abs(time() - (int) $timestamp);
+        try {
+            $sent = Carbon::parse($timestamp);
+        } catch (Throwable) {
+            return false;
+        }
 
-        return $diff <= self::TIMESTAMP_TOLERANCE_SECONDS;
+        return abs(now()->getTimestamp() - $sent->getTimestamp()) <= self::TOLERANCE_SECONDS;
     }
 
-    private function isSignatureValid(string $signature, string $rawBody, string $secret): bool
-    {
-        $expected = 'sha256='.hash_hmac('sha256', $rawBody, $secret);
-
-        return hash_equals($expected, $signature);
-    }
-
-    private function missingHeaders(): Response
+    private function missingSignature(): Response
     {
         return response()->json([
             'success' => false,
             'error' => [
-                'code' => 'MISSING_WEBHOOK_HEADERS',
-                'message' => 'Required webhook headers X-Webhook-Signature and X-Webhook-Timestamp are missing',
+                'code' => 'MISSING_WEBHOOK_SIGNATURE',
+                'message' => 'Required webhook header X-Webhook-Signature is missing',
             ],
         ], 400);
     }
 
-    private function invalidSignature(string $message): Response
+    private function refused(string $message): Response
     {
         return response()->json([
             'success' => false,

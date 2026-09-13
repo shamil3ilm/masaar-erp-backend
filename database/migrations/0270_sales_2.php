@@ -477,7 +477,8 @@ return new class extends Migration
             $table->index(['organization_id', 'status']);
             $table->index(['organization_id', 'invoice_date']);
             $table->index(['organization_id', 'due_date', 'status']);
-            $table->index('compliance_uuid');
+            // The compliance webhook finds an invoice by this alone.
+            $table->unique('compliance_uuid');
 
             $table->integer('print_count')->default(0);
             $table->timestamp('last_printed_at')->nullable();
