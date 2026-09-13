@@ -4,33 +4,51 @@ declare(strict_types=1);
 
 namespace App\Models\Core;
 
+use App\Models\Accounting\Account;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\CRM\Lead;
+use App\Models\HR\Employee;
+use App\Models\Inventory\Product;
+use App\Models\Sales\Contact;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class ImportJob extends Model
 {
-    use HasFactory;
     use BelongsToOrganization;
+    use HasFactory;
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_VALIDATING = 'validating';
+
     public const STATUS_PROCESSING = 'processing';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_FAILED = 'failed';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const ENTITY_CUSTOMERS = 'customers';
+
     public const ENTITY_SUPPLIERS = 'suppliers';
+
     public const ENTITY_PRODUCTS = 'products';
+
     public const ENTITY_EMPLOYEES = 'employees';
+
     public const ENTITY_CHART_OF_ACCOUNTS = 'chart_of_accounts';
+
     public const ENTITY_CONTACTS = 'contacts';
+
     public const ENTITY_LEADS = 'leads';
+
     public const ENTITY_JOURNAL_ENTRIES = 'journal_entries';
+
     public const ENTITY_OPENING_BALANCES = 'opening_balances';
 
     protected $fillable = [
@@ -85,19 +103,19 @@ class ImportJob extends Model
             self::ENTITY_CUSTOMERS => [
                 'name' => 'Customers',
                 'module' => 'sales',
-                'model' => \App\Models\Sales\Contact::class,
+                'model' => Contact::class,
                 'required_fields' => ['company_name'],
                 'fields' => [
                     'company_name' => ['label' => 'Company Name', 'required' => true],
                     'contact_name' => ['label' => 'Contact Person', 'required' => false],
                     'email' => ['label' => 'Email', 'required' => false, 'type' => 'email'],
                     'phone' => ['label' => 'Phone', 'required' => false],
-                    'tax_number' => ['label' => 'Tax Number (TRN/GSTIN)', 'required' => false],
+                    'tax_number' => ['label' => 'Tax Number (TRN)', 'required' => false],
                     'billing_address_line_1' => ['label' => 'Billing Address', 'required' => false],
                     'billing_city' => ['label' => 'Billing City', 'required' => false],
                     'billing_state' => ['label' => 'Billing State', 'required' => false],
                     'billing_postal_code' => ['label' => 'Billing Postal Code', 'required' => false],
-                    'billing_country' => ['label' => 'Billing Country', 'required' => false],
+                    'billing_country_code' => ['label' => 'Billing Country (2-letter code, e.g. SA)', 'required' => false],
                     'currency_code' => ['label' => 'Currency', 'required' => false, 'default' => 'SAR'],
                     'payment_terms' => ['label' => 'Payment Terms (days)', 'required' => false, 'type' => 'integer'],
                     'credit_limit' => ['label' => 'Credit Limit', 'required' => false, 'type' => 'decimal'],
@@ -106,18 +124,18 @@ class ImportJob extends Model
             self::ENTITY_SUPPLIERS => [
                 'name' => 'Suppliers',
                 'module' => 'purchase',
-                'model' => \App\Models\Sales\Contact::class,
+                'model' => Contact::class,
                 'required_fields' => ['company_name'],
                 'fields' => [
                     'company_name' => ['label' => 'Company Name', 'required' => true],
                     'contact_name' => ['label' => 'Contact Person', 'required' => false],
                     'email' => ['label' => 'Email', 'required' => false, 'type' => 'email'],
                     'phone' => ['label' => 'Phone', 'required' => false],
-                    'tax_number' => ['label' => 'Tax Number (TRN/GSTIN)', 'required' => false],
+                    'tax_number' => ['label' => 'Tax Number (TRN)', 'required' => false],
                     'billing_address_line_1' => ['label' => 'Address', 'required' => false],
                     'billing_city' => ['label' => 'City', 'required' => false],
                     'billing_state' => ['label' => 'State', 'required' => false],
-                    'billing_country' => ['label' => 'Country', 'required' => false],
+                    'billing_country_code' => ['label' => 'Country (2-letter code, e.g. SA)', 'required' => false],
                     'currency_code' => ['label' => 'Currency', 'required' => false, 'default' => 'SAR'],
                     'payment_terms' => ['label' => 'Payment Terms (days)', 'required' => false, 'type' => 'integer'],
                 ],
@@ -125,7 +143,7 @@ class ImportJob extends Model
             self::ENTITY_PRODUCTS => [
                 'name' => 'Products',
                 'module' => 'inventory',
-                'model' => \App\Models\Inventory\Product::class,
+                'model' => Product::class,
                 'required_fields' => ['name', 'sku'],
                 'fields' => [
                     'sku' => ['label' => 'SKU', 'required' => true],
@@ -146,7 +164,7 @@ class ImportJob extends Model
             self::ENTITY_EMPLOYEES => [
                 'name' => 'Employees',
                 'module' => 'hr',
-                'model' => \App\Models\HR\Employee::class,
+                'model' => Employee::class,
                 'required_fields' => ['first_name', 'last_name', 'email'],
                 'fields' => [
                     'employee_number' => ['label' => 'Employee Number', 'required' => false],
@@ -171,7 +189,7 @@ class ImportJob extends Model
             self::ENTITY_CHART_OF_ACCOUNTS => [
                 'name' => 'Chart of Accounts',
                 'module' => 'accounting',
-                'model' => \App\Models\Accounting\Account::class,
+                'model' => Account::class,
                 'required_fields' => ['code', 'name', 'type'],
                 'fields' => [
                     'code' => ['label' => 'Account Code', 'required' => true],
@@ -186,7 +204,7 @@ class ImportJob extends Model
             self::ENTITY_LEADS => [
                 'name' => 'Leads',
                 'module' => 'crm',
-                'model' => \App\Models\CRM\Lead::class,
+                'model' => Lead::class,
                 'required_fields' => ['company_name'],
                 'fields' => [
                     'company_name' => ['label' => 'Company Name', 'required' => true],

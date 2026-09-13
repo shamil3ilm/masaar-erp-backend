@@ -157,6 +157,57 @@ class ContactTest extends TestCase
         $this->assertNotEmpty($data);
     }
 
+    public function test_can_search_contacts_by_tax_number_however_it_is_formatted(): void
+    {
+        $match = Contact::factory()->create([
+            'organization_id' => $this->organization->id,
+            'tax_number' => '300000000000003',
+        ]);
+        Contact::factory()->create([
+            'organization_id' => $this->organization->id,
+            'tax_number' => '300000000000004',
+        ]);
+
+        $response = $this->apiGet("{$this->baseUrl}?search=300-000000-000003");
+
+        $this->assertPaginatedResponse($response);
+        $this->assertSame([$match->id], array_column($response->json('data'), 'id'));
+    }
+
+    public function test_a_search_term_with_no_tax_digits_does_not_match_contacts_without_a_tax_number(): void
+    {
+        Contact::factory()->create([
+            'organization_id' => $this->organization->id,
+            'company_name' => 'Gamma LLC',
+            'contact_name' => 'Gamma',
+            'email' => 'gamma@example.com',
+            'phone' => '0500000000',
+            'tax_number' => null,
+        ]);
+
+        // "---" hashes to nothing. A null there would become whereNull and
+        // return every contact that has no tax number.
+        $response = $this->apiGet("{$this->baseUrl}?search=---");
+
+        $this->assertPaginatedResponse($response);
+        $this->assertSame([], $response->json('data'));
+    }
+
+    public function test_the_tax_number_hash_is_set_on_save_and_never_serialised(): void
+    {
+        $contact = Contact::factory()->create([
+            'organization_id' => $this->organization->id,
+            'tax_number' => '300 000 000 000 003',
+        ]);
+
+        $this->assertSame(Contact::taxNumberHash('300000000000003'), $contact->fresh()->tax_number_hash);
+        $this->assertArrayNotHasKey('tax_number_hash', $contact->fresh()->toArray());
+
+        $contact->update(['tax_number' => null]);
+
+        $this->assertNull($contact->fresh()->tax_number_hash);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Create Contact

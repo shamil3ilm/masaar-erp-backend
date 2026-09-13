@@ -465,10 +465,14 @@ return new class extends Migration
             $table->string('website', 255)->nullable();
 
             // Tax info
-            // TRN for GCC, GSTIN for India.
+            // TRN for GCC.
             // Encrypted by the model. Ciphertext is 200 characters at its shortest,
             // so the column is sized for the ciphertext, not the value.
             $table->text('tax_number')->nullable();
+            // Keyed HMAC of the normalised tax number, set by the model. The
+            // ciphertext differs on every write, so search and duplicate
+            // detection match on this instead.
+            $table->string('tax_number_hash', 64)->nullable();
             $table->string('tax_registration_name', 200)->nullable();
 
             // Financial terms
@@ -505,6 +509,7 @@ return new class extends Migration
 
             $table->index(['organization_id', 'contact_type']);
             $table->index(['organization_id', 'company_name']);
+            $table->index(['organization_id', 'tax_number_hash']);
 
             $table->foreignId('customer_group_id')->nullable()
                 ->constrained()->nullOnDelete();
