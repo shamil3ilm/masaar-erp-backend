@@ -41,6 +41,16 @@ class SalaryStructure extends Model
         return $this->hasMany(SalaryStructureComponent::class);
     }
 
+    /**
+     * The component that carries basic pay, or null if the structure has none.
+     */
+    public function basicComponent(): ?SalaryComponent
+    {
+        return $this->components()->with('salaryComponent')->get()
+            ->first(fn ($c) => $c->salaryComponent?->category === SalaryComponent::CATEGORY_BASIC)
+            ?->salaryComponent;
+    }
+
     public function employeeSalaries(): HasMany
     {
         return $this->hasMany(EmployeeSalary::class);
