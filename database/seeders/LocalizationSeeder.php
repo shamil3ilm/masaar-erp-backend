@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Models\Core\DashboardWidget;
 use App\Models\Core\Language;
-use App\Models\Core\SubscriptionPlan;
 use App\Models\Core\Translation;
 use Illuminate\Database\Seeder;
 
@@ -15,7 +14,6 @@ class LocalizationSeeder extends Seeder
         $this->seedLanguages();
         $this->seedTranslations();
         $this->seedDashboardWidgets();
-        $this->seedSubscriptionPlans();
     }
 
     protected function seedLanguages(): void
@@ -305,19 +303,6 @@ class LocalizationSeeder extends Seeder
             DashboardWidget::updateOrCreate(
                 ['code' => $widget['code']],
                 array_merge($widget, ['sort_order' => $index])
-            );
-        }
-    }
-
-    protected function seedSubscriptionPlans(): void
-    {
-        foreach (SubscriptionPlan::DEFAULT_PLANS as $code => $plan) {
-            SubscriptionPlan::updateOrCreate(
-                ['code' => $code],
-                array_merge($plan, [
-                    'code' => $code,
-                    'currency_code' => 'USD',
-                ])
             );
         }
     }

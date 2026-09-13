@@ -14,8 +14,6 @@
 
 App\Models\Accounting\CopaLineItem (copa_line_items): fiscal_year
 App\Models\Admin\FeatureFlag (feature_flags): config, disabled_at, enabled_at
-App\Models\Core\OrganizationSubscription (organization_subscriptions): addons, billing_cycle, custom_limits, expires_at, external_subscription_id, payment_method, started_at
-App\Models\Core\SubscriptionPlan (subscription_plans): limits, monthly_price, sort_order, storage_gb, yearly_price
 App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
 App\Models\HR\AppraisalReviewer (appraisal_reviewers): organization_id
 App\Models\Projects\ProjectBudgetAvailabilityLog -> no table named project_budget_availability_logs
