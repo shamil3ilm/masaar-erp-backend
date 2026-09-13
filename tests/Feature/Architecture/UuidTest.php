@@ -25,26 +25,11 @@ class UuidTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * These three are the second model on a table that already has one, and
-     * are listed in tests/Fixtures/duplicate-models.txt. Giving a model that
-     * may be about to be deleted a trait is not a fix; resolving the
-     * duplicate is.
-     */
-    private const PENDING_A_DUPLICATE_DECISION = [
-        'App\Models\Core\OrganizationSubscription',
-        'App\Models\Core\SubscriptionPlan',
-    ];
-
     public function test_a_required_uuid_is_always_set(): void
     {
         $missing = [];
 
         foreach ($this->models() as $class) {
-            if (in_array($class, self::PENDING_A_DUPLICATE_DECISION, true)) {
-                continue;
-            }
-
             $table = (new $class)->getTable();
 
             if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'uuid')) {

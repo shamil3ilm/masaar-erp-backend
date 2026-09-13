@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
+use App\Models\Billing\OrganizationSubscription;
+use App\Models\Billing\SubscriptionPlan;
 use App\Models\Core\DashboardLayout;
 use App\Models\Core\DashboardWidget;
-use App\Models\Core\OrganizationSubscription;
 use App\Services\Core\DashboardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -68,8 +69,8 @@ class DashboardController extends Controller
 
         // Check premium access
         if ($widget->is_premium) {
-            $subscription = OrganizationSubscription::getCurrentForOrganization($user->organization_id);
-            if (!$subscription?->hasFeature('dashboard_customization')) {
+            $subscription = OrganizationSubscription::current($user->organization_id);
+            if (!$subscription?->hasFeature(SubscriptionPlan::FEATURE_DASHBOARD_CUSTOMIZATION)) {
                 return $this->forbidden('Premium feature');
             }
         }
@@ -94,8 +95,8 @@ class DashboardController extends Controller
         $module = $request->get('module');
         $category = $request->get('category');
 
-        $subscription = OrganizationSubscription::getCurrentForOrganization($user->organization_id);
-        $includePremium = $subscription?->hasFeature('dashboard_customization') ?? false;
+        $subscription = OrganizationSubscription::current($user->organization_id);
+        $includePremium = $subscription?->hasFeature(SubscriptionPlan::FEATURE_DASHBOARD_CUSTOMIZATION) ?? false;
 
         $query = DashboardWidget::active()->orderBy('sort_order');
 

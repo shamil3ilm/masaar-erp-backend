@@ -1,31 +1,8 @@
 # Tables with more than one Eloquent model.
 #
-# In every case the two disagree about what the table holds, and one of them
-# is wrong: the second model names columns the table does not have, so the
-# code written against it answers 500 while the code on the first one works.
+# Two models on one table disagree about it: one names columns the table has
+# and the other names columns it does not, so the code on one works and the
+# code on the other answers 500.
 #
-# Both misfits are listed in tests/Fixtures/model-columns.txt as well.
-# Resolving the duplicate resolves the phantom columns with it.
-#
-# Which model survives is a decision per table, not a rename. A ratchet: the
-# list may shrink and may not grow, and the test fails if an entry here has
-# been resolved and not removed.
-#
-# ---------------------------------------------------------------------------
-# Which one fits the table
-# ---------------------------------------------------------------------------
-#
-# Counted against the schema: how many attributes each model declares in
-# $fillable or $casts that the table does not have. In both pairs the Billing
-# model fits exactly and the Core one does not, so the shape of each decision
-# is the same — keep the one that fits and move its users over, or decide the
-# richer model was the intent and build the columns.
-#
-#   organization_subscriptions   Billing fits;  Core misses 7
-#   subscription_plans           Billing fits;  Core misses 5
-#
-# Both pairs share a short class name, so a search for "SubscriptionPlan::"
-# cannot tell them apart.
-
-organization_subscriptions: App\Models\Billing\OrganizationSubscription, App\Models\Core\OrganizationSubscription
-subscription_plans: App\Models\Billing\SubscriptionPlan, App\Models\Core\SubscriptionPlan
+# Every table has one model, so this list is empty. A ratchet: it may not
+# grow, and a table that gains a second model fails the test.

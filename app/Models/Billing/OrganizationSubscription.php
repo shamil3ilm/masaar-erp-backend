@@ -16,6 +16,9 @@ class OrganizationSubscription extends Model
 {
     use HasFactory, HasUuid, BelongsToOrganization;
 
+    public const STATUS_TRIAL = 'trial';
+    public const STATUS_ACTIVE = 'active';
+
     protected $fillable = [
         'organization_id', 'plan_id', 'status', 'starts_at', 'ends_at',
         'trial_ends_at', 'cancelled_at', 'cancellation_reason', 'base_price',
@@ -57,5 +60,26 @@ class OrganizationSubscription extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(BillingInvoice::class, 'subscription_id');
+    }
+
+    /**
+     * The organisation's latest subscription that is active or in trial.
+     */
+    public static function current(int $organizationId): ?self
+    {
+        return static::where('organization_id', $organizationId)
+            ->whereIn('status', [self::STATUS_ACTIVE, self::STATUS_TRIAL])
+            ->with('plan')
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * Granted to this subscription directly, or by its plan.
+     */
+    public function hasFeature(string $featureCode): bool
+    {
+        return in_array($featureCode, $this->enabled_features ?? [], true)
+            || ($this->plan?->hasFeature($featureCode) ?? false);
     }
 }
