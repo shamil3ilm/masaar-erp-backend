@@ -135,68 +135,6 @@ class UserLifecycleService
     }
 
     /**
-     * Track a new session.
-     */
-    public function trackSession(User $user, string $tokenId, string $ipAddress, ?string $userAgent = null): void
-    {
-        DB::table('user_sessions')->insert([
-            'user_id' => $user->id,
-            'token_id' => $tokenId,
-            'ip_address' => $ipAddress,
-            'user_agent' => $userAgent ? substr($userAgent, 0, 500) : null,
-            'device_type' => $this->detectDeviceType($userAgent),
-            'last_activity_at' => now(),
-            'expires_at' => now()->addMinutes(config('jwt.ttl', 60)),
-            'created_at' => now(),
-        ]);
-    }
-
-    /**
-     * Update session activity.
-     */
-    public function updateSessionActivity(string $tokenId): void
-    {
-        DB::table('user_sessions')
-            ->where('token_id', $tokenId)
-            ->update(['last_activity_at' => now()]);
-    }
-
-    /**
-     * Get active sessions for a user.
-     */
-    public function getActiveSessions(User $user): array
-    {
-        return DB::table('user_sessions')
-            ->where('user_id', $user->id)
-            ->where('expires_at', '>', now())
-            ->orderByDesc('last_activity_at')
-            ->get()
-            ->toArray();
-    }
-
-    /**
-     * Terminate a specific session.
-     */
-    public function terminateSession(User $user, string $tokenId): bool
-    {
-        $deleted = DB::table('user_sessions')
-            ->where('user_id', $user->id)
-            ->where('token_id', $tokenId)
-            ->delete();
-
-        if ($deleted) {
-            $this->tokenBlacklistService->blacklistToken(
-                $tokenId,
-                $user->id,
-                'session_terminated',
-                now()->addMinutes(config('jwt.ttl', 60))->timestamp
-            );
-        }
-
-        return $deleted > 0;
-    }
-
-    /**
      * Complete user onboarding.
      */
     public function completeOnboarding(User $user): void
@@ -243,28 +181,6 @@ class UserLifecycleService
                 'Cannot deactivate or delete the last administrator. Please assign another admin first.'
             );
         }
-    }
-
-    /**
-     * Detect device type from user agent.
-     */
-    protected function detectDeviceType(?string $userAgent): string
-    {
-        if (! $userAgent) {
-            return 'unknown';
-        }
-
-        $userAgent = strtolower($userAgent);
-
-        if (str_contains($userAgent, 'mobile') || str_contains($userAgent, 'android')) {
-            return 'mobile';
-        }
-
-        if (str_contains($userAgent, 'tablet') || str_contains($userAgent, 'ipad')) {
-            return 'tablet';
-        }
-
-        return 'desktop';
     }
 
     /**

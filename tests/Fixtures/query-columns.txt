@@ -20,8 +20,7 @@
 # status, chart_of_accounts has account_type and no type, user_sessions has
 # neither token_id nor expires_at.
 #
-# What is left is the India tax module, which is parked, and the dead
-# UserLifecycleService session methods nothing calls.
+# What is left is the India tax module, which is parked.
 #
 # A ratchet, not an approval. The list may shrink and may not grow, and the
 # test fails if an entry here has been fixed and not removed.
@@ -31,9 +30,6 @@ app/Http/Controllers/Api/V1/Tax/GstReturnController.php:33  gst_returns.period_y
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:33  tds_configurations.is_active
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.status
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.transaction_date
-app/Services/Core/UserLifecycleService.php:159  user_sessions.token_id
-app/Services/Core/UserLifecycleService.php:169  user_sessions.expires_at
-app/Services/Core/UserLifecycleService.php:182  user_sessions.token_id
 app/Services/Purchase/PaymentMadeService.php:58  tds_configurations.section_code
 app/Services/Tax/Gstr9ReturnService.php:229  gstr1_returns.gstin
 app/Services/Tax/Gstr9ReturnService.php:255  gstr3b_returns.gstin
