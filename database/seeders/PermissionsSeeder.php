@@ -778,10 +778,6 @@ class PermissionsSeeder extends Seeder
                 'tax.determination-rules.manage' => 'Manage Determination Rules',
                 'tax.vat.view' => 'View VAT Compliance',
                 'tax.vat.manage' => 'Manage VAT Returns',
-                'tax.gst.view' => 'View GST Compliance',
-                'tax.gst.manage' => 'Manage GST Returns',
-                'tax.tds.view' => 'View TDS Compliance',
-                'tax.tds.manage' => 'Manage TDS Returns',
             ],
             'compliance' => [
                 'compliance.process-control.view' => 'View Process Controls',

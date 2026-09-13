@@ -35,7 +35,7 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
         // Compliance / ZATCA onboarding routes (core, always available)
         require __DIR__.'/api/v1/compliance.php';
 
-        // Tax Compliance — GCC VAT Returns, India GST, India TDS/TCS
+        // Tax Compliance — GCC VAT Returns
         require __DIR__.'/api/v1/tax-compliance.php';
 
         // Tax Determination Rules — configurable rules engine (TAXINJ/TAXINN equivalent)

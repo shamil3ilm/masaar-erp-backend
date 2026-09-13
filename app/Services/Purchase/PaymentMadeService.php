@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Purchase;
 
+use App\Models\Accounting\JournalEntry;
 use App\Models\Purchase\Bill;
 use App\Models\Purchase\BillPaymentAllocation;
 use App\Models\Purchase\PaymentMade;
 use App\Models\Purchase\SupplierCredit;
-use App\Models\Tax\TdsConfiguration;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
-use App\Services\Tax\TdsService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -21,8 +20,7 @@ class PaymentMadeService
     public function __construct(
         private JournalService $journalService,
         private JournalEntryFactory $journalEntryFactory,
-        private NumberGeneratorService $numberGenerator,
-        private TdsService $tdsService
+        private NumberGeneratorService $numberGenerator
     ) {}
 
     /**
@@ -45,87 +43,11 @@ class PaymentMadeService
                 4
             );
 
-            // --- TDS auto-deduction (India-specific, SAP-style withholding tax) ---
-            // TDS applies when: the organisation has TDS configured AND either
-            //   (a) the caller explicitly supplies a tds_section_code in $data, or
-            //   (b) the supplier record carries a tds_section_code (stored in $data by the controller).
-            $tdsDeduction = null;
-            $tdsSectionCode = $data['tds_section_code'] ?? null;
-            $tdsDeducteeType = $data['tds_deductee_type'] ?? 'vendor';
-
-            if ($tdsSectionCode !== null) {
-                $orgId = $data['organization_id'] ?? auth()->user()?->organization_id;
-                $tdsConfig = TdsConfiguration::where('organization_id', $orgId)
-                    ->where('section_code', $tdsSectionCode)
-                    ->first();
-
-                if ($tdsConfig !== null) {
-                    try {
-                        $hasPan = !empty($data['supplier_pan']);
-                        $tdsCalc = $this->tdsService->calculateTds(
-                            deducteeType: $tdsDeducteeType,
-                            paymentAmount: (float) $data['amount'],
-                            sectionCode: $tdsSectionCode,
-                            hasPan: $hasPan
-                        );
-
-                        if (!$tdsCalc['below_threshold'] && $tdsCalc['net_tds'] > 0) {
-                            // Reduce the net payment by the TDS amount
-                            $netPayable = bcsub(
-                                (string) $data['amount'],
-                                (string) $tdsCalc['net_tds'],
-                                4
-                            );
-                            if (bccomp($netPayable, '0', 4) < 0) {
-                                throw new \InvalidArgumentException('TDS deduction cannot exceed payment amount.');
-                            }
-                            $data['tds_amount'] = $tdsCalc['net_tds'];
-                            $data['tds_section_id'] = $tdsCalc['section_id'] ?? null;
-                            $data['net_payable_amount'] = (float) $netPayable;
-
-                            // Will be recorded after the payment row is persisted (needs source_id).
-                            $tdsDeduction = $tdsCalc;
-                        }
-                    } catch (\Throwable $e) {
-                        // TDS section not found or misconfigured — log and continue without deduction.
-                        Log::warning('TDS auto-deduction skipped', [
-                            'section_code' => $tdsSectionCode,
-                            'error'        => $e->getMessage(),
-                        ]);
-                    }
-                }
-            }
-
-            // Remove non-fillable TDS helper keys before persisting
+            // India TDS withholding went with the India tax module. A caller
+            // may still send these keys; they are not columns.
             unset($data['tds_section_code'], $data['tds_deductee_type'], $data['supplier_pan']);
 
             $payment = PaymentMade::create($data);
-
-            // Record TDS deduction entry now that we have the payment ID.
-            if ($tdsDeduction !== null) {
-                try {
-                    $this->tdsService->recordDeduction([
-                        'organization_id' => $payment->organization_id,
-                        'deductee_type'   => $tdsDeducteeType,
-                        'deductee_id'     => $payment->supplier_id,
-                        'section_id'      => $tdsDeduction['section_id'],
-                        'payment_date'    => $payment->payment_date->toDateString(),
-                        'payment_amount'  => (float) $payment->amount,
-                        'tds_rate'        => $tdsDeduction['tds_rate'],
-                        'tds_amount'      => $tdsDeduction['tds_amount'],
-                        'surcharge'       => $tdsDeduction['surcharge'],
-                        'education_cess'  => $tdsDeduction['education_cess'],
-                        'net_tds'         => $tdsDeduction['net_tds'],
-                        'source_type'     => PaymentMade::class,
-                        'source_id'       => $payment->id,
-                    ]);
-                } catch (\Throwable $e) {
-                    Log::warning('TDS deduction record failed after payment creation', [
-                        'payment_id' => $payment->id,
-                        'error'      => $e->getMessage(),
-                    ]);
-                }
-            }
 
             $totalAllocated = 0;
             $orgId = $data['organization_id'] ?? ($payment->organization_id ?? null);
@@ -194,7 +116,7 @@ class PaymentMadeService
                 // GL configuration — but log so operators know the journal is absent.
                 Log::error('PaymentMade journal entry creation failed', [
                     'payment_id' => $payment->id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
 
@@ -245,7 +167,7 @@ class PaymentMadeService
 
             $payment->update([
                 'status' => PaymentMade::STATUS_VOIDED,
-                'notes' => $payment->notes . "\n\nVoided: " . $reason,
+                'notes' => $payment->notes."\n\nVoided: ".$reason,
             ]);
 
             return $payment->fresh();
@@ -314,7 +236,7 @@ class PaymentMadeService
     /**
      * Create journal entry for payment.
      */
-    protected function createJournalEntry(PaymentMade $payment): \App\Models\Accounting\JournalEntry
+    protected function createJournalEntry(PaymentMade $payment): JournalEntry
     {
         return $this->journalEntryFactory->forPaymentMade($payment);
     }
@@ -350,8 +272,8 @@ class PaymentMadeService
         $runningBalance = (float) $openingBalance;
 
         $allTransactions = collect()
-            ->merge($bills->map(fn($b) => ['type' => 'bill', 'date' => $b->bill_date, 'data' => $b]))
-            ->merge($payments->map(fn($p) => ['type' => 'payment', 'date' => $p->payment_date, 'data' => $p]))
+            ->merge($bills->map(fn ($b) => ['type' => 'bill', 'date' => $b->bill_date, 'data' => $b]))
+            ->merge($payments->map(fn ($p) => ['type' => 'payment', 'date' => $p->payment_date, 'data' => $p]))
             ->sortBy('date');
 
         foreach ($allTransactions as $transaction) {
@@ -363,7 +285,7 @@ class PaymentMadeService
                     'date' => $bill->bill_date->toDateString(),
                     'type' => 'bill',
                     'number' => $bill->bill_number,
-                    'description' => "Bill",
+                    'description' => 'Bill',
                     'debit' => 0,
                     'credit' => $bill->total,
                     'balance' => $runningBalance,

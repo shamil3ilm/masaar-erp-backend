@@ -9,10 +9,7 @@
 # beside it, and an entry that no longer fails must be removed: the test says
 # so, so that the next regression cannot hide behind a stale line.
 #
-# Empty is the goal on SQLite. One entry is marked [mysql]: tds_deductions
-# has two models and the report queries a status column that neither the
-# table nor either model has. SQLite reads that as a string and matches
-# nothing, so it answers 200 there and 500 on MySQL. It belongs to the
-# India module, which is parked, and to the duplicate-model decision.
-
-GET api/v1/tds-compliance/pending-report [mysql]
+# The list is empty, on SQLite and on MySQL. The one entry it used to hold was
+# the TDS pending report, which queried a status column that neither
+# tds_deductions nor either of its two models had. It went with the India
+# module.

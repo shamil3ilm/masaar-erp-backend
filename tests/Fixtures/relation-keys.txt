@@ -31,8 +31,6 @@ App\Models\Sales\AdvancePaymentApplication::invoice -> advance_payment_applicati
 App\Models\Sales\CouponCode::usages -> promotion_usages.coupon_code_id
 App\Models\Sales\DebitNote::approvedBy -> debit_notes.approved_by
 App\Models\Sales\DebitNote::supplier -> debit_notes.supplier_id
-App\Models\Tax\TdsConfiguration::deductions -> tds_deductions.tds_section_id
-App\Models\Tax\TdsEntry::tdsSection -> tds_deductions.tds_section_id
 App\Models\Tax\VatReturn::filedBy -> vat_return_periods.filed_by
 App\Models\Tax\VatReturnPeriod::transactions -> vat_transactions.vat_return_period_id
 App\Models\Trade\LcAmendment::letterOfCredit -> lc_amendments.letter_of_credit_id
