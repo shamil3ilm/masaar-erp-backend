@@ -8,19 +8,21 @@ use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
 /**
- * The endpoint ZATCA calls back on.
+ * The endpoint the compliance platform calls back on.
  *
  * It takes no session and no token, it is reachable by anyone who can resolve
  * the host, and what it writes is whether an invoice was cleared by the tax
- * authority. It had no test.
+ * authority.
  *
- * The organisation is read from the payload rather than from a logged-in
- * user, so the tenant check is part of what has to hold here.
+ * The bodies here are the platform's own shape - id, event, timestamp, data -
+ * because the earlier ones were not, and a receiver that passed against an
+ * invented payload refused every real delivery.
  */
 class ZatcaWebhookTest extends TestCase
 {
@@ -46,7 +48,7 @@ class ZatcaWebhookTest extends TestCase
         $this->invoice = Invoice::factory()->create([
             'organization_id' => $this->organization->id,
             'customer_id' => $customer->id,
-            'compliance_uuid' => 'uuid-under-test',
+            'compliance_uuid' => 'platform-invoice-id',
             'compliance_status' => Invoice::COMPLIANCE_SUBMITTED,
         ]);
     }
@@ -67,54 +69,91 @@ class ZatcaWebhookTest extends TestCase
         $this->assertSame('the-qr', $this->invoice->compliance_qr_code);
     }
 
+    /**
+     * The platform sends this header as ISO-8601. It is unsigned, so nothing
+     * rests on it; demanding epoch seconds here refused every real delivery.
+     */
+    public function test_a_delivery_is_accepted_whatever_the_timestamp_header_says(): void
+    {
+        Notification::fake();
+
+        $this->deliver($this->body('invoice.cleared', []), 'not a time at all')->assertStatus(200);
+
+        $this->assertSame(Invoice::COMPLIANCE_CLEARED, $this->invoice->refresh()->compliance_status);
+    }
+
     public function test_it_refuses_a_wrong_signature(): void
     {
-        $body = $this->body('invoice.cleared', []);
+        $this->deliver($this->body('invoice.cleared', []), signature: 'sha256='.str_repeat('0', 64))
+            ->assertStatus(401);
 
-        $this->call('POST', '/api/v1/webhooks/zatca', [], [], [], [
-            'CONTENT_TYPE' => 'application/json',
-            'HTTP_ACCEPT' => 'application/json',
-            'HTTP_X_WEBHOOK_SIGNATURE' => 'sha256='.str_repeat('0', 64),
-            'HTTP_X_WEBHOOK_TIMESTAMP' => (string) time(),
-        ], $body)->assertStatus(401);
-
-        $this->assertSame(
-            Invoice::COMPLIANCE_SUBMITTED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $this->assertSame(Invoice::COMPLIANCE_SUBMITTED, $this->invoice->refresh()->compliance_status);
     }
 
-    public function test_it_refuses_a_stale_timestamp(): void
+    public function test_it_refuses_a_delivery_signed_an_hour_ago(): void
     {
-        $body = $this->body('invoice.cleared', []);
+        $body = $this->body('invoice.cleared', [], timestamp: now()->subHour()->toISOString());
 
-        $this->call('POST', '/api/v1/webhooks/zatca', [], [], [], [
-            'CONTENT_TYPE' => 'application/json',
-            'HTTP_ACCEPT' => 'application/json',
-            'HTTP_X_WEBHOOK_SIGNATURE' => $this->sign($body),
-            'HTTP_X_WEBHOOK_TIMESTAMP' => (string) (time() - 3600),
-        ], $body)->assertStatus(401);
+        $this->deliver($body)->assertStatus(401);
+
+        $this->assertSame(Invoice::COMPLIANCE_SUBMITTED, $this->invoice->refresh()->compliance_status);
     }
 
-    public function test_it_refuses_without_the_headers(): void
+    public function test_it_refuses_without_a_signature(): void
     {
         $this->postJson('/api/v1/webhooks/zatca', ['event' => 'invoice.cleared'])
             ->assertStatus(400);
     }
 
-    public function test_another_organisation_cannot_touch_the_invoice(): void
+    /**
+     * A captured request cannot be used twice.
+     *
+     * The signature covers the body, and the body carries the delivery's id
+     * and timestamp. Within the window the id gives a repeat away; after it,
+     * the signed timestamp does.
+     */
+    public function test_a_captured_delivery_is_not_processed_again(): void
     {
-        // The uuid is right; the organisation is not.
-        $this->send('invoice.cleared', [], organizationId: $this->organization->id + 999)
-            ->assertStatus(404);
+        Notification::fake();
 
-        $this->assertSame(
-            Invoice::COMPLIANCE_SUBMITTED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $body = $this->body('invoice.cleared', []);
+
+        $this->deliver($body)->assertStatus(200)->assertJsonPath('message', 'Event processed');
+
+        // The same bytes and signature, straight away: acknowledged, not rerun.
+        $this->deliver($body)->assertStatus(200)->assertJsonPath('message', 'Already processed');
+
+        // And an hour later, with a current header: the signed timestamp is stale.
+        $this->travel(1)->hours();
+
+        $this->deliver($body, now()->toISOString())->assertStatus(401);
     }
 
-    public function test_a_submission_is_not_undone_by_a_replay(): void
+    /**
+     * Credit notes are submitted too and are not invoices. Refusing their
+     * events counts as a failed delivery, and ten of those disable the whole
+     * subscription.
+     */
+    public function test_an_event_for_an_unknown_document_is_acknowledged_and_changes_nothing(): void
+    {
+        $this->send('invoice.cleared', [], invoiceId: 'someone-elses-document')->assertStatus(200);
+
+        $this->assertSame(Invoice::COMPLIANCE_SUBMITTED, $this->invoice->refresh()->compliance_status);
+    }
+
+    public function test_an_event_without_an_invoice_id_is_acknowledged(): void
+    {
+        $body = (string) json_encode([
+            'id' => (string) Str::uuid(),
+            'event' => 'invoice.cleared',
+            'timestamp' => now()->toISOString(),
+            'data' => ['org_id' => 'platform-org'],
+        ]);
+
+        $this->deliver($body)->assertStatus(200);
+    }
+
+    public function test_a_submission_is_not_undone_by_a_lower_priority_event(): void
     {
         Notification::fake();
 
@@ -123,10 +162,7 @@ class ZatcaWebhookTest extends TestCase
         // Lower priority than cleared, so it is dropped as a downgrade.
         $this->send('invoice.issued', [])->assertStatus(200);
 
-        $this->assertSame(
-            Invoice::COMPLIANCE_CLEARED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $this->assertSame(Invoice::COMPLIANCE_CLEARED, $this->invoice->refresh()->compliance_status);
     }
 
     public function test_reported_and_cleared_rank_equally(): void
@@ -140,10 +176,7 @@ class ZatcaWebhookTest extends TestCase
         $this->send('invoice.cleared', [])->assertStatus(200);
         $this->send('invoice.reported', [])->assertStatus(200);
 
-        $this->assertSame(
-            Invoice::COMPLIANCE_REPORTED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $this->assertSame(Invoice::COMPLIANCE_REPORTED, $this->invoice->refresh()->compliance_status);
     }
 
     public function test_a_rejection_overrides_a_clearance_and_sticks(): void
@@ -153,88 +186,47 @@ class ZatcaWebhookTest extends TestCase
         $this->send('invoice.cleared', [])->assertStatus(200);
         $this->send('invoice.rejected', ['errors' => ['bad']])->assertStatus(200);
 
-        $this->assertSame(
-            Invoice::COMPLIANCE_REJECTED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $this->assertSame(Invoice::COMPLIANCE_REJECTED, $this->invoice->refresh()->compliance_status);
 
         // And nothing puts it back: rejected outranks cleared, so a later
         // clearance is treated as a downgrade and dropped.
         $this->send('invoice.cleared', [])->assertStatus(200);
 
-        $this->assertSame(
-            Invoice::COMPLIANCE_REJECTED,
-            $this->invoice->refresh()->compliance_status
-        );
-    }
-
-    /**
-     * A captured request can be replayed, and this records that.
-     *
-     * The signature covers the body and not the timestamp, so the freshness
-     * check narrows nothing: anyone holding one valid request can send it
-     * again whenever they like with a current timestamp. When the signature
-     * starts covering the timestamp — a change to both sides of the wire —
-     * this expectation flips to a refusal.
-     */
-    public function test_a_captured_request_can_be_replayed_later(): void
-    {
-        Notification::fake();
-
-        $body = $this->body('invoice.rejected', ['errors' => ['captured']]);
-        $signature = $this->sign($body);
-
-        $send = fn (int $timestamp) => $this->call('POST', '/api/v1/webhooks/zatca', [], [], [], [
-            'CONTENT_TYPE' => 'application/json',
-            'HTTP_ACCEPT' => 'application/json',
-            'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
-            'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
-        ], $body);
-
-        $send(time())->assertStatus(200);
-
-        // The same bytes and the same signature, an hour of wall clock later.
-        $this->travel(1)->hours();
-
-        $send(time())->assertStatus(200);
-
-        $this->assertSame(
-            Invoice::COMPLIANCE_REJECTED,
-            $this->invoice->refresh()->compliance_status
-        );
+        $this->assertSame(Invoice::COMPLIANCE_REJECTED, $this->invoice->refresh()->compliance_status);
     }
 
     public function test_an_unknown_event_is_acknowledged(): void
     {
-        // Answering anything else would have ZATCA retry it forever.
+        // Answering anything else would count as a failed delivery.
         $this->send('invoice.something-else', [])->assertStatus(200);
     }
 
-    private function send(string $event, array $data, ?int $organizationId = null): TestResponse
+    private function send(string $event, array $data, ?string $invoiceId = null): TestResponse
     {
-        $body = $this->body($event, $data, $organizationId);
+        return $this->deliver($this->body($event, $data, $invoiceId));
+    }
 
+    private function deliver(string $body, ?string $timestampHeader = null, ?string $signature = null): TestResponse
+    {
         return $this->call('POST', '/api/v1/webhooks/zatca', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ACCEPT' => 'application/json',
-            'HTTP_X_WEBHOOK_SIGNATURE' => $this->sign($body),
-            'HTTP_X_WEBHOOK_TIMESTAMP' => (string) time(),
+            'HTTP_X_WEBHOOK_SIGNATURE' => $signature ?? 'sha256='.hash_hmac('sha256', $body, self::SECRET),
+            'HTTP_X_WEBHOOK_TIMESTAMP' => $timestampHeader ?? now()->toISOString(),
         ], $body);
     }
 
-    private function body(string $event, array $data, ?int $organizationId = null): string
+    /** A body in the platform's shape, with a fresh delivery id. */
+    private function body(string $event, array $data, ?string $invoiceId = null, ?string $timestamp = null): string
     {
         return (string) json_encode([
+            'id' => (string) Str::uuid(),
             'event' => $event,
+            'timestamp' => $timestamp ?? now()->toISOString(),
             'data' => array_merge([
-                'invoice_uuid' => $this->invoice->compliance_uuid,
-                'organization_id' => $organizationId ?? $this->organization->id,
+                'invoice_id' => $invoiceId ?? $this->invoice->compliance_uuid,
+                'org_id' => 'platform-org',
             ], $data),
         ]);
-    }
-
-    private function sign(string $body): string
-    {
-        return 'sha256='.hash_hmac('sha256', $body, self::SECRET);
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Compliance;
 
 use App\Models\Sales\Invoice;
+use App\Notifications\Sales\InvoiceSentNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -19,77 +20,47 @@ class ZatcaWebhookController extends Controller
      */
     private const STATUS_PRIORITY = [
         Invoice::COMPLIANCE_NOT_APPLICABLE => 0,
-        Invoice::COMPLIANCE_PENDING        => 1,
-        Invoice::COMPLIANCE_SUBMITTED      => 2,
-        Invoice::COMPLIANCE_REPORTED       => 3,
-        Invoice::COMPLIANCE_CLEARED        => 3,
-        Invoice::COMPLIANCE_REJECTED       => 4,
+        Invoice::COMPLIANCE_PENDING => 1,
+        Invoice::COMPLIANCE_SUBMITTED => 2,
+        Invoice::COMPLIANCE_REPORTED => 3,
+        Invoice::COMPLIANCE_CLEARED => 3,
+        Invoice::COMPLIANCE_REJECTED => 4,
     ];
 
     public function handle(Request $request): JsonResponse
     {
         $event = $request->input('event');
-        $data  = $request->input('data');
+        $data = $request->input('data');
 
-        if (empty($event) || !is_array($data)) {
+        if (empty($event) || ! is_array($data)) {
             return $this->unknownEvent($event ?? '');
         }
 
-        $complianceUuid = $data['invoice_uuid'] ?? $data['uuid'] ?? null;
+        // The platform names the document by its own invoice id. That is what
+        // its submission response returned, and what was stored here as
+        // compliance_uuid.
+        $complianceUuid = $data['invoice_id'] ?? null;
 
         if (empty($complianceUuid)) {
-            return response()->json([
-                'success' => false,
-                'error' => [
-                    'code' => 'INVOICE_NOT_FOUND',
-                    'message' => 'Invoice UUID not provided in event data',
-                ],
-            ], 404);
+            return $this->unroutable($event, null);
         }
 
-        $organizationId = $data['organization_id'] ?? null;
-
-        if (empty($organizationId)) {
-            Log::warning('ZATCA webhook: organization_id missing from payload', [
-                'event'           => $event,
-                'compliance_uuid' => $complianceUuid,
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'error' => [
-                    'code' => 'ORGANIZATION_REQUIRED',
-                    'message' => 'organization_id is required in event data',
-                ],
-            ], 422);
-        }
-
+        // compliance_uuid is unique, so the invoice carries its own
+        // organisation. The payload's org_id is the platform's, not ours.
         $invoice = Invoice::withoutGlobalScopes()
             ->where('compliance_uuid', $complianceUuid)
-            ->where('organization_id', $organizationId)
             ->first();
 
-        if (!$invoice) {
-            Log::warning('ZATCA webhook: invoice not found', [
-                'event'           => $event,
-                'compliance_uuid' => $complianceUuid,
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'error' => [
-                    'code' => 'INVOICE_NOT_FOUND',
-                    'message' => 'Invoice with the given compliance UUID was not found',
-                ],
-            ], 404);
+        if (! $invoice) {
+            return $this->unroutable($event, $complianceUuid);
         }
 
         return match ($event) {
-            'invoice.cleared'  => $this->handleCleared($invoice, $data),
+            'invoice.cleared' => $this->handleCleared($invoice, $data),
             'invoice.reported' => $this->handleReported($invoice, $data),
             'invoice.rejected' => $this->handleRejected($invoice, $data),
-            'invoice.issued'   => $this->handleIssued($invoice, $data),
-            default            => $this->unknownEvent($event),
+            'invoice.issued' => $this->handleIssued($invoice, $data),
+            default => $this->unknownEvent($event),
         };
     }
 
@@ -108,19 +79,19 @@ class ZatcaWebhookController extends Controller
 
         // Send the deferred customer notification for B2B (standard) invoices.
         // InvoiceService::send() withholds this notification until clearance is confirmed.
-        if (!$wasAlreadyCleared && $invoice->invoice_type === Invoice::TYPE_STANDARD) {
+        if (! $wasAlreadyCleared && $invoice->invoice_type === Invoice::TYPE_STANDARD) {
             try {
                 $fresh = $invoice->fresh(['customer']);
 
                 if ($fresh?->customer?->email) {
                     $fresh->customer->notify(
-                        new \App\Notifications\Sales\InvoiceSentNotification($fresh)
+                        new InvoiceSentNotification($fresh)
                     );
                 }
             } catch (\Throwable $e) {
                 Log::warning('ZATCA webhook: clearance notification failed', [
                     'invoice_id' => $invoice->id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -147,15 +118,15 @@ class ZatcaWebhookController extends Controller
                 ->lockForUpdate()
                 ->find($invoice->id);
 
-            if (!$fresh) {
+            if (! $fresh) {
                 return response()->json(['success' => true, 'message' => 'Event processed'], 200);
             }
 
             if ($this->isDowngrade($fresh->compliance_status, Invoice::COMPLIANCE_REJECTED)) {
                 Log::info('ZATCA webhook: skipping downgrade', [
-                    'event'            => 'invoice.rejected',
-                    'invoice_id'       => $fresh->id,
-                    'current_status'   => $fresh->compliance_status,
+                    'event' => 'invoice.rejected',
+                    'invoice_id' => $fresh->id,
+                    'current_status' => $fresh->compliance_status,
                     'requested_status' => Invoice::COMPLIANCE_REJECTED,
                 ]);
 
@@ -164,13 +135,13 @@ class ZatcaWebhookController extends Controller
 
             $errors = $data['errors'] ?? $data['validation_results'] ?? $data;
 
-            $fresh->compliance_status   = Invoice::COMPLIANCE_REJECTED;
+            $fresh->compliance_status = Invoice::COMPLIANCE_REJECTED;
             $fresh->compliance_response = $errors;
             $fresh->save();
 
             Log::info('ZATCA webhook: invoice.rejected processed', [
                 'invoice_id' => $fresh->id,
-                'event'      => 'invoice.rejected',
+                'event' => 'invoice.rejected',
             ]);
 
             return response()->json(['success' => true, 'message' => 'Event processed'], 200);
@@ -185,27 +156,27 @@ class ZatcaWebhookController extends Controller
                 ->lockForUpdate()
                 ->find($invoice->id);
 
-            if (!$fresh) {
+            if (! $fresh) {
                 return response()->json(['success' => true, 'message' => 'Event processed'], 200);
             }
 
             $fields = [];
 
-            if (!empty($data['hash'])) {
+            if (! empty($data['hash'])) {
                 $fields['compliance_hash'] = $data['hash'];
             }
 
-            if (!empty($data['qr_code'])) {
+            if (! empty($data['qr_code'])) {
                 $fields['compliance_qr_code'] = $data['qr_code'];
             }
 
-            if (!empty($fields)) {
+            if (! empty($fields)) {
                 $fresh->fill($fields)->save();
             }
 
             Log::info('ZATCA webhook: invoice.issued processed', [
                 'invoice_id' => $fresh->id,
-                'event'      => 'invoice.issued',
+                'event' => 'invoice.issued',
             ]);
 
             return response()->json(['success' => true, 'message' => 'Event processed'], 200);
@@ -225,15 +196,15 @@ class ZatcaWebhookController extends Controller
                 ->lockForUpdate()
                 ->find($invoice->id);
 
-            if (!$fresh) {
+            if (! $fresh) {
                 return response()->json(['success' => true, 'message' => 'Event processed'], 200);
             }
 
             if ($this->isDowngrade($fresh->compliance_status, $newStatus)) {
                 Log::info('ZATCA webhook: skipping downgrade', [
-                    'event'            => $event,
-                    'invoice_id'       => $fresh->id,
-                    'current_status'   => $fresh->compliance_status,
+                    'event' => $event,
+                    'invoice_id' => $fresh->id,
+                    'current_status' => $fresh->compliance_status,
                     'requested_status' => $newStatus,
                 ]);
 
@@ -243,11 +214,11 @@ class ZatcaWebhookController extends Controller
             $fields = ['compliance_status' => $newStatus];
 
             if ($updateHashAndQr) {
-                if (!empty($data['hash'])) {
+                if (! empty($data['hash'])) {
                     $fields['compliance_hash'] = $data['hash'];
                 }
 
-                if (!empty($data['qr_code'])) {
+                if (! empty($data['qr_code'])) {
                     $fields['compliance_qr_code'] = $data['qr_code'];
                 }
             }
@@ -256,7 +227,7 @@ class ZatcaWebhookController extends Controller
 
             Log::info('ZATCA webhook: event processed', [
                 'invoice_id' => $fresh->id,
-                'event'      => $event,
+                'event' => $event,
                 'new_status' => $newStatus,
             ]);
 
@@ -266,10 +237,27 @@ class ZatcaWebhookController extends Controller
 
     private function isDowngrade(string $current, string $requested): bool
     {
-        $currentPriority   = self::STATUS_PRIORITY[$current]   ?? 0;
+        $currentPriority = self::STATUS_PRIORITY[$current] ?? 0;
         $requestedPriority = self::STATUS_PRIORITY[$requested] ?? 0;
 
         return $requestedPriority < $currentPriority;
+    }
+
+    /**
+     * Acknowledge an event this cannot place, rather than refuse it.
+     *
+     * Credit notes are submitted too, and they are not in invoices. A 404
+     * counts as a failed delivery, and the platform disables a subscription
+     * after ten, which would silently end every event after it.
+     */
+    private function unroutable(string $event, ?string $complianceUuid): JsonResponse
+    {
+        Log::warning('ZATCA webhook: no invoice for event', [
+            'event' => $event,
+            'compliance_uuid' => $complianceUuid,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Event processed'], 200);
     }
 
     private function unknownEvent(string $event): JsonResponse
