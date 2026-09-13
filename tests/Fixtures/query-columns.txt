@@ -17,35 +17,24 @@
 # names are skipped for the same reason.
 #
 # Spot-checked against the schema: employees has employment_status and no
-# status, chart_of_accounts has account_type and no type, login_attempts has
-# no created_at, invoices has no is_active.
+# status, chart_of_accounts has account_type and no type, user_sessions has
+# neither token_id nor expires_at.
+#
+# What is left is the India tax module, which is parked, and the dead
+# UserLifecycleService session methods nothing calls.
 #
 # A ratchet, not an approval. The list may shrink and may not grow, and the
 # test fails if an entry here has been fixed and not removed.
 
-app/Http/Controllers/Api/V1/Core/CustomFieldController.php:218  custom_field_definitions.entity_id
-app/Http/Controllers/Api/V1/Inventory/PickingListController.php:26  picking_lists.picking_number
-app/Http/Controllers/Api/V1/Inventory/PickingListController.php:26  picking_lists.sales_order_id
-app/Http/Controllers/Api/V1/Sales/PromotionController.php:25  promotions.discount_type
 app/Http/Controllers/Api/V1/Tax/EwayBillController.php:32  eway_bills.supply_type
 app/Http/Controllers/Api/V1/Tax/GstReturnController.php:33  gst_returns.period_year
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:33  tds_configurations.is_active
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.status
 app/Http/Controllers/Api/V1/Tax/TdsComplianceController.php:47  tds_deductions.transaction_date
-app/Services/Campaign/ConditionEvaluator.php:62  invoices.is_active
-app/Services/Campaign/ConditionEvaluator.php:67  payments_received.is_active
-app/Services/Campaign/ConditionEvaluator.php:72  organization_modules.is_active
-app/Services/Core/ModuleReadinessService.php:176  journal_entries.type
 app/Services/Core/UserLifecycleService.php:159  user_sessions.token_id
 app/Services/Core/UserLifecycleService.php:169  user_sessions.expires_at
 app/Services/Core/UserLifecycleService.php:182  user_sessions.token_id
-app/Services/Fraud/FraudRuleEngine.php:149  user_events.email
-app/Services/Fraud/FraudRuleEngine.php:149  user_events.successful
-app/Services/Fraud/FraudRuleEngine.php:155  login_attempts.created_at
-app/Services/HR/SuccessionPlanningService.php:124  key_positions.readiness
 app/Services/Purchase/PaymentMadeService.php:58  tds_configurations.section_code
-app/Services/Sales/PriceListService.php:147  price_lists.assignment_id
-app/Services/Sales/PriceListService.php:147  price_lists.assignment_type
 app/Services/Tax/Gstr9ReturnService.php:229  gstr1_returns.gstin
 app/Services/Tax/Gstr9ReturnService.php:255  gstr3b_returns.gstin
 app/Services/Tax/TdsService.php:72  tds_deductions.payment_reference

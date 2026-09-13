@@ -46,7 +46,9 @@ class QueryColumnTest extends TestCase
         .'whereBetween|whereDate|whereYear|whereMonth|increment|decrement';
 
     /** A chain touching another table cannot be judged on bare column names. */
-    private const AMBIGUOUS = '/->\s*(join|leftJoin|rightJoin|crossJoin|union|whereHas|orWhereHas|whereRelation|has)\s*\(/i';
+    private const AMBIGUOUS = '/->\s*(join|leftJoin|rightJoin|crossJoin|union|whereHas|orWhereHas|'
+        .'whereRelation|has|withCount|withSum|withAvg|withMax|withMin|map|each|filter|transform)\s*\('
+        .'|=>\s*(fn|function)\s*\(/i';
 
     public function test_every_query_names_a_real_column(): void
     {
@@ -157,10 +159,30 @@ class QueryColumnTest extends TestCase
 
     private function chainAt(string $src, int $offset): string
     {
-        $chain = substr($src, $offset, 1500);
-        $end = strpos($chain, ';');
+        $depth = 0;
+        $length = min(strlen($src), $offset + 2000);
 
-        return $end === false ? $chain : substr($chain, 0, $end);
+        for ($i = $offset; $i < $length; $i++) {
+            $char = $src[$i];
+
+            if ($char === '(' || $char === '[') {
+                $depth++;
+            } elseif ($char === ')' || $char === ']') {
+                // A bracket we never opened closes the expression holding this
+                // chain. A chain passed as an argument used to read on into its
+                // caller and claim the caller's columns as its own.
+                if (--$depth < 0) {
+                    return substr($src, $offset, $i - $offset);
+                }
+            } elseif ($depth <= 0 && ($char === ';' || $char === ',')) {
+                // A chain written as an array value ends at its comma. Reading
+                // on to the next semicolon swallowed the entries after it and
+                // blamed this table for their columns.
+                return substr($src, $offset, $i - $offset);
+            }
+        }
+
+        return substr($src, $offset, 2000);
     }
 
     /**
