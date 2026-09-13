@@ -118,82 +118,6 @@ return new class extends Migration
             $table->index(['dim_product_id', 'dim_time_id'], 'fact_sales_prod_time_idx');
         });
 
-        Schema::create('customs_declaration_items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('declaration_id')->constrained('customs_declarations')->cascadeOnDelete();
-            $table->foreignId('product_id')->nullable()->constrained('products')->nullOnDelete();
-            $table->foreignId('variant_id')->nullable()->constrained('product_variants')->nullOnDelete();
-            $table->unsignedSmallInteger('item_number')->default(1);
-            $table->string('description');
-
-            // Tariff
-            $table->string('tariff_code', 12)->nullable();
-            $table->foreignId('tariff_id')->nullable()->constrained('customs_tariff_codes')->nullOnDelete();
-
-            // Quantity & weight
-            $table->decimal('quantity', 15, 4);
-            $table->string('unit', 20)->nullable();
-            $table->decimal('gross_weight_kg', 12, 4)->nullable();
-            $table->decimal('net_weight_kg', 12, 4)->nullable();
-
-            // Values
-            $table->decimal('unit_value', 15, 4);
-            $table->decimal('total_value', 18, 4);
-            $table->decimal('assessable_value', 18, 4)->nullable();
-
-            // Duties & taxes
-            $table->decimal('duty_rate', 8, 4)->default(0);
-            $table->decimal('duty_amount', 18, 4)->default(0);
-            $table->decimal('vat_rate', 8, 4)->default(0);
-            $table->decimal('vat_amount', 18, 4)->default(0);
-            $table->decimal('excise_rate', 8, 4)->default(0);
-            $table->decimal('excise_amount', 18, 4)->default(0);
-            $table->decimal('cess_rate', 8, 4)->default(0); // India cess
-            $table->decimal('cess_amount', 18, 4)->default(0);
-            $table->decimal('other_charges', 18, 4)->default(0);
-            $table->decimal('total_taxes', 18, 4)->default(0);
-
-            // Origin
-            $table->string('country_of_origin', 3)->nullable();
-            $table->string('preferential_tariff_code', 30)->nullable(); // FTA preferential treatment
-            $table->boolean('preferential_treatment')->default(false);
-
-            $table->timestamps();
-
-            $table->index(['declaration_id', 'item_number']);
-            $table->index(['tariff_code']);
-        });
-
-        Schema::create('excise_declaration_items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('declaration_id')->constrained('excise_declarations')->cascadeOnDelete();
-            $table->foreignId('product_id')->nullable()->constrained('products')->nullOnDelete();
-            $table->foreignId('excise_category_id')->constrained('excise_categories')->cascadeOnDelete();
-            $table->foreignId('excise_rate_id')->nullable()->constrained('excise_rates')->nullOnDelete();
-            $table->string('description');
-            $table->decimal('quantity', 15, 4);
-            $table->string('unit', 20)->nullable();
-            $table->decimal('excisable_value', 18, 4);
-            $table->decimal('excise_rate', 8, 4)->nullable(); // Alias for excise_rate_applied
-            $table->decimal('excise_rate_applied', 8, 4)->nullable();
-            $table->decimal('excise_amount', 18, 4);
-            $table->text('notes')->nullable();
-            $table->timestamps();
-
-            $table->index(['declaration_id']);
-        });
-
-        Schema::create('product_excise_mappings', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
-            $table->foreignId('excise_category_id')->constrained('excise_categories')->cascadeOnDelete();
-            $table->foreignId('excise_rate_id')->nullable()->constrained('excise_rates')->nullOnDelete();
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-
-            $table->unique(['product_id', 'excise_category_id']);
-        });
-
         Schema::create('ecommerce_order_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained('ecommerce_orders')->cascadeOnDelete();
@@ -224,67 +148,6 @@ return new class extends Migration
 
             $table->unique(['channel_id', 'external_product_id', 'external_variant_id'], 'ecom_product_mapping_unique');
             $table->index(['channel_id', 'product_id']);
-        });
-
-        Schema::create('rewards_catalog', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('loyalty_program_id')->nullable()->constrained('loyalty_programs')->cascadeOnDelete();
-            $table->string('name');
-            $table->text('description')->nullable();
-            $table->string('image_path')->nullable();
-            $table->string('reward_type', 30)->nullable(); // discount, product, voucher, cashback, free_shipping, custom
-            $table->string('type', 30)->nullable(); // Alias for reward_type
-            $table->decimal('value', 15, 2)->nullable(); // Generic value field
-
-            // Cost in points
-            $table->unsignedInteger('points_cost')->nullable();
-            $table->unsignedInteger('points_required')->nullable(); // Alias for points_cost
-            $table->decimal('monetary_value', 15, 2)->nullable(); // Cash equivalent
-
-            // For discount rewards
-            $table->decimal('discount_percent', 5, 2)->nullable();
-            $table->decimal('discount_amount', 15, 2)->nullable();
-            $table->decimal('min_order_amount', 15, 2)->nullable();
-
-            // For product rewards
-            $table->foreignId('product_id')->nullable()->constrained('products')->nullOnDelete();
-
-            // Limits
-            $table->unsignedInteger('stock_quantity')->nullable(); // NULL = unlimited
-            $table->unsignedInteger('redeemed_quantity')->default(0);
-            $table->unsignedSmallInteger('max_per_customer')->nullable();
-            $table->string('required_tier_code', 30)->nullable(); // Minimum tier required
-
-            // Availability
-            $table->date('available_from')->nullable();
-            $table->date('available_until')->nullable();
-            $table->boolean('is_featured')->default(false);
-            $table->boolean('is_active')->default(true);
-            $table->unsignedSmallInteger('display_order')->default(0);
-            $table->timestamps();
-
-            $table->index(['organization_id', 'is_active']);
-            $table->index(['reward_type']);
-        });
-
-        Schema::create('reward_redemptions', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('loyalty_account_id')->constrained('customer_loyalty_accounts')->cascadeOnDelete();
-            $table->foreignId('reward_id')->constrained('rewards_catalog')->cascadeOnDelete();
-            $table->foreignId('points_transaction_id')->nullable()->constrained('points_transactions')->nullOnDelete();
-            $table->unsignedInteger('points_spent');
-            $table->string('status', 20)->default('pending'); // pending, fulfilled, cancelled, expired
-            $table->string('redemption_code', 30)->nullable(); // For voucher rewards
-            $table->foreignId('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
-            $table->timestamp('fulfilled_at')->nullable();
-            $table->timestamp('expires_at')->nullable();
-            $table->text('notes')->nullable();
-            $table->timestamps();
-
-            $table->index(['loyalty_account_id', 'status']);
         });
 
         Schema::create('equipment_spare_parts', function (Blueprint $table) {
@@ -320,13 +183,8 @@ return new class extends Migration
     {
         Schema::dropIfExists('maintenance_order_parts');
         Schema::dropIfExists('equipment_spare_parts');
-        Schema::dropIfExists('reward_redemptions');
-        Schema::dropIfExists('rewards_catalog');
         Schema::dropIfExists('ecommerce_product_mappings');
         Schema::dropIfExists('ecommerce_order_items');
-        Schema::dropIfExists('product_excise_mappings');
-        Schema::dropIfExists('excise_declaration_items');
-        Schema::dropIfExists('customs_declaration_items');
         Schema::dropIfExists('fact_sales');
         Schema::dropIfExists('fact_purchases');
         Schema::dropIfExists('fact_inventory_movements');

@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\Api\V1\Calendar\CalendarController;
 use App\Http\Controllers\Api\V1\Calendar\CalendarEventController;
-use App\Http\Controllers\Api\V1\Calendar\CalendarTaskController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -49,21 +48,5 @@ Route::middleware(['auth:api'])->group(function () {
         // Reminders
         Route::post('/{calendarEvent}/reminders', [CalendarEventController::class, 'setReminder'])->name('calendar.events.reminders.set')->middleware('check.permission:calendar.events.create');
         Route::delete('/{calendarEvent}/reminders/{reminder}', [CalendarEventController::class, 'removeReminder'])->name('calendar.events.reminders.remove')->middleware('check.permission:calendar.events.create');
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | Calendar Tasks
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('tasks')->group(function () {
-        Route::get('/', [CalendarTaskController::class, 'index'])->name('calendar.tasks.index')->middleware('check.permission:calendar.tasks.view');
-        Route::post('/', [CalendarTaskController::class, 'store'])->name('calendar.tasks.store')->middleware('check.permission:calendar.tasks.manage');
-        Route::get('/{task}', [CalendarTaskController::class, 'show'])->name('calendar.tasks.show')->middleware('check.permission:calendar.tasks.view');
-        Route::put('/{task}', [CalendarTaskController::class, 'update'])->name('calendar.tasks.update')->middleware('check.permission:calendar.tasks.manage');
-        Route::delete('/{task}', [CalendarTaskController::class, 'destroy'])->name('calendar.tasks.destroy')->middleware('check.permission:calendar.tasks.manage');
-        Route::post('/{task}/complete', [CalendarTaskController::class, 'complete'])->name('calendar.tasks.complete')->middleware('check.permission:calendar.tasks.manage');
-        Route::post('/{task}/comments', [CalendarTaskController::class, 'addComment'])->name('calendar.tasks.comments.add')->middleware('check.permission:calendar.tasks.manage');
-        Route::get('/{task}/comments', [CalendarTaskController::class, 'comments'])->name('calendar.tasks.comments.index')->middleware('check.permission:calendar.tasks.view');
     });
 });

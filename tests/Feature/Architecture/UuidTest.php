@@ -32,7 +32,6 @@ class UuidTest extends TestCase
      * duplicate is.
      */
     private const PENDING_A_DUPLICATE_DECISION = [
-        'App\Models\Calendar\CalendarTaskComment',
         'App\Models\Core\OrganizationSubscription',
         'App\Models\Core\SubscriptionPlan',
     ];

@@ -6,11 +6,6 @@ use App\Http\Controllers\Api\V1\Compliance\OnboardingController;
 use App\Http\Controllers\Api\V1\Core\DocumentDownloadController;
 use Illuminate\Support\Facades\Route;
 
-// GRC — Governance, Risk & Compliance (SAP GRC-IA / GRC-AC / GRC-PC / CCM)
-Route::prefix('grc')->group(function (): void {
-    require __DIR__.'/grc.php';
-});
-
 Route::prefix('compliance')->group(function (): void {
     Route::prefix('branches/{branchId}/onboarding')->group(function (): void {
         Route::get('/status', [OnboardingController::class, 'status'])

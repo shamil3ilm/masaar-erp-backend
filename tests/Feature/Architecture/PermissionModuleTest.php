@@ -31,17 +31,17 @@ class PermissionModuleTest extends TestCase
 {
     /** Controller namespace => the module that owns its permissions. */
     private const OWNER = [
-        'RealEstate' => 'real_estate', 'TaskBoard' => 'taskboard', 'Tm' => 'tm',
+        'RealEstate' => 'real_estate', 'Tm' => 'tm',
         'Hr' => 'hr', 'Sales' => 'sales', 'Purchase' => 'purchase',
         'Inventory' => 'inventory', 'Accounting' => 'accounting',
         'Manufacturing' => 'manufacturing', 'Maintenance' => 'maintenance',
         'Projects' => 'projects', 'Core' => 'core', 'Crm' => 'crm',
         'Billing' => 'billing', 'Budget' => 'budget', 'Calendar' => 'calendar',
-        'Compliance' => 'compliance', 'Customs' => 'customs',
+        'Compliance' => 'compliance',
         'Document' => 'documents', 'Ecommerce' => 'ecommerce',
-        'Expense' => 'expenses', 'Loyalty' => 'loyalty',
+        'Expense' => 'expenses',
         'Messaging' => 'messaging', 'Reports' => 'reports', 'Tax' => 'tax',
-        'Trade' => 'trade', 'Automation' => 'automation',
+        'Automation' => 'automation',
         'Analytics' => 'analytics', 'Aml' => 'aml', 'Fraud' => 'fraud',
     ];
 
@@ -102,8 +102,8 @@ class PermissionModuleTest extends TestCase
 
         $this->assertSame(self::ACCEPTED, $found, sprintf(
             "A permission is guarding a controller that belongs to another module.\n"
-            ."Check which module owns the behaviour before adding it below - the "
-            ."route name is not evidence, because the SAP prefixes in route names "
+            .'Check which module owns the behaviour before adding it below - the '
+            .'route name is not evidence, because the SAP prefixes in route names '
             ."do not track where the code lives.\n%s",
             implode("\n", array_diff($found, self::ACCEPTED))
         ));
