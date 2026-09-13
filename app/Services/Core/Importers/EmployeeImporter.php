@@ -8,7 +8,10 @@ use App\Models\Core\ImportJob;
 use App\Models\HR\Department;
 use App\Models\HR\Designation;
 use App\Models\HR\Employee;
+use App\Models\HR\SalaryStructure;
 use App\Services\Core\ImporterInterface;
+use App\Services\HR\EmployeeService;
+use Illuminate\Support\Carbon;
 
 class EmployeeImporter implements ImporterInterface
 {
@@ -25,11 +28,19 @@ class EmployeeImporter implements ImporterInterface
                     if (!empty($data['employee_number'])) {
                         $query->orWhere('employee_number', $data['employee_number']);
                     }
-                    if (!empty($data['national_id'])) {
-                        $query->orWhere('national_id', $data['national_id']);
-                    }
+                    // Not national_id: it is encrypted with a fresh IV on every
+                    // write, so comparing it with = can never match.
                 })
                 ->first();
+        }
+
+        // Salary lives on a salary structure. A row with a salary and nowhere
+        // to put it is refused before anything is written - the department
+        // and designation below included - because ImportService records a
+        // failed row but does not undo what the row already saved.
+        $salary = null;
+        if (! empty($data['basic_salary']) && $data['basic_salary'] > 0) {
+            $salary = $this->salaryTarget($importJob);
         }
 
         // Resolve department
@@ -83,10 +94,12 @@ class EmployeeImporter implements ImporterInterface
             'date_of_birth' => $data['date_of_birth'] ?? null,
             'gender' => $data['gender'] ?? null,
             'nationality' => $data['nationality'] ?? null,
-            'national_id' => $data['national_id'] ?? null,
             'department_id' => $departmentId,
             'designation_id' => $designationId,
-            'hire_date' => $data['hire_date'] ?? now()->format('Y-m-d'),
+            // The column is joining_date. A re-import that gives no date keeps
+            // the one on record rather than resetting it to today.
+            'joining_date' => $data['hire_date'] ?? ($existing ? null : now()->format('Y-m-d')),
+            'bank_name' => $data['bank_name'] ?? null,
             'employment_type' => $data['employment_type'] ?? 'full_time',
             'employment_status' => 'active',
             'is_active' => true,
@@ -99,23 +112,52 @@ class EmployeeImporter implements ImporterInterface
             $employee = Employee::create($employeeData);
         }
 
-        // Create salary structure if basic salary provided
-        if (!empty($data['basic_salary']) && $data['basic_salary'] > 0) {
-            $this->createSalaryStructure($employee, (float) $data['basic_salary'], $data);
+        // Encrypted, and kept out of mass assignment on purpose. The import is a
+        // deliberate write of them, so it sets them by name.
+        $sensitive = array_filter([
+            'national_id' => $data['national_id'] ?? null,
+            'bank_account_number' => $data['bank_account_number'] ?? null,
+            'bank_iban' => $data['iban'] ?? null,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        if ($sensitive !== []) {
+            $employee->forceFill($sensitive)->save();
+        }
+
+        if ($salary !== null) {
+            app(EmployeeService::class)->assignSalary(
+                $employee,
+                $salary['structure'],
+                [$salary['code'] => $data['basic_salary']],
+                Carbon::parse($data['hire_date'] ?? now()),
+                'Imported',
+            );
         }
 
         return $employee;
     }
 
-    protected function createSalaryStructure(Employee $employee, float $basicSalary, array $data): void
+    /**
+     * The organisation's default salary structure, and the code of its basic
+     * component, for an imported basic salary.
+     *
+     * @return array{structure: SalaryStructure, code: string}
+     */
+    private function salaryTarget(ImportJob $importJob): array
     {
-        // This would create or update the employee's salary structure
-        // Implementation depends on salary structure model
-        $employee->update([
-            'basic_salary' => $basicSalary,
-            'bank_name' => $data['bank_name'] ?? null,
-            'bank_account_number' => $data['bank_account_number'] ?? null,
-            'iban' => $data['iban'] ?? null,
-        ]);
+        $structure = SalaryStructure::where('organization_id', $importJob->organization_id)
+            ->default()
+            ->active()
+            ->first();
+
+        $basic = $structure?->basicComponent();
+
+        if ($basic === null) {
+            throw new \InvalidArgumentException(
+                'A basic salary needs a default salary structure with a basic component, and this organisation has none.'
+            );
+        }
+
+        return ['structure' => $structure, 'code' => $basic->code];
     }
 }

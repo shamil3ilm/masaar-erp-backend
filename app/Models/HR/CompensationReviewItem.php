@@ -21,6 +21,7 @@ class CompensationReviewItem extends Model
     public const STATUS_RECOMMENDED = 'recommended';
     public const STATUS_APPROVED    = 'approved';
     public const STATUS_REJECTED    = 'rejected';
+    public const STATUS_APPLIED     = 'applied';
 
     protected $fillable = [
         'review_id',

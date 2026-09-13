@@ -7,13 +7,16 @@ namespace App\Services\HR;
 use App\Models\HR\CompensationReview;
 use App\Models\HR\CompensationReviewItem;
 use App\Models\HR\Employee;
-use App\Models\HR\EmployeeSalary;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CompensationService
 {
+    public function __construct(
+        private readonly EmployeeService $employeeService,
+    ) {}
+
     /**
      * Paginate compensation reviews with optional filters.
      */
@@ -170,7 +173,9 @@ class CompensationService
             $items = $review->items()
                 ->where('status', CompensationReviewItem::STATUS_APPROVED)
                 ->whereNotNull('proposed_salary')
-                ->with('employee.currentSalary')
+                // Loaded up front: the loop reaches the structure for every
+                // item, and lazy loading is refused outside production.
+                ->with('employee.currentSalary.salaryStructure')
                 ->get();
 
             foreach ($items as $item) {
@@ -181,22 +186,25 @@ class CompensationService
                     continue;
                 }
 
-                // Deactivate current salary record
-                $employee->salaryHistory()
-                    ->where('is_current', true)
-                    ->update(['is_current' => false, 'effective_to' => $review->effective_date]);
+                // A salary belongs to a structure, and the proposed amount is
+                // its basic component. assignSalary retires the current salary.
+                $structure = $employee->currentSalary?->salaryStructure;
+                $basic = $structure?->basicComponent();
 
-                // Create new salary record
-                EmployeeSalary::create([
-                    'employee_id'    => $employee->id,
-                    'organization_id' => $employee->organization_id,
-                    'basic_salary'   => $item->proposed_salary,
-                    'effective_from' => $review->effective_date,
-                    'is_current'     => true,
-                    'notes'          => "Compensation review: {$review->review_name}",
-                ]);
+                if ($basic === null) {
+                    Log::warning("CompensationService: employee #{$employee->id} has no salary structure with a basic component; review item #{$item->id} left unapplied.");
+                    continue;
+                }
 
-                $item->status = CompensationReviewItem::STATUS_APPLIED ?? 'applied';
+                $this->employeeService->assignSalary(
+                    $employee,
+                    $structure,
+                    [$basic->code => $item->proposed_salary],
+                    $review->effective_date,
+                    "Compensation review: {$review->review_name}",
+                );
+
+                $item->status = CompensationReviewItem::STATUS_APPLIED;
                 $item->save();
 
                 $applied++;

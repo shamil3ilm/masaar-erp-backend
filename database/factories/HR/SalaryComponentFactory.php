@@ -20,7 +20,7 @@ class SalaryComponentFactory extends Factory
             'code' => strtoupper(fake()->unique()->lexify('SC-???')),
             'description' => fake()->optional(0.3)->sentence(),
             'type' => fake()->randomElement(['earning', 'deduction']),
-            'category' => fake()->randomElement(['fixed', 'variable', 'statutory']),
+            'category' => fake()->randomElement(['basic', 'allowance', 'bonus', 'reimbursement']),
             'calculation_type' => fake()->randomElement(['fixed', 'percentage', 'formula']),
             'default_value' => fake()->randomFloat(4, 100, 10000),
             'percentage_of' => null,

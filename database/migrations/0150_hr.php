@@ -303,7 +303,7 @@ return new class extends Migration
             $table->decimal('increase_percentage', 5, 2)->nullable();
             $table->enum('adjustment_type', ['merit', 'promotion', 'market_adjustment', 'equity'])->default('merit');
             $table->text('justification')->nullable();
-            $table->enum('status', ['pending', 'recommended', 'approved', 'rejected'])->default('pending');
+            $table->enum('status', ['pending', 'recommended', 'approved', 'rejected', 'applied'])->default('pending');
             $table->timestamps();
             $table->index(['review_id', 'employee_id'], 'cri_review_emp_idx');
         });
