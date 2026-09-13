@@ -284,16 +284,6 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
             require __DIR__.'/api/v1/ecommerce.php';
         });
 
-        // Customs & Excise module routes (with module check)
-        Route::prefix('customs')->middleware(['check.module:customs'])->group(function () {
-            require __DIR__.'/api/v1/customs.php';
-        });
-
-        // International Trade module routes (with module check)
-        Route::prefix('trade')->middleware(['check.module:trade'])->group(function () {
-            require __DIR__.'/api/v1/trade.php';
-        });
-
         // TM — Transportation Management (SAP TM: carriers, rate engine, tendering, load building)
         Route::prefix('tm')->middleware(['check.module:tm'])->group(function () {
             require __DIR__.'/api/v1/tm.php';
@@ -302,11 +292,6 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
         // RE-FX — Real Estate Flexible Framework (SAP RE-FX: portfolio, leases, posting, settlement)
         Route::prefix('real-estate')->middleware(['check.module:real_estate'])->group(function () {
             require __DIR__.'/api/v1/real-estate.php';
-        });
-
-        // Loyalty & Rewards module routes (with module check)
-        Route::prefix('loyalty')->middleware(['check.module:loyalty'])->group(function () {
-            require __DIR__.'/api/v1/loyalty.php';
         });
 
         // Document Vault routes (core, always available)
@@ -324,11 +309,6 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
         // Calendar routes (core, always available)
         Route::prefix('calendar')->group(function () {
             require __DIR__.'/api/v1/calendar.php';
-        });
-
-        // Task Board routes (core, always available)
-        Route::prefix('task-boards')->group(function () {
-            require __DIR__.'/api/v1/task-boards.php';
         });
 
         // Module Access / RBAC routes (core, always available)

@@ -167,14 +167,12 @@ return new class extends Migration
             $table->foreign('cost_center_id', 'jel_cost_center_fk')
                 ->references('id')->on('cost_centers')->nullOnDelete();
 
-
             $table->unsignedBigInteger('ledger_id')
                 ->nullable()
 
                 ->comment('NULL = leading ledger; non-null = parallel ledger (IFRS/tax/mgmt)');
 
             $table->index(['ledger_id']);
-
 
             $table->string('segment_id', 50)->nullable();
             $table->string('category', 50)->nullable();
@@ -735,89 +733,6 @@ return new class extends Migration
             $table->index(['ticket_id', 'is_internal']);
         });
 
-        Schema::create('customs_declarations', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('declaration_number', 50);
-            $table->string('declaration_type', 20); // import, export, transit, re_export, temporary_import, temporary_export
-            $table->string('customs_regime', 30)->nullable(); // free_circulation, warehousing, inward_processing, outward_processing, transit
-
-            // Source document
-            $table->string('source_type', 100)->nullable(); // PurchaseOrder, Invoice, ImportShipment
-            $table->unsignedBigInteger('source_id')->nullable();
-
-            // Parties
-            $table->foreignId('importer_exporter_id')->nullable()->constrained('contacts')->nullOnDelete(); // Importer/Exporter
-            $table->foreignId('broker_id')->nullable()->constrained('contacts')->nullOnDelete(); // Customs broker
-            $table->string('consignee_name')->nullable();
-            $table->string('consignor_name')->nullable();
-
-            // Customs office & port
-            $table->string('customs_office', 100)->nullable();
-            $table->string('port_of_entry', 100)->nullable();
-            $table->string('port_of_exit', 100)->nullable();
-
-            // Origin / Destination
-            $table->string('country_of_origin', 3)->nullable();
-            $table->string('country_of_destination', 3)->nullable();
-            $table->string('country_of_consignment', 3)->nullable();
-
-            // Trade terms
-            $table->string('incoterm', 10)->nullable(); // EXW, FOB, CIF, DDP, etc.
-            $table->string('transport_mode', 20)->nullable(); // sea, air, road, rail, multimodal, postal, pipeline
-            $table->string('vessel_name')->nullable();
-            $table->string('voyage_flight_number', 50)->nullable();
-
-            // Values
-            $table->string('currency_code', 3);
-            $table->decimal('exchange_rate', 15, 8)->default(1);
-            $table->decimal('fob_value', 18, 4)->default(0); // Free on Board
-            $table->decimal('freight_value', 18, 4)->default(0);
-            $table->decimal('insurance_value', 18, 4)->default(0);
-            $table->decimal('cif_value', 18, 4)->default(0); // Cost, Insurance, Freight
-            $table->decimal('assessable_value', 18, 4)->default(0); // Customs assessable value
-            $table->decimal('total_duty', 18, 4)->default(0);
-            $table->decimal('total_vat', 18, 4)->default(0);
-            $table->decimal('total_excise', 18, 4)->default(0);
-            $table->decimal('total_fees', 18, 4)->default(0); // Other customs fees
-            $table->decimal('total_payable', 18, 4)->default(0);
-
-            // Weights & packages
-            $table->decimal('gross_weight_kg', 15, 4)->nullable();
-            $table->decimal('net_weight_kg', 15, 4)->nullable();
-            $table->unsignedInteger('total_packages')->nullable();
-            $table->string('package_type', 30)->nullable(); // container, pallet, box, bulk
-
-            // Bill of entry / shipping bill number
-            $table->string('bill_of_entry_number', 50)->nullable(); // For imports
-            $table->string('shipping_bill_number', 50)->nullable(); // For exports
-
-            // Status
-            $table->string('status', 20)->default('draft'); // draft, submitted, assessed, duty_paid, cleared, rejected, cancelled
-            $table->date('declaration_date')->nullable();
-            $table->timestamp('submitted_at')->nullable();
-            $table->timestamp('assessed_at')->nullable();
-            $table->timestamp('duty_paid_at')->nullable();
-            $table->timestamp('cleared_at')->nullable();
-            $table->text('rejection_reason')->nullable();
-            $table->text('notes')->nullable();
-
-            // Journal & accounting
-            $table->foreignId('journal_entry_id')->nullable()->constrained('journal_entries')->nullOnDelete();
-
-            $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
-            $table->timestamps();
-            $table->softDeletes();
-
-            $table->unique(['organization_id', 'declaration_number']);
-            $table->index(['organization_id', 'status']);
-            $table->index(['organization_id', 'declaration_type']);
-            $table->index(['source_type', 'source_id']);
-            $table->index(['declaration_date']);
-        });
-
         Schema::create('ecommerce_channels', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
@@ -1122,7 +1037,6 @@ return new class extends Migration
         Schema::dropIfExists('ecommerce_sync_logs');
         Schema::dropIfExists('ecommerce_orders');
         Schema::dropIfExists('ecommerce_channels');
-        Schema::dropIfExists('customs_declarations');
         Schema::dropIfExists('service_ticket_comments');
         Schema::dropIfExists('service_tickets');
         Schema::dropIfExists('opportunities');

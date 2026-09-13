@@ -21,9 +21,6 @@
 App\Models\Accounting\BankTransaction::journalEntry -> bank_transactions.journal_entry_id
 App\Models\Accounting\BankTransaction::journalLine -> bank_transactions.journal_line_id
 App\Models\Billing\SubscriptionPlan::addons -> subscription_addons.plan_id
-App\Models\Calendar\CalendarTask::creator -> calendar_tasks.created_by
-App\Models\Calendar\CalendarTask::parentTask -> calendar_tasks.parent_task_id
-App\Models\Calendar\CalendarTask::subtasks -> calendar_tasks.parent_task_id
 App\Models\HR\Leave\LeaveBalance::leaveTier -> leave_balances.leave_tier_id
 App\Models\HR\Leave\LeaveTier::leaveBalances -> leave_balances.leave_tier_id
 App\Models\HR\Leave\LeaveType::leavePolicy -> leave_types.leave_policy_id
@@ -33,4 +30,3 @@ App\Models\Sales\DebitNote::approvedBy -> debit_notes.approved_by
 App\Models\Sales\DebitNote::supplier -> debit_notes.supplier_id
 App\Models\Tax\VatReturn::filedBy -> vat_return_periods.filed_by
 App\Models\Tax\VatReturnPeriod::transactions -> vat_transactions.vat_return_period_id
-App\Models\Trade\LcAmendment::letterOfCredit -> lc_amendments.letter_of_credit_id

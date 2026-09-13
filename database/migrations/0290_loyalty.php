@@ -10,70 +10,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('customer_loyalty_accounts', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('contact_id')->constrained('contacts')->cascadeOnDelete();
-            $table->foreignId('loyalty_program_id')->constrained('loyalty_programs')->cascadeOnDelete();
-            $table->foreignId('customer_tier_id')->nullable()->constrained('customer_tiers')->nullOnDelete();
-            $table->string('membership_number', 30)->nullable();
-
-            // Points
-            $table->unsignedBigInteger('total_earned_points')->default(0);
-            $table->unsignedBigInteger('total_redeemed_points')->default(0);
-            $table->unsignedBigInteger('total_expired_points')->default(0);
-            $table->unsignedBigInteger('available_points')->default(0);
-            $table->unsignedBigInteger('pending_points')->default(0); // Earned but not yet available
-
-            // Spending
-            $table->decimal('total_spending', 15, 2)->default(0);
-            $table->decimal('spending_this_period', 15, 2)->default(0);
-
-            // Dates
-            $table->date('enrolled_at');
-            $table->date('tier_qualified_at')->nullable();
-            $table->date('tier_expires_at')->nullable();
-            $table->date('last_activity_at')->nullable();
-
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-
-            $table->unique(['organization_id', 'contact_id', 'loyalty_program_id'], 'cust_loyalty_org_contact_program_unique');
-            $table->index(['membership_number']);
-        });
-
-        Schema::create('points_transactions', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('loyalty_account_id')->constrained('customer_loyalty_accounts')->cascadeOnDelete();
-            $table->string('transaction_type', 30); // earn, redeem, expire, adjust, bonus, refund_reversal
-            $table->integer('points'); // Positive for earn, negative for redeem/expire
-            $table->unsignedBigInteger('balance_before');
-            $table->unsignedBigInteger('balance_after');
-            $table->string('description');
-
-            // Source reference
-            $table->string('source_type', 100)->nullable(); // Invoice, Order, manual, etc.
-            $table->unsignedBigInteger('source_id')->nullable();
-            $table->decimal('source_amount', 15, 2)->nullable(); // Order/invoice amount
-
-            // Earn multiplier applied
-            $table->decimal('earn_multiplier', 5, 2)->default(1.00);
-
-            // Expiry
-            $table->date('expires_at')->nullable();
-            $table->boolean('is_expired')->default(false);
-
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->timestamps();
-
-            $table->index(['loyalty_account_id', 'transaction_type']);
-            $table->index(['loyalty_account_id', 'created_at']);
-            $table->index(['source_type', 'source_id']);
-            $table->index(['expires_at', 'is_expired']);
-        });
-
         Schema::create('maintenance_order_cost_lines', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
@@ -313,7 +249,5 @@ return new class extends Migration
         Schema::dropIfExists('complaint_communications');
         Schema::dropIfExists('complaints');
         Schema::dropIfExists('maintenance_order_cost_lines');
-        Schema::dropIfExists('points_transactions');
-        Schema::dropIfExists('customer_loyalty_accounts');
     }
 };

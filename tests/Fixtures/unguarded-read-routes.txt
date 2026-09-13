@@ -15,8 +15,8 @@
 #   api/v1/portal/* - the customer portal, which authenticates with its own
 #   session token rather than a staff JWT.
 #
-#   api/v1/hr/directory, /hr/holidays, /trade/incoterms - who works here, when
-#   the office is shut, and a published list of trade terms.
+#   api/v1/hr/directory, /hr/holidays - who works here, and when the office is
+#   shut.
 #
 #   api/v1/sensitive/{type}/{id}/reveal - guarded by a step-up token from a
 #   re-authentication, checked against the resource and audited. Stronger than
@@ -63,5 +63,3 @@ GET api/v1/portal/quotations
 GET api/v1/portal/quotations-list
 GET api/v1/portal/statement
 GET api/v1/sensitive/{resourceType}/{resourceId}/reveal
-GET api/v1/trade/incoterms
-GET api/v1/trade/incoterms/{incoterm}

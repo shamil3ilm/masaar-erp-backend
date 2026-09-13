@@ -34,20 +34,10 @@ return new class extends Migration
                 ->references('id')->on('exchange_orders')->nullOnDelete();
         });
 
-        // waits on: landed_cost_vouchers
-        Schema::table('import_export_shipments', function (Blueprint $table) {
-            $table->foreign('landed_cost_voucher_id', 'shipment_landed_cost_fk')
-                ->references('id')->on('landed_cost_vouchers')->nullOnDelete();
-        });
-
     }
 
     public function down(): void
     {
-        Schema::table('import_export_shipments', function (Blueprint $table) {
-            $table->dropForeign('shipment_landed_cost_fk');
-        });
-
         Schema::table('sales_returns', function (Blueprint $table) {
             $table->dropForeign('sales_ret_exchange_order_fk');
             $table->dropForeign('sales_ret_refund_fk');

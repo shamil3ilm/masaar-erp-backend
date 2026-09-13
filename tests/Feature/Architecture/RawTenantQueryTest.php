@@ -16,7 +16,7 @@ use RecursiveIteratorIterator;
  * carrying organization_id sits outside the isolation guarantee and is correct
  * only for as long as whoever wrote it remembered a where.
  *
- * 770 of the tables carry organization_id. Twenty-seven files query one
+ * 770 of the tables carry organization_id. Twenty-six files query one
  * directly, and most are right to: a platform dashboard spans tenants by
  * definition, an audit-log cleanup runs across all of them, and hydrating
  * models to produce a COUNT is waste.
@@ -59,7 +59,6 @@ class RawTenantQueryTest extends TestCase
         'Services/Analytics/DataWarehouseService.php',
         'Services/Analytics/UserClusteringService.php',
         'Services/Campaign/ConditionEvaluator.php',
-        'Services/Compliance/RiskManagementService.php',
         'Services/Core/ApprovalWorkflowService.php',
         'Services/Core/ArchiveService.php',
         'Services/Core/FinancialIdempotencyService.php',

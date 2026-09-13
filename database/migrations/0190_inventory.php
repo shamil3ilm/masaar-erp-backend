@@ -697,88 +697,10 @@ return new class extends Migration
             $table->index('organization_id', 'dim_warehouse_org_id_idx');
         });
 
-        Schema::create('loyalty_programs', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->string('name');
-            $table->text('description')->nullable();
-            $table->string('currency_name', 50)->default('Points'); // Points, Stars, Miles, etc.
-            $table->string('currency_symbol', 10)->default('pts');
-            $table->decimal('point_value', 10, 4)->default(0.01); // Monetary value per point
-            $table->decimal('earn_rate', 10, 4)->default(1); // Points per currency unit spent
-            $table->unsignedInteger('min_redeem_points')->default(100);
-            $table->unsignedInteger('points_expiry_days')->nullable(); // NULL = never expire
-            $table->boolean('allow_partial_redeem')->default(true);
-            $table->boolean('earn_on_tax')->default(false);
-            $table->boolean('earn_on_shipping')->default(false);
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-
-            $table->index(['organization_id', 'is_active']);
-        });
-
-        Schema::create('customer_tiers', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('loyalty_program_id')->constrained('loyalty_programs')->cascadeOnDelete();
-            $table->string('name');
-            $table->string('code', 30);
-            $table->string('color', 7)->nullable();
-            $table->string('icon')->nullable();
-
-            // Qualification criteria
-            $table->string('qualification_type', 30)->default('spending'); // spending, points, manual
-            $table->decimal('min_spending', 15, 2)->default(0); // Min spending to qualify
-            $table->unsignedInteger('min_points')->default(0); // Min points to qualify
-            $table->unsignedSmallInteger('qualification_period_months')->nullable(); // Rolling period
-
-            // Benefits
-            $table->decimal('earn_rate_multiplier', 5, 2)->default(1.00); // 1.5x, 2x points
-            $table->decimal('discount_percent', 5, 2)->default(0); // Auto discount on purchases
-            $table->boolean('free_shipping')->default(false);
-            $table->unsignedSmallInteger('priority_support_level')->default(0); // 0 = none
-            $table->json('perks')->nullable(); // Additional tier benefits
-
-            // Downgrade/upgrade
-            $table->boolean('auto_upgrade')->default(true);
-            $table->boolean('auto_downgrade')->default(true);
-            $table->unsignedSmallInteger('grace_period_days')->default(30); // Before downgrade
-
-            $table->unsignedSmallInteger('tier_level')->default(0); // 0 = base, 1, 2, 3...
-            $table->boolean('is_default')->default(false);
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-
-            $table->unique(['organization_id', 'code']);
-            $table->index(['organization_id', 'tier_level']);
-        });
-
-        Schema::create('points_earning_rules', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('loyalty_program_id')->constrained('loyalty_programs')->cascadeOnDelete();
-            $table->string('name');
-            $table->text('description')->nullable();
-            $table->string('trigger_type', 50); // purchase, registration, birthday, referral, review, category_purchase, product_purchase
-            $table->unsignedInteger('bonus_points')->default(0);
-            $table->decimal('bonus_multiplier', 5, 2)->default(1.00); // 2x = double points
-            $table->json('conditions')->nullable(); // Min amount, specific products/categories
-            $table->date('starts_at')->nullable();
-            $table->date('ends_at')->nullable();
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-
-            $table->index(['organization_id', 'trigger_type', 'is_active'], 'pts_rules_org_trigger_active_idx');
-        });
-
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('points_earning_rules');
-        Schema::dropIfExists('customer_tiers');
-        Schema::dropIfExists('loyalty_programs');
         Schema::dropIfExists('dim_warehouse');
         Schema::dropIfExists('dock_doors');
         Schema::dropIfExists('yard_zones');
