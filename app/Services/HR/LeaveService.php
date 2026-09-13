@@ -288,8 +288,11 @@ class LeaveService
      */
     public function initializeYearBalances(int $year, int $organizationId): int
     {
-        // Load leave types once — small reference dataset
-        $leaveTypes = LeaveType::active()->get();
+        // A type with tiers is credited from its tier by LeaveAccrualService;
+        // giving it its annual quota here as well would count it twice.
+        $leaveTypes = LeaveType::active()
+            ->whereDoesntHave('leaveTiers', fn ($q) => $q->where('is_active', true))
+            ->get();
         $count = 0;
 
         Employee::active()

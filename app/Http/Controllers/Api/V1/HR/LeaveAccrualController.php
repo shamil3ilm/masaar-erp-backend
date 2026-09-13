@@ -78,7 +78,7 @@ class LeaveAccrualController extends Controller
         $validated = $request->validate([
             'employee_id' => 'required|exists:employees,id',
             'leave_type_id' => 'required|exists:leave_types,id',
-            'adjustment_type' => 'required|in:add,deduct,set,carryforward,encashment',
+            'adjustment_type' => 'required|in:add,deduct',
             'days' => 'required|numeric|min:0.01',
             'reason' => 'required|string|max:1000',
             'effective_date' => 'nullable|date',
@@ -168,26 +168,18 @@ class LeaveAccrualController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        if ($leaveEncashment->status !== LeaveEncashment::STATUS_PENDING) {
-            return $this->error('Only pending encashments can be approved.', 'INVALID_STATUS', 422);
+        try {
+            $encashment = $this->accrualService->approveEncashment(
+                $leaveEncashment,
+                isset($validated['approved_days']) ? (float) $validated['approved_days'] : null,
+                $validated['notes'] ?? null,
+                (int) auth()->id(),
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
         }
 
-        $approvedDays = $validated['approved_days'] ?? $leaveEncashment->requested_days;
-        $amount = round(
-            (float) $approvedDays * (float) $leaveEncashment->daily_rate * ((float) $leaveEncashment->encashment_rate / 100),
-            2
-        );
-
-        $leaveEncashment->update([
-            'approved_days' => $approvedDays,
-            'amount' => $amount,
-            'status' => LeaveEncashment::STATUS_APPROVED,
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-            'notes' => $validated['notes'] ?? $leaveEncashment->notes,
-        ]);
-
-        return $this->success($leaveEncashment->fresh());
+        return $this->success($encashment);
     }
 
     /**

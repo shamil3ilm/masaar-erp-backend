@@ -18,8 +18,6 @@ App\Models\Core\OrganizationSubscription (organization_subscriptions): addons, b
 App\Models\Core\SubscriptionPlan (subscription_plans): limits, monthly_price, sort_order, storage_gb, yearly_price
 App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
 App\Models\HR\AppraisalReviewer (appraisal_reviewers): organization_id
-App\Models\HR\Leave\LeaveBalance (leave_balances): accrued_days, adjustment_days, available_balance, carried_forward, encashed_days, entitled_days, lapsed_days, last_accrual_date, leave_tier_id, pending_days, used_days
-App\Models\HR\Leave\LeaveType (leave_types): accrual_day, allowed_days_of_week, blackout_dates, count_holidays, count_weekends, display_order, employment_type_restriction, gender_restriction, icon, is_carryforward_allowed, leave_policy_id, max_carryforward_days, max_days_per_request, min_days_per_request, min_service_months, requires_reason
 App\Models\Projects\ProjectBudgetAvailabilityLog -> no table named project_budget_availability_logs
 App\Models\Reports\ReportExecution (report_executions): file_format, report_type
 App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, parameters, recipients, report_type

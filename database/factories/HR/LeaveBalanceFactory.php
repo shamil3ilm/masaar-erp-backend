@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Database\Factories\HR;
 
+use App\Models\Core\Organization;
 use App\Models\HR\Employee;
-use App\Models\HR\Leave\LeaveBalance;
-use App\Models\HR\Leave\LeaveType;
+use App\Models\HR\LeaveBalance;
+use App\Models\HR\LeaveType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class LeaveBalanceFactory extends Factory
@@ -15,62 +16,23 @@ class LeaveBalanceFactory extends Factory
 
     public function definition(): array
     {
-        $entitledDays = fake()->randomFloat(2, 10, 30);
-        $usedDays = fake()->randomFloat(2, 0, $entitledDays * 0.6);
-        $pendingDays = fake()->randomFloat(2, 0, 3);
-        $carriedForward = fake()->randomFloat(2, 0, 5);
-        $availableBalance = round($entitledDays + $carriedForward - $usedDays - $pendingDays, 2);
+        $opening = fake()->randomFloat(2, 0, 10);
+        $accrued = fake()->randomFloat(2, 10, 30);
+        $taken = fake()->randomFloat(2, 0, $accrued / 2);
 
         return [
-            'organization_id' => null,
+            'organization_id' => Organization::factory(),
             'employee_id' => Employee::factory(),
             'leave_type_id' => LeaveType::factory(),
-            'leave_tier_id' => null,
             'year' => now()->year,
-            'opening_balance' => 0,
-            'entitled_days' => $entitledDays,
-            'accrued_days' => 0,
-            'adjustment_days' => 0,
-            'used_days' => $usedDays,
-            'pending_days' => $pendingDays,
-            'carried_forward' => $carriedForward,
-            'encashed_days' => 0,
-            'lapsed_days' => 0,
-            'available_balance' => max(0, $availableBalance),
-            'last_accrual_date' => null,
+            'opening_balance' => $opening,
+            'entitled' => 0,
+            'accrued' => $accrued,
+            'taken' => $taken,
+            'adjustment' => 0,
+            'encashed' => 0,
+            'lapsed' => 0,
+            'closing_balance' => round($opening + $accrued - $taken, 2),
         ];
-    }
-
-    public function forYear(int $year): static
-    {
-        return $this->state(fn () => ['year' => $year]);
-    }
-
-    public function withFullBalance(): static
-    {
-        return $this->state(function () {
-            $entitledDays = fake()->randomFloat(2, 15, 30);
-
-            return [
-                'entitled_days' => $entitledDays,
-                'used_days' => 0,
-                'pending_days' => 0,
-                'available_balance' => $entitledDays,
-            ];
-        });
-    }
-
-    public function exhausted(): static
-    {
-        return $this->state(function () {
-            $entitledDays = fake()->randomFloat(2, 15, 30);
-
-            return [
-                'entitled_days' => $entitledDays,
-                'used_days' => $entitledDays,
-                'pending_days' => 0,
-                'available_balance' => 0,
-            ];
-        });
     }
 }

@@ -11,19 +11,12 @@
 # a migration that was never written or a relation to something that no
 # longer exists.
 #
-# Several belong to problems already recorded elsewhere. The three leave
-# relations and both TDS ones are second models on a shared table, listed in
-# duplicate-models.txt; resolving that table resolves these with it.
-#
 # A ratchet: the list may shrink and may not grow, and the test fails if an
 # entry here has been fixed and not removed.
 
 App\Models\Accounting\BankTransaction::journalEntry -> bank_transactions.journal_entry_id
 App\Models\Accounting\BankTransaction::journalLine -> bank_transactions.journal_line_id
 App\Models\Billing\SubscriptionPlan::addons -> subscription_addons.plan_id
-App\Models\HR\Leave\LeaveBalance::leaveTier -> leave_balances.leave_tier_id
-App\Models\HR\Leave\LeaveTier::leaveBalances -> leave_balances.leave_tier_id
-App\Models\HR\Leave\LeaveType::leavePolicy -> leave_types.leave_policy_id
 App\Models\Sales\AdvancePaymentApplication::invoice -> advance_payment_applications.invoice_id
 App\Models\Sales\CouponCode::usages -> promotion_usages.coupon_code_id
 App\Models\Sales\DebitNote::approvedBy -> debit_notes.approved_by

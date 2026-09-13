@@ -11,11 +11,10 @@ use Tests\TestCase;
 /**
  * A table has one model.
  *
- * Where two models share a table, they disagree about it. leave_types has a
- * model naming annual_quota and carry_forward, which the table has, and
- * another naming leave_policy_id and gender_restriction, which it does not —
- * so one half of the leave module works and the other answers 500. The same
- * split put an organisation-scoped model on the platform feature_flags table.
+ * Where two models share a table, they disagree about it: one names columns
+ * the table has and the other names columns it does not, so the code on one
+ * works and the code on the other answers 500. The same split put an
+ * organisation-scoped model on the platform feature_flags table.
  *
  * Whichever model is right, two of them cannot be. This is a ratchet against
  * tests/Fixtures/duplicate-models.txt: the list may shrink and may not grow,

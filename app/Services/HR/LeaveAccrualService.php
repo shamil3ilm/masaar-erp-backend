@@ -7,11 +7,11 @@ namespace App\Services\HR;
 use App\Models\HR\Employee;
 use App\Models\HR\Leave\LeaveAccrual;
 use App\Models\HR\Leave\LeaveAdjustment;
-use App\Models\HR\Leave\LeaveBalance;
 use App\Models\HR\Leave\LeaveEncashment;
 use App\Models\HR\Leave\LeavePolicy;
 use App\Models\HR\Leave\LeaveTier;
-use App\Models\HR\Leave\LeaveType;
+use App\Models\HR\LeaveBalance;
+use App\Models\HR\LeaveType;
 use Illuminate\Support\Facades\DB;
 
 class LeaveAccrualService
@@ -21,16 +21,12 @@ class LeaveAccrualService
      */
     public function processAccruals(int $organizationId, ?string $accrualDate = null): int
     {
-        $accrualDate = $accrualDate ? new \DateTime($accrualDate) : new \DateTime;
+        $accrualDate = $accrualDate ? new \DateTimeImmutable($accrualDate) : new \DateTimeImmutable;
         $processed = 0;
 
         $policies = LeavePolicy::where('organization_id', $organizationId)
             ->active()
-            ->with(['leaveTypes' => function ($q) {
-                $q->active()->with(['leaveTiers' => function ($q2) {
-                    $q2->active()->byPriority();
-                }]);
-            }])
+            ->with(['leaveTypes' => fn ($q) => $q->active()])
             ->get();
 
         $employees = Employee::where('organization_id', $organizationId)
@@ -53,14 +49,7 @@ class LeaveAccrualService
                         continue;
                     }
 
-                    $accrued = $this->processEmployeeAccrual(
-                        $employee,
-                        $leaveType,
-                        $tier,
-                        $accrualDate
-                    );
-
-                    if ($accrued) {
+                    if ($this->processEmployeeAccrual($employee, $leaveType, $tier, $accrualDate)) {
                         $processed++;
                     }
                 }
@@ -71,7 +60,7 @@ class LeaveAccrualService
     }
 
     /**
-     * Adjust an employee's leave balance.
+     * Add days to, or take days from, an employee's leave balance.
      */
     public function adjustBalance(array $data): LeaveAdjustment
     {
@@ -79,43 +68,40 @@ class LeaveAccrualService
             $balance = LeaveBalance::where('employee_id', $data['employee_id'])
                 ->where('leave_type_id', $data['leave_type_id'])
                 ->where('year', $data['year'] ?? now()->year)
+                ->lockForUpdate()
                 ->firstOrFail();
 
-            $balanceBefore = (float) $balance->available_balance;
+            $before = $balance->closing_balance;
 
-            $adjustment = LeaveAdjustment::create([
+            $days = (string) $data['days'];
+            if ($data['adjustment_type'] === LeaveAdjustment::TYPE_DEDUCT) {
+                $days = bcsub('0', $days, 2);
+            }
+
+            $balance->adjustment = bcadd((string) $balance->adjustment, $days, 2);
+            $balance->recalculateClosingBalance();
+            $balance->save();
+
+            return LeaveAdjustment::create([
                 'organization_id' => $data['organization_id'],
                 'employee_id' => $data['employee_id'],
                 'leave_type_id' => $data['leave_type_id'],
                 'leave_balance_id' => $balance->id,
                 'adjustment_type' => $data['adjustment_type'],
                 'days' => $data['days'],
-                'balance_before' => $balanceBefore,
-                'balance_after' => 0,
+                'balance_before' => $before,
+                'balance_after' => $balance->closing_balance,
                 'reason' => $data['reason'],
                 'effective_date' => $data['effective_date'] ?? now()->toDateString(),
                 'approved_by' => $data['approved_by'] ?? null,
                 'approved_at' => ! empty($data['approved_by']) ? now() : null,
                 'created_by' => $data['created_by'],
             ]);
-
-            $days = (float) $data['days'];
-            if ($data['adjustment_type'] === LeaveAdjustment::TYPE_DEDUCT) {
-                $days = -$days;
-            }
-
-            $balance->adjustment_days = bcadd((string) $balance->adjustment_days, (string) $days, 2);
-            $balance->recalculateAvailableBalance();
-            $balance->save();
-
-            $adjustment->update(['balance_after' => $balance->available_balance]);
-
-            return $adjustment->fresh();
         });
     }
 
     /**
-     * Process a leave encashment request.
+     * Request leave encashment. The days leave the balance when it is approved.
      */
     public function encashLeave(array $data): LeaveEncashment
     {
@@ -123,6 +109,7 @@ class LeaveAccrualService
             $balance = LeaveBalance::where('employee_id', $data['employee_id'])
                 ->where('leave_type_id', $data['leave_type_id'])
                 ->where('year', $data['year'] ?? now()->year)
+                ->with('leaveTier')
                 ->firstOrFail();
 
             $leaveType = LeaveType::findOrFail($data['leave_type_id']);
@@ -143,7 +130,7 @@ class LeaveAccrualService
 
             $encashmentRate = $tier?->encashment_rate ?? 100;
 
-            $encashment = LeaveEncashment::create([
+            return LeaveEncashment::create([
                 'organization_id' => $data['organization_id'],
                 'employee_id' => $data['employee_id'],
                 'leave_type_id' => $data['leave_type_id'],
@@ -151,17 +138,50 @@ class LeaveAccrualService
                 'requested_days' => $requestedDays,
                 'daily_rate' => $data['daily_rate'],
                 'encashment_rate' => $encashmentRate,
-                'amount' => bcmul(
-                    bcmul((string) $requestedDays, (string) $data['daily_rate'], 4),
-                    bcdiv((string) $encashmentRate, '100', 4),
-                    4
-                ),
+                'amount' => $this->encashmentAmount((string) $requestedDays, (string) $data['daily_rate'], (string) $encashmentRate),
                 'status' => LeaveEncashment::STATUS_PENDING,
                 'notes' => $data['notes'] ?? null,
                 'created_by' => $data['created_by'],
             ]);
+        });
+    }
 
-            return $encashment;
+    /**
+     * Approve an encashment and take its days out of the balance.
+     */
+    public function approveEncashment(LeaveEncashment $encashment, ?float $approvedDays, ?string $notes, int $approvedBy): LeaveEncashment
+    {
+        return DB::transaction(function () use ($encashment, $approvedDays, $notes, $approvedBy) {
+            $encashment = LeaveEncashment::whereKey($encashment->id)->lockForUpdate()->firstOrFail();
+
+            if ($encashment->status !== LeaveEncashment::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Only pending encashments can be approved.');
+            }
+
+            $days = $approvedDays ?? (float) $encashment->requested_days;
+            if ($days > (float) $encashment->requested_days) {
+                throw new \InvalidArgumentException('Approved days cannot exceed the days requested.');
+            }
+
+            $balance = LeaveBalance::whereKey($encashment->leave_balance_id)->lockForUpdate()->firstOrFail();
+            if ($days > $balance->getAvailableBalance()) {
+                throw new \InvalidArgumentException('Insufficient leave balance for encashment.');
+            }
+
+            $balance->encashed = bcadd((string) $balance->encashed, (string) $days, 2);
+            $balance->recalculateClosingBalance();
+            $balance->save();
+
+            $encashment->update([
+                'approved_days' => $days,
+                'amount' => $this->encashmentAmount((string) $days, (string) $encashment->daily_rate, (string) $encashment->encashment_rate),
+                'status' => LeaveEncashment::STATUS_APPROVED,
+                'approved_by' => $approvedBy,
+                'approved_at' => now(),
+                'notes' => $notes ?? $encashment->notes,
+            ]);
+
+            return $encashment->fresh();
         });
     }
 
@@ -180,26 +200,22 @@ class LeaveAccrualService
     }
 
     /**
-     * Get the applicable tier for an employee based on service months and other criteria.
+     * The highest-priority active tier the employee's service qualifies for.
      */
     protected function getApplicableTier(LeaveType $leaveType, Employee $employee): ?LeaveTier
     {
-        $serviceMonths = $employee->getTenureInMonths();
-
         return $leaveType->leaveTiers()
             ->active()
-            ->forServiceMonths($serviceMonths)
-            ->when($employee->grade ?? null, function ($q, $grade) {
-                $q->where(function ($q2) use ($grade) {
-                    $q2->whereNull('employee_grade')->orWhere('employee_grade', $grade);
-                });
-            })
+            ->forServiceMonths($employee->getTenureInMonths() ?? 0)
             ->byPriority()
             ->first();
     }
 
     /**
-     * Process accrual for a single employee and leave type.
+     * Credit one employee's balance for one leave type from its tier.
+     *
+     * A yearly tier credits its whole entitlement once, when the year's balance
+     * is created. A monthly tier credits a month's share at most once a month.
      */
     protected function processEmployeeAccrual(
         Employee $employee,
@@ -209,48 +225,67 @@ class LeaveAccrualService
     ): bool {
         $year = (int) $accrualDate->format('Y');
 
-        $accrualDays = $tier->monthly_accrual_rate ?? round((float) $tier->entitled_days / 12, 2);
-
-        return DB::transaction(function () use ($employee, $leaveType, $tier, $year, $accrualDate, $accrualDays) {
-            // Lock or create the balance row atomically to prevent duplicate accruals
+        return DB::transaction(function () use ($employee, $leaveType, $tier, $year, $accrualDate) {
             $balance = LeaveBalance::where('employee_id', $employee->id)
                 ->where('leave_type_id', $leaveType->id)
                 ->where('year', $year)
                 ->lockForUpdate()
                 ->first();
 
-            if (! $balance) {
-                $balance = LeaveBalance::create([
-                    'employee_id' => $employee->id,
-                    'leave_type_id' => $leaveType->id,
-                    'year' => $year,
-                    'organization_id' => $employee->organization_id,
-                    'leave_tier_id' => $tier->id,
-                    'opening_balance' => 0,
-                    'entitled_days' => $tier->entitled_days,
-                    'available_balance' => $tier->entitled_days,
-                ]);
+            if ($tier->entitlement_period !== LeaveTier::ENTITLEMENT_MONTHLY) {
+                if ($balance !== null) {
+                    return false;
+                }
+
+                $balance = $this->newBalance($employee, $leaveType, $tier, $year);
+                $this->credit($balance, 'entitled', (string) $tier->entitled_days, $accrualDate, LeaveAccrual::TYPE_YEARLY);
+
+                return true;
             }
 
-            if ($balance->last_accrual_date && $balance->last_accrual_date >= $accrualDate) {
+            $balance ??= $this->newBalance($employee, $leaveType, $tier, $year);
+
+            if ($balance->last_accrual_date !== null && $balance->last_accrual_date->format('Y-m') >= $accrualDate->format('Y-m')) {
                 return false;
             }
 
-            LeaveAccrual::create([
-                'leave_balance_id' => $balance->id,
-                'employee_id' => $employee->id,
-                'accrual_date' => $accrualDate->format('Y-m-d'),
-                'accrual_type' => LeaveAccrual::TYPE_MONTHLY,
-                'days' => $accrualDays,
-                'description' => 'Monthly accrual',
-            ]);
-
-            $balance->accrued_days = bcadd((string) $balance->accrued_days, (string) $accrualDays, 2);
-            $balance->last_accrual_date = $accrualDate;
-            $balance->recalculateAvailableBalance();
-            $balance->save();
+            $days = $tier->monthly_accrual_rate ?? bcdiv((string) $tier->entitled_days, '12', 2);
+            $this->credit($balance, 'accrued', (string) $days, $accrualDate, LeaveAccrual::TYPE_MONTHLY);
 
             return true;
         });
+    }
+
+    private function newBalance(Employee $employee, LeaveType $leaveType, LeaveTier $tier, int $year): LeaveBalance
+    {
+        return LeaveBalance::create([
+            'organization_id' => $employee->organization_id,
+            'employee_id' => $employee->id,
+            'leave_type_id' => $leaveType->id,
+            'leave_tier_id' => $tier->id,
+            'year' => $year,
+        ]);
+    }
+
+    private function credit(LeaveBalance $balance, string $column, string $days, \DateTimeInterface $date, string $type): void
+    {
+        LeaveAccrual::create([
+            'leave_balance_id' => $balance->id,
+            'employee_id' => $balance->employee_id,
+            'accrual_date' => $date->format('Y-m-d'),
+            'accrual_type' => $type,
+            'days' => $days,
+            'description' => $type === LeaveAccrual::TYPE_YEARLY ? 'Yearly entitlement' : 'Monthly accrual',
+        ]);
+
+        $balance->{$column} = bcadd((string) ($balance->{$column} ?? '0'), $days, 2);
+        $balance->last_accrual_date = $date;
+        $balance->recalculateClosingBalance();
+        $balance->save();
+    }
+
+    private function encashmentAmount(string $days, string $dailyRate, string $ratePercent): string
+    {
+        return bcmul(bcmul($days, $dailyRate, 4), bcdiv($ratePercent, '100', 4), 2);
     }
 }

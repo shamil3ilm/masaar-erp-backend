@@ -1,15 +1,10 @@
 # Tables with more than one Eloquent model.
 #
 # In every case the two disagree about what the table holds, and one of them
-# is wrong. leave_types has App\Models\HR\LeaveType, whose annual_quota and
-# carry_forward match the migration, and App\Models\HR\Leave\LeaveType, whose
-# leave_policy_id and gender_restriction do not exist — so LeaveService works
-# and LeavePolicyController answers 500 on every request. feature_flags had
-# the same split until it was recorded, an organisation-scoped model sitting
-# on a platform-wide table.
+# is wrong: the second model names columns the table does not have, so the
+# code written against it answers 500 while the code on the first one works.
 #
-# This is much of tests/Fixtures/model-columns.txt as well: four of the
-# models listed there are the second model on a table already listed here.
+# Both misfits are listed in tests/Fixtures/model-columns.txt as well.
 # Resolving the duplicate resolves the phantom columns with it.
 #
 # Which model survives is a decision per table, not a rename. A ratchet: the
@@ -21,25 +16,16 @@
 # ---------------------------------------------------------------------------
 #
 # Counted against the schema: how many attributes each model declares in
-# $fillable or $casts that the table does not have. In every pair one model
-# fits exactly and one does not, so the shape of each decision is the same —
-# keep the one that fits and move its users over, or decide the richer model
-# was the intent and build the columns.
+# $fillable or $casts that the table does not have. In both pairs the Billing
+# model fits exactly and the Core one does not, so the shape of each decision
+# is the same — keep the one that fits and move its users over, or decide the
+# richer model was the intent and build the columns.
 #
-#   leave_balances               HR\LeaveBalance fits;  HR\Leave\LeaveBalance
-#                                misses 11
-#   leave_types                  HR\LeaveType fits;  HR\Leave\LeaveType
-#                                misses 16
 #   organization_subscriptions   Billing fits;  Core misses 7
 #   subscription_plans           Billing fits;  Core misses 5
 #
-# Both halves of each pair are used by real code, which is why half of each
-# feature works and half answers 500. Counting the users precisely is harder
-# than it looks — every pair shares a short class name, so a search for
-# "LeaveType::" cannot tell them apart. The column counts above come from
-# the schema and are exact; treat any usage count as needing a look.
+# Both pairs share a short class name, so a search for "SubscriptionPlan::"
+# cannot tell them apart.
 
-leave_balances: App\Models\HR\LeaveBalance, App\Models\HR\Leave\LeaveBalance
-leave_types: App\Models\HR\LeaveType, App\Models\HR\Leave\LeaveType
 organization_subscriptions: App\Models\Billing\OrganizationSubscription, App\Models\Core\OrganizationSubscription
 subscription_plans: App\Models\Billing\SubscriptionPlan, App\Models\Core\SubscriptionPlan

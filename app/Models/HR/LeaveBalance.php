@@ -5,61 +5,33 @@ declare(strict_types=1);
 namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
-use App\Models\Core\Organization;
+use App\Models\HR\Leave\LeaveAccrual;
+use App\Models\HR\Leave\LeaveAdjustment;
+use App\Models\HR\Leave\LeaveTier;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LeaveBalance extends Model
 {
     use HasFactory, BelongsToOrganization;
 
-    protected static function newFactory(): Factory
-    {
-        return new class extends Factory {
-            protected $model = \App\Models\HR\LeaveBalance::class;
-
-            public function definition(): array
-            {
-                $openingBalance = fake()->randomFloat(2, 10, 30);
-                $accrued = fake()->randomFloat(2, 0, 10);
-                $taken = fake()->randomFloat(2, 0, $openingBalance * 0.5);
-                $adjustment = 0;
-                $encashed = 0;
-                $lapsed = 0;
-                $closingBalance = round($openingBalance + $accrued + $adjustment - $taken - $encashed - $lapsed, 2);
-
-                return [
-                    'organization_id' => Organization::factory(),
-                    'employee_id' => Employee::factory(),
-                    'leave_type_id' => LeaveType::factory(),
-                    'year' => now()->year,
-                    'opening_balance' => $openingBalance,
-                    'accrued' => $accrued,
-                    'taken' => $taken,
-                    'adjustment' => $adjustment,
-                    'encashed' => $encashed,
-                    'lapsed' => $lapsed,
-                    'closing_balance' => max(0, $closingBalance),
-                    'notes' => null,
-                ];
-            }
-        };
-    }
-
     protected $fillable = [
         'organization_id',
         'employee_id',
         'leave_type_id',
+        'leave_tier_id',
         'year',
         'opening_balance',
+        'entitled',
         'accrued',
         'taken',
         'adjustment',
         'encashed',
         'lapsed',
         'closing_balance',
+        'last_accrual_date',
         'notes',
     ];
 
@@ -68,12 +40,14 @@ class LeaveBalance extends Model
         return [
             'year' => 'integer',
             'opening_balance' => 'decimal:2',
+            'entitled' => 'decimal:2',
             'accrued' => 'decimal:2',
             'taken' => 'decimal:2',
             'adjustment' => 'decimal:2',
             'encashed' => 'decimal:2',
             'lapsed' => 'decimal:2',
             'closing_balance' => 'decimal:2',
+            'last_accrual_date' => 'date',
         ];
     }
 
@@ -87,25 +61,37 @@ class LeaveBalance extends Model
         return $this->belongsTo(LeaveType::class);
     }
 
+    public function leaveTier(): BelongsTo
+    {
+        return $this->belongsTo(LeaveTier::class);
+    }
+
+    public function accruals(): HasMany
+    {
+        return $this->hasMany(LeaveAccrual::class);
+    }
+
+    public function adjustments(): HasMany
+    {
+        return $this->hasMany(LeaveAdjustment::class);
+    }
+
+    /**
+     * The opening balance and everything credited, less everything spent.
+     */
     public function recalculateClosingBalance(): void
     {
-        $this->closing_balance = bcadd(
-            bcadd(
-                bcadd((string) $this->opening_balance, (string) $this->accrued, 2),
-                (string) $this->adjustment,
-                2
-            ),
-            bcsub(
-                '0',
-                bcadd(
-                    bcadd((string) $this->taken, (string) $this->encashed, 2),
-                    (string) $this->lapsed,
-                    2
-                ),
-                2
-            ),
-            2
-        );
+        $credited = '0';
+        foreach (['opening_balance', 'entitled', 'accrued', 'adjustment'] as $key) {
+            $credited = bcadd($credited, (string) ($this->getAttribute($key) ?? '0'), 2);
+        }
+
+        $spent = '0';
+        foreach (['taken', 'encashed', 'lapsed'] as $key) {
+            $spent = bcadd($spent, (string) ($this->getAttribute($key) ?? '0'), 2);
+        }
+
+        $this->closing_balance = bcsub($credited, $spent, 2);
     }
 
     public function getAvailableBalance(): float
@@ -125,9 +111,12 @@ class LeaveBalance extends Model
         $this->save();
     }
 
+    /**
+     * Give back leave that was taken and then cancelled.
+     */
     public function creditLeave(float $days): void
     {
-        $this->accrued = bcadd((string) $this->accrued, (string) $days, 2);
+        $this->taken = bcsub((string) $this->taken, (string) $days, 2);
         $this->recalculateClosingBalance();
         $this->save();
     }
