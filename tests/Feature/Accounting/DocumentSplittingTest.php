@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\DocumentSplittingRule;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -166,5 +167,35 @@ class DocumentSplittingTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/document-splitting-rules')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tenant isolation and response shape
+    // -------------------------------------------------------------------------
+
+    public function test_index_orders_by_priority_and_excludes_other_organizations(): void
+    {
+        $this->makeRule(['name' => 'Second', 'priority' => 20]);
+        $this->makeRule(['name' => 'First', 'priority' => 5]);
+        $this->makeRule(['name' => 'Foreign', 'organization_id' => Organization::factory()->create()->id]);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/document-splitting-rules?per_page=1');
+
+        $response->assertStatus(200)->assertJsonPath('data.per_page', 50);
+        $this->assertSame(['First', 'Second'], array_column($response->json('data.data'), 'name'));
+    }
+
+    public function test_store_sets_the_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/document-splitting-rules', [
+                'name'         => 'Segment Split',
+                'split_method' => 'segment',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Document splitting rule created.')
+            ->assertJsonPath('data.name', 'Segment Split')
+            ->assertJsonPath('data.organization_id', $this->organization->id);
     }
 }

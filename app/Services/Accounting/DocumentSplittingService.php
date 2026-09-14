@@ -9,11 +9,57 @@ use App\Models\Accounting\DocumentSplittingRule;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntrySplitItem;
 use App\Models\Accounting\PostingValidationRule;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class DocumentSplittingService
 {
+    /**
+     * Splitting rules of one organization in priority order, 50 per page.
+     */
+    public function listRules(int $organizationId): LengthAwarePaginator
+    {
+        return DocumentSplittingRule::where('organization_id', $organizationId)
+            ->ordered()
+            ->paginate(50);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  Validated splitting rule attributes.
+     */
+    public function createRule(array $data, int $organizationId): DocumentSplittingRule
+    {
+        return DocumentSplittingRule::create([...$data, 'organization_id' => $organizationId]);
+    }
+
+    /**
+     * Posting validation and substitution rules of one organization in priority order, 50 per page.
+     *
+     * @param  array{rule_type?: mixed, trigger_event?: mixed}  $filters
+     *         A filter applies only when it is set and not null.
+     */
+    public function listPostingRules(int $organizationId, array $filters): LengthAwarePaginator
+    {
+        $query = PostingValidationRule::where('organization_id', $organizationId)->ordered();
+
+        foreach (['rule_type', 'trigger_event'] as $column) {
+            if (isset($filters[$column])) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        return $query->paginate(50);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  Validated posting rule attributes.
+     */
+    public function createPostingRule(array $data, int $organizationId): PostingValidationRule
+    {
+        return PostingValidationRule::create([...$data, 'organization_id' => $organizationId]);
+    }
+
     /**
      * Persist split items for a journal entry using the active splitting rules.
      *
