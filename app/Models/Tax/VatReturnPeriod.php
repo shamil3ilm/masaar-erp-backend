@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Tax;
 
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,6 +15,7 @@ class VatReturnPeriod extends Model
 {
     use HasFactory;
     use HasUuid;
+    use LocksForTransition;
     use SoftDeletes;
 
     protected $guarded = ['id'];
