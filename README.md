@@ -1,8 +1,6 @@
 # Masaar ERP — Backend
 
-A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait). Built to SAP-parity standards — covering Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing, Project System, and Compliance.
-
-**1,064 models · 387 controllers · 422 services · 3,338 API routes · 49 migrations · 1,082 tables**
+A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait). Built to SAP-parity standards — covering Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing, and Compliance.
 
 ---
 
@@ -22,18 +20,14 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 - **Procurement** — Purchase requisitions, RFQ, purchase orders, goods receipt, 3-way match, vendor management
 - **Manufacturing** — BOMs, work orders, MRP, quality management, production costing, capacity planning
 - **Plant Maintenance** — Equipment master, maintenance plans/orders, work permits (PTW), fleet management
-- **Project System** — WBS hierarchy, resource planning, budget control, earned value management
 - **CRM** — Leads, opportunities, service tickets, territory management, campaigns
 - **Real Estate (RE-FX)** — Portfolios, properties, rental units, lease contracts, IFRS 16 schedules, service charge settlements
-- **Trade & Customs** — Letters of credit, landed costs, trade agreements, customs declarations, excise duties
 - **E-commerce** — Multi-channel order sync, payment gateway integration, product mapping, online payments
-- **Loyalty Management** — Customer tiers, points earning rules, rewards catalog, redemption
 - **Omnichannel Messaging** — WhatsApp/SMS/email templates, message campaigns, conversation management
-- **Task Boards** — Kanban boards, sprints, checklists, time entries, dependencies
 - **Document Vault** — Versioned document storage, folder hierarchy, permissions, digital signatures
 - **Expense Management** — Expense reports, receipt capture, recurring expenses, budget allocation
 - **Budget Control** — Cross-module budgets, commitments, revisions, availability control
-- **Calendar** — Events, attendees, reminders, recurring rules, task integration
+- **Calendar** — Events, attendees, reminders, recurring rules
 - **Automation Engine** — Rule-based triggers, email templates, scheduled automations
 - **GCC Compliance** — ZATCA Phase 2 (Saudi e-invoicing), VAT (UAE/Qatar/Oman/Bahrain/Kuwait)
 - **Platform** — RBAC, approval workflows, webhooks, audit trail, document vault, custom fields, notifications, 2FA
@@ -113,7 +107,7 @@ ZATCA_INTEGRATION_ENABLED=true
 ZATCA_INTEGRATION_URL=http://your-zatca-service/api/v1
 ZATCA_INTEGRATION_API_KEY=
 ZATCA_INTEGRATION_TIMEOUT=30
-ZATCA_WEBHOOK_SECRET=
+ZATCA_INTEGRATION_WEBHOOK_SECRET=   # printed once by php artisan zatca:setup
 
 # File storage (leave blank for local)
 AWS_ACCESS_KEY_ID=
@@ -230,24 +224,16 @@ Authorization: Bearer <jwt-token>
 │   ├── permits/              # Work permits (PTW) with safety checks
 │   └── fleet/                # Vehicle management, mileage, fuel logs
 │
-├── ps/                       # PS: projects, WBS, earned value
-│   ├── budget/               # Budget versions, availability control
-│   └── evm/                  # EVM snapshots (BCWS/BCWP/ACWP, SPI, CPI)
-│
 ├── crm/                      # Leads, opportunities, activities
 │   ├── service-tickets/      # SLA-based ticket management
 │   └── territory/            # Territory hierarchy, routing rules
 │
 ├── compliance/               # ZATCA webhook receiver, onboarding proxy
 ├── tax/                      # VAT (GCC), tax determination, HSN/SAC codes
-│   └── customs/              # Customs declarations, tariff codes, excise duties
 │
 ├── real-estate/              # RE-FX: portfolios, properties, rental units
 │   ├── lease-contracts/      # IFRS 16 schedules, lease modifications
 │   └── service-charges/      # Service charge allocations, settlement runs
-│
-├── trade/                    # Letters of credit, incoterms, trade agreements
-│   └── landed-costs/         # Landed cost vouchers, charge allocation
 │
 ├── ecommerce/                # Multi-channel sync, payment gateways, online orders
 │
@@ -255,11 +241,7 @@ Authorization: Bearer <jwt-token>
 │   ├── tender/               # Freight tendering, bid management
 │   └── load-plans/           # Load building, consolidation
 │
-├── loyalty/                  # Customer tiers, points, rewards catalog, redemption
-│
 ├── messaging/                # Omnichannel messaging, templates, campaigns
-│
-├── task-boards/              # Kanban boards, sprints, task management
 │
 ├── documents/                # Document vault: versioning, permissions, signatures
 │
@@ -381,7 +363,7 @@ SAP FI sub-module coverage:
 | Electronic Bank Statement (EBS) | ✅ | `EbsParserService`: MT940 + CAMT.053, auto-creates `BankTransaction` |
 | Bank reconciliation | ✅ | `BankReconciliation`, auto-match + manual-match, complete |
 | Auto-matching rules | ✅ | `BankMatchingRule`, amount/reference/date-based |
-| Cash journal / Petty cash | ✅ | `PettyCashFund`, `PettyCashTransaction`, replenishment workflow |
+| Cash journal / Petty cash | ✅ | `PettyCashFund`, `PettyCashVoucher`, `PettyCashReplenishment` |
 | Bank guarantee management | ✅ | `BankGuarantee`, issuance/expiry/release lifecycle |
 | Cash flow forecast | ✅ | `CashFlowForecast`, `CashFlowScenario`, liquidity planning |
 | Bank position | ✅ | `BankPosition`, intraday liquidity monitoring |
@@ -439,7 +421,7 @@ SAP FI sub-module coverage:
 |---------|--------|----------------|
 | Order types (overhead/investment/accrual/statistical) | ✅ | `InternalOrder` with type enum |
 | Status lifecycle | ✅ | created → released → technically_completed → closed |
-| Settlement to CC / GL / WBS / PC | ✅ | `InternalOrderSettlement`, `settle()` |
+| Settlement to CC / GL / PC | ✅ | `InternalOrderSettlement`, `settle()` |
 | Budget control | ✅ | `budget_amount`, committed/actual tracking |
 
 #### CO-PC — Product Costing
@@ -597,23 +579,7 @@ SAP FI sub-module coverage:
 
 ---
 
-### Module 7 — Project System (PS)
-
-- Project master with WBS element hierarchy
-- Network activities with predecessor/successor relationships
-- Project templates
-- Milestones: date-driven, billing-linked
-- Resource planning: plan vs actual, utilisation view
-- Timesheets: entry and approval
-- **Budget management**: versions (original/supplement), line items per WBS, availability control, supplement approval
-- **Revenue planning**: percentage-of-completion, milestone, fixed-amount recognition
-- Billing rules: milestone billing, resource-related billing
-- Cost settlement: rules, run to cost centres / GL
-- **Earned Value Management (EVM)**: BCWS, BCWP, ACWP snapshots; SPI, CPI, EAC calculations
-
----
-
-### Module 8 — CRM
+### Module 7 — CRM
 
 - Leads: capture, scoring, assignment, conversion
 - Opportunities: pipeline stages, probability, close date, revenue forecast
@@ -624,12 +590,12 @@ SAP FI sub-module coverage:
 
 ---
 
-### Module 9 — GCC Compliance
+### Module 8 — GCC Compliance
 
 #### Saudi Arabia — ZATCA (Phase 2 e-invoicing)
 
 - `ZatcaInvoiceTransformer` — maps ERP invoice to ZATCA UBL XML payload
-- `CompliPayClient` — calls ZATCA pipeline: submit, status, validate
+- `MasaarClient` — calls the compliance platform: submit, status, validate, webhook registration
 - `VerifyZatcaWebhook` middleware — HMAC-SHA256 signature + replay protection (5-minute window)
 - `ZatcaWebhookController` — handles `invoice.cleared`, `invoice.reported`, `invoice.rejected`
 - `RetryComplianceSubmission` job — 5 retries, exponential backoff (5 min → 2 hrs)
@@ -648,15 +614,9 @@ tables. What remains is rate calculation inside `TaxCalculatorService` —
 the IGST/CGST/SGST split and HSN/SAC lookup — because invoice and bill
 lines still carry those columns.
 
-#### Customs & Excise
-- Customs declarations with line-item detail
-- Tariff code classification (HS codes)
-- Preferential duty rates and trade agreement mapping
-- Excise categories, rates, and declarations
-
 ---
 
-### Module 10 — Real Estate (RE-FX)
+### Module 9 — Real Estate (RE-FX)
 
 - Portfolio and property master management
 - Rental unit tracking per building/floor
@@ -668,18 +628,7 @@ lines still carry those columns.
 
 ---
 
-### Module 11 — Trade & International Commerce
-
-- **Letters of credit**: issuance, amendments, document tracking
-- Incoterms management
-- Trade agreements with preferential duty rates
-- **Landed costs**: voucher creation, charge allocation to purchase orders
-- Import/export shipment tracking
-- Trade document management
-
----
-
-### Module 12 — E-commerce Integration
+### Module 10 — E-commerce Integration
 
 - Multi-channel integration (EcommerceChannel)
 - Order sync with ERP sales orders
@@ -690,7 +639,7 @@ lines still carry those columns.
 
 ---
 
-### Module 13 — Transportation Management (TM)
+### Module 11 — Transportation Management (TM)
 
 - Carrier master with performance scoring
 - Carrier service types and freight agreements
@@ -701,17 +650,7 @@ lines still carry those columns.
 
 ---
 
-### Module 14 — Loyalty Management
-
-- Loyalty program definition (points, tiers, cashback)
-- Customer tier management with tier rules
-- Points earning rules per transaction type
-- Rewards catalog with point redemption
-- Points transactions and balance management
-
----
-
-### Module 15 — Omnichannel Messaging
+### Module 12 — Omnichannel Messaging
 
 - Messaging configuration per channel (WhatsApp, SMS, email)
 - Message templates with approval workflow
@@ -722,21 +661,7 @@ lines still carry those columns.
 
 ---
 
-### Module 16 — Task Boards
-
-- Kanban boards with customisable columns
-- Board member management and access control
-- Tasks with priority, due date, assignee, labels
-- Task dependencies (blockers)
-- Checklists and checklist items
-- **Sprints**: planning, active, review, retrospective
-- Time entries per task
-- Task activity feed and watchers
-- Board templates
-
----
-
-### Module 17 — Document Vault
+### Module 13 — Document Vault
 
 - Document upload with version history
 - Folder hierarchy with nested permissions
@@ -746,7 +671,7 @@ lines still carry those columns.
 
 ---
 
-### Module 18 — Expense Management
+### Module 14 — Expense Management
 
 - Expense categories and policies
 - Expense reports: draft → submitted → approved → paid
@@ -756,7 +681,7 @@ lines still carry those columns.
 
 ---
 
-### Module 19 — Budget Management
+### Module 15 — Budget Management
 
 - Cross-module budget master with line items
 - Budget revisions with revision lines
@@ -765,12 +690,11 @@ lines still carry those columns.
 
 ---
 
-### Module 20 — Calendar & Automation
+### Module 16 — Calendar & Automation
 
 #### Calendar
 - Calendar master per user/team
 - Events with attendees, reminders, and recurrence rules
-- Task integration (calendar tasks with comments)
 
 #### Automation Engine
 - Rule-based automation triggers (record created/updated, scheduled)
@@ -781,7 +705,7 @@ lines still carry those columns.
 
 ---
 
-### Module 21 — Platform Administration
+### Module 17 — Platform Administration
 
 - Platform admin users with roles and permissions
 - IP allowlist management for admin access
@@ -892,12 +816,12 @@ Tests use SQLite in-memory for speed. Each test class boots a fresh database via
 
 ### Test Structure
 
-| Layer | Location | Count | Purpose |
-|-------|----------|-------|---------|
-| Unit | `tests/Unit/` | ~11 files | Service logic, state machines, factories |
-| Feature (module) | `tests/Feature/` | ~33 files | CRUD, validation, business rules per module |
-| Feature (journey) | `tests/Feature/Journeys/` | 10 files | Multi-step end-to-end flows |
-| **Total** | | **714 tests** | **2,846 assertions** |
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| Unit | `tests/Unit/` | Service logic, state machines, factories |
+| Feature (module) | `tests/Feature/` | CRUD, validation, business rules per module |
+| Feature (journey) | `tests/Feature/Journeys/` | Multi-step end-to-end flows |
+| Architecture | `tests/Feature/Architecture/` | Ratchets: one model per table, attributes and relation keys that have columns, guarded routes |
 
 See [`TESTS.md`](TESTS.md) for the complete test inventory and coverage checklist.
 
@@ -922,23 +846,18 @@ See [`TESTS.md`](TESTS.md) for the complete test inventory and coverage checklis
 | Quality Management (QM) | — | — | — | ✓ |
 | Manufacturing (PP) | — | — | — | ✓ |
 | Plant Maintenance (PM) | — | — | — | ✓ |
-| Project System (PS) | — | — | — | ✓ |
 | Treasury / Loans | — | — | — | ✓ |
 | Consolidation (FI-LC) | — | — | — | ✓ |
 | Analytics & Fraud/AML | — | — | — | ✓ |
 | Real Estate (RE-FX) | — | — | — | ✓ |
-| Trade & Customs | — | — | ✓ | ✓ |
 | E-commerce Integration | — | — | ✓ | ✓ |
 | Transportation Management | — | — | — | ✓ |
-| Loyalty Management | — | — | ✓ | ✓ |
 | Omnichannel Messaging | — | — | ✓ | ✓ |
-| Task Boards | — | ✓ | ✓ | ✓ |
 | Document Vault | — | ✓ | ✓ | ✓ |
 | Expense Management | — | ✓ | ✓ | ✓ |
 | Budget Management | — | — | ✓ | ✓ |
 | Calendar & Automation | — | ✓ | ✓ | ✓ |
 | ZATCA / GCC Compliance | — | ✓ | ✓ | ✓ |
-| India GST / TDS | — | ✓ | ✓ | ✓ |
 
 ---
 

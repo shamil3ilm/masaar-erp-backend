@@ -1,6 +1,6 @@
-# Multi-Tenant ERP System for GCC & India
+# Multi-Tenant ERP System for the GCC
 
-A comprehensive multi-tenant Enterprise Resource Planning (ERP) backend built with Laravel, designed for businesses operating in GCC countries (Saudi Arabia, UAE, Bahrain, Oman, Qatar, Kuwait) and India.
+A comprehensive multi-tenant Enterprise Resource Planning (ERP) backend built with Laravel, designed for businesses operating in GCC countries (Saudi Arabia, UAE, Bahrain, Oman, Qatar, Kuwait).
 
 ## Tech Stack
 
@@ -30,7 +30,7 @@ php artisan test
 ## Project Structure
 
 The codebase is organized into domain modules. `ls app/Http/Controllers/Api/V1/`
-is the current list — there are 34, and the core business ones are:
+is the current list — there are 28, and the core business ones are:
 
 | Module | Path prefix | Description |
 |---|---|---|
@@ -43,10 +43,9 @@ is the current list — there are 34, and the core business ones are:
 | **Manufacturing** | `Manufacturing/` | BOMs, work orders, production logs |
 | **Core** | `Core/` | Organizations, settings, notifications, dashboards, webhooks, approvals |
 
-The rest, which this table used to omit entirely: Admin, Aml, Analytics, Auth,
-Automation, Billing, Budget, Calendar, Campaign, Compliance, Customs, Document,
-Ecommerce, Expense, Fraud, Loyalty, Maintenance, Messaging, Projects,
-RealEstate, Reports, TM, TaskBoard, Tax, Trade.
+The rest: Admin, Aml, Analytics, Auth, Automation, Billing, Budget, Calendar,
+Campaign, Compliance, Document, Ecommerce, Expense, Fraud, Maintenance,
+Messaging, RealEstate, Reports, TM, Tax.
 
 Each module follows the same layered structure:
 - `app/Models/{Module}/` -- Eloquent models
