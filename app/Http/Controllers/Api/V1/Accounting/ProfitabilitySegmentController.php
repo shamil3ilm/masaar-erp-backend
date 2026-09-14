@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\ProfitabilitySegment;
 use App\Services\Accounting\ProfitabilitySegmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,14 +43,12 @@ class ProfitabilitySegmentController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $segment = ProfitabilitySegment::with(['customerGroup', 'product:id,name,sku', 'values'])->findOrFail($id);
-
-        return $this->success($segment);
+        return $this->success($this->service->findWithDetails($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $segment = ProfitabilitySegment::findOrFail($id);
+        $segment = $this->service->find($id);
 
         $validated = $request->validate([
             'segment_name'      => ['sometimes', 'string', 'max:100'],
@@ -69,7 +66,7 @@ class ProfitabilitySegmentController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $segment = ProfitabilitySegment::findOrFail($id);
+        $segment = $this->service->find($id);
         $segment->delete();
 
         return $this->noContent();
@@ -109,7 +106,8 @@ class ProfitabilitySegmentController extends Controller
         $result = $this->service->getDrillDown(
             $validated['dimensions'] ?? ['segment_name'],
             (int) $validated['period'],
-            (int) $validated['fiscal_year']
+            (int) $validated['fiscal_year'],
+            (int) $this->organizationId($request)
         );
 
         return $this->success($result);
@@ -124,7 +122,8 @@ class ProfitabilitySegmentController extends Controller
 
         $report = $this->service->getSegmentReport(
             (int) $validated['period'],
-            (int) $validated['fiscal_year']
+            (int) $validated['fiscal_year'],
+            (int) $this->organizationId($request)
         );
 
         return $this->success($report);
