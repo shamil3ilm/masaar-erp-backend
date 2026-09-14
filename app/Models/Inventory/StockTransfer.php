@@ -7,6 +7,7 @@ namespace App\Models\Inventory;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockTransfer extends Model
 {
-    use BelongsToOrganization, HasFactory, HasStateMachine, HasUuid;
+    use BelongsToOrganization, HasFactory, HasStateMachine, HasUuid, LocksForTransition;
 
     public const STATUS_DRAFT = 'draft';
 
