@@ -13,6 +13,8 @@ use App\Models\Accounting\LoanSchedule;
 use App\Models\Core\Organization;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\Invoice;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 class CashFlowForecastService
@@ -180,6 +182,95 @@ class CashFlowForecastService
             $forecast->delete();
 
             return $fresh;
+        });
+    }
+
+    /**
+     * An organization's forecasts, latest first, filtered by a non-empty scenario id.
+     */
+    public function listForecasts(int $organizationId, mixed $scenarioId, int $perPage = 15): LengthAwarePaginator
+    {
+        return CashFlowForecast::where('organization_id', $organizationId)
+            ->with(['scenario'])
+            ->when($scenarioId, fn ($q, $v) => $q->where('scenario_id', $v))
+            ->orderByDesc('forecast_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A forecast's lines by expected date. Each filter applies only when its
+     * value is non-empty.
+     *
+     * @param  array{flow_type?: mixed, confidence?: mixed, source_type?: mixed}  $filters
+     */
+    public function listLines(CashFlowForecast $forecast, array $filters, int $perPage = 30): LengthAwarePaginator
+    {
+        return $forecast->lines()
+            ->when($filters['flow_type'] ?? null, fn ($q, $v) => $q->where('flow_type', $v))
+            ->when($filters['confidence'] ?? null, fn ($q, $v) => $q->where('confidence', $v))
+            ->when($filters['source_type'] ?? null, fn ($q, $v) => $q->where('source_type', $v))
+            ->orderBy('expected_date')
+            ->paginate($perPage);
+    }
+
+    // -------------------------------------------------------------------------
+    // Scenarios
+    // -------------------------------------------------------------------------
+
+    public function findScenario(int|string $id): CashFlowScenario
+    {
+        return CashFlowScenario::findOrFail($id);
+    }
+
+    /**
+     * An organization's scenarios, the base case first, then by name.
+     */
+    public function listScenarios(int $organizationId): Collection
+    {
+        return CashFlowScenario::where('organization_id', $organizationId)
+            ->with(['creator'])
+            ->orderByDesc('is_base_case')
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Create a scenario. A new base case takes over from the organization's
+     * current one, in the same transaction, so there is never more than one.
+     */
+    public function createScenario(int $organizationId, array $data, ?int $createdBy): CashFlowScenario
+    {
+        return DB::transaction(function () use ($organizationId, $data, $createdBy): CashFlowScenario {
+            if (! empty($data['is_base_case'])) {
+                CashFlowScenario::where('organization_id', $organizationId)
+                    ->where('is_base_case', true)
+                    ->update(['is_base_case' => false]);
+            }
+
+            return CashFlowScenario::create(array_merge($data, [
+                'organization_id' => $organizationId,
+                'created_by'      => $createdBy,
+            ]));
+        });
+    }
+
+    /**
+     * Update a scenario. Making it the base case demotes the organization's
+     * other base case in the same transaction.
+     */
+    public function updateScenario(CashFlowScenario $scenario, array $data): CashFlowScenario
+    {
+        return DB::transaction(function () use ($scenario, $data): CashFlowScenario {
+            if (! empty($data['is_base_case'])) {
+                CashFlowScenario::where('organization_id', $scenario->organization_id)
+                    ->where('is_base_case', true)
+                    ->where('id', '!=', $scenario->id)
+                    ->update(['is_base_case' => false]);
+            }
+
+            $scenario->update($data);
+
+            return $scenario->fresh();
         });
     }
 
