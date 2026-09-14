@@ -63,7 +63,7 @@ class StateTransitionTest extends TestCase
         'Services/Core/RecurringTransactionService.php' => 4,
         'Services/HR/EmployeeService.php' => 1,
         'Services/HR/LeaveService.php' => 4,
-        'Services/HR/PayrollService.php' => 4,
+        'Services/HR/PayrollService.php' => 3,
         'Services/Inventory/StockAdjustmentService.php' => 2,
         'Services/Manufacturing/WorkOrderService.php' => 1,
         'Services/Purchase/BillService.php' => 3,
