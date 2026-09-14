@@ -223,6 +223,52 @@ class EmployeeService
     }
 
     /**
+     * An employee of the current organization; the tenant scope turns another
+     * organization's id into a not-found.
+     */
+    public function find(int $id): Employee
+    {
+        return Employee::findOrFail($id);
+    }
+
+    /**
+     * A salary structure of the current organization; the tenant scope turns
+     * another organization's id into a not-found.
+     */
+    public function findSalaryStructure(int $id): SalaryStructure
+    {
+        return SalaryStructure::findOrFail($id);
+    }
+
+    /**
+     * The employee listing with its filters and sort applied, left unexecuted
+     * so the caller can page it or hand it to an AG Grid request.
+     *
+     * @param  array{status?: mixed, department_id?: mixed, designation_id?: mixed, employment_type?: mixed, active?: mixed, on_probation?: mixed, search?: mixed}  $filters
+     *         empty values are ignored; active and on_probation apply when they are the string "true"
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listQuery(array $filters, string $sortBy, string $sortOrder): \Illuminate\Database\Eloquent\Builder
+    {
+        return Employee::with(['department', 'designation', 'branch'])
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('employment_status', $status))
+            ->when($filters['department_id'] ?? null, fn($q, $id) => $q->inDepartment($id))
+            ->when($filters['designation_id'] ?? null, fn($q, $id) => $q->withDesignation($id))
+            ->when($filters['employment_type'] ?? null, fn($q, $type) => $q->where('employment_type', $type))
+            ->when(($filters['active'] ?? null) === 'true', fn($q) => $q->active())
+            ->when(($filters['on_probation'] ?? null) === 'true', fn($q) => $q->onProbation())
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('employee_number', 'like', "%{$search}%")
+                        ->orWhere('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder);
+    }
+
+    /**
      * Get employees with expiring documents.
      */
     public function getExpiringDocuments(int $daysThreshold = 30): \Illuminate\Support\Collection

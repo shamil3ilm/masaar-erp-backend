@@ -184,21 +184,87 @@ class EosbService
     }
 
     /**
+     * EOSB policies of the current organization, by country.
+     *
+     * @param  array{country_code?: mixed, active_only?: bool}  $filters  an empty country code is ignored
+     */
+    public function listPolicies(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return EosbPolicy::query()
+            ->when($filters['country_code'] ?? null, fn($q, $v) => $q->where('country_code', $v))
+            ->when($filters['active_only'] ?? false, fn($q) => $q->active())
+            ->orderBy('country_code')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Creates an active policy for the organization.
+     */
+    public function createPolicy(array $data, int $organizationId): EosbPolicy
+    {
+        return EosbPolicy::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'is_active' => true,
+        ]));
+    }
+
+    public function updatePolicy(EosbPolicy $policy, array $data): EosbPolicy
+    {
+        $policy->update($data);
+
+        return $policy->fresh();
+    }
+
+    /**
+     * An employee's monthly provisions, latest period first.
+     *
+     * @param  mixed  $year  an empty value lists every year
+     */
+    public function listProvisions(Employee $employee, mixed $year, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return EosbProvision::forEmployee($employee->id)
+            ->when($year, fn($q, $y) => $q->where('period_year', $y))
+            ->orderByDesc('period_year')
+            ->orderByDesc('period_month')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Settlements of the current organization with their employee, newest first.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listSettlements(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return EosbSettlement::with('employee')
+            ->when($filters['employee_id'] ?? null, fn($q, $v) => $q->where('employee_id', $v))
+            ->when($filters['status'] ?? null, fn($q, $v) => $q->where('status', $v))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
      * Approve an EOSB settlement.
+     *
+     * Runs on the locked settlement, so a copy loaded before another request
+     * approved or paid it cannot approve it again and move a paid settlement
+     * back to approved, where it could be paid a second time.
      */
     public function approveSettlement(EosbSettlement $settlement): EosbSettlement
     {
-        if (!$settlement->canBeApproved()) {
-            throw new \InvalidArgumentException('Settlement cannot be approved in its current state.');
-        }
+        return $settlement->lockForTransition(function (EosbSettlement $settlement): EosbSettlement {
+            if (! $settlement->canBeApproved()) {
+                throw new \InvalidArgumentException('Settlement cannot be approved in its current state.');
+            }
 
-        $settlement->update([
-            'status' => EosbSettlement::STATUS_APPROVED,
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
+            $settlement->update([
+                'status' => EosbSettlement::STATUS_APPROVED,
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
 
-        return $settlement->fresh();
+            return $settlement->fresh();
+        });
     }
 
     /**
