@@ -105,7 +105,8 @@ CACHE_DRIVER=redis
 # Saudi Arabia ZATCA e-invoicing
 ZATCA_INTEGRATION_ENABLED=true
 ZATCA_INTEGRATION_URL=http://your-zatca-service/api/v1
-ZATCA_INTEGRATION_API_KEY=
+ZATCA_INTEGRATION_API_KEY=      # the Masaar licence's api_key
+ZATCA_INTEGRATION_API_SECRET=   # and its api_secret, shown once when the licence is issued
 ZATCA_INTEGRATION_TIMEOUT=30
 ZATCA_INTEGRATION_WEBHOOK_SECRET=   # printed once by php artisan zatca:setup
 

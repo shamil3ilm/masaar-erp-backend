@@ -6,7 +6,6 @@ namespace App\Console\Commands;
 
 use App\Services\Compliance\MasaarClient;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Http;
 
 class SetupZatcaIntegration extends Command
 {
@@ -26,9 +25,10 @@ class SetupZatcaIntegration extends Command
 
         $url = (string) config('zatca-integration.url', '');
         $apiKey = (string) config('zatca-integration.api_key', '');
+        $apiSecret = (string) config('zatca-integration.api_secret', '');
 
-        if ($url === '' || $apiKey === '') {
-            $this->error('Set ZATCA_INTEGRATION_URL and ZATCA_INTEGRATION_API_KEY first.');
+        if ($url === '' || $apiKey === '' || $apiSecret === '') {
+            $this->error('Set ZATCA_INTEGRATION_URL, ZATCA_INTEGRATION_API_KEY and ZATCA_INTEGRATION_API_SECRET first.');
 
             return self::FAILURE;
         }
@@ -43,8 +43,8 @@ class SetupZatcaIntegration extends Command
         }
 
         try {
-            $health = Http::timeout(10)->get(rtrim($url, '/') . '/health');
-            $connectivity = $health->successful() ? 'OK' : 'FAILED (HTTP ' . $health->status() . ')';
+            $status = $client->checkHealth();
+            $connectivity = $status === 200 ? 'OK' : 'FAILED (HTTP ' . $status . ')';
         } catch (\Throwable $e) {
             $connectivity = 'FAILED (' . $e->getMessage() . ')';
         }
