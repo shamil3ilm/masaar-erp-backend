@@ -24,6 +24,10 @@ class Expense extends Model
     use BelongsToOrganization;
     use SoftDeletes;
 
+    /** Numbered by NumberGeneratorService per organization and year: EXP-2026-000001. */
+    public const NUMBER_SEQUENCE = 'EXP';
+    public const NUMBER_FORMAT = '{prefix}-{year}-{number:6}';
+
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SUBMITTED = 'submitted';
     public const STATUS_APPROVED = 'approved';
@@ -94,9 +98,6 @@ class Expense extends Model
     protected static function booted(): void
     {
         static::creating(function (Expense $expense) {
-            if (!$expense->expense_number) {
-                $expense->expense_number = static::generateExpenseNumber($expense->organization_id);
-            }
             if (!$expense->created_by) {
                 $expense->created_by = auth()->id();
             }
@@ -154,26 +155,6 @@ class Expense extends Model
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
-    }
-
-    public static function generateExpenseNumber(int $organizationId): string
-    {
-        $year = now()->format('Y');
-        $prefix = "EXP-{$year}-";
-
-        $lastNumber = static::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('expense_number', 'like', "{$prefix}%")
-            ->orderByRaw('CAST(SUBSTRING(expense_number, ?) AS UNSIGNED) DESC', [strlen($prefix) + 1])
-            ->value('expense_number');
-
-        if ($lastNumber) {
-            $sequence = (int) substr($lastNumber, strlen($prefix)) + 1;
-        } else {
-            $sequence = 1;
-        }
-
-        return $prefix . str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
     }
 
     public function scopeDraft($query)

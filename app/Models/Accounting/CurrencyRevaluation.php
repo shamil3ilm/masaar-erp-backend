@@ -57,9 +57,6 @@ class CurrencyRevaluation extends Model
     protected static function booted(): void
     {
         static::creating(function (self $model): void {
-            if (empty($model->revaluation_number)) {
-                $model->revaluation_number = static::generateNumber($model->organization_id);
-            }
             if (empty($model->created_by)) {
                 $model->created_by = auth()->id();
             }
@@ -150,21 +147,5 @@ class CurrencyRevaluation extends Model
         $this->net_gain_loss = $gains + $losses;
 
         $this->saveQuietly();
-    }
-
-    public static function generateNumber(int $organizationId): string
-    {
-        $year = now()->format('Y');
-        $key = "REVAL-{$year}-";
-
-        $last = static::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('revaluation_number', 'like', "{$key}%")
-            ->orderByDesc('id')
-            ->value('revaluation_number');
-
-        $sequence = $last ? (int) substr($last, strlen($key)) + 1 : 1;
-
-        return $key . str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
     }
 }

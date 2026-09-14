@@ -9,6 +9,7 @@ use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\Loan;
 use App\Models\Accounting\LoanPayment;
 use App\Models\Accounting\LoanSchedule;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -17,6 +18,7 @@ class LoanService
 {
     public function __construct(
         private readonly AccountResolver $accountResolver,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
     /**
@@ -37,6 +39,7 @@ class LoanService
 
             $loan = Loan::create([
                 'organization_id' => $data['organization_id'],
+                'loan_number' => $this->numberGenerator->generate('LN', '{prefix}-{year}-{number:6}', $data['organization_id']),
                 'branch_id' => $data['branch_id'] ?? null,
                 'loan_type' => $data['loan_type'],
                 'loan_category' => $data['loan_category'] ?? null,

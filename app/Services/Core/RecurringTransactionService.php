@@ -8,6 +8,7 @@ use App\Models\Accounting\JournalEntry;
 use App\Models\Core\Notification;
 use App\Models\Core\RecurringProfile;
 use App\Models\Core\RecurringProfileLog;
+use App\Models\Expense\Expense;
 use App\Models\Purchase\Bill;
 use App\Models\Sales\Invoice;
 use App\Models\User;
@@ -29,6 +30,7 @@ class RecurringTransactionService
     public function __construct(
         protected readonly NotificationService $notificationService,
         private readonly JournalService $journalService,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
     /**
@@ -238,7 +240,7 @@ class RecurringTransactionService
         $newInvoice->amount_due = $source->total;
 
         // Generate new invoice number
-        $newInvoice->invoice_number = app(NumberGeneratorService::class)->generate(
+        $newInvoice->invoice_number = $this->numberGenerator->generate(
             'INV',
             null,
             $profile->organization_id
@@ -274,7 +276,7 @@ class RecurringTransactionService
         $newBill->amount_paid = 0;
         $newBill->amount_due = $source->total;
 
-        $newBill->bill_number = app(NumberGeneratorService::class)->generate(
+        $newBill->bill_number = $this->numberGenerator->generate(
             'BILL',
             null,
             $profile->organization_id
@@ -333,11 +335,11 @@ class RecurringTransactionService
         ]);
 
         $newExpense->expense_date = today();
-        $newExpense->status = \App\Models\Expense\Expense::STATUS_DRAFT;
+        $newExpense->status = Expense::STATUS_DRAFT;
 
-        $newExpense->expense_number = app(NumberGeneratorService::class)->generate(
-            'EXP',
-            null,
+        $newExpense->expense_number = $this->numberGenerator->generate(
+            Expense::NUMBER_SEQUENCE,
+            Expense::NUMBER_FORMAT,
             $profile->organization_id
         );
 

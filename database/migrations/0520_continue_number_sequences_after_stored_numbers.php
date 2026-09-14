@@ -32,6 +32,10 @@ return new class extends Migration
         ['table' => 'dispute_cases', 'column' => 'case_number', 'sequence' => 'DISP-{year}', 'pattern' => '/^DISP-{year}(?<period>\d{2})-(?<number>\d+)$/'],
         ['table' => 'travel_requests', 'column' => 'request_number', 'sequence' => 'TRV', 'pattern' => '/^TRV-{year}-(?<number>\d+)$/'],
         ['table' => 'travel_expense_claims', 'column' => 'claim_number', 'sequence' => 'TEC', 'pattern' => '/^TEC-{year}-(?<number>\d+)$/'],
+        ['table' => 'expenses', 'column' => 'expense_number', 'sequence' => 'EXP', 'pattern' => '/^EXP-{year}-(?<number>\d+)$/'],
+        ['table' => 'expense_reports', 'column' => 'report_number', 'sequence' => 'expense_report', 'pattern' => '/^ER-{year}-(?<number>\d+)$/'],
+        ['table' => 'currency_revaluations', 'column' => 'revaluation_number', 'sequence' => 'REVAL', 'pattern' => '/^REVAL-{year}-(?<number>\d+)$/'],
+        ['table' => 'loans', 'column' => 'loan_number', 'sequence' => 'LN', 'pattern' => '/^LN-{year}-(?<number>\d+)$/'],
     ];
 
     public function up(): void

@@ -7,11 +7,16 @@ namespace App\Services\Expense;
 use App\Models\Expense\Expense;
 use App\Models\Expense\ExpenseReport;
 use App\Models\Expense\ExpenseReportItem;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class ExpenseReportService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Create a new expense report.
      */
@@ -20,6 +25,9 @@ class ExpenseReportService
         return DB::transaction(function () use ($data) {
             $report = ExpenseReport::create([
                 'organization_id' => $data['organization_id'],
+                // ER-2026-000001 from a counter of its own: travel expense reports
+                // are numbered ER- from theirs.
+                'report_number' => $this->numberGenerator->generate('expense_report', 'ER-{year}-{number:6}', $data['organization_id']),
                 'employee_id' => $data['employee_id'],
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
