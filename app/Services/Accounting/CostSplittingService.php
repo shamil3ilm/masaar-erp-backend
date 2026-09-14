@@ -32,6 +32,28 @@ class CostSplittingService
         return $query->paginate($perPage);
     }
 
+    /**
+     * A splitting rule of the current organization; another organization's
+     * rule is not found.
+     */
+    public function find(int $id): CostSplittingRule
+    {
+        return CostSplittingRule::findOrFail($id);
+    }
+
+    /**
+     * A splitting rule with its cost center and cost element.
+     */
+    public function findWithRelations(int $id): CostSplittingRule
+    {
+        return CostSplittingRule::with(['costCenter', 'costElement'])->findOrFail($id);
+    }
+
+    public function delete(CostSplittingRule $rule): void
+    {
+        $rule->delete();
+    }
+
     public function create(array $data): CostSplittingRule
     {
         return DB::transaction(function () use ($data): CostSplittingRule {

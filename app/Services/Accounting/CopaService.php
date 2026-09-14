@@ -8,6 +8,7 @@ use App\Models\Accounting\CopaLineItem;
 use App\Models\Accounting\CopaPlannedLineItem;
 use App\Models\Accounting\CopaPlanVersion;
 use App\Models\Accounting\FiscalYear;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -215,6 +216,18 @@ class CopaService
     // ----------------------------------------------------------------
     // Plan Data — Gap 2
     // ----------------------------------------------------------------
+
+    /**
+     * An organization's plan versions, newest first, 25 per page, optionally
+     * limited to one fiscal year.
+     */
+    public function listPlanVersions(int $organizationId, ?int $fiscalYearId): LengthAwarePaginator
+    {
+        return CopaPlanVersion::where('organization_id', $organizationId)
+            ->when($fiscalYearId !== null, fn ($q) => $q->where('fiscal_year_id', $fiscalYearId))
+            ->orderByDesc('id')
+            ->paginate(25);
+    }
 
     /**
      * Create a new CO-PA plan version for the given fiscal year.

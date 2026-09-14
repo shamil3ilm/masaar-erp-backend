@@ -6,6 +6,7 @@ namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\CostSplittingRule;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -198,6 +199,23 @@ class CostSplittingTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_another_organizations_rule_is_not_found(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $rule     = $this->makeRule(['organization_id' => $otherOrg->id]);
+        $url      = '/api/v1/cost-splitting/rules/' . $rule->id;
+
+        $this->withToken($this->token)->getJson($url)->assertStatus(404);
+        $this->withToken($this->token)->putJson($url, ['fixed_percentage' => 'not-a-number'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($url)->assertStatus(404);
+
+        $this->assertNotSoftDeleted($rule);
     }
 
     // -------------------------------------------------------------------------

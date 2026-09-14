@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CostReconciliationRun;
 use App\Services\Accounting\CostReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,9 +35,7 @@ class CostReconciliationController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $run = CostReconciliationRun::with(['entries.senderCostCenter', 'entries.receiverCostCenter', 'entries.costElement', 'postedBy:id,name'])->findOrFail($id);
-
-        return $this->success($run);
+        return $this->success($this->service->findRun($id));
     }
 
     public function reconcileAssessment(Request $request): JsonResponse
