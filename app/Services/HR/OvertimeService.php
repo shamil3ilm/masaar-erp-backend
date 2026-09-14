@@ -8,6 +8,7 @@ use App\Models\HR\Employee;
 use App\Models\HR\EmployeeSalary;
 use App\Models\HR\OvertimePolicy;
 use App\Models\HR\OvertimeRequest;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class OvertimeService
@@ -16,6 +17,23 @@ class OvertimeService
      * Monthly standard work-hours divisor used for hourly rate calculation.
      */
     private const MONTHLY_HOURS = 208.0;
+
+    /**
+     * Overtime requests of the current organization with their employee,
+     * policy and approver, latest date first.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed, from_date?: mixed, to_date?: mixed}  $filters  empty values are ignored
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return OvertimeRequest::with(['employee', 'policy', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['from_date'] ?? null, fn ($q, $date) => $q->where('ot_date', '>=', $date))
+            ->when($filters['to_date'] ?? null, fn ($q, $date) => $q->where('ot_date', '<=', $date))
+            ->orderBy('ot_date', 'desc')
+            ->paginate($perPage);
+    }
 
     /**
      * Create an overtime request, validating against policy limits.
@@ -120,6 +138,9 @@ class OvertimeService
      */
     public function getMonthlyOtSummary(int $employeeId, int $year, int $month): array
     {
+        // The id comes from the URL; an employee of another organization is not found.
+        Employee::findOrFail($employeeId);
+
         $rows = OvertimeRequest::forEmployee($employeeId)
             ->inMonth($year, $month)
             ->selectRaw('status, COUNT(*) as cnt, SUM(ot_hours) as hours, SUM(ot_amount) as amount')
