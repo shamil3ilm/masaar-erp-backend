@@ -53,7 +53,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Accounting/DocumentSplittingController.php' => 2,
         'Api/V1/Accounting/DocumentTypeController.php' => 2,
         'Api/V1/Accounting/PostingValidationRuleController.php' => 2,
-        'Api/V1/Accounting/StatisticalKeyFigureController.php' => 4,
         'Api/V1/Admin/FeatureFlagController.php' => 3,
         'Api/V1/Admin/ImpersonationAuditController.php' => 2,
         'Api/V1/Admin/PlatformAdminController.php' => 3,

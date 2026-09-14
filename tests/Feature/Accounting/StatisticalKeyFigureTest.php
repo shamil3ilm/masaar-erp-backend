@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\StatisticalKeyFigure;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -208,5 +209,57 @@ class StatisticalKeyFigureTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/statistical-key-figures')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tenant isolation and response shape
+    // -------------------------------------------------------------------------
+
+    private function makeOtherOrganizationSkf(): StatisticalKeyFigure
+    {
+        $otherOrg = Organization::factory()->create();
+
+        return $this->makeSkf(['organization_id' => $otherOrg->id, 'code' => 'OTHER']);
+    }
+
+    public function test_show_includes_values(): void
+    {
+        $skf = $this->makeSkf();
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/statistical-key-figures/' . $skf->id)
+            ->assertStatus(200)
+            ->assertJsonPath('data.id', $skf->id)
+            ->assertJsonStructure(['data' => ['values']]);
+    }
+
+    public function test_endpoints_return_404_for_other_organization_skf(): void
+    {
+        $other = $this->makeOtherOrganizationSkf();
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/statistical-key-figures/' . $other->id)
+            ->assertStatus(404);
+        $this->withToken($this->token)
+            ->putJson('/api/v1/statistical-key-figures/' . $other->id, ['name' => 'Hijack'])
+            ->assertStatus(404);
+        $this->withToken($this->token)
+            ->deleteJson('/api/v1/statistical-key-figures/' . $other->id)
+            ->assertStatus(404);
+
+        $this->assertDatabaseHas('statistical_key_figures', [
+            'id'         => $other->id,
+            'name'       => 'Headcount',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_post_value_checks_the_skf_exists_before_validating(): void
+    {
+        $other = $this->makeOtherOrganizationSkf();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/statistical-key-figures/' . $other->id . '/post-value', [])
+            ->assertStatus(404);
     }
 }
