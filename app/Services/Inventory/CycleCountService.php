@@ -9,36 +9,44 @@ use App\Models\Inventory\CycleCountPlan;
 use App\Models\Inventory\CycleCountSession;
 use App\Models\Inventory\StockLevel;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CycleCountService
 {
+    /**
+     * Creates a session with a line for each stock level in the plan's
+     * warehouse, in one transaction, so a failure part way through leaves no
+     * session holding only some of its lines.
+     */
     public function createSession(CycleCountPlan $plan, int $counterId, Carbon $date): CycleCountSession
     {
-        $session = CycleCountSession::create([
-            'uuid' => Str::uuid(),
-            'organization_id' => $plan->organization_id,
-            'plan_id' => $plan->id,
-            'warehouse_id' => $plan->warehouse_id,
-            'session_date' => $date->toDateString(),
-            'counted_by' => $counterId,
-            'status' => 'open',
-        ]);
-
-        // Seed lines from current stock levels
-        $stockLevels = StockLevel::where('warehouse_id', $plan->warehouse_id)->get();
-        foreach ($stockLevels as $stock) {
-            CycleCountLine::create([
+        return DB::transaction(function () use ($plan, $counterId, $date): CycleCountSession {
+            $session = CycleCountSession::create([
                 'uuid' => Str::uuid(),
-                'cycle_count_session_id' => $session->id,
-                'product_id' => $stock->product_id,
-                'warehouse_location_id' => $stock->location_id ?? null,
-                'system_quantity' => $stock->quantity ?? 0,
-                'status' => 'pending',
+                'organization_id' => $plan->organization_id,
+                'plan_id' => $plan->id,
+                'warehouse_id' => $plan->warehouse_id,
+                'session_date' => $date->toDateString(),
+                'counted_by' => $counterId,
+                'status' => 'open',
             ]);
-        }
 
-        return $session->load('lines');
+            // Seed lines from current stock levels
+            $stockLevels = StockLevel::where('warehouse_id', $plan->warehouse_id)->get();
+            foreach ($stockLevels as $stock) {
+                CycleCountLine::create([
+                    'uuid' => Str::uuid(),
+                    'cycle_count_session_id' => $session->id,
+                    'product_id' => $stock->product_id,
+                    'warehouse_location_id' => $stock->location_id ?? null,
+                    'system_quantity' => $stock->quantity ?? 0,
+                    'status' => 'pending',
+                ]);
+            }
+
+            return $session->load('lines');
+        });
     }
 
     public function recordCount(CycleCountLine $line, float $quantity): void

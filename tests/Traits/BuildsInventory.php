@@ -16,6 +16,8 @@ use App\Models\Inventory\Warehouse;
  */
 trait BuildsInventory
 {
+    use AssertsRejection;
+
     protected function warehouse(string $code = 'WH-MAIN', array $overrides = []): Warehouse
     {
         return Warehouse::create(array_merge([
@@ -81,16 +83,5 @@ trait BuildsInventory
         return (float) StockLevel::where('product_id', $product->id)
             ->where('warehouse_id', $warehouse->id)
             ->value('quantity');
-    }
-
-    protected function assertRejected(callable $action): void
-    {
-        try {
-            $action();
-        } catch (\InvalidArgumentException|\LogicException) {
-            return;
-        }
-
-        $this->fail('The operation was expected to be rejected.');
     }
 }
