@@ -126,7 +126,11 @@ class GoodsReceiptController extends Controller
             return $this->error('An unexpected error occurred while posting.', 'SERVER_ERROR', 500);
         }
 
-        return $this->success(new GoodsReceiptResource($gr), 'Goods receipt posted successfully.');
+        $message = $gr->isInInspection()
+            ? 'Goods receipt is held in quality inspection. Post it again once the inspection is resolved.'
+            : 'Goods receipt posted successfully.';
+
+        return $this->success(new GoodsReceiptResource($gr), $message);
     }
 
     /**

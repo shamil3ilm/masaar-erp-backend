@@ -110,9 +110,8 @@ return new class extends Migration
                 ->on('inspection_lots')
                 ->nullOnDelete();
 
-            // Note: the status column in goods_receipts is a string (VARCHAR).
-            // The 'in_inspection' value is added as a valid application-level status;
-            // no enum alteration is required — existing rows and constraints remain valid.
+            // The in_inspection status is added to the enum by
+            // 0490_goods_receipt_inspection_status.php.
         });
 
         Schema::create('ers_run_items', function (Blueprint $table) {
