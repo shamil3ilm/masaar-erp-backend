@@ -218,7 +218,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Sales/BackorderController.php' => 4,
         'Api/V1/Sales/BillingPlanController.php' => 6,
         'Api/V1/Sales/ConsignmentController.php' => 3,
-        'Api/V1/Sales/CpqController.php' => 18,
         'Api/V1/Sales/CustomerMaterialInfoController.php' => 3,
         'Api/V1/Sales/DeliverySplitController.php' => 2,
         'Api/V1/Sales/HandlingUnitController.php' => 6,
