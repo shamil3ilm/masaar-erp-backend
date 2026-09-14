@@ -31,7 +31,7 @@ class CashFlowController extends Controller
 
         $organization = $this->organization($request);
         $scenario     = isset($validated['scenario_id'])
-            ? CashFlowScenario::findOrFail($validated['scenario_id'])
+            ? $this->forecastService->findScenario($validated['scenario_id'])
             : null;
 
         $forecast = $this->forecastService->generateForecast(
@@ -61,13 +61,11 @@ class CashFlowController extends Controller
 
     public function indexForecasts(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $forecasts = CashFlowForecast::where('organization_id', $organizationId)
-            ->with(['scenario'])
-            ->when($request->input('scenario_id'), fn($q, $v) => $q->where('scenario_id', $v))
-            ->orderByDesc('forecast_date')
-            ->paginate($request->integer('per_page', 15));
+        $forecasts = $this->forecastService->listForecasts(
+            $this->organizationId($request),
+            $request->input('scenario_id'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($forecasts, null, 'Cash flow forecasts retrieved.');
     }
@@ -85,12 +83,11 @@ class CashFlowController extends Controller
 
     public function forecastLines(Request $request, CashFlowForecast $cashFlowForecast): JsonResponse
     {
-        $lines = $cashFlowForecast->lines()
-            ->when($request->input('flow_type'), fn($q, $v) => $q->where('flow_type', $v))
-            ->when($request->input('confidence'), fn($q, $v) => $q->where('confidence', $v))
-            ->when($request->input('source_type'), fn($q, $v) => $q->where('source_type', $v))
-            ->orderBy('expected_date')
-            ->paginate($request->integer('per_page', 30));
+        $lines = $this->forecastService->listLines(
+            $cashFlowForecast,
+            $request->only(['flow_type', 'confidence', 'source_type']),
+            $request->integer('per_page', 30),
+        );
 
         return $this->paginated($lines, null, 'Cash flow lines retrieved.');
     }
@@ -101,13 +98,7 @@ class CashFlowController extends Controller
 
     public function indexScenarios(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $scenarios = CashFlowScenario::where('organization_id', $organizationId)
-            ->with(['creator'])
-            ->orderByDesc('is_base_case')
-            ->orderBy('name')
-            ->get();
+        $scenarios = $this->forecastService->listScenarios($this->organizationId($request));
 
         return $this->success($scenarios, 'Cash flow scenarios retrieved.');
     }
@@ -121,19 +112,11 @@ class CashFlowController extends Controller
             'assumptions'  => 'nullable|array',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        // Ensure only one base case
-        if (!empty($validated['is_base_case'])) {
-            CashFlowScenario::where('organization_id', $organizationId)
-                ->where('is_base_case', true)
-                ->update(['is_base_case' => false]);
-        }
-
-        $scenario = CashFlowScenario::create(array_merge($validated, [
-            'organization_id' => $organizationId,
-            'created_by'      => auth()->id(),
-        ]));
+        $scenario = $this->forecastService->createScenario(
+            $this->organizationId($request),
+            $validated,
+            auth()->id(),
+        );
 
         return $this->success($scenario->load(['creator']), 'Cash flow scenario created.', 201);
     }
@@ -147,16 +130,9 @@ class CashFlowController extends Controller
             'assumptions'  => 'nullable|array',
         ]);
 
-        if (!empty($validated['is_base_case'])) {
-            CashFlowScenario::where('organization_id', $cashFlowScenario->organization_id)
-                ->where('is_base_case', true)
-                ->where('id', '!=', $cashFlowScenario->id)
-                ->update(['is_base_case' => false]);
-        }
+        $scenario = $this->forecastService->updateScenario($cashFlowScenario, $validated);
 
-        $cashFlowScenario->update($validated);
-
-        return $this->success($cashFlowScenario->fresh()->load(['creator']), 'Cash flow scenario updated.');
+        return $this->success($scenario->load(['creator']), 'Cash flow scenario updated.');
     }
 
     public function destroyScenario(CashFlowScenario $cashFlowScenario): JsonResponse
