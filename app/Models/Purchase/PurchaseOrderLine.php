@@ -8,8 +8,6 @@ use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\UnitOfMeasure;
 use App\Models\Inventory\Warehouse;
-use App\Models\Projects\Project;
-use App\Models\Projects\WbsElement;
 use App\Models\Tax\TaxCategory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -46,8 +44,6 @@ class PurchaseOrderLine extends Model
         'total',
         'warehouse_id',
         'line_order',
-        'wbs_element_id',
-        'project_id',
         'account_assignment_type',
     ];
 
@@ -103,16 +99,6 @@ class PurchaseOrderLine extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
-    }
-
-    public function wbsElement(): BelongsTo
-    {
-        return $this->belongsTo(WbsElement::class);
-    }
-
-    public function project(): BelongsTo
-    {
-        return $this->belongsTo(Project::class);
     }
 
     public function calculateTotals(): void

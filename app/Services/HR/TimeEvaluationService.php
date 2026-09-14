@@ -75,8 +75,6 @@ class TimeEvaluationService
                 'entry_type'     => $data['entry_type'] ?? TimeSheetEntry::TYPE_REGULAR,
                 'wage_type_id'   => $data['wage_type_id'] ?? null,
                 'cost_center_id' => $data['cost_center_id'] ?? null,
-                'project_id'     => $data['project_id'] ?? null,
-                'wbs_element_id' => $data['wbs_element_id'] ?? null,
                 'work_order_id'  => $data['work_order_id'] ?? null,
                 'activity_code'  => $data['activity_code'] ?? null,
                 'notes'          => $data['notes'] ?? null,
@@ -257,9 +255,9 @@ class TimeEvaluationService
     // ---------------------------------------------------------------
 
     /**
-     * Group entries by cost center / project / WBS and return hours per object.
+     * Group entries by cost center and return hours per cost center.
      *
-     * @return array<int, array{cost_center_id: int|null, project_id: int|null, wbs_element_id: int|null, total_hours: float, total_amount: float}>
+     * @return array<int, array{cost_center_id: int|null, total_hours: float, total_amount: float}>
      */
     public function generateCostAllocation(TimeSheet $timeSheet): array
     {
@@ -270,18 +268,11 @@ class TimeEvaluationService
         $grouped = [];
 
         foreach ($entries as $entry) {
-            $key = sprintf(
-                'cc:%s|proj:%s|wbs:%s',
-                $entry->cost_center_id ?? 'null',
-                $entry->project_id ?? 'null',
-                $entry->wbs_element_id ?? 'null'
-            );
+            $key = 'cc:' . ($entry->cost_center_id ?? 'null');
 
             if (!isset($grouped[$key])) {
                 $grouped[$key] = [
                     'cost_center_id' => $entry->cost_center_id,
-                    'project_id'     => $entry->project_id,
-                    'wbs_element_id' => $entry->wbs_element_id,
                     'total_hours'    => 0.0,
                     'total_amount'   => 0.0,
                 ];

@@ -259,11 +259,6 @@ Route::prefix('v1')->middleware(['api.version'])->group(function () {
             require __DIR__.'/api/v1/pm-condition.php';
         });
 
-        // Project Systems is not registered. Its eighty routes had no client
-        // and no test, and one of its models names a table no migration
-        // creates. The controllers, services, models and migrations stay; the
-        // three route files are in git history and this block brings them back.
-
         // Automation module routes (with module check)
         Route::prefix('automation')->middleware(['check.module:automation'])->group(function () {
             require __DIR__.'/api/v1/automation.php';

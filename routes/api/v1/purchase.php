@@ -17,7 +17,6 @@ use App\Http\Controllers\Api\V1\Purchase\VendorContractController;
 use App\Http\Controllers\Api\V1\Purchase\VendorCreditNoteController;
 use App\Http\Controllers\Api\V1\Purchase\VendorPricingController;
 use App\Http\Controllers\Api\V1\Purchase\VendorSourceListController;
-use App\Http\Controllers\Api\V1\Purchase\WbsCommitmentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -160,17 +159,6 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('/settlements', [VendorConsignmentController::class, 'settlements'])->middleware('check.permission:purchase.consignment.view')->name('settlements');
         Route::post('/settlements', [VendorConsignmentController::class, 'createSettlement'])->middleware('check.permission:purchase.consignment.settle')->name('settlements.create');
         Route::post('/settlements/{id}/submit', [VendorConsignmentController::class, 'submitSettlement'])->middleware('check.permission:purchase.consignment.settle')->name('settlements.submit');
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | WBS Commitments
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('wbs-commitments')->name('purchase.wbs-commitments.')->group(function () {
-        Route::get('/wbs/{wbsElementId}', [WbsCommitmentController::class, 'forWbs'])->middleware('check.permission:purchase.wbs-commitments.view')->name('for-wbs');
-        Route::get('/wbs/{wbsElementId}/budget', [WbsCommitmentController::class, 'budgetVsCommitment'])->middleware('check.permission:purchase.wbs-commitments.view')->name('budget');
-        Route::post('/{id}/close', [WbsCommitmentController::class, 'close'])->middleware('check.permission:purchase.wbs-commitments.manage')->name('close');
     });
 
     /*

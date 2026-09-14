@@ -224,28 +224,6 @@ return [
             ],
         ],
 
-        'projects' => [
-            'name' => 'Projects',
-            'description' => 'Project management with tasks, timesheets, and billing',
-            'icon' => 'folder',
-            'color' => '#6366f1',
-            'is_required' => false,
-            'tier' => 'enterprise',
-            'dependencies' => ['core', 'hr'],
-            'features' => [
-                'projects' => 'Project Management',
-                'tasks' => 'Task Management',
-                'milestones' => 'Milestones',
-                'timesheets' => 'Timesheet Tracking',
-                'project_billing' => 'Project Billing',
-            ],
-            'reports' => [
-                'project_profitability' => 'Project Profitability',
-                'timesheet_report' => 'Timesheet Report',
-                'resource_utilization' => 'Resource Utilization',
-            ],
-        ],
-
         'assets' => [
             'name' => 'Asset Management',
             'description' => 'Fixed asset tracking, depreciation, and maintenance',
@@ -299,7 +277,7 @@ return [
         ],
         'enterprise' => [
             'name' => 'Enterprise',
-            'modules' => ['core', 'accounting', 'inventory', 'sales', 'purchase', 'hr', 'crm', 'pos', 'manufacturing', 'projects', 'assets'],
+            'modules' => ['core', 'accounting', 'inventory', 'sales', 'purchase', 'hr', 'crm', 'pos', 'manufacturing', 'assets'],
             'max_users' => -1, // Unlimited
             'max_branches' => -1, // Unlimited
         ],
@@ -323,7 +301,6 @@ return [
         'crm' => 'crm',
         'manufacturing' => 'manufacturing',
         'pos' => 'pos',
-        'projects' => 'projects',
         'assets' => 'assets',
     ],
 ];

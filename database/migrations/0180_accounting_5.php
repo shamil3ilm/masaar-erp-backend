@@ -805,8 +805,6 @@ return new class extends Migration
             ])->default('regular');
             $table->foreignId('wage_type_id')->nullable()->constrained('time_wage_types')->nullOnDelete();
             $table->foreignId('cost_center_id')->nullable()->constrained('cost_centers')->nullOnDelete();
-            $table->unsignedBigInteger('project_id')->nullable();
-            $table->unsignedBigInteger('wbs_element_id')->nullable();
             $table->unsignedBigInteger('work_order_id')->nullable();
             $table->string('activity_code', 20)->nullable();
             $table->text('notes')->nullable();
