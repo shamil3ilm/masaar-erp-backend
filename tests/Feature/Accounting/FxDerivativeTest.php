@@ -214,6 +214,59 @@ class FxDerivativeTest extends TestCase
         $this->assertEquals('exercised', $forward->fresh()->status);
     }
 
+    public function test_index_filters_by_status_and_buy_currency(): void
+    {
+        $this->makeForward(['contract_number' => 'FWD-MATCH']);
+        $this->makeForward(['contract_number' => 'FWD-EUR', 'buy_currency' => 'EUR']);
+        $this->makeForward(['contract_number' => 'FWD-DONE', 'status' => 'exercised']);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/fx-forwards?status=active&buy_currency=USD');
+
+        $response->assertStatus(200);
+        $this->assertSame(['FWD-MATCH'], array_column($response->json('data'), 'contract_number'));
+    }
+
+    public function test_dedesignate_hedge_ends_the_designated_relation(): void
+    {
+        $forward = $this->makeForward();
+        $relation = $this->designate($forward);
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/fx-forwards/' . $forward->uuid . '/dedesignate-hedge', [
+                'dedesignation_date' => '2025-03-01',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.id', $relation->id)
+            ->assertJsonPath('data.status', 'dedesignated');
+    }
+
+    public function test_dedesignate_hedge_returns_404_without_a_designated_relation(): void
+    {
+        $forward = $this->makeForward();
+        $this->designate($forward, ['status' => 'dedesignated']);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/fx-forwards/' . $forward->uuid . '/dedesignate-hedge', [
+                'dedesignation_date' => '2025-03-01',
+            ])
+            ->assertStatus(404);
+    }
+
+    private function designate(FxForward $forward, array $overrides = []): \App\Models\Accounting\FxHedgeRelation
+    {
+        return \App\Models\Accounting\FxHedgeRelation::create(array_merge([
+            'organization_id'  => $this->organization->id,
+            'fx_forward_id'    => $forward->id,
+            'hedge_type'       => 'cash_flow',
+            'hedged_item_type' => 'forecast_sale',
+            'hedge_ratio'      => 1,
+            'designation_date' => '2025-01-01',
+            'status'           => 'designated',
+        ], $overrides));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

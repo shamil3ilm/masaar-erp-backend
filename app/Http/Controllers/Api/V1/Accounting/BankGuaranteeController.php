@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\BankGuarantee;
 use App\Services\Accounting\BankGuaranteeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,16 +60,12 @@ class BankGuaranteeController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
-
-        $guarantee->load(['bank:id,name', 'beneficiary:id,name', 'applicant:id,name']);
-
-        return $this->success($guarantee);
+        return $this->success($this->service->findGuaranteeWithParties($id));
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
+        $guarantee = $this->service->findGuarantee($id);
 
         $validated = $request->validate([
             'guarantee_type'            => ['sometimes', 'in:bid_bond,performance_bond,advance_payment,retention,financial'],
@@ -99,15 +94,14 @@ class BankGuaranteeController extends Controller
 
     public function destroy(string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
-        $guarantee->delete();
+        $this->service->delete($this->service->findGuarantee($id));
 
         return $this->success(null, 'Bank guarantee deleted.');
     }
 
     public function activate(string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
+        $guarantee = $this->service->findGuarantee($id);
 
         return $this->tryAction(
             fn() => $this->service->activate($guarantee),
@@ -118,7 +112,7 @@ class BankGuaranteeController extends Controller
 
     public function claim(Request $request, string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
+        $guarantee = $this->service->findGuarantee($id);
 
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:0.0001'],
@@ -134,7 +128,7 @@ class BankGuaranteeController extends Controller
 
     public function returnGuarantee(string $id): JsonResponse
     {
-        $guarantee = BankGuarantee::findOrFail($id);
+        $guarantee = $this->service->findGuarantee($id);
 
         return $this->tryAction(
             fn() => $this->service->return($guarantee),
