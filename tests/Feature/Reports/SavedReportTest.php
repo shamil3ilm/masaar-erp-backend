@@ -76,6 +76,7 @@ class SavedReportTest extends TestCase
         $this->assertSame('json', $execution->format);
         $this->assertSame(ReportExecution::TRIGGER_MANUAL, $execution->trigger);
         $this->assertSame(ReportExecution::STATUS_COMPLETED, $execution->status);
+        $this->assertGreaterThanOrEqual(0, $execution->execution_time_ms);
         Storage::assertExists($execution->file_path);
     }
 

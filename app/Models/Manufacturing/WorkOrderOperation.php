@@ -182,7 +182,7 @@ class WorkOrderOperation extends Model
             return 0;
         }
 
-        return now()->diffInMinutes($this->started_at);
+        return (int) $this->started_at->diffInMinutes(now());
     }
 
     /**

@@ -192,7 +192,7 @@ class DisputeManagementService
 
         $totalOverdue  = $overdueInvoices->sum('amount_due');
         $oldestDueDate = $overdueInvoices->min('due_date');
-        $overdueDaysMax = $oldestDueDate ? (int) now()->diffInDays($oldestDueDate) : 0;
+        $overdueDaysMax = $oldestDueDate ? (int) $oldestDueDate->diffInDays(now()) : 0;
 
         return [
             'total_overdue'   => $totalOverdue,

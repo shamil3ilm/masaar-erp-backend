@@ -166,7 +166,7 @@ class EwmService
                 ->firstOrFail();
 
             $durationMinutes = $to->started_at
-                ? (float) now()->diffInMinutes($to->started_at)
+                ? (float) $to->started_at->diffInMinutes(now())
                 : null;
 
             $to->update([

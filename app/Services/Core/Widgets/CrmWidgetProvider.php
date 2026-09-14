@@ -80,7 +80,7 @@ class CrmWidgetProvider extends WidgetProvider
                 'name' => $o->name,
                 'amount' => (float) $o->amount,
                 'close_date' => $o->expected_close_date->format('Y-m-d'),
-                'days_left' => $o->expected_close_date->diffInDays(Carbon::today()),
+                'days_left' => (int) Carbon::today()->diffInDays($o->expected_close_date),
                 'probability' => $o->probability,
             ])->toArray(),
             'label' => 'Opportunities Closing Soon',
