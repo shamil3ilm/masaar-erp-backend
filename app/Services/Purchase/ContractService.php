@@ -6,7 +6,9 @@ namespace App\Services\Purchase;
 
 use App\Models\Core\Organization;
 use App\Models\Purchase\Contract;
+use App\Models\Purchase\ContractRelease;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -15,6 +17,31 @@ class ContractService
     public function __construct(
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * A page of contracts matching the filters, with contact and creator loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, contract_type, contact_id, search, expiring_in_days
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return Contract::with(['contact', 'creator'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['contract_type'] ?? null, fn ($q, $type) => $q->where('contract_type', $type))
+            ->when($filters['contact_id'] ?? null, fn ($q, $id) => $q->where('contact_id', $id))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('contract_number', 'like', "%{$search}%")
+                        ->orWhere('title', 'like', "%{$search}%");
+                });
+            })
+            ->when($filters['expiring_in_days'] ?? null, fn ($q, $days) => $q->expiringSoon((int) $days))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new contract with lines.
@@ -49,34 +76,63 @@ class ContractService
     }
 
     /**
-     * Activate a draft contract.
+     * Update a draft contract, checked on the locked row.
      */
-    public function activateContract(Contract $contract): Contract
+    public function update(Contract $contract, array $data): Contract
     {
-        if (!$contract->canBeActivated()) {
-            throw new \InvalidArgumentException('Only draft contracts can be activated.');
-        }
+        return $contract->lockForTransition(function (Contract $contract) use ($data): Contract {
+            $this->assertDraft($contract, 'Only draft contracts can be updated.');
 
-        $contract->update([
-            'status' => Contract::STATUS_ACTIVE,
-            'signed_date' => $contract->signed_date ?? now()->toDateString(),
-        ]);
+            $contract->update($data);
 
-        return $contract->fresh();
+            return $contract->fresh(['contact', 'lines']);
+        });
     }
 
     /**
-     * Create a release order against a contract.
+     * Delete a draft contract with its lines and milestones, all or nothing.
      */
-    public function createRelease(Contract $contract, array $data): \App\Models\Purchase\ContractRelease
+    public function delete(Contract $contract): void
     {
-        if (!$contract->isActive()) {
-            throw new \InvalidArgumentException('Releases can only be created against active contracts.');
-        }
+        $contract->lockForTransition(function (Contract $contract): void {
+            $this->assertDraft($contract, 'Only draft contracts can be deleted.');
 
-        return DB::transaction(function () use ($contract, $data): \App\Models\Purchase\ContractRelease {
-            // Re-fetch with a row lock to prevent concurrent over-release race conditions.
-            $contract = Contract::lockForUpdate()->findOrFail($contract->id);
+            $contract->lines()->delete();
+            $contract->milestones()->delete();
+            $contract->delete();
+        });
+    }
+
+    /**
+     * Activate a draft contract, checked on the locked row.
+     */
+    public function activateContract(Contract $contract): Contract
+    {
+        return $contract->lockForTransition(function (Contract $contract): Contract {
+            if (! $contract->canBeActivated()) {
+                throw new \InvalidArgumentException('Only draft contracts can be activated.');
+            }
+
+            $contract->update([
+                'status' => Contract::STATUS_ACTIVE,
+                'signed_date' => $contract->signed_date ?? now()->toDateString(),
+            ]);
+
+            return $contract->fresh();
+        });
+    }
+
+    /**
+     * Create a release order against an active contract.
+     *
+     * The contract is locked so two releases cannot both fit the remaining value.
+     */
+    public function createRelease(Contract $contract, array $data): ContractRelease
+    {
+        return $contract->lockForTransition(function (Contract $contract) use ($data): ContractRelease {
+            if (! $contract->isActive()) {
+                throw new \InvalidArgumentException('Releases can only be created against active contracts.');
+            }
 
             if ($contract->total_value !== null) {
                 $totalReleased = $contract->releases()
@@ -97,20 +153,32 @@ class ContractService
     }
 
     /**
-     * Terminate a contract.
+     * The contract's releases, newest release date first.
+     *
+     * @return Collection<int, ContractRelease>
+     */
+    public function releasesOf(Contract $contract): Collection
+    {
+        return $contract->releases()->orderBy('release_date', 'desc')->get();
+    }
+
+    /**
+     * Terminate a draft or active contract, checked on the locked row.
      */
     public function terminateContract(Contract $contract, array $data): Contract
     {
-        if (!$contract->canBeTerminated()) {
-            throw new \InvalidArgumentException('Contract cannot be terminated in its current status.');
-        }
+        return $contract->lockForTransition(function (Contract $contract) use ($data): Contract {
+            if (! $contract->canBeTerminated()) {
+                throw new \InvalidArgumentException('Contract cannot be terminated in its current status.');
+            }
 
-        $contract->update([
-            'status' => Contract::STATUS_TERMINATED,
-            'notes' => trim(($contract->notes ?? '') . "\n\nTerminated: " . ($data['reason'] ?? '')),
-        ]);
+            $contract->update([
+                'status' => Contract::STATUS_TERMINATED,
+                'notes' => trim(($contract->notes ?? '') . "\n\nTerminated: " . ($data['reason'] ?? '')),
+            ]);
 
-        return $contract->fresh();
+            return $contract->fresh();
+        });
     }
 
     /**
@@ -133,5 +201,12 @@ class ContractService
         return Contract::where('status', Contract::STATUS_ACTIVE)
             ->where('end_date', '<', now()->toDateString())
             ->update(['status' => Contract::STATUS_EXPIRED]);
+    }
+
+    private function assertDraft(Contract $contract, string $message): void
+    {
+        if ($contract->status !== Contract::STATUS_DRAFT) {
+            throw new \InvalidArgumentException($message);
+        }
     }
 }

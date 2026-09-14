@@ -4,34 +4,36 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\Organization;
-use App\Models\Purchase\VendorContract;
+use App\Http\Resources\Purchase\VendorContractResource;
 use App\Services\Purchase\VendorContractService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class VendorContractController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly VendorContractService $contractService,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $contracts = VendorContract::where('organization_id', $request->user()->organization_id)
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('contact_id'), fn ($q, $c) => $q->where('contact_id', $c))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 20));
+        $contracts = $this->contractService->list(
+            (int) $request->user()->organization_id,
+            ['status' => $request->input('status'), 'contact_id' => $request->input('contact_id')],
+            $request->integer('per_page', 20),
+        );
 
-        return $this->paginated($contracts);
+        return $this->paginated($contracts, VendorContractResource::class);
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'           => 'required|integer',
+            'contact_id'           => ['required', 'integer', $this->ownedBy('contacts')],
             'title'                => 'required|string|max:255',
             'description'          => 'nullable|string',
             'contract_type'        => 'nullable|in:supply,service,framework,blanket_order',
@@ -45,7 +47,7 @@ class VendorContractController extends Controller
             'signed_at'            => 'nullable|date',
             'notes'                => 'nullable|string',
             'items'                => 'nullable|array',
-            'items.*.product_id'   => 'nullable|integer',
+            'items.*.product_id'   => ['nullable', 'integer', $this->ownedBy('products')],
             'items.*.description'  => 'required_with:items|string',
             'items.*.unit_price'   => 'required_with:items|numeric|min:0',
             'items.*.quantity'     => 'nullable|numeric|min:0',
@@ -57,32 +59,26 @@ class VendorContractController extends Controller
 
         $contract = $this->contractService->create($validated);
 
-        return $this->created($contract->load('items'), 'Vendor contract created.');
+        return $this->created(new VendorContractResource($contract), 'Vendor contract created.');
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $contract = VendorContract::where('organization_id', $request->user()->organization_id)
-            ->with(['items', 'contact'])
-            ->findOrFail($id);
+        $contract = $this->contractService->find((int) $request->user()->organization_id, $id, ['items', 'contact']);
 
-        return $this->success($contract);
+        return $this->success(new VendorContractResource($contract));
     }
 
     public function activate(Request $request, int $id): JsonResponse
     {
-        $contract = VendorContract::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $contract = $this->contractService->find((int) $request->user()->organization_id, $id);
 
-        $activated = $this->contractService->activate($contract);
-
-        return $this->success($activated, 'Contract activated.');
+        return $this->success(new VendorContractResource($this->contractService->activate($contract)), 'Contract activated.');
     }
 
     public function terminate(Request $request, int $id): JsonResponse
     {
-        $contract = VendorContract::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $contract = $this->contractService->find((int) $request->user()->organization_id, $id);
 
         $validated = $request->validate([
             'reason' => 'required|string|max:1000',
@@ -90,16 +86,16 @@ class VendorContractController extends Controller
 
         $terminated = $this->contractService->terminate($contract, $validated['reason']);
 
-        return $this->success($terminated, 'Contract terminated.');
+        return $this->success(new VendorContractResource($terminated), 'Contract terminated.');
     }
 
     public function expiring(Request $request): JsonResponse
     {
-        $days = $request->integer('days', 30);
-        $org  = Organization::findOrFail($request->user()->organization_id);
+        $contracts = $this->contractService->getExpiringContracts(
+            (int) $request->user()->organization_id,
+            $request->integer('days', 30),
+        );
 
-        $contracts = $this->contractService->getExpiringContracts($org, $days);
-
-        return $this->success($contracts);
+        return $this->success(VendorContractResource::collection($contracts));
     }
 }
