@@ -102,14 +102,17 @@ class StockTransferService
 
     /**
      * Ship a transfer (move stock out of source warehouse).
+     *
+     * Runs on the locked transfer, so a second submit waits and then finds it
+     * in transit instead of taking the stock out again.
      */
     public function ship(StockTransfer $transfer, int $userId): StockTransfer
     {
-        if (!$transfer->canShip()) {
-            throw new \InvalidArgumentException('Transfer cannot be shipped.');
-        }
+        return $transfer->lockForTransition(function (StockTransfer $transfer) use ($userId): StockTransfer {
+            if (! $transfer->canShip()) {
+                throw new \InvalidArgumentException('Transfer cannot be shipped.');
+            }
 
-        return DB::transaction(function () use ($transfer, $userId) {
             // Validate stock availability for all lines
             foreach ($transfer->lines as $line) {
                 if (!$this->stockService->hasAvailableStock(
@@ -141,8 +144,7 @@ class StockTransferService
                 );
             }
 
-            $transfer->update([
-                'status' => StockTransfer::STATUS_IN_TRANSIT,
+            $transfer->transitionTo(StockTransfer::STATUS_IN_TRANSIT, [
                 'shipped_at' => now(),
                 'shipped_by' => $userId,
             ]);
@@ -156,14 +158,7 @@ class StockTransferService
      */
     public function receive(StockTransfer $transfer, array $receivedQuantities = [], int $userId = 0): StockTransfer
     {
-        if (!$transfer->canReceive()) {
-            throw new \InvalidArgumentException('Transfer cannot be received.');
-        }
-
-        return DB::transaction(function () use ($transfer, $receivedQuantities, $userId) {
-            // Re-fetch with a pessimistic lock to prevent concurrent receive operations
-            $transfer = StockTransfer::where('id', $transfer->id)->lockForUpdate()->firstOrFail();
-
+        return $transfer->lockForTransition(function (StockTransfer $transfer) use ($receivedQuantities, $userId): StockTransfer {
             // Idempotency guard: prevent double-processing a completed transfer
             if ($transfer->status === StockTransfer::STATUS_RECEIVED) {
                 throw new \LogicException('Stock transfer already completed.');
@@ -198,8 +193,7 @@ class StockTransferService
                 }
             }
 
-            $transfer->update([
-                'status' => StockTransfer::STATUS_RECEIVED,
+            $transfer->transitionTo(StockTransfer::STATUS_RECEIVED, [
                 'received_at' => now(),
                 'received_by' => $userId,
             ]);
@@ -210,18 +204,21 @@ class StockTransferService
 
     /**
      * Cancel a transfer.
+     *
+     * Runs on the locked transfer: a receive committed meanwhile is seen, so
+     * stock the destination took in is never also returned to the source.
      */
     public function cancel(StockTransfer $transfer): StockTransfer
     {
-        if ($transfer->status === StockTransfer::STATUS_RECEIVED) {
-            throw new \InvalidArgumentException('Received transfers cannot be cancelled.');
-        }
+        return $transfer->lockForTransition(function (StockTransfer $transfer): StockTransfer {
+            if ($transfer->status === StockTransfer::STATUS_RECEIVED) {
+                throw new \InvalidArgumentException('Received transfers cannot be cancelled.');
+            }
 
-        if ($transfer->status === StockTransfer::STATUS_CANCELLED) {
-            throw new \InvalidArgumentException('Transfer is already cancelled.');
-        }
+            if ($transfer->status === StockTransfer::STATUS_CANCELLED) {
+                throw new \InvalidArgumentException('Transfer is already cancelled.');
+            }
 
-        return DB::transaction(function () use ($transfer) {
             // If in transit, return stock to source warehouse
             if ($transfer->status === StockTransfer::STATUS_IN_TRANSIT) {
                 foreach ($transfer->lines as $line) {
@@ -241,7 +238,7 @@ class StockTransferService
                 }
             }
 
-            $transfer->update(['status' => StockTransfer::STATUS_CANCELLED]);
+            $transfer->transitionTo(StockTransfer::STATUS_CANCELLED);
 
             return $transfer->fresh(['lines.product', 'lines.variant']);
         });

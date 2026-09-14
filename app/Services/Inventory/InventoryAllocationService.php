@@ -97,6 +97,14 @@ class InventoryAllocationService
 
     /**
      * Allocate stock for a sale/transfer.
+     *
+     * The stock levels and then the batches are locked before anything is read
+     * from them, and the reservation is made on those locked rows, so two
+     * allocations of the same stock run one after the other and the second sees
+     * what the first reserved. An allocation that cannot reserve the whole
+     * quantity throws, and the transaction takes back whatever part of it was
+     * reserved. Reserving stock that is not there is refused even when the
+     * product allows negative stock, which is about issuing, not promising.
      */
     public function allocate(
         int $productId,
@@ -111,49 +119,43 @@ class InventoryAllocationService
             throw new \RuntimeException("Product not found: {$productId}");
         }
 
-        // Check availability first
-        $availability = $this->checkAvailability($productId, $quantity, $warehouseId, $product->track_batches);
-
-        if (!$availability->isAvailable && !$product->allow_negative_stock) {
-            throw new InsufficientStockException(
-                "Insufficient stock for product {$product->name}",
-                $productId,
-                $quantity,
-                $availability->availableQuantity
-            );
+        if (bccomp($quantity, '0', 4) <= 0) {
+            throw new \InvalidArgumentException('The quantity to allocate must be positive.');
         }
 
         return DB::transaction(function () use ($product, $productId, $quantity, $warehouseId, $method, $batchIds) {
+            // Levels before batches, in every method here, so two of them never
+            // wait on each other's locks.
+            $levels = $this->lockStockLevels($productId, $warehouseId);
             $allocations = [];
-            $remainingQty = $quantity;
             $totalCost = '0';
 
             if ($product->track_batches) {
-                // Allocate from batches
                 $allocations = $this->allocateFromBatches(
                     $productId,
-                    $remainingQty,
+                    $quantity,
                     $warehouseId,
                     $method,
                     $batchIds
                 );
 
+                $allocated = '0';
+
                 foreach ($allocations as $allocation) {
-                    $remainingQty = bcsub($remainingQty, $allocation['quantity'], 4);
+                    $allocated = bcadd($allocated, $allocation['quantity'], 4);
                     $totalCost = bcadd($totalCost, $allocation['total_cost'], 4);
+                }
+
+                if (bccomp($allocated, $quantity, 4) < 0) {
+                    throw $this->shortage($productId, $quantity, $allocated, $warehouseId);
                 }
             }
 
-            // Update stock levels
-            $this->updateStockLevels($productId, $quantity, $warehouseId, 'reserve');
+            $this->updateStockLevels($levels, $productId, $quantity, $warehouseId, 'reserve');
 
             // Calculate average cost if no batches
             if (empty($allocations)) {
-                $stockLevel = StockLevel::where('product_id', $productId)
-                    ->where('warehouse_id', $warehouseId)
-                    ->first();
-
-                $unitCost = $stockLevel?->average_cost ?? $product->purchase_price ?? '0';
+                $unitCost = $levels->first()?->average_cost ?? $product->purchase_price ?? '0';
                 $totalCost = bcmul($quantity, $unitCost, 4);
 
                 $allocations[] = [
@@ -175,7 +177,8 @@ class InventoryAllocationService
     }
 
     /**
-     * Allocate from specific batches.
+     * Reserve from batches, read and reserved under lock. Returns what was
+     * reserved, which may be less than $quantity; the caller decides.
      */
     protected function allocateFromBatches(
         int $productId,
@@ -190,7 +193,8 @@ class InventoryAllocationService
 
         $query = InventoryBatch::where('product_id', $productId)
             ->available()
-            ->notExpired();
+            ->notExpired()
+            ->lockForUpdate();
 
         if ($warehouseId) {
             $query->where('warehouse_id', $warehouseId);
@@ -216,7 +220,7 @@ class InventoryAllocationService
             $toAllocate = bccomp($available, $remaining, 4) >= 0 ? $remaining : $available;
 
             if (bccomp($toAllocate, '0', 4) > 0) {
-                $batch->reserve($toAllocate);
+                $this->reserveBatch($batch, $toAllocate);
 
                 $allocations[] = [
                     'batch_id' => $batch->id,
@@ -246,19 +250,21 @@ class InventoryAllocationService
             $batchId = $batchAllocation['batch_id'];
             $allocateQty = $batchAllocation['quantity'] ?? null;
 
-            $batch = InventoryBatch::find($batchId);
+            $batch = InventoryBatch::lockForUpdate()->find($batchId);
 
-            if (!$batch || $batch->product_id !== $productId) {
+            if (!$batch || (int) $batch->product_id !== $productId) {
                 continue;
             }
 
             $available = $batch->getAvailableQuantity();
-            $toAllocate = $allocateQty
-                ? min($allocateQty, $available, $remaining)
-                : min($available, $remaining);
+            $toAllocate = bccomp($available, $remaining, 4) < 0 ? $available : $remaining;
+
+            if ($allocateQty !== null && bccomp((string) $allocateQty, $toAllocate, 4) < 0) {
+                $toAllocate = (string) $allocateQty;
+            }
 
             if (bccomp($toAllocate, '0', 4) > 0) {
-                $batch->reserve($toAllocate);
+                $this->reserveBatch($batch, $toAllocate);
 
                 $allocations[] = [
                     'batch_id' => $batch->id,
@@ -286,90 +292,128 @@ class InventoryAllocationService
     public function release(int $productId, string $quantity, ?int $warehouseId = null, ?array $allocations = null): void
     {
         DB::transaction(function () use ($productId, $quantity, $warehouseId, $allocations) {
-            // Release batch reservations
-            if ($allocations) {
-                foreach ($allocations as $allocation) {
-                    if ($allocation['batch_id']) {
-                        $batch = InventoryBatch::find($allocation['batch_id']);
-                        $batch?->release($allocation['quantity']);
-                    }
+            $levels = $this->lockStockLevels($productId, $warehouseId);
+
+            foreach ($allocations ?? [] as $allocation) {
+                if ($allocation['batch_id']) {
+                    InventoryBatch::lockForUpdate()->find($allocation['batch_id'])?->release($allocation['quantity']);
                 }
             }
 
-            // Update stock levels
-            $this->updateStockLevels($productId, $quantity, $warehouseId, 'release');
+            $this->updateStockLevels($levels, $productId, $quantity, $warehouseId, 'release');
         });
     }
 
     /**
-     * Confirm allocation (actual stock deduction).
+     * Confirm allocation (actual stock deduction), on the locked stock levels
+     * and batches. A batch that no longer holds the reservation or the
+     * quantity throws, so the stock level is not deducted without it.
      */
     public function confirm(int $productId, string $quantity, ?int $warehouseId = null, ?array $allocations = null): void
     {
         DB::transaction(function () use ($productId, $quantity, $warehouseId, $allocations) {
-            // Deduct from batches
-            if ($allocations) {
-                foreach ($allocations as $allocation) {
-                    if ($allocation['batch_id']) {
-                        $batch = InventoryBatch::find($allocation['batch_id']);
-                        if ($batch) {
-                            $batch->release($allocation['quantity']);
-                            $batch->deduct($allocation['quantity']);
-                        }
-                    }
+            $levels = $this->lockStockLevels($productId, $warehouseId);
+
+            foreach ($allocations ?? [] as $allocation) {
+                if (! $allocation['batch_id']) {
+                    continue;
                 }
+
+                $batch = InventoryBatch::lockForUpdate()->find($allocation['batch_id']);
+
+                if ($batch === null || ! $batch->release($allocation['quantity'])) {
+                    throw new \InvalidArgumentException(
+                        "Batch #{$allocation['batch_id']} does not hold a reservation of {$allocation['quantity']}."
+                    );
+                }
+
+                $batch->deductOrFail($allocation['quantity']);
             }
 
-            // Update stock levels
-            $this->updateStockLevels($productId, $quantity, $warehouseId, 'deduct');
+            $this->updateStockLevels($levels, $productId, $quantity, $warehouseId, 'deduct');
         });
     }
 
     /**
-     * Update stock levels.
+     * The product's stock levels, in the warehouse when one is given, locked
+     * until the surrounding transaction ends.
      */
-    protected function updateStockLevels(int $productId, string $quantity, ?int $warehouseId, string $operation): void
+    protected function lockStockLevels(int $productId, ?int $warehouseId): Collection
     {
-        $query = StockLevel::where('product_id', $productId);
+        return StockLevel::where('product_id', $productId)
+            ->when($warehouseId, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
 
-        if ($warehouseId) {
-            $query->where('warehouse_id', $warehouseId);
-        }
-
-        $stockLevels = $query->lockForUpdate()->get();
-
+    /**
+     * Reserves, releases or deducts $quantity across locked stock levels.
+     * Reserving takes only what each level has available and deducting needs
+     * a level to take from; either throws when it cannot place the whole
+     * quantity, rather than doing part of it.
+     */
+    protected function updateStockLevels(Collection $levels, int $productId, string $quantity, ?int $warehouseId, string $operation): void
+    {
         $remaining = $quantity;
 
-        foreach ($stockLevels as $level) {
+        foreach ($levels as $level) {
             if (bccomp($remaining, '0', 4) <= 0) {
                 break;
             }
 
-            $toUpdate = $remaining;
+            $applied = match ($operation) {
+                'reserve' => $this->lesser($remaining, bcsub((string) $level->quantity, (string) $level->reserved_quantity, 4)),
+                'release' => $this->lesser($remaining, (string) $level->reserved_quantity),
+                'deduct' => $remaining,
+            };
 
-            switch ($operation) {
-                case 'reserve':
-                    $available = bcsub($level->quantity, $level->reserved_quantity, 4);
-                    $toUpdate = min($toUpdate, $available);
-                    $level->reserved_quantity = bcadd($level->reserved_quantity, $toUpdate, 4);
-                    break;
+            if (bccomp($applied, '0', 4) <= 0) {
+                continue;
+            }
 
-                case 'release':
-                    $toUpdate = min($toUpdate, $level->reserved_quantity);
-                    $level->reserved_quantity = bcsub($level->reserved_quantity, $toUpdate, 4);
-                    break;
+            if ($operation === 'reserve') {
+                $level->reserved_quantity = bcadd((string) $level->reserved_quantity, $applied, 4);
+            } elseif ($operation === 'release') {
+                $level->reserved_quantity = bcsub((string) $level->reserved_quantity, $applied, 4);
+            } else {
+                $level->quantity = bcsub((string) $level->quantity, $applied, 4);
 
-                case 'deduct':
-                    $level->quantity = bcsub($level->quantity, $toUpdate, 4);
-                    if (bccomp($level->reserved_quantity, $toUpdate, 4) >= 0) {
-                        $level->reserved_quantity = bcsub($level->reserved_quantity, $toUpdate, 4);
-                    }
-                    break;
+                if (bccomp((string) $level->reserved_quantity, $applied, 4) >= 0) {
+                    $level->reserved_quantity = bcsub((string) $level->reserved_quantity, $applied, 4);
+                }
             }
 
             $level->save();
-            $remaining = bcsub($remaining, $toUpdate, 4);
+            $remaining = bcsub($remaining, $applied, 4);
         }
+
+        if ($operation !== 'release' && bccomp($remaining, '0', 4) > 0) {
+            throw $this->shortage($productId, $quantity, bcsub($quantity, $remaining, 4), $warehouseId);
+        }
+    }
+
+    private function reserveBatch(InventoryBatch $batch, string $quantity): void
+    {
+        if (! $batch->reserve($quantity)) {
+            throw $this->shortage((int) $batch->product_id, $quantity, $batch->getAvailableQuantity(), (int) $batch->warehouse_id);
+        }
+    }
+
+    private function shortage(int $productId, string $requested, string $available, ?int $warehouseId): InsufficientStockException
+    {
+        return InsufficientStockException::forProduct(
+            $productId,
+            Product::find($productId)?->name ?? "#{$productId}",
+            (float) $requested,
+            (float) $available,
+            $warehouseId,
+        );
+    }
+
+    private function lesser(string $a, string $b): string
+    {
+        return bccomp($a, $b, 4) <= 0 ? $a : $b;
     }
 
     /**

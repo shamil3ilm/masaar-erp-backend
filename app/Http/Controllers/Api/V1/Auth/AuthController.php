@@ -220,7 +220,7 @@ class AuthController extends Controller
         // Normalize email
         $email = $this->normalizeEmail($request->email);
 
-        return DB::transaction(function () use ($request, $email) {
+        [$user, $organization, $token] = DB::transaction(function () use ($request, $email): array {
             // Create unique slug (handle race condition)
             $baseSlug = Str::slug($request->organization_name);
             $slug = $baseSlug . '-' . Str::random(6);
@@ -301,11 +301,15 @@ class AuthController extends Controller
 
             app(UserEventService::class)->track(UserEvent::USER_REGISTERED, ['organization' => $organization->name, 'country' => $request->country_code], $user->id, $organization->id, $request);
 
-            $user->notify(new \App\Notifications\Auth\WelcomeNotification($organization->name));
-            $user->sendEmailVerificationNotification();
-
-            return $this->respondWithToken($token, $user, 'Registration successful', 201);
+            return [$user, $organization, $token];
         });
+
+        // Sent once the account has committed: queued inside the transaction,
+        // a rollback would still email a user who was never created.
+        $user->notify(new \App\Notifications\Auth\WelcomeNotification($organization->name));
+        $user->sendEmailVerificationNotification();
+
+        return $this->respondWithToken($token, $user, 'Registration successful', 201);
     }
 
     public function me(Request $request): JsonResponse

@@ -480,23 +480,24 @@ class PayrollService
     }
 
     /**
-     * Mark payslip as paid.
+     * Mark payslip as paid: post its salary journal and take the loan
+     * repayments due in its period.
+     *
+     * Runs on the locked payslip, so a second submit waits and then finds it
+     * paid instead of posting the salary and the repayments again.
      */
     public function markAsPaid(Payslip $payslip, string $paymentMode, ?string $paymentReference = null): Payslip
     {
-        if ($payslip->status !== Payslip::STATUS_APPROVED) {
-            throw new \InvalidArgumentException('Only approved payslips can be marked as paid.');
-        }
+        return $payslip->lockForTransition(function (Payslip $payslip) use ($paymentMode, $paymentReference): Payslip {
+            if ($payslip->status !== Payslip::STATUS_APPROVED) {
+                throw new \InvalidArgumentException('Only approved payslips can be marked as paid.');
+            }
 
-        return DB::transaction(function () use ($payslip, $paymentMode, $paymentReference) {
-            // Create journal entry
             $journal = $this->createJournalEntry($payslip);
 
-            // Process loan repayments
             $this->processLoanRepayments($payslip);
 
-            $payslip->update([
-                'status' => Payslip::STATUS_PAID,
+            $payslip->transitionTo(Payslip::STATUS_PAID, [
                 'payment_mode' => $paymentMode,
                 'payment_reference' => $paymentReference,
                 'paid_at' => now(),
@@ -520,14 +521,18 @@ class PayrollService
      */
     protected function processLoanRepayments(Payslip $payslip): void
     {
+        // Locked: a payslip of the same employee in another period may be
+        // repaying the same loan at the same time.
         $loans = EmployeeLoan::where('employee_id', $payslip->employee_id)
             ->active()
+            ->lockForUpdate()
             ->get();
 
         foreach ($loans as $loan) {
             $nextRepayment = $loan->getNextRepayment();
             if ($nextRepayment && $nextRepayment->due_date->lte($payslip->payrollPeriod->end_date)) {
-                $loan->recordRepayment($nextRepayment->total_amount, $payslip->id);
+                // total_amount is a decimal cast, read as a string.
+                $loan->recordRepayment((float) $nextRepayment->total_amount, $payslip->id);
             }
         }
     }

@@ -6,6 +6,7 @@ namespace App\Models\Inventory;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PhysicalInventoryDocument extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_CREATED = 'created';
     public const STATUS_IN_PROGRESS = 'in_progress';

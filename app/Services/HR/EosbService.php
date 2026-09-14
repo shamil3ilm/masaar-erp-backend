@@ -197,90 +197,84 @@ class EosbService
     }
 
     /**
-     * Mark a settlement as paid.
+     * Mark a settlement as paid and book the payment.
+     *
+     * Runs on the locked settlement, so a second submit finds it paid instead
+     * of booking the payment again. A journal entry that cannot be posted
+     * throws and the settlement stays approved.
      */
     public function markSettlementPaid(EosbSettlement $settlement, string $paymentDate): EosbSettlement
     {
-        if (!$settlement->canBePaid()) {
-            throw new \InvalidArgumentException('Only approved settlements can be marked as paid.');
-        }
+        return $settlement->lockForTransition(function (EosbSettlement $settlement) use ($paymentDate): EosbSettlement {
+            if (! $settlement->canBePaid()) {
+                throw new \InvalidArgumentException('Only approved settlements can be marked as paid.');
+            }
 
-        return DB::transaction(function () use ($settlement, $paymentDate) {
             $settlement->update([
                 'status' => EosbSettlement::STATUS_PAID,
                 'payment_date' => $paymentDate,
             ]);
 
-            try {
-                $orgId = $settlement->organization_id;
-
-                $liabilityAccount = Account::where('organization_id', $orgId)
-                    ->where('code', '2200')
-                    ->first()
-                    ?? Account::where('organization_id', $orgId)
-                        ->whereIn('account_type', ['liability'])
-                        ->where(function ($q) {
-                            $q->where('name', 'like', '%eosb%')
-                              ->orWhere('name', 'like', '%EOSB%')
-                              ->orWhere('name', 'like', '%end of service%');
-                        })
-                        ->first()
-                    ?? Account::where('organization_id', $orgId)
-                        ->whereIn('account_type', ['liability'])
-                        ->first();
-
-                $bankAccount = Account::where('organization_id', $orgId)
-                    ->whereIn('account_type', ['bank', 'cash'])
-                    ->first();
-
-                if ($liabilityAccount === null) {
-                    Log::warning('EosbService: No liability account found for EOSB journal entry.', [
-                        'organization_id' => $orgId,
-                        'settlement_id'   => $settlement->id,
-                    ]);
-                } elseif ($bankAccount === null) {
-                    Log::warning('EosbService: No bank/cash account found for EOSB journal entry.', [
-                        'organization_id' => $orgId,
-                        'settlement_id'   => $settlement->id,
-                    ]);
-                } else {
-                    $amount = (float) $settlement->net_amount;
-                    app(JournalService::class)->createEntry(
-                        [
-                            'organization_id' => $orgId,
-                            'entry_date'      => $paymentDate,
-                            'reference'       => 'EOSB-SETTLE-' . $settlement->id,
-                            'description'     => 'EOSB settlement payment for employee ' . $settlement->employee_id,
-                            'source_type'     => EosbSettlement::class,
-                            'source_id'       => $settlement->id,
-                        ],
-                        [
-                            [
-                                'account_id'  => $liabilityAccount->id,
-                                'description' => 'EOSB liability cleared',
-                                'debit'       => $amount,
-                                'credit'      => 0,
-                                'line_order'  => 0,
-                            ],
-                            [
-                                'account_id'  => $bankAccount->id,
-                                'description' => 'EOSB payment disbursed',
-                                'debit'       => 0,
-                                'credit'      => $amount,
-                                'line_order'  => 1,
-                            ],
-                        ]
-                    );
-                }
-            } catch (\Throwable $e) {
-                Log::warning('EosbService: Failed to create journal entry for settlement payment.', [
-                    'settlement_id' => $settlement->id,
-                    'error'         => $e->getMessage(),
-                ]);
-            }
+            $this->bookSettlementPayment($settlement, $paymentDate);
 
             return $settlement->fresh();
         });
+    }
+
+    /**
+     * Books a settlement payment: the EOSB liability is debited and the bank
+     * credited. Without either account the entry is skipped with a warning.
+     */
+    private function bookSettlementPayment(EosbSettlement $settlement, string $paymentDate): void
+    {
+        $orgId = $settlement->organization_id;
+
+        $liabilityAccount = Account::where('organization_id', $orgId)
+            ->where('code', '2200')
+            ->first()
+            ?? Account::where('organization_id', $orgId)
+                ->whereIn('account_type', ['liability'])
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%eosb%')
+                      ->orWhere('name', 'like', '%EOSB%')
+                      ->orWhere('name', 'like', '%end of service%');
+                })
+                ->first()
+            ?? Account::where('organization_id', $orgId)
+                ->whereIn('account_type', ['liability'])
+                ->first();
+
+        // Bank and cash are sub-types of an asset account, not account types.
+        $bankAccount = Account::where('organization_id', $orgId)
+            ->whereIn('sub_type', [Account::SUBTYPE_BANK, Account::SUBTYPE_CASH])
+            ->where('is_header', false)
+            ->orderByRaw('sub_type = ? desc', [Account::SUBTYPE_BANK])
+            ->first();
+
+        if ($liabilityAccount === null || $bankAccount === null) {
+            Log::warning('EosbService: No liability or bank account found for EOSB journal entry.', [
+                'organization_id' => $orgId,
+                'settlement_id'   => $settlement->id,
+                'has_liability'   => $liabilityAccount !== null,
+                'has_bank'        => $bankAccount !== null,
+            ]);
+
+            return;
+        }
+
+        $amount = (float) $settlement->net_amount;
+
+        app(JournalService::class)->createEntry([
+            'organization_id' => $orgId,
+            'entry_date'      => $paymentDate,
+            'reference'       => 'EOSB-SETTLE-' . $settlement->id,
+            'description'     => 'EOSB settlement payment for employee ' . $settlement->employee_id,
+            'source_type'     => EosbSettlement::class,
+            'source_id'       => $settlement->id,
+        ], [
+            ['account_id' => $liabilityAccount->id, 'description' => 'EOSB liability cleared', 'debit' => $amount, 'credit' => 0],
+            ['account_id' => $bankAccount->id, 'description' => 'EOSB payment disbursed', 'debit' => 0, 'credit' => $amount],
+        ]);
     }
 
     private function resolvePolicy(Employee $employee): EosbPolicy

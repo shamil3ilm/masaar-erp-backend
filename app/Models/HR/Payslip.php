@@ -9,6 +9,7 @@ use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Payslip extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_PENDING = 'pending';

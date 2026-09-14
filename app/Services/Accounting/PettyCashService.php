@@ -8,7 +8,7 @@ use App\Models\Finance\PettyCashFund;
 use App\Models\Finance\PettyCashReplenishment;
 use App\Models\Finance\PettyCashVoucher;
 use App\Services\Core\NumberGeneratorService;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 class PettyCashService
@@ -77,74 +77,78 @@ class PettyCashService
     }
 
     /**
-     * Post an approved voucher, adjusting the fund balance.
+     * Post an approved voucher: adjust the fund balance and book the voucher.
+     *
+     * Runs on the locked voucher and then the locked fund, so a second submit
+     * finds the voucher posted, and the balance is changed from the balance as
+     * it stands. A journal entry that cannot be posted throws and nothing is.
      */
     public function postVoucher(PettyCashVoucher $voucher): PettyCashVoucher
     {
-        if (!$voucher->isApproved()) {
-            throw new InvalidArgumentException('Only approved vouchers can be posted.');
-        }
-
-        return DB::transaction(function () use ($voucher) {
-            $fund   = PettyCashFund::lockForUpdate()->findOrFail($voucher->fund_id);
-            $amount = (float) $voucher->amount;
-
-            if ($voucher->transaction_type === PettyCashVoucher::TYPE_PAYMENT) {
-                if ($amount > (float) $fund->current_balance) {
-                    throw new InvalidArgumentException(
-                        "Insufficient fund balance. Available: {$fund->current_balance}, Required: {$amount}."
-                    );
-                }
-                $newBalance = bcsub((string) $fund->current_balance, (string) $amount, 4);
-            } else {
-                $newBalance = bcadd((string) $fund->current_balance, (string) $amount, 4);
+        return $voucher->lockForTransition(function (PettyCashVoucher $voucher): PettyCashVoucher {
+            if (! $voucher->isApproved()) {
+                throw new InvalidArgumentException('Only approved vouchers can be posted.');
             }
 
-            $fund->update(['current_balance' => $newBalance]);
+            $fund      = PettyCashFund::lockForUpdate()->findOrFail($voucher->fund_id);
+            $amount    = (string) $voucher->amount;
+            $isPayment = $voucher->transaction_type === PettyCashVoucher::TYPE_PAYMENT;
+
+            if ($isPayment && bccomp($amount, (string) $fund->current_balance, 4) > 0) {
+                throw new InvalidArgumentException(
+                    "Insufficient fund balance. Available: {$fund->current_balance}, Required: {$amount}."
+                );
+            }
+
+            $fund->update([
+                'current_balance' => $isPayment
+                    ? bcsub((string) $fund->current_balance, $amount, 4)
+                    : bcadd((string) $fund->current_balance, $amount, 4),
+            ]);
 
             $voucher->transitionTo(PettyCashVoucher::STATUS_POSTED);
 
-            // Fix 2: Post a GL journal entry for the voucher expenditure.
-            $expenseAccountId = $voucher->expense_account_id ?? null;
-            $glAccountId = $fund->gl_account_id ?? null;
-
-            if ($expenseAccountId === null || $glAccountId === null) {
-                \Illuminate\Support\Facades\Log::warning(
-                    'PettyCashService::postVoucher - skipping GL journal entry due to missing account '
-                    . "configuration. Voucher ID: {$voucher->id}, "
-                    . "expense_account_id: " . ($expenseAccountId ?? 'null') . ', '
-                    . "gl_account_id: " . ($glAccountId ?? 'null') . '.'
-                );
-            } else {
-                $journalEntry = $this->journalService->createEntry(
-                    [
-                        'organization_id' => $fund->organization_id,
-                        'entry_date' => $voucher->voucher_date ?? now()->toDateString(),
-                        'reference' => 'PCF-' . $voucher->id,
-                        'description' => $voucher->description ?? "Petty cash voucher #{$voucher->voucher_number}",
-                    ],
-                    [
-                        [
-                            'account_id' => $expenseAccountId,
-                            'description' => "Expense: " . ($voucher->description ?? $voucher->voucher_number),
-                            'debit' => (float) $voucher->amount,
-                            'credit' => 0,
-                            'line_order' => 0,
-                        ],
-                        [
-                            'account_id' => $glAccountId,
-                            'description' => "Petty cash fund: {$fund->name}",
-                            'debit' => 0,
-                            'credit' => (float) $voucher->amount,
-                            'line_order' => 1,
-                        ],
-                    ]
-                );
-                $this->journalService->postEntry($journalEntry);
-            }
+            $this->bookVoucher($voucher, $fund);
 
             return $voucher->fresh();
         });
+    }
+
+    /**
+     * Books a voucher between the account it names and the fund's account: a
+     * payment debits the voucher's account and credits the fund, a receipt the
+     * reverse. A voucher that names no account is not booked.
+     */
+    private function bookVoucher(PettyCashVoucher $voucher, PettyCashFund $fund): void
+    {
+        if ($voucher->account_id === null) {
+            Log::warning('Petty cash voucher posted without a journal entry: it names no account.', [
+                'voucher_id' => $voucher->id,
+            ]);
+
+            return;
+        }
+
+        $amount = (float) $voucher->amount;
+        $label  = $voucher->description ?: "Petty cash voucher {$voucher->voucher_number}";
+
+        [$debitAccountId, $creditAccountId] = $voucher->transaction_type === PettyCashVoucher::TYPE_PAYMENT
+            ? [$voucher->account_id, $fund->account_id]
+            : [$fund->account_id, $voucher->account_id];
+
+        $entry = $this->journalService->createEntry([
+            'organization_id' => $fund->organization_id,
+            'entry_date'      => $voucher->voucher_date->toDateString(),
+            'reference'       => $voucher->voucher_number,
+            'description'     => $label,
+            'source_type'     => PettyCashVoucher::class,
+            'source_id'       => $voucher->id,
+        ], [
+            ['account_id' => $debitAccountId, 'description' => $label, 'debit' => $amount, 'credit' => 0],
+            ['account_id' => $creditAccountId, 'description' => "Petty cash fund: {$fund->name}", 'debit' => 0, 'credit' => $amount],
+        ]);
+
+        $this->journalService->postEntry($entry);
     }
 
     /**
@@ -187,19 +191,24 @@ class PettyCashService
     }
 
     /**
-     * Disburse an approved replenishment, updating the fund balance.
+     * Disburse an approved replenishment, adding it to the fund balance.
+     *
+     * Runs on the locked replenishment and then the locked fund, so a second
+     * submit finds it disbursed and the amount is added to the balance as it
+     * stands, not to one read before another posting changed it.
      */
     public function disburseReplenishment(PettyCashReplenishment $replenishment): PettyCashReplenishment
     {
-        if (!$replenishment->isApproved()) {
-            throw new InvalidArgumentException('Only approved replenishments can be disbursed.');
-        }
+        return $replenishment->lockForTransition(function (PettyCashReplenishment $replenishment): PettyCashReplenishment {
+            if (! $replenishment->isApproved()) {
+                throw new InvalidArgumentException('Only approved replenishments can be disbursed.');
+            }
 
-        return DB::transaction(function () use ($replenishment) {
-            $fund       = $replenishment->fund;
-            $newBalance = bcadd((string) $fund->current_balance, (string) $replenishment->amount, 4);
+            $fund = PettyCashFund::lockForUpdate()->findOrFail($replenishment->fund_id);
 
-            $fund->update(['current_balance' => $newBalance]);
+            $fund->update([
+                'current_balance' => bcadd((string) $fund->current_balance, (string) $replenishment->amount, 4),
+            ]);
 
             $replenishment->transitionTo(PettyCashReplenishment::STATUS_DISBURSED);
 
