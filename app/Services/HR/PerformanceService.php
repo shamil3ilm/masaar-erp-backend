@@ -37,7 +37,6 @@ class PerformanceService
                         'reviewer_type' => $type,
                     ],
                     [
-                        'organization_id' => $appraisal->organization_id,
                         'status'          => AppraisalReviewer::STATUS_PENDING,
                         'is_anonymous'    => (bool) ($reviewerData['is_anonymous'] ?? false),
                         'due_date'        => $reviewerData['due_date'] ?? null,
