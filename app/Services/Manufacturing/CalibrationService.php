@@ -8,11 +8,32 @@ use App\Models\Manufacturing\CalibrationCertificate;
 use App\Models\Manufacturing\CalibrationEquipment;
 use App\Models\Manufacturing\CalibrationOrder;
 use App\Models\Manufacturing\CalibrationPlan;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class CalibrationService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
+    /**
+     * Create a planned calibration order for a piece of equipment, outside its
+     * plan's schedule.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createOrder(int $organizationId, array $data): CalibrationOrder
+    {
+        return CalibrationOrder::create([
+            'organization_id' => $organizationId,
+            'order_number'    => $this->nextOrderNumber($organizationId),
+            'status'          => CalibrationOrder::STATUS_PLANNED,
+            ...$data,
+        ]);
+    }
+
     /**
      * Schedule the next calibration order from a calibration plan.
      */
@@ -30,7 +51,7 @@ class CalibrationService
 
             $baseDate = $lastCompleted?->completed_date ?? now()->toDateTimeImmutable();
             $nextDate = $plan->calculateNextDueDate($baseDate);
-            $orderNumber = CalibrationOrder::generateOrderNumber($orgId);
+            $orderNumber = $this->nextOrderNumber($orgId);
 
             return CalibrationOrder::create([
                 'organization_id' => $orgId,
@@ -188,5 +209,10 @@ class CalibrationService
         }
 
         return $generated;
+    }
+
+    private function nextOrderNumber(int $organizationId): string
+    {
+        return $this->numberGenerator->generate(CalibrationOrder::NUMBER_SEQUENCE, CalibrationOrder::NUMBER_FORMAT, $organizationId);
     }
 }

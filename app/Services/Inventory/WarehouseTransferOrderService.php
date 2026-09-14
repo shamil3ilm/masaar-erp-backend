@@ -7,11 +7,16 @@ namespace App\Services\Inventory;
 use App\Models\Inventory\StockLevel;
 use App\Models\Inventory\WarehouseTransferOrder;
 use App\Models\Inventory\WarehouseTransferOrderItem;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class WarehouseTransferOrderService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Create a warehouse transfer order with its items.
      */
@@ -22,7 +27,7 @@ class WarehouseTransferOrderService
 
             $order = WarehouseTransferOrder::create([
                 'organization_id'      => $orgId,
-                'to_number'            => WarehouseTransferOrder::generateToNumber($orgId),
+                'to_number'            => $this->numberGenerator->generate(WarehouseTransferOrder::NUMBER_SEQUENCE, WarehouseTransferOrder::NUMBER_FORMAT, $orgId),
                 'warehouse_id'         => $data['warehouse_id'],
                 'movement_type'        => $data['movement_type'] ?? WarehouseTransferOrder::MOVEMENT_INTERNAL,
                 'source_document_type' => $data['source_document_type'] ?? null,

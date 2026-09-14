@@ -9,6 +9,7 @@ use App\Models\Maintenance\Equipment;
 use App\Models\Maintenance\MaintenanceOrder;
 use App\Models\Maintenance\MaintenanceOrderTask;
 use App\Models\Maintenance\MaintenancePlan;
+use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,10 @@ use Illuminate\Support\Facades\Log;
 
 class MaintenanceService
 {
-    public function __construct(private readonly StockService $stockService) {}
+    public function __construct(
+        private readonly StockService $stockService,
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
 
     // -------------------------------------------------------------------------
     // Equipment
@@ -80,7 +84,7 @@ class MaintenanceService
 
             $order = MaintenanceOrder::create([
                 'organization_id' => $orgId,
-                'order_number' => MaintenanceOrder::generateOrderNumber($orgId),
+                'order_number' => $this->numberGenerator->generate(MaintenanceOrder::NUMBER_SEQUENCE, MaintenanceOrder::NUMBER_FORMAT, $orgId),
                 'maintenance_plan_id' => $plan->id,
                 'equipment_id' => $plan->equipment_id,
                 'order_type' => MaintenanceOrder::TYPE_PREVENTIVE,
@@ -136,7 +140,7 @@ class MaintenanceService
 
             $order = MaintenanceOrder::create(array_merge($data, [
                 'organization_id' => $orgId,
-                'order_number' => MaintenanceOrder::generateOrderNumber($orgId),
+                'order_number' => $this->numberGenerator->generate(MaintenanceOrder::NUMBER_SEQUENCE, MaintenanceOrder::NUMBER_FORMAT, $orgId),
                 'created_by' => $userId,
                 'status' => $data['status'] ?? MaintenanceOrder::STATUS_OPEN,
             ]));
