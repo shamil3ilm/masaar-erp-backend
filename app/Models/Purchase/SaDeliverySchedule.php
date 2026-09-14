@@ -6,12 +6,13 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SaDeliverySchedule extends Model
 {
-    use BelongsToOrganization, HasUuid;
+    use BelongsToOrganization, HasUuid, LocksForTransition;
 
     public const STATUS_OPEN      = 'open';
     public const STATUS_PARTIAL   = 'partial';
