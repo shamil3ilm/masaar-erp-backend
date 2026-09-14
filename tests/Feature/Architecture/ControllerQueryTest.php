@@ -219,7 +219,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Messaging/MessageTemplateController.php' => 1,
         'Api/V1/Messaging/MessagingConfigurationController.php' => 4,
         'Api/V1/Messaging/NotificationPreferenceController.php' => 6,
-        'Api/V1/Purchase/BillController.php' => 4,
         'Api/V1/Purchase/ContractController.php' => 1,
         'Api/V1/Purchase/ErsController.php' => 3,
         'Api/V1/Purchase/GoodsReceiptController.php' => 3,
