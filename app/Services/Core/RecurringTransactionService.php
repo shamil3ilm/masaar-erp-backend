@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Core\NotificationService;
 use App\Services\Core\NumberGeneratorService;
 use Carbon\Carbon;
+use App\Services\Accounting\JournalService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +28,7 @@ class RecurringTransactionService
 {
     public function __construct(
         protected readonly NotificationService $notificationService,
+        private readonly JournalService $journalService,
     ) {}
 
     /**
@@ -289,35 +291,33 @@ class RecurringTransactionService
 
     /**
      * Create journal entry from source.
+     *
+     * The copy is a new entry made through JournalService: it is numbered like
+     * every other entry, gets the fiscal year of today's date and has its lines
+     * checked. It is a draft until auto-send posts it.
      */
     protected function createJournalFromSource(Model $source, RecurringProfile $profile): Model
     {
-        $newJournal = $source->replicate([
-            'uuid',
-            'entry_number',
-            'status',
-            'posted_at',
-            'posted_by',
-        ]);
-
-        $newJournal->entry_date = today();
-        $newJournal->status = JournalEntry::STATUS_DRAFT;
-
-        $newJournal->entry_number = app(NumberGeneratorService::class)->generate(
-            'JE',
-            null,
-            $profile->organization_id
-        );
-
-        $newJournal->save();
-
-        foreach ($source->lines as $line) {
-            $newLine = $line->replicate();
-            $newLine->journal_entry_id = $newJournal->id;
-            $newLine->save();
-        }
-
-        return $newJournal;
+        return $this->journalService->createEntry([
+            'organization_id' => $profile->organization_id,
+            'branch_id' => $source->branch_id,
+            'entry_date' => today()->toDateString(),
+            'reference' => $source->reference,
+            'description' => $source->description,
+            'currency_code' => $source->currency_code,
+            'exchange_rate' => $source->exchange_rate,
+            'source_type' => $source->source_type,
+            'source_id' => $source->source_id,
+            'created_by' => $source->created_by,
+        ], $source->lines->map(fn ($line): array => [
+            'account_id' => $line->account_id,
+            'description' => $line->description,
+            'debit' => $line->debit,
+            'credit' => $line->credit,
+            'cost_center_id' => $line->cost_center_id,
+            'contact_id' => $line->contact_id,
+            'line_order' => $line->line_order,
+        ])->all());
     }
 
     /**
