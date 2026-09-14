@@ -4,15 +4,28 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Sales\Contact;
 use App\Models\Sales\DeliveryMode;
 use App\Models\Sales\DeliveryZoneRate;
 use App\Models\Sales\PaymentMode;
 use App\Models\Sales\Shipment;
 use App\Models\Sales\ShipmentTrackingEvent;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class PaymentDeliveryService
 {
+    /**
+     * Shipments of the current organization with their delivery mode and the
+     * reference columns of their contact, newest first.
+     */
+    public function listShipments(int $perPage): LengthAwarePaginator
+    {
+        return Shipment::with(['deliveryMode', 'contact:'.implode(',', Contact::REFERENCE_COLUMNS)])
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
     public function getPaymentModes(int $organizationId): mixed
     {
         return PaymentMode::where('organization_id', $organizationId)

@@ -6,10 +6,33 @@ namespace App\Services\Sales;
 
 use App\Models\Sales\ProductBundle;
 use App\Models\Sales\SeasonalCampaign;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class OffersService
 {
+    /**
+     * All bundles of the given organization, active or not, with their items
+     * and products, in display order.
+     */
+    public function paginateBundles(int $organizationId, int $perPage): LengthAwarePaginator
+    {
+        return ProductBundle::where('organization_id', $organizationId)
+            ->with('items.product')
+            ->orderBy('display_order')
+            ->paginate($perPage);
+    }
+
+    /**
+     * All seasonal campaigns of the given organization, latest start first.
+     */
+    public function paginateCampaigns(int $organizationId, int $perPage): LengthAwarePaginator
+    {
+        return SeasonalCampaign::where('organization_id', $organizationId)
+            ->orderByDesc('starts_at')
+            ->paginate($perPage);
+    }
+
     public function getBundles(int $organizationId): mixed
     {
         return ProductBundle::where('organization_id', $organizationId)
