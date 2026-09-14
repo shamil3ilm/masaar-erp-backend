@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Sales;
 
+use App\Models\Accounting\Account;
 use App\Models\Core\Organization;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\PaymentAllocation;
 use App\Models\Sales\PaymentReceived;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -441,6 +443,26 @@ class PaymentReceivedTest extends TestCase
 
     public function test_can_complete_pending_payment(): void
     {
+        // Completing creates the payment's journal entry, so the accounts it
+        // debits and credits must exist in an open fiscal period.
+        $this->setUpOpenFiscalPeriod();
+        $receivable = Account::factory()->create([
+            'organization_id' => $this->organization->id,
+            'account_type' => Account::TYPE_ASSET,
+            'sub_type' => Account::SUBTYPE_RECEIVABLE,
+            'code' => '1100',
+            'currency_code' => null,
+        ]);
+        $bank = Account::factory()->create([
+            'organization_id' => $this->organization->id,
+            'account_type' => Account::TYPE_ASSET,
+            'sub_type' => Account::SUBTYPE_BANK,
+            'code' => '1010',
+            'currency_code' => null,
+        ]);
+        Config::set('erp.default_accounts.receivable', $receivable->id);
+        Config::set('erp.default_accounts.cash', $bank->id);
+
         $payment = PaymentReceived::factory()->create([
             'organization_id' => $this->organization->id,
             'branch_id' => $this->branch->id,

@@ -67,14 +67,11 @@ class PaymentService
                 }
             }
 
-            // Create customer credit for unallocated amount
+            // The unallocated amount is owed back to the customer; a payment
+            // is not recorded without that credit.
             $unallocated = bcsub((string) $payment->amount, (string) $totalAllocated, 4);
             if (bccomp($unallocated, '0', 4) > 0) {
-                try {
-                    $this->createCustomerCredit($payment, (float) $unallocated);
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Customer credit creation skipped: ' . $e->getMessage());
-                }
+                $this->createCustomerCredit($payment, (float) $unallocated);
             }
 
             return $payment->load('allocations.invoice', 'customer');
@@ -135,87 +132,51 @@ class PaymentService
 
     /**
      * Complete/confirm a payment.
+     *
+     * The journal entry is part of completing: when it cannot be posted, for a
+     * missing account or a closed period, the payment stays pending.
      */
     public function complete(PaymentReceived $payment): PaymentReceived
     {
-        if ($payment->status !== PaymentReceived::STATUS_PENDING) {
-            throw new \InvalidArgumentException('Only pending payments can be completed.');
-        }
-
-        return DB::transaction(function () use ($payment) {
-            $journalId = null;
-
-            // Create journal entry — only skip if accounts are not yet configured
-            // (e.g. fresh org setup). Re-throw all other failures so the payment
-            // is not completed without a corresponding ledger entry.
-            try {
-                $journal = $this->createJournalEntry($payment);
-                $journalId = $journal->id;
-            } catch (\InvalidArgumentException $e) {
-                Log::error('Payment journal entry skipped — missing account config', [
-                    'payment_id' => $payment->id,
-                    'error'      => $e->getMessage(),
-                ]);
+        return $payment->lockForTransition(function (PaymentReceived $payment): PaymentReceived {
+            if ($payment->status !== PaymentReceived::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Only pending payments can be completed.');
             }
 
-            $payment->update([
-                'status' => PaymentReceived::STATUS_COMPLETED,
-                'journal_entry_id' => $journalId,
-            ]);
+            $journal = $this->createJournalEntry($payment);
+
+            $payment->transitionTo(PaymentReceived::STATUS_COMPLETED, ['journal_entry_id' => $journal->id]);
 
             return $payment->fresh();
         });
     }
 
     /**
-     * Void a payment.
+     * Void a payment: take its allocations off their invoices, withdraw its
+     * overpayment credit and void its journal entry.
      */
     public function void(PaymentReceived $payment, string $reason = ''): PaymentReceived
     {
-        if ($payment->status === PaymentReceived::STATUS_VOIDED) {
-            throw new \InvalidArgumentException('Payment is already voided.');
-        }
-
-        return DB::transaction(function () use ($payment, $reason) {
-            // Reverse allocations
-            foreach ($payment->allocations as $allocation) {
-                $invoice = $allocation->invoice;
-                $invoice->amount_paid = bcsub((string) $invoice->amount_paid, (string) $allocation->amount, 4);
-                $invoice->amount_due = bcadd((string) $invoice->amount_due, (string) $allocation->amount, 4);
-
-                // Reset invoice status
-                if (bccomp((string) $invoice->amount_paid, '0', 4) <= 0) {
-                    $invoice->status = $invoice->isOverdue() ? Invoice::STATUS_OVERDUE : Invoice::STATUS_SENT;
-                } else {
-                    $invoice->status = Invoice::STATUS_PARTIAL;
-                }
-
-                $invoice->save();
+        return $payment->lockForTransition(function (PaymentReceived $payment) use ($reason): PaymentReceived {
+            if ($payment->status === PaymentReceived::STATUS_VOIDED) {
+                throw new \InvalidArgumentException('Payment is already voided.');
             }
 
-            // Delete allocations
+            // A bounced payment is already off its invoices and reversed in the
+            // ledger; voiding it would take both back a second time.
+            if (! $payment->canTransitionTo(PaymentReceived::STATUS_VOIDED)) {
+                throw new \InvalidArgumentException("A {$payment->status} payment cannot be voided.");
+            }
+
+            $this->reverseOnInvoices($payment);
             $payment->allocations()->delete();
+            $this->withdrawOverpaymentCredit($payment);
 
-            // Reverse journal entry
             if ($payment->journal_entry_id && $payment->journalEntry) {
-                try {
-                    $this->journalService->void($payment->journalEntry, $reason);
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Payment journal void skipped: ' . $e->getMessage());
-                }
+                $this->journalService->voidSourceEntry($payment->journalEntry, $reason);
             }
 
-            // Void customer credit if created
-            try {
-                CustomerCredit::where('source_type', CustomerCredit::SOURCE_OVERPAYMENT)
-                    ->where('source_id', $payment->id)
-                    ->update(['is_active' => false, 'remaining_amount' => 0]);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Customer credit void skipped: ' . $e->getMessage());
-            }
-
-            $payment->update([
-                'status' => PaymentReceived::STATUS_VOIDED,
+            $payment->transitionTo(PaymentReceived::STATUS_VOIDED, [
                 'notes' => $payment->notes . "\n\nVoided: " . $reason,
             ]);
 
@@ -225,57 +186,50 @@ class PaymentService
 
     /**
      * Record a bounced cheque.
+     *
+     * The allocations stay as the record of what the cheque was meant to pay;
+     * their amounts come off the invoices and the journal entry is reversed.
      */
     public function recordBounce(PaymentReceived $payment, string $reason = ''): PaymentReceived
     {
-        if ($payment->payment_method !== PaymentReceived::METHOD_CHEQUE) {
-            throw new \InvalidArgumentException('Only cheque payments can bounce.');
-        }
-
-        if ($payment->status !== PaymentReceived::STATUS_COMPLETED) {
-            throw new \InvalidArgumentException('Only completed payments can bounce.');
-        }
-
-        return DB::transaction(function () use ($payment, $reason) {
-            // Reverse same as void but with different status
-            foreach ($payment->allocations as $allocation) {
-                $invoice = $allocation->invoice;
-                $invoice->amount_paid = bcsub((string) $invoice->amount_paid, (string) $allocation->amount, 4);
-                $invoice->amount_due = bcadd((string) $invoice->amount_due, (string) $allocation->amount, 4);
-
-                if (bccomp((string) $invoice->amount_paid, '0', 4) <= 0) {
-                    $invoice->status = $invoice->isOverdue() ? Invoice::STATUS_OVERDUE : Invoice::STATUS_SENT;
-                } else {
-                    $invoice->status = Invoice::STATUS_PARTIAL;
-                }
-
-                $invoice->save();
+        return $payment->lockForTransition(function (PaymentReceived $payment) use ($reason): PaymentReceived {
+            if ($payment->payment_method !== PaymentReceived::METHOD_CHEQUE) {
+                throw new \InvalidArgumentException('Only cheque payments can bounce.');
             }
 
-            // Create reversal journal entry
+            if ($payment->status !== PaymentReceived::STATUS_COMPLETED) {
+                throw new \InvalidArgumentException('Only completed payments can bounce.');
+            }
+
+            $this->reverseOnInvoices($payment);
+            $this->withdrawOverpaymentCredit($payment);
+
             if ($payment->journal_entry_id && $payment->journalEntry) {
-                try {
-                    $this->journalService->reverse($payment->journalEntry, "Cheque bounced: {$reason}");
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Payment journal reverse skipped: ' . $e->getMessage());
-                }
+                $this->journalService->reverseSourceEntry($payment->journalEntry, "Cheque bounced: {$reason}");
             }
 
-            // Reverse any customer credit created from this payment (overpayment credit)
-            try {
-                CustomerCredit::where('source_type', CustomerCredit::SOURCE_OVERPAYMENT)
-                    ->where('source_id', $payment->id)
-                    ->update(['is_active' => false, 'remaining_amount' => 0]);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Customer credit reversal on bounce skipped: ' . $e->getMessage());
-            }
-
-            $payment->update([
-                'status' => PaymentReceived::STATUS_BOUNCED,
+            $payment->transitionTo(PaymentReceived::STATUS_BOUNCED, [
                 'notes' => $payment->notes . "\n\nBounced: " . $reason,
             ]);
 
             return $payment->fresh();
+        });
+    }
+
+    /**
+     * Delete a pending payment with its allocations and overpayment credit.
+     */
+    public function delete(PaymentReceived $payment): void
+    {
+        $payment->lockForTransition(function (PaymentReceived $payment): void {
+            if ($payment->status !== PaymentReceived::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Only pending payments can be deleted.');
+            }
+
+            $this->reverseOnInvoices($payment);
+            $payment->allocations()->delete();
+            $this->withdrawOverpaymentCredit($payment);
+            $payment->delete();
         });
     }
 
@@ -345,34 +299,40 @@ class PaymentService
     }
 
     /**
-     * Deallocate payment from an invoice.
+     * Take one allocation of a pending payment off its invoice.
      */
     public function deallocate(PaymentAllocation $allocation): void
     {
-        if ($allocation->payment->status !== PaymentReceived::STATUS_PENDING) {
-            throw new \InvalidArgumentException('Can only modify pending payment allocations.');
-        }
-
-        DB::transaction(function () use ($allocation) {
-            $invoice = $allocation->invoice;
-
-            // Reverse payment on invoice
-            $invoice->amount_paid = bcsub((string) $invoice->amount_paid, (string) $allocation->amount, 4);
-            $invoice->amount_due = bcadd((string) $invoice->amount_due, (string) $allocation->amount, 4);
-
-            if (bccomp((string) $invoice->amount_paid, '0', 4) <= 0) {
-                $restoredStatus = ($invoice->due_date && $invoice->due_date->isPast())
-                    ? Invoice::STATUS_OVERDUE
-                    : Invoice::STATUS_SENT;
-                $invoice->status = $restoredStatus;
-            } elseif (bccomp((string) $invoice->amount_due, '0', 4) > 0) {
-                $invoice->status = Invoice::STATUS_PARTIAL;
+        $allocation->payment->lockForTransition(function (PaymentReceived $payment) use ($allocation): void {
+            if ($payment->status !== PaymentReceived::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Can only modify pending payment allocations.');
             }
 
-            $invoice->save();
+            // Read again under the payment lock: a concurrent call may have removed it.
+            $current = $payment->allocations()->with('invoice')->find($allocation->id)
+                ?? throw new \InvalidArgumentException('This allocation has already been removed.');
 
-            $allocation->delete();
+            $current->invoice->reversePayment($current->amount);
+            $current->delete();
         });
+    }
+
+    /**
+     * Take each allocation's amount back off its invoice. The payment must be
+     * locked by the caller; each invoice is read and written under its own lock.
+     */
+    private function reverseOnInvoices(PaymentReceived $payment): void
+    {
+        foreach ($payment->allocations()->with('invoice')->get() as $allocation) {
+            $allocation->invoice->reversePayment($allocation->amount);
+        }
+    }
+
+    private function withdrawOverpaymentCredit(PaymentReceived $payment): void
+    {
+        CustomerCredit::where('source_type', CustomerCredit::SOURCE_OVERPAYMENT)
+            ->where('source_id', $payment->id)
+            ->update(['is_active' => false, 'remaining_amount' => 0]);
     }
 
     /**

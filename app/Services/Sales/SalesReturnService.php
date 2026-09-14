@@ -31,13 +31,7 @@ class SalesReturnService
         return DB::transaction(function () use ($data, $userId) {
             // Validate against return policy
             if (! empty($data['invoice_id'])) {
-                try {
-                    $this->validateReturnPolicy($data);
-                } catch (ApiException $e) {
-                    throw $e; // Re-throw business exceptions
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Return policy validation skipped: ' . $e->getMessage());
-                }
+                $this->validateReturnPolicy($data);
             }
 
             $items = $data['items'] ?? [];
@@ -74,12 +68,8 @@ class SalesReturnService
                 $salesReturn->calculateTotals();
             }
 
-            // Apply restocking fee if configured
-            try {
-                $this->applyRestockingFee($salesReturn);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Restocking fee application skipped: ' . $e->getMessage());
-            }
+            // The fee the default policy keeps is part of the return's total.
+            $this->applyRestockingFee($salesReturn);
 
             return $salesReturn->fresh(['items', 'customer', 'invoice']);
         });
@@ -165,15 +155,21 @@ class SalesReturnService
         return $salesReturn->fresh();
     }
 
+    /**
+     * Resolve an inspected return: refund it, credit it or reject it, restock
+     * its items and complete it.
+     *
+     * The status is checked on the locked return, so a double submit resolves
+     * it once. The credit note and the restock are part of the resolution: if
+     * either fails, the return stays unresolved.
+     */
     public function resolve(SalesReturn $salesReturn, string $resolutionType, int $userId): SalesReturn
     {
-        if (! in_array($salesReturn->status, [SalesReturn::STATUS_INSPECTED, SalesReturn::STATUS_RECEIVED])) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($resolutionType, $userId): SalesReturn {
+            if (! in_array($salesReturn->status, [SalesReturn::STATUS_INSPECTED, SalesReturn::STATUS_RECEIVED], true)) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        return DB::transaction(function () use ($salesReturn, $resolutionType, $userId) {
-            // Lock the return row to prevent concurrent resolution races
-            $salesReturn = SalesReturn::lockForUpdate()->findOrFail($salesReturn->id);
             $salesReturn->update(['resolution_type' => $resolutionType]);
 
             switch ($resolutionType) {
@@ -189,13 +185,9 @@ class SalesReturnService
                     break;
 
                 case SalesReturn::RESOLUTION_CREDIT_NOTE:
-                    try {
-                        $salesReturn->load('items');
-                        $creditNote = $this->createCreditNoteFromReturn($salesReturn, $userId);
-                        $salesReturn->update(['credit_note_id' => $creditNote->id]);
-                    } catch (\Exception $e) {
-                        \Illuminate\Support\Facades\Log::warning('Credit note creation from return skipped: ' . $e->getMessage());
-                    }
+                    $salesReturn->load('items');
+                    $creditNote = $this->createCreditNoteFromReturn($salesReturn, $userId);
+                    $salesReturn->update(['credit_note_id' => $creditNote->id]);
                     break;
 
                 case SalesReturn::RESOLUTION_EXCHANGE:
@@ -207,13 +199,8 @@ class SalesReturnService
                     return $salesReturn->fresh();
             }
 
-            // Restock items if applicable
             if ($salesReturn->restock_items) {
-                try {
-                    $this->restockItems($salesReturn);
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::warning('Restock items skipped: ' . $e->getMessage());
-                }
+                $this->restockItems($salesReturn);
             }
 
             $salesReturn->update(['status' => SalesReturn::STATUS_COMPLETED]);
@@ -222,9 +209,20 @@ class SalesReturnService
         });
     }
 
+    /**
+     * Create the exchange order for a return, with all of its items.
+     *
+     * A return has at most one exchange order; the check runs on the locked
+     * return so two requests cannot both create one.
+     */
     public function createExchange(SalesReturn $salesReturn, array $exchangeItems, int $userId): ExchangeOrder
     {
-        return DB::transaction(function () use ($salesReturn, $exchangeItems, $userId) {
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($exchangeItems, $userId): ExchangeOrder {
+            if ($salesReturn->exchange_order_id !== null
+                || in_array($salesReturn->status, [SalesReturn::STATUS_REJECTED, SalesReturn::STATUS_CANCELLED], true)) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
+
             $originalTotal = (float) $salesReturn->total;
             $exchangeTotal = 0;
 
@@ -247,13 +245,9 @@ class SalesReturnService
                 'created_by' => $userId,
             ]);
 
+            // An exchange missing any of its items is not the exchange that was agreed.
             foreach ($items as $item) {
-                try {
-                    $exchange->items()->create($item);
-                } catch (\Exception $e) {
-                    // Item creation may fail if product references are missing
-                    \Illuminate\Support\Facades\Log::warning('Exchange item creation skipped: ' . $e->getMessage());
-                }
+                $exchange->items()->create($item);
             }
 
             $salesReturn->update([

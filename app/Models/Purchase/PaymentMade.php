@@ -10,6 +10,7 @@ use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\Sales\Contact;
 use App\Models\User;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PaymentMade extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, LocksForTransition, SoftDeletes;
 
     protected $table = 'payments_made';
 

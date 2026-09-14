@@ -353,6 +353,45 @@ class JournalService
     }
 
     /**
+     * Void the journal entry of a document that is being voided.
+     *
+     * Entries built by JournalEntryFactory are saved as drafts. A draft never
+     * reached the ledger, so it is discarded and can no longer be posted; a
+     * posted entry is voided. Any other state throws, so the document's own
+     * change rolls back with it.
+     */
+    public function voidSourceEntry(JournalEntry $entry, string $reason): void
+    {
+        $entry->lockForTransition(function (JournalEntry $entry) use ($reason): void {
+            if ($entry->status === JournalEntry::STATUS_DRAFT) {
+                $entry->discardDraft($reason);
+
+                return;
+            }
+
+            $this->voidEntry($entry, $reason);
+        });
+    }
+
+    /**
+     * Reverse the journal entry of a document whose effect is undone, such as a
+     * bounced cheque. A draft is discarded as in voidSourceEntry(); a posted
+     * entry gets a reversal entry. Any other state throws.
+     */
+    public function reverseSourceEntry(JournalEntry $entry, string $reason): void
+    {
+        $entry->lockForTransition(function (JournalEntry $entry) use ($reason): void {
+            if ($entry->status === JournalEntry::STATUS_DRAFT) {
+                $entry->discardDraft($reason);
+
+                return;
+            }
+
+            $this->reverseEntry($entry, $reason);
+        });
+    }
+
+    /**
      * Create a simple two-line journal entry (debit one account, credit another).
      */
     public function createSimpleEntry(

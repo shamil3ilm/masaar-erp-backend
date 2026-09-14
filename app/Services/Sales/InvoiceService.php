@@ -264,14 +264,17 @@ class InvoiceService
 
     /**
      * Update a draft invoice.
+     *
+     * Editability is checked on the locked row: sending locks the same row, so
+     * an invoice sent by a concurrent request is not rewritten afterwards.
      */
     public function update(Invoice $invoice, array $data, ?array $lines = null): Invoice
     {
-        if (!$invoice->isEditable()) {
-            throw new \InvalidArgumentException('Only draft invoices can be updated.');
-        }
+        return $invoice->lockForTransition(function (Invoice $invoice) use ($data, $lines) {
+            if (! $invoice->isEditable()) {
+                throw new \InvalidArgumentException('Only draft invoices can be updated.');
+            }
 
-        return DB::transaction(function () use ($invoice, $data, $lines) {
             // Optimistic locking check
             if (isset($data['version']) && $data['version'] !== $invoice->version) {
                 throw new \App\Exceptions\ConcurrencyException(
