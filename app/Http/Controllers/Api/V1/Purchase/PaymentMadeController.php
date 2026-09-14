@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\PaymentMadeResource;
-use App\Models\Purchase\Bill;
 use App\Models\Purchase\PaymentMade;
 use App\Services\Purchase\PaymentMadeService;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +14,8 @@ use Illuminate\Http\Request;
 
 class PaymentMadeController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PaymentMadeService $paymentMadeService
     ) {
@@ -24,28 +26,12 @@ class PaymentMadeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PaymentMade::with(['supplier', 'bankAccount', 'allocations.bill'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->supplier_id, fn($q, $id) => $q->forSupplier($id))
-            ->when($request->payment_method, fn($q, $method) => $q->where('payment_method', $method))
-            ->when($request->start_date, fn($q, $date) => $q->where('payment_date', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('payment_date', '<=', $date))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('payment_number', 'like', "%{$search}%")
-                        ->orWhere('reference', 'like', "%{$search}%")
-                        ->orWhereHas('supplier', function ($q) use ($search) {
-                            $q->where('company_name', 'like', "%{$search}%")
-                                ->orWhere('contact_name', 'like', "%{$search}%");
-                        });
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['payment_number', 'payment_date', 'amount', 'status', 'created_at', 'updated_at'], 'payment_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $payments = $query->paginate($request->integer('per_page', 15));
+        $payments = $this->paymentMadeService->list(
+            $request->only(['status', 'supplier_id', 'payment_method', 'start_date', 'end_date', 'search']),
+            $this->safeSortBy($request->sort_by, ['payment_number', 'payment_date', 'amount', 'status', 'created_at', 'updated_at'], 'payment_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($payments, PaymentMadeResource::class);
     }
@@ -56,11 +42,11 @@ class PaymentMadeController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => 'required|exists:contacts,id',
+            'supplier_id' => ['required', $this->ownedBy('contacts')],
             'payment_number' => 'nullable|string|max:50',
             'payment_date' => 'nullable|date',
-            'branch_id' => 'nullable|exists:branches,id',
-            'bank_account_id' => 'nullable|exists:bank_accounts,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'payment_method' => 'required|in:cash,bank_transfer,cheque,credit_card,online,other',
             'amount' => 'required|numeric|min:0.01',
             'currency_code' => 'nullable|string|size:3',
@@ -68,20 +54,9 @@ class PaymentMadeController extends Controller
             'reference' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
             'allocations' => 'nullable|array',
-            'allocations.*.bill_id' => 'required|exists:bills,id',
+            'allocations.*.bill_id' => ['required', $this->ownedBy('bills')],
             'allocations.*.amount' => 'required|numeric|min:0.01',
         ]);
-
-        // Default payment_date to today if not provided
-        $validated['payment_date'] = $validated['payment_date'] ?? now()->toDateString();
-
-        // Validate allocation totals don't exceed payment amount
-        if (!empty($validated['allocations'])) {
-            $totalAllocated = collect($validated['allocations'])->sum('amount');
-            if ($totalAllocated > (float) $validated['amount']) {
-                return $this->error('Total allocation amount cannot exceed payment amount.', 'VALIDATION_ERROR', 422);
-            }
-        }
 
         try {
             $payment = $this->paymentMadeService->create(
@@ -113,14 +88,10 @@ class PaymentMadeController extends Controller
      */
     public function destroy(PaymentMade $paymentMade): JsonResponse
     {
-        if (!$paymentMade->isEditable()) {
-            return $this->error('Only pending payments can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $paymentMade->allocations()->delete();
-        $paymentMade->delete();
-
-        return $this->success(null, 'Payment deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->paymentMadeService->delete($paymentMade),
+            'Payment deleted successfully.',
+        );
     }
 
     /**
@@ -161,66 +132,28 @@ class PaymentMadeController extends Controller
     public function allocate(Request $request, PaymentMade $paymentMade): JsonResponse
     {
         $validated = $request->validate([
-            'bill_id' => 'nullable|exists:bills,id',
+            'bill_id' => ['nullable', $this->ownedBy('bills')],
             'amount' => 'nullable|numeric|min:0.01',
             'allocations' => 'nullable|array',
-            'allocations.*.bill_id' => 'required|exists:bills,id',
+            'allocations.*.bill_id' => ['required', $this->ownedBy('bills')],
             'allocations.*.amount' => 'required|numeric|min:0.01',
         ]);
 
-        try {
-            // Support both formats: flat (bill_id + amount) and array (allocations)
-            if (!empty($validated['allocations'])) {
-                // Validate supplier match and total amount
-                $totalAllocated = 0;
-                foreach ($validated['allocations'] as $allocationData) {
-                    $bill = Bill::findOrFail($allocationData['bill_id']);
+        // Both formats are accepted: an allocations array, or a flat bill_id and amount.
+        $allocations = $validated['allocations'] ?? [];
 
-                    // Validate supplier match
-                    if ($bill->supplier_id !== $paymentMade->supplier_id) {
-                        return $this->error('Cannot allocate payment to bills from a different supplier.', 'VALIDATION_ERROR', 422);
-                    }
-
-                    $totalAllocated += (float) $allocationData['amount'];
-                }
-
-                // Validate total doesn't exceed unallocated amount
-                $available = $paymentMade->getUnallocatedAmount();
-                if ($totalAllocated > $available) {
-                    return $this->error("Cannot allocate {$totalAllocated}. Only {$available} available.", 'VALIDATION_ERROR', 422);
-                }
-
-                foreach ($validated['allocations'] as $allocationData) {
-                    $bill = Bill::findOrFail($allocationData['bill_id']);
-                    $this->paymentMadeService->allocate(
-                        $paymentMade,
-                        $bill,
-                        (float) $allocationData['amount']
-                    );
-                }
-            } else {
-                if (empty($validated['bill_id']) || empty($validated['amount'])) {
-                    return $this->error('Either bill_id and amount, or allocations array is required.', 'VALIDATION_ERROR', 422);
-                }
-
-                $bill = Bill::findOrFail($validated['bill_id']);
-
-                // Validate supplier match
-                if ($bill->supplier_id !== $paymentMade->supplier_id) {
-                    return $this->error('Cannot allocate payment to bills from a different supplier.', 'VALIDATION_ERROR', 422);
-                }
-
-                $this->paymentMadeService->allocate(
-                    $paymentMade,
-                    $bill,
-                    (float) $validated['amount']
-                );
+        if (empty($allocations)) {
+            if (empty($validated['bill_id']) || empty($validated['amount'])) {
+                return $this->error('Either bill_id and amount, or allocations array is required.', 'VALIDATION_ERROR', 422);
             }
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
+
+            $allocations = [['bill_id' => $validated['bill_id'], 'amount' => $validated['amount']]];
         }
 
-        return $this->success(new PaymentMadeResource($paymentMade->fresh(['allocations.bill'])), 'Payment allocated successfully.');
+        return $this->tryAction(
+            fn () => new PaymentMadeResource($this->paymentMadeService->allocateMany($paymentMade, $allocations)),
+            'Payment allocated successfully.',
+        );
     }
 
     /**
@@ -229,7 +162,7 @@ class PaymentMadeController extends Controller
     public function supplierStatement(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => 'required|exists:contacts,id',
+            'supplier_id' => ['required', $this->ownedBy('contacts')],
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
         ]);
@@ -248,29 +181,8 @@ class PaymentMadeController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $query = PaymentMade::query();
-
-        if ($request->supplier_id) {
-            $query->forSupplier($request->supplier_id);
-        }
-
-        $pending = (clone $query)->pending()->count();
-        $completed = (clone $query)->completed()->count();
-
-        $pendingValue = (clone $query)->pending()->sum('amount');
-        $completedValue = (clone $query)->completed()->sum('amount');
-
-        $thisMonth = (clone $query)->completed()
-            ->whereBetween('payment_date', [now()->startOfMonth(), now()->endOfMonth()])
-            ->sum('amount');
-
-        return $this->success([
-            'total_count' => $query->count(),
-            'pending_count' => $pending,
-            'completed_count' => $completed,
-            'pending_value' => (float) $pendingValue,
-            'completed_value' => (float) $completedValue,
-            'this_month_value' => (float) $thisMonth,
-        ]);
+        return $this->success(
+            $this->paymentMadeService->summary($request->supplier_id ? (int) $request->supplier_id : null)
+        );
     }
 }

@@ -11,6 +11,13 @@ use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Purchase requisitions and their conversion to purchase orders.
+ *
+ * Every change of a requisition's status runs on the locked requisition and
+ * re-checks its guard there, so a stale copy cannot approve, convert or edit
+ * a requisition another request has moved on.
+ */
 class PurchaseRequisitionService
 {
     public function __construct(
@@ -63,21 +70,54 @@ class PurchaseRequisitionService
     }
 
     /**
+     * Update the header of a draft requisition.
+     */
+    public function update(PurchaseRequisition $requisition, array $data): PurchaseRequisition
+    {
+        return $requisition->lockForTransition(function (PurchaseRequisition $requisition) use ($data): PurchaseRequisition {
+            if (! $requisition->isDraft()) {
+                throw new \InvalidArgumentException('Only draft requisitions can be updated.');
+            }
+
+            $requisition->update($data);
+
+            return $requisition->fresh(['lines.product', 'requester']);
+        });
+    }
+
+    /**
+     * Delete (soft-delete) a draft requisition with its lines.
+     */
+    public function delete(PurchaseRequisition $requisition): void
+    {
+        $requisition->lockForTransition(function (PurchaseRequisition $requisition): void {
+            if (! $requisition->isDraft()) {
+                throw new \InvalidArgumentException('Only draft requisitions can be deleted.');
+            }
+
+            $requisition->lines()->delete();
+            $requisition->delete();
+        });
+    }
+
+    /**
      * Transition a draft requisition to pending_approval.
      */
     public function submit(PurchaseRequisition $requisition): PurchaseRequisition
     {
-        if (!$requisition->canBeSubmitted()) {
-            throw new \InvalidArgumentException('Only draft requisitions can be submitted for approval.');
-        }
+        return $requisition->lockForTransition(function (PurchaseRequisition $requisition): PurchaseRequisition {
+            if (! $requisition->canBeSubmitted()) {
+                throw new \InvalidArgumentException('Only draft requisitions can be submitted for approval.');
+            }
 
-        if ($requisition->lines()->count() === 0) {
-            throw new \InvalidArgumentException('Cannot submit a requisition with no lines.');
-        }
+            if ($requisition->lines()->count() === 0) {
+                throw new \InvalidArgumentException('Cannot submit a requisition with no lines.');
+            }
 
-        $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_APPROVAL]);
+            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_APPROVAL]);
 
-        return $requisition->fresh(['lines.product', 'requester']);
+            return $requisition->fresh(['lines.product', 'requester']);
+        });
     }
 
     /**
@@ -85,17 +125,19 @@ class PurchaseRequisitionService
      */
     public function approve(PurchaseRequisition $requisition): PurchaseRequisition
     {
-        if (!$requisition->canBeApproved()) {
-            throw new \InvalidArgumentException('Only pending-approval requisitions can be approved.');
-        }
+        return $requisition->lockForTransition(function (PurchaseRequisition $requisition): PurchaseRequisition {
+            if (! $requisition->canBeApproved()) {
+                throw new \InvalidArgumentException('Only pending-approval requisitions can be approved.');
+            }
 
-        $requisition->update([
-            'status' => PurchaseRequisition::STATUS_APPROVED,
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
+            $requisition->update([
+                'status' => PurchaseRequisition::STATUS_APPROVED,
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
 
-        return $requisition->fresh(['lines.product', 'requester', 'approver']);
+            return $requisition->fresh(['lines.product', 'requester', 'approver']);
+        });
     }
 
     /**
@@ -103,17 +145,19 @@ class PurchaseRequisitionService
      *
      * Creates one PO per preferred vendor (or one combined PO when no preferred vendor is set).
      * Lines are grouped by preferred_vendor_id; lines without a vendor go into a "no-vendor" PO.
+     * The requisition stays locked until its lines are marked converted, so two
+     * requests cannot both create orders from the same open lines.
      *
      * @return PurchaseOrder[]
      */
     public function convertToPurchaseOrder(PurchaseRequisition $requisition): array
     {
-        if (!$requisition->canBeConverted()) {
-            throw new \InvalidArgumentException('Only approved requisitions with open lines can be converted to a purchase order.');
-        }
+        return $requisition->lockForTransition(function (PurchaseRequisition $requisition): array {
+            if (! $requisition->canBeConverted()) {
+                throw new \InvalidArgumentException('Only approved requisitions with open lines can be converted to a purchase order.');
+            }
 
-        return DB::transaction(function () use ($requisition): array {
-            $convertibleLines = $requisition->lines()->convertible()->get();
+            $convertibleLines = $requisition->lines()->convertible()->with('product')->get();
 
             // Group by preferred vendor
             $grouped = $convertibleLines->groupBy(fn(PurchaseRequisitionLine $l) => $l->preferred_vendor_id ?? 'no_vendor');
@@ -123,10 +167,10 @@ class PurchaseRequisitionService
             foreach ($grouped as $vendorKey => $lines) {
                 $vendorId = $vendorKey === 'no_vendor' ? null : (int) $vendorKey;
 
+                // Orders have no requisition number column; the notes name the requisition.
                 $poData = [
                     'organization_id' => $requisition->organization_id,
                     'order_date' => now()->toDateString(),
-                    'requisition_number' => $requisition->requisition_number,
                     'status' => PurchaseOrder::STATUS_DRAFT,
                     'supplier_id' => $vendorId,
                     'notes' => "Created from PR: {$requisition->requisition_number}",
@@ -200,17 +244,17 @@ class PurchaseRequisitionService
      */
     public function cancel(PurchaseRequisition $requisition): PurchaseRequisition
     {
-        if (!$requisition->canBeCancelled()) {
-            throw new \InvalidArgumentException('This requisition cannot be cancelled in its current status.');
-        }
+        return $requisition->lockForTransition(function (PurchaseRequisition $requisition): PurchaseRequisition {
+            if (! $requisition->canBeCancelled()) {
+                throw new \InvalidArgumentException('This requisition cannot be cancelled in its current status.');
+            }
 
-        DB::transaction(function () use ($requisition): void {
             $requisition->lines()->whereIn('status', ['open', 'partially_converted'])
                 ->update(['status' => 'cancelled']);
 
             $requisition->update(['status' => PurchaseRequisition::STATUS_CANCELLED]);
-        });
 
-        return $requisition->fresh(['lines.product', 'requester']);
+            return $requisition->fresh(['lines.product', 'requester']);
+        });
     }
 }

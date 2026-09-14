@@ -72,14 +72,17 @@ class VendorCreditNoteService
 
     /**
      * Update a draft credit note.
+     *
+     * The status is checked on the locked note, so a note posted by another
+     * request meanwhile keeps the lines and totals it was posted with.
      */
     public function update(VendorCreditNote $creditNote, array $data, ?array $lines = null): VendorCreditNote
     {
-        if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft credit notes can be updated.');
-        }
+        return $creditNote->lockForTransition(function (VendorCreditNote $creditNote) use ($data, $lines): VendorCreditNote {
+            if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft credit notes can be updated.');
+            }
 
-        return DB::transaction(function () use ($creditNote, $data, $lines): VendorCreditNote {
             $creditNote->update(collect($data)->except(['lines'])->toArray());
 
             if ($lines !== null) {
@@ -92,16 +95,21 @@ class VendorCreditNoteService
     }
 
     /**
-     * Delete (soft-delete) a draft credit note.
+     * Delete (soft-delete) a draft credit note with its lines.
+     *
+     * The status is checked on the locked note, so a note posted meanwhile is
+     * not deleted, and the lines and the note go together.
      */
     public function delete(VendorCreditNote $creditNote): void
     {
-        if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft credit notes can be deleted.');
-        }
+        $creditNote->lockForTransition(function (VendorCreditNote $creditNote): void {
+            if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft credit notes can be deleted.');
+            }
 
-        $creditNote->lines()->delete();
-        $creditNote->delete();
+            $creditNote->lines()->delete();
+            $creditNote->delete();
+        });
     }
 
     /**
@@ -196,24 +204,29 @@ class VendorCreditNoteService
 
     /**
      * Void a vendor credit note.
+     *
+     * The status is checked on the locked note, so a note fully applied by
+     * another request meanwhile is not voided.
      */
     public function void(VendorCreditNote $creditNote): VendorCreditNote
     {
-        if ($creditNote->status === VendorCreditNote::STATUS_VOID) {
-            throw new InvalidArgumentException('Credit note is already voided.');
-        }
+        return $creditNote->lockForTransition(function (VendorCreditNote $creditNote): VendorCreditNote {
+            if ($creditNote->status === VendorCreditNote::STATUS_VOID) {
+                throw new InvalidArgumentException('Credit note is already voided.');
+            }
 
-        if ($creditNote->status === VendorCreditNote::STATUS_APPLIED) {
-            throw new InvalidArgumentException('Fully applied credit notes cannot be voided.');
-        }
+            if ($creditNote->status === VendorCreditNote::STATUS_APPLIED) {
+                throw new InvalidArgumentException('Fully applied credit notes cannot be voided.');
+            }
 
-        $creditNote->update([
-            'status' => VendorCreditNote::STATUS_VOID,
-            'voided_by' => auth()->id(),
-            'voided_at' => now(),
-        ]);
+            $creditNote->update([
+                'status' => VendorCreditNote::STATUS_VOID,
+                'voided_by' => auth()->id(),
+                'voided_at' => now(),
+            ]);
 
-        return $creditNote->fresh();
+            return $creditNote->fresh();
+        });
     }
 
     /**

@@ -17,6 +17,7 @@ use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
 use App\Services\Tax\TaxCalculatorService;
 use App\Traits\StructuredLogger;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class BillService
@@ -462,6 +463,79 @@ class BillService
                 );
             }
         }
+    }
+
+    /**
+     * A page of bills matching the filters, with supplier, lines and order loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, supplier_id, bill_type, overdue ('true'), start_date, end_date, search
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return Bill::with(['supplier', 'lines', 'purchaseOrder'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->forSupplier((int) $id))
+            ->when($filters['bill_type'] ?? null, fn ($q, $type) => $q->where('bill_type', $type))
+            ->when(($filters['overdue'] ?? null) === 'true', fn ($q) => $q->overdue())
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('bill_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('bill_date', '<=', $date))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('bill_number', 'like', "%{$search}%")
+                        ->orWhere('supplier_name', 'like', "%{$search}%")
+                        ->orWhere('supplier_invoice_number', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * A bill of the caller's organization; another organization's id is not found.
+     */
+    public function find(int $id): Bill
+    {
+        return Bill::findOrFail($id);
+    }
+
+    /**
+     * Counts and open values of the organization's bills, optionally for one supplier.
+     *
+     * @return array{total_count: int, draft_count: int, unpaid_count: int, overdue_count: int, unpaid_value: float, overdue_value: float}
+     */
+    public function summary(?int $supplierId = null): array
+    {
+        $query = Bill::query()->when($supplierId, fn ($q, $id) => $q->forSupplier($id));
+
+        return [
+            'total_count' => (clone $query)->count(),
+            'draft_count' => (clone $query)->draft()->count(),
+            'unpaid_count' => (clone $query)->unpaid()->count(),
+            'overdue_count' => (clone $query)->overdue()->count(),
+            'unpaid_value' => (float) (clone $query)->unpaid()->sum('amount_due'),
+            'overdue_value' => (float) (clone $query)->overdue()->sum('amount_due'),
+        ];
+    }
+
+    /**
+     * Delete a draft or pending bill with its lines.
+     *
+     * The status is checked on the locked row, so a bill approved by another
+     * request meanwhile is not deleted, and the lines and the bill go together.
+     */
+    public function delete(Bill $bill): void
+    {
+        $bill->lockForTransition(function (Bill $bill): void {
+            if (! $bill->isEditable()) {
+                throw new \InvalidArgumentException('Only draft/pending bills can be deleted.');
+            }
+
+            $bill->lines()->delete();
+            $bill->delete();
+        });
     }
 
     /**

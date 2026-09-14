@@ -12,6 +12,8 @@ use App\Models\Purchase\VendorAdvanceRequest;
 use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class VendorAdvanceService
@@ -21,6 +23,50 @@ class VendorAdvanceService
         private JournalService $journalService,
         private AccountResolver $accountResolver,
     ) {}
+
+    /**
+     * A page of advance requests matching the filters, with contact, users and order loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, contact_id, purchase_order_id, search
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return VendorAdvanceRequest::with(['contact', 'requester', 'approver', 'purchaseOrder'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['contact_id'] ?? null, fn ($q, $id) => $q->where('contact_id', $id))
+            ->when($filters['purchase_order_id'] ?? null, fn ($q, $id) => $q->where('purchase_order_id', $id))
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('request_number', 'like', "%{$search}%"))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * An advance payment of the caller's organization.
+     *
+     * Payments have no organization column; one counts as the caller's when
+     * its request, which is tenant-scoped, is found.
+     */
+    public function findPayment(int $id): VendorAdvancePayment
+    {
+        return VendorAdvancePayment::whereHas('advanceRequest')->findOrFail($id);
+    }
+
+    /**
+     * Every clearing of the request's payments, with its bill.
+     *
+     * @return Collection<int, VendorAdvanceClearing>
+     */
+    public function clearingsFor(VendorAdvanceRequest $request): Collection
+    {
+        return $request->payments()
+            ->with(['clearings.bill'])
+            ->get()
+            ->flatMap(fn (VendorAdvancePayment $payment) => $payment->clearings)
+            ->values();
+    }
 
     /**
      * Create an advance payment request.
@@ -39,20 +85,26 @@ class VendorAdvanceService
 
     /**
      * Approve an advance payment request.
+     *
+     * The status is checked on the locked request: approving a stale copy of
+     * a request paid meanwhile would move it back to approved and open it to a
+     * second payment.
      */
     public function approveRequest(VendorAdvanceRequest $request): VendorAdvanceRequest
     {
-        if (!$request->canBeApproved()) {
-            throw new \InvalidArgumentException('Only draft requests can be approved.');
-        }
+        return $request->lockForTransition(function (VendorAdvanceRequest $request): VendorAdvanceRequest {
+            if (! $request->canBeApproved()) {
+                throw new \InvalidArgumentException('Only draft requests can be approved.');
+            }
 
-        $request->update([
-            'status' => VendorAdvanceRequest::STATUS_APPROVED,
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
+            $request->update([
+                'status' => VendorAdvanceRequest::STATUS_APPROVED,
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
 
-        return $request->fresh();
+            return $request->fresh();
+        });
     }
 
     /**

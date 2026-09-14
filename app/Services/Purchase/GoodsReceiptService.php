@@ -35,6 +35,60 @@ class GoodsReceiptService
     ) {}
 
     /**
+     * A page of goods receipts matching the filters, with order, vendor,
+     * warehouse and creator loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, purchase_order_id, warehouse_id, start_date, end_date, search
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return GoodsReceipt::with(['purchaseOrder', 'vendor', 'warehouse', 'creator'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['purchase_order_id'] ?? null, fn ($q, $id) => $q->where('purchase_order_id', $id))
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $id) => $q->where('warehouse_id', $id))
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('gr_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('gr_date', '<=', $date))
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('gr_number', 'like', "%{$search}%"))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * A page of the organization's three-way match results, newest first, with
+     * the bill and the matched lines loaded.
+     *
+     * @param  array<string, mixed>  $filters  match_status, bill_id
+     */
+    public function matchResults(int $orgId, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->matchResultQuery($orgId)
+            ->when($filters['match_status'] ?? null, fn ($q, $status) => $q->where('match_status', $status))
+            ->when($filters['bill_id'] ?? null, fn ($q, $billId) => $q->where('bill_id', $billId))
+            ->paginate($perPage);
+    }
+
+    /**
+     * A page of the organization's three-way match results that did not match.
+     */
+    public function matchExceptions(int $orgId, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->matchResultQuery($orgId)->unmatched()->paginate($perPage);
+    }
+
+    /**
+     * Match results whose bill belongs to the organization, newest first.
+     */
+    private function matchResultQuery(int $orgId): \Illuminate\Database\Eloquent\Builder
+    {
+        return ThreeWayMatchResult::with(['bill', 'purchaseOrderLine', 'goodsReceiptLine'])
+            ->whereHas('bill', fn ($q) => $q->where('organization_id', $orgId))
+            ->orderBy('created_at', 'desc');
+    }
+
+    /**
      * Create a Goods Receipt (draft) against a Purchase Order.
      */
     public function createGr(PurchaseOrder $purchaseOrder, array $data): GoodsReceipt

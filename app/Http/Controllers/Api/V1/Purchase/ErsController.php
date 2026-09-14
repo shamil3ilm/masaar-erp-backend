@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Purchase\ErsConfigurationResource;
+use App\Http\Resources\Purchase\ErsRunItemResource;
 use App\Models\Purchase\ErsConfiguration;
-use App\Models\Purchase\ErsRun;
 use App\Services\Purchase\ErsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,21 +16,27 @@ use Illuminate\Support\Facades\Auth;
 
 class ErsController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly ErsService $service) {}
 
     public function configs(Request $request): JsonResponse
     {
-        $configs = ErsConfiguration::where('organization_id', Auth::user()->organization_id)
-            ->with('vendor')
-            ->paginate($request->integer('per_page', 20));
+        $configs = $this->service->listConfigs(
+            (int) Auth::user()->organization_id,
+            $request->integer('per_page', 20)
+        );
 
-        return $this->success($configs, 'ERS configurations retrieved.');
+        return $this->success(
+            $configs->through(fn (ErsConfiguration $config) => new ErsConfigurationResource($config)),
+            'ERS configurations retrieved.'
+        );
     }
 
     public function saveConfig(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'vendor_id'         => 'required|integer|exists:contacts,id',
+            'vendor_id'         => ['required', 'integer', $this->ownedBy('contacts')],
             'is_enabled'        => 'boolean',
             'auto_post'         => 'boolean',
             'tolerance_percent' => 'numeric|min:0|max:100',
@@ -40,14 +48,14 @@ class ErsController extends Controller
             $validated
         );
 
-        return $this->success($config->load('vendor'), 'ERS configuration saved.');
+        return $this->success(new ErsConfigurationResource($config->load('vendor')), 'ERS configuration saved.');
     }
 
     public function runErs(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'vendor_ids'   => 'nullable|array',
-            'vendor_ids.*' => 'integer|exists:contacts,id',
+            'vendor_ids.*' => ['integer', $this->ownedBy('contacts')],
         ]);
 
         $run = $this->service->runErs(
@@ -60,20 +68,18 @@ class ErsController extends Controller
 
     public function getRuns(Request $request): JsonResponse
     {
-        $runs = ErsRun::where('organization_id', Auth::user()->organization_id)
-            ->orderByDesc('run_date')
-            ->paginate($request->integer('per_page', 20));
+        $runs = $this->service->listRuns(
+            (int) Auth::user()->organization_id,
+            $request->integer('per_page', 20)
+        );
 
         return $this->success($runs, 'ERS runs retrieved.');
     }
 
     public function getRunItems(string $runId): JsonResponse
     {
-        $run = ErsRun::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($runId);
+        $items = $this->service->runItems((int) Auth::user()->organization_id, $runId);
 
-        $items = $run->items()->with(['goodsReceipt', 'bill', 'vendor'])->get();
-
-        return $this->success($items, 'ERS run items retrieved.');
+        return $this->success(ErsRunItemResource::collection($items), 'ERS run items retrieved.');
     }
 }
