@@ -19,35 +19,29 @@ class NotifyLeaveApprover implements ShouldQueue
         $leaveRequest = $event->leaveRequest;
         $employee = $leaveRequest->employee;
 
-        // Get the employee's reporting manager/supervisor
-        $approvers = collect();
-
-        // Add department head
-        if ($employee->department?->head_id) {
-            $departmentHead = User::withoutGlobalScopes()->find($employee->department->head_id);
-            if ($departmentHead) {
-                $approvers->push($departmentHead);
-            }
+        if (!$employee) {
+            return;
         }
 
-        // Add reporting manager if different
-        if ($employee->reporting_manager_id && $employee->reporting_manager_id !== $employee->department?->head_id) {
-            $manager = User::withoutGlobalScopes()->find($employee->reporting_manager_id);
-            if ($manager) {
-                $approvers->push($manager);
-            }
-        }
+        // The department manager is a user; the reporting manager is another
+        // employee, reached through that employee's user account. When both
+        // resolve to the same user they are notified once.
+        $approvers = collect([
+            $employee->department?->manager,
+            $employee->reportingManager?->user,
+        ])
+            ->filter(fn (?User $user) => $user !== null && $user->is_active)
+            ->unique('id')
+            ->values();
 
-        // Add HR managers as fallback
+        // Fall back to HR managers when the employee has no active manager
         if ($approvers->isEmpty()) {
-            $hrManagers = User::withoutGlobalScopes()->whereHas('roles', function ($query) {
+            $approvers = User::withoutGlobalScopes()->whereHas('roles', function ($query) {
                 $query->whereIn('slug', ['hr-manager', 'admin']);
             })
                 ->where('organization_id', $employee->organization_id)
                 ->where('is_active', true)
                 ->get();
-
-            $approvers = $hrManagers;
         }
 
         if ($approvers->isEmpty()) {

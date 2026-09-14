@@ -6,10 +6,11 @@ namespace App\Events\Sales;
 
 use App\Models\Sales\PaymentReceived as PaymentReceivedModel;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PaymentReceived
+class PaymentReceived implements ShouldDispatchAfterCommit
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

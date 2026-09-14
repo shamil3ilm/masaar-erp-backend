@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\HR;
 
+use App\Events\HR\LeaveRequestApproved;
+use App\Events\HR\LeaveRequestSubmitted;
 use App\Models\Core\UserEvent;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
@@ -104,6 +106,8 @@ class LeaveService
 
         $request = $request->fresh();
 
+        LeaveRequestSubmitted::dispatch($request);
+
         try {
             $this->userEventService->track(
                 UserEvent::LEAVE_REQUESTED,
@@ -158,6 +162,8 @@ class LeaveService
 
             return $request->fresh();
         });
+
+        LeaveRequestApproved::dispatch($request, $userId);
 
         try {
             $this->userEventService->track(

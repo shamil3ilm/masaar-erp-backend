@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
+use App\Events\Inventory\StockLevelChanged;
 use App\Models\Inventory\InventoryBatch;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
@@ -717,6 +718,8 @@ class StockService
             }
         }
 
+        $previousQuantity = (float) $stockLevel->quantity;
+
         // Update stock quantity
         $newQuantity = $direction === StockMovement::DIRECTION_IN
             ? bcadd((string) $stockLevel->quantity, (string) $quantity, 4)
@@ -733,6 +736,17 @@ class StockService
             : $stockLevel->last_purchase_price;
         $stockLevel->recalculateTotalValue();
         $stockLevel->save();
+
+        // recordMovement() wraps every call in a transaction, so this waits for
+        // the commit and a rolled-back movement never announces a change.
+        StockLevelChanged::dispatch(
+            $stockLevel,
+            $previousQuantity,
+            (float) $newQuantity,
+            $movementType,
+            $referenceType,
+            $referenceId,
+        );
 
         return StockMovement::create([
             'organization_id'   => $stockLevel->organization_id,

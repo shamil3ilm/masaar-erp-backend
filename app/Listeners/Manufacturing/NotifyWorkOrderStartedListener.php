@@ -48,7 +48,7 @@ class NotifyWorkOrderStartedListener implements ShouldQueue
                     'work_order_id' => $workOrder->id,
                     'work_order_number' => $workOrder->work_order_number,
                     'product_name' => $workOrder->product?->name,
-                    'quantity' => $workOrder->quantity,
+                    'quantity' => $workOrder->planned_quantity,
                 ]
             );
         }

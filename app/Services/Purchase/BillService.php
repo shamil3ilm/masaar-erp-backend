@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchase;
 
+use App\Events\Purchase\BillApproved;
 use App\Exceptions\ApiException;
 use App\Exceptions\ErrorCodes;
 use App\Models\Core\Organization;
@@ -252,7 +253,12 @@ class BillService
                 'approved_at' => now(),
             ]);
 
-            return $bill->fresh();
+            $bill = $bill->fresh();
+
+            // Held until the approval transaction commits.
+            BillApproved::dispatch($bill);
+
+            return $bill;
         });
     }
 

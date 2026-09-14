@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Events\Sales\InvoicePaid;
+use App\Events\Sales\PaymentReceived as PaymentReceivedEvent;
 use App\Models\Core\UserEvent;
 use App\Models\Sales\Contact;
 use App\Models\Sales\CustomerCredit;
@@ -78,6 +80,8 @@ class PaymentService
             return $payment->load('allocations.invoice', 'customer');
         });
 
+        PaymentReceivedEvent::dispatch($payment);
+
         try {
             $this->userEventService->track(
                 UserEvent::PAYMENT_RECEIVED,
@@ -93,6 +97,8 @@ class PaymentService
         foreach ($payment->allocations as $allocation) {
             $invoice = $allocation->invoice;
             if ($invoice && $invoice->status === Invoice::STATUS_PAID) {
+                InvoicePaid::dispatch($invoice, (float) $allocation->amount);
+
                 try {
                     $this->userEventService->track(
                         UserEvent::INVOICE_PAID,

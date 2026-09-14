@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
+use App\Events\Manufacturing\WorkOrderStarted;
 use App\Models\Inventory\StockMovement;
 use App\Models\Manufacturing\BomTemplate;
 use App\Models\Manufacturing\MaterialTransaction;
@@ -202,7 +203,11 @@ class WorkOrderService
 
         $workOrder->start();
 
-        return $workOrder->fresh();
+        $workOrder = $workOrder->fresh();
+
+        WorkOrderStarted::dispatch($workOrder);
+
+        return $workOrder;
     }
 
     /**
