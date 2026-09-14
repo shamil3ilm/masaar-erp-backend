@@ -12,12 +12,53 @@ use App\Models\Accounting\DunningRun;
 use App\Models\Core\Organization;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class DunningService
 {
+    /**
+     * An organization's dunning levels in level order.
+     */
+    public function listLevels(int $organizationId): EloquentCollection
+    {
+        return DunningLevel::where('organization_id', $organizationId)
+            ->orderBy('level_number')
+            ->get();
+    }
+
+    public function createLevel(int $organizationId, array $data): DunningLevel
+    {
+        return DunningLevel::create(array_merge($data, [
+            'organization_id' => $organizationId,
+        ]));
+    }
+
+    /**
+     * An organization's dunning runs, latest run date first.
+     */
+    public function listRuns(int $organizationId, int $perPage = 15): LengthAwarePaginator
+    {
+        return DunningRun::where('organization_id', $organizationId)
+            ->orderByDesc('run_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * An organization's dunning blocks, newest first, optionally only active ones.
+     */
+    public function listBlocks(int $organizationId, bool $activeOnly, int $perPage = 15): LengthAwarePaginator
+    {
+        return DunningBlock::where('organization_id', $organizationId)
+            ->with(['contact', 'blockedBy', 'releasedBy'])
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
     /**
      * Execute a dunning run for the given organization and date.
      * Evaluates all overdue contacts and generates dunning notices.

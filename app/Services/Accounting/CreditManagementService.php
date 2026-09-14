@@ -11,12 +11,56 @@ use App\Models\Core\Organization;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\SalesOrder;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class CreditManagementService
 {
+    /**
+     * An organization's credit limits, newest first, filtered by a non-empty risk class.
+     */
+    public function listLimits(int $organizationId, mixed $riskClass, int $perPage = 15): LengthAwarePaginator
+    {
+        return CreditLimit::where('organization_id', $organizationId)
+            ->with(['contact', 'reviewer'])
+            ->when($riskClass, fn ($q, $v) => $q->where('risk_class', $v))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A contact of the current organization; another organization's contact is not found.
+     */
+    public function findContact(int|string $id): Contact
+    {
+        return Contact::findOrFail($id);
+    }
+
+    /**
+     * A contact's exposure snapshots, latest snapshot date first.
+     */
+    public function listExposureSnapshots(Contact $contact, int $perPage = 15): LengthAwarePaginator
+    {
+        return CreditExposure::where('organization_id', $contact->organization_id)
+            ->where('contact_id', $contact->id)
+            ->orderByDesc('snapshot_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * An organization's credit holds, latest hold first, optionally only active ones.
+     */
+    public function listHolds(int $organizationId, bool $activeOnly, int $perPage = 15): LengthAwarePaginator
+    {
+        return CreditHold::where('organization_id', $organizationId)
+            ->with(['contact', 'heldBy', 'releasedBy'])
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderByDesc('held_at')
+            ->paginate($perPage);
+    }
+
     /**
      * Get the current credit exposure for a contact (live calculation).
      */
