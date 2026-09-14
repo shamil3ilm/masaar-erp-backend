@@ -7,22 +7,21 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Attendance;
 use App\Models\HR\Employee;
-use App\Models\HR\EmployeeDocument;
-use App\Models\HR\EmployeeLoan;
-use App\Models\HR\Holiday;
-use App\Models\HR\LeaveBalance;
-use App\Models\HR\LeaveRequest;
-use App\Models\HR\Payslip;
 use App\Services\HR\AttendanceService;
+use App\Services\HR\EmployeeSelfServiceService;
 use App\Services\HR\LeaveService;
-use App\Services\HR\StatutoryDeductionService;
 use App\Services\Print\PrintService;
 use App\Traits\MasksSensitiveData;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 
+/**
+ * Endpoints an employee uses about themselves. Each one starts from the
+ * employee linked to the authenticated user and reads nothing else personal.
+ */
 class EmployeeSelfServiceController extends Controller
 {
     use MasksSensitiveData;
@@ -30,7 +29,7 @@ class EmployeeSelfServiceController extends Controller
     public function __construct(
         protected AttendanceService $attendanceService,
         protected LeaveService $leaveService,
-        protected StatutoryDeductionService $statutoryService,
+        protected EmployeeSelfServiceService $selfService,
         protected PrintService $printService
     ) {}
 
@@ -43,7 +42,7 @@ class EmployeeSelfServiceController extends Controller
         $employee = $user->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $employee->load([
@@ -89,28 +88,20 @@ class EmployeeSelfServiceController extends Controller
      */
     public function myAttendance(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $month = $request->get('month', now()->format('Y-m'));
         $startDate = Carbon::parse($month)->startOfMonth();
         $endDate = Carbon::parse($month)->endOfMonth();
 
-        $attendance = Attendance::where('employee_id', $employee->id)
-            ->whereBetween('attendance_date', [$startDate, $endDate])
-            ->orderBy('attendance_date')
-            ->get();
-
-        $summary = $this->attendanceService->getEmployeeSummary($employee, $startDate, $endDate);
-
         return $this->success([
             'month' => $month,
-            'records' => $attendance,
-            'summary' => $summary,
+            'records' => $this->selfService->attendance($employee, $startDate, $endDate),
+            'summary' => $this->attendanceService->getEmployeeSummary($employee, $startDate, $endDate),
         ]);
     }
 
@@ -119,11 +110,10 @@ class EmployeeSelfServiceController extends Controller
      */
     public function checkIn(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $request->validate([
@@ -150,11 +140,10 @@ class EmployeeSelfServiceController extends Controller
      */
     public function checkOut(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $attendance = $this->attendanceService->checkOut(
@@ -172,27 +161,16 @@ class EmployeeSelfServiceController extends Controller
      */
     public function myLeaveBalances(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $year = (int) $request->get('year', now()->year);
 
-        $balances = LeaveBalance::where('employee_id', $employee->id)
-            ->where('year', $year)
-            ->with('leaveType')
-            ->get();
-
-        // Requested and not yet decided, so not yet taken from the balance.
-        $pending = LeaveRequest::where('employee_id', $employee->id)
-            ->where('status', LeaveRequest::STATUS_PENDING)
-            ->whereYear('from_date', $year)
-            ->get(['leave_type_id', 'total_days'])
-            ->groupBy('leave_type_id')
-            ->map(fn ($requests) => $requests->sum('total_days'));
+        $balances = $this->selfService->leaveBalances($employee, $year);
+        $pending = $this->selfService->pendingLeaveDays($employee, $year);
 
         return $this->success($balances->map(fn ($b) => [
             'leave_type' => $b->leaveType->name,
@@ -210,22 +188,17 @@ class EmployeeSelfServiceController extends Controller
      */
     public function myLeaveRequests(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $query = LeaveRequest::where('employee_id', $employee->id)
-            ->with('leaveType')
-            ->orderByDesc('created_at')
-            ->when($request->has('status'), fn ($q) => $q->where('status', $request->get('status')))
-            ->when($request->has('year'), fn ($q) => $q->whereYear('from_date', $request->get('year')));
-
-        $requests = $query->paginate($request->get('per_page', 15));
-
-        return $this->paginated($requests);
+        return $this->paginated($this->selfService->leaveRequests(
+            $employee,
+            $request->only(['status', 'year']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -233,15 +206,14 @@ class EmployeeSelfServiceController extends Controller
      */
     public function submitLeaveRequest(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
         $validated = $request->validate([
-            'leave_type_id' => 'required|exists:leave_types,id',
+            'leave_type_id' => ['required', Rule::exists('leave_types', 'id')->where('organization_id', $employee->organization_id)],
             'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after_or_equal:start_date',
             'half_day' => 'nullable|boolean',
@@ -258,35 +230,34 @@ class EmployeeSelfServiceController extends Controller
 
         try {
             $leaveRequest = $this->leaveService->createRequest($employee, $validated);
-
-            return $this->created($leaveRequest->load('leaveType'), 'Leave request submitted successfully');
+        } catch (\InvalidArgumentException $e) {
+            // The leave type does not apply, the balance is short or the dates overlap.
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
             report($e);
 
             return $this->serverError('An unexpected error occurred. Please try again.');
         }
+
+        return $this->created($leaveRequest->load('leaveType'), 'Leave request submitted successfully');
     }
 
     /**
-     * Cancel a leave request.
+     * Cancel one of the employee's own leave requests that is not decided yet.
      */
     public function cancelLeaveRequest(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $leaveRequest = LeaveRequest::where('employee_id', $employee->id)
-            ->findOrFail($id);
-
-        if (! in_array($leaveRequest->status, ['draft', 'pending'])) {
+        try {
+            $this->selfService->withdrawLeaveRequest($employee, $id, (string) $request->get('reason', ''));
+        } catch (\InvalidArgumentException) {
             return $this->error('Cannot cancel this request.', 'INVALID_STATUS', 400);
         }
-
-        $this->leaveService->cancel($leaveRequest, $request->get('reason', ''));
 
         return $this->success(null, 'Leave request cancelled.');
     }
@@ -296,21 +267,17 @@ class EmployeeSelfServiceController extends Controller
      */
     public function myPayslips(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $query = Payslip::where('employee_id', $employee->id)
-            ->with('payrollPeriod')
-            ->orderByDesc('created_at')
-            ->when($request->has('year'), fn ($q) => $q->whereYear('created_at', $request->get('year')));
-
-        $payslips = $query->paginate($request->get('per_page', 12));
-
-        return $this->paginated($payslips);
+        return $this->paginated($this->selfService->payslips(
+            $employee,
+            $request->has('year') ? $request->get('year') : null,
+            $request->integer('per_page', 12)
+        ));
     }
 
     /**
@@ -318,18 +285,17 @@ class EmployeeSelfServiceController extends Controller
      */
     public function showPayslip(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $payslip = Payslip::where('employee_id', $employee->id)
-            ->with(['items.salaryComponent', 'payrollPeriod', 'employee.department', 'employee.designation'])
-            ->findOrFail($id);
-
-        return $this->success($payslip);
+        return $this->success($this->selfService->payslip(
+            $employee,
+            $id,
+            ['items.salaryComponent', 'payrollPeriod', 'employee.department', 'employee.designation']
+        ));
     }
 
     /**
@@ -337,16 +303,17 @@ class EmployeeSelfServiceController extends Controller
      */
     public function downloadPayslip(Request $request, int $id): Response|JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $payslip = Payslip::where('employee_id', $employee->id)
-            ->with(['items.salaryComponent', 'payrollPeriod', 'employee.department', 'employee.designation', 'employee.organization'])
-            ->findOrFail($id);
+        $payslip = $this->selfService->payslip(
+            $employee,
+            $id,
+            ['items.salaryComponent', 'payrollPeriod', 'employee.department', 'employee.designation', 'employee.organization']
+        );
 
         $pdf = $this->printService->generatePdf('payslip', $payslip, 'a4');
 
@@ -364,81 +331,47 @@ class EmployeeSelfServiceController extends Controller
      */
     public function salaryBreakdown(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $salary = $employee->currentSalary;
+        $breakdown = $this->selfService->salaryBreakdown($employee);
 
-        if (! $salary) {
+        if ($breakdown === null) {
             return $this->notFound('No salary structure assigned.');
         }
 
-        $salary->load('components.salaryComponent');
-
-        $grossSalary = $salary->gross_salary;
-
-        // Get statutory deductions preview
-        $statutory = $this->statutoryService->calculateDeductions(
-            $employee,
-            $grossSalary,
-            $employee->organization->country_code
-        );
-
-        return $this->success([
-            'gross_salary' => $grossSalary,
-            'currency' => $salary->currency_code,
-            'earnings' => $salary->getEarnings()->map(fn ($c) => [
-                'name' => $c->salaryComponent->name,
-                'amount' => $c->amount,
-                'is_taxable' => $c->salaryComponent->is_taxable,
-            ]),
-            'deductions' => $salary->getDeductions()->map(fn ($c) => [
-                'name' => $c->salaryComponent->name,
-                'amount' => $c->amount,
-            ]),
-            'statutory_deductions' => $statutory['employee_deductions'],
-            'employer_contributions' => $statutory['employer_contributions'],
-            'summary' => [
-                'total_earnings' => $grossSalary,
-                'total_deductions' => $salary->getDeductions()->sum('amount') + $statutory['total_employee'],
-                'total_statutory' => $statutory['total_employee'],
-                'net_salary' => $grossSalary - $salary->getDeductions()->sum('amount') - $statutory['total_employee'],
-            ],
-        ]);
+        return $this->success($breakdown);
     }
 
     /**
      * Get employee's loans.
+     *
+     * The loan has no total or outstanding column: the total is what the
+     * instalments add up to, principal and interest, and the outstanding
+     * amount is the balance kept on the loan.
      */
     public function myLoans(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $loans = EmployeeLoan::where('employee_id', $employee->id)
-            ->with('repayments')
-            ->orderByDesc('created_at')
-            ->get();
-
-        return $this->success($loans->map(fn ($loan) => [
+        return $this->success($this->selfService->loans($employee)->map(fn ($loan) => [
             'id' => $loan->id,
             'loan_type' => $loan->loan_type,
             'principal_amount' => $loan->principal_amount,
             'interest_rate' => $loan->interest_rate,
-            'total_amount' => $loan->total_amount,
+            'total_amount' => round((float) $loan->emi_amount * $loan->tenure_months, 4),
             'emi_amount' => $loan->emi_amount,
             'tenure_months' => $loan->tenure_months,
             'disbursement_date' => $loan->disbursement_date,
             'total_paid' => $loan->repayments->where('status', 'paid')->sum('total_amount'),
-            'outstanding' => $loan->outstanding_amount,
+            'outstanding' => $loan->balance,
             'status' => $loan->status,
             'repayments' => $loan->repayments->map(fn ($r) => [
                 'due_date' => $r->due_date,
@@ -454,18 +387,13 @@ class EmployeeSelfServiceController extends Controller
      */
     public function myDocuments(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $employee = $user->employee;
+        $employee = $request->user()->employee;
 
         if (! $employee) {
-            return $this->notFound('No employee record found.');
+            return $this->noEmployee();
         }
 
-        $documents = EmployeeDocument::where('employee_id', $employee->id)
-            ->orderBy('document_type')
-            ->get();
-
-        return $this->success($documents->map(fn ($doc) => [
+        return $this->success($this->selfService->documents($employee)->map(fn ($doc) => [
             'id' => $doc->id,
             'document_type' => $doc->document_type,
             'document_number' => $doc->document_number,
@@ -481,31 +409,11 @@ class EmployeeSelfServiceController extends Controller
      */
     public function directory(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        $query = Employee::where('organization_id', $user->organization_id)
-            ->where('employment_status', 'active')
-            ->with(['department', 'designation', 'branch'])
-            ->when($request->has('department_id'), fn ($q) => $q->where('department_id', $request->get('department_id')))
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->get('search');
-                $q->where(function ($q) use ($search) {
-                    $q->where('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('employee_number', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%");
-                });
-            });
-
-        $employees = $query->select([
-            'id', 'employee_number', 'first_name', 'last_name',
-            'email', 'phone', 'department_id', 'designation_id',
-            'branch_id', 'profile_photo_path',
-        ])
-            ->orderBy('first_name')
-            ->paginate($request->get('per_page', 20));
-
-        return $this->paginated($employees);
+        return $this->paginated($this->selfService->directory(
+            $request->user()->organization_id,
+            $request->only(['department_id', 'search']),
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -513,17 +421,16 @@ class EmployeeSelfServiceController extends Controller
      */
     public function holidays(Request $request): JsonResponse
     {
-        $user = $request->user();
         $year = $request->get('year', now()->year);
-
-        $holidays = Holiday::where('organization_id', $user->organization_id)
-            ->whereYear('holiday_date', $year)
-            ->orderBy('holiday_date')
-            ->get();
 
         return $this->success([
             'year' => $year,
-            'holidays' => $holidays,
+            'holidays' => $this->selfService->holidays($request->user()->organization_id, $year),
         ]);
+    }
+
+    private function noEmployee(): JsonResponse
+    {
+        return $this->notFound('No employee record found.');
     }
 }
