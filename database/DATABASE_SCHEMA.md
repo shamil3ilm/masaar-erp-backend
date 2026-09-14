@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 46 migrations.
+978 tables across 47 migrations.
 
 ## Contents
 
@@ -54,6 +54,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0480_mysql_indexes.php`: changes to product_attribute_values, failed_jobs_monitor
 - `0490_goods_receipt_inspection_status.php`: changes to goods_receipts
 - `0500_stock_movement_material_types.php`: changes to stock_movements
+- `0510_recurring_profile_log_created_nullable.php`: changes to recurring_profile_logs
 
 ## 0010_accounting.php
 
@@ -2813,6 +2814,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['recurring_profile_id', 'status'])`
+
+Added by later migrations:
+
+- `0510_recurring_profile_log_created_nullable.php`: `$table->string('created_type', 100)->nullable()->change()`
+- `0510_recurring_profile_log_created_nullable.php`: `$table->unsignedBigInteger('created_id')->nullable()->change()`
 
 ### sensitive_access_logs
 
@@ -25230,3 +25236,7 @@ Changes tables created earlier: `goods_receipts`.
 ## 0500_stock_movement_material_types.php
 
 Changes tables created earlier: `stock_movements`.
+
+## 0510_recurring_profile_log_created_nullable.php
+
+Changes tables created earlier: `recurring_profile_logs`.
