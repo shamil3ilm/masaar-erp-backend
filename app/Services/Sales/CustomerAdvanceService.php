@@ -235,6 +235,60 @@ class CustomerAdvanceService
     }
 
     /**
+     * An advance with its contact's name and its applications, each with the
+     * reference columns of the invoice it was applied to.
+     */
+    public function loadDetails(AdvancePayment $advance): AdvancePayment
+    {
+        return $advance->load([
+            'contact:id,contact_name,company_name',
+            'applications.appliedTo' => fn ($morphTo) => $morphTo->constrain([
+                Invoice::class => fn ($query) => $query->select(Invoice::REFERENCE_COLUMNS),
+            ]),
+        ]);
+    }
+
+    /**
+     * Apply an advance to an invoice of the current organization; 404 when the
+     * invoice is not visible. The application comes back with its advance and
+     * the invoice's reference columns.
+     */
+    public function applyToInvoiceId(
+        AdvancePayment $advance,
+        int $invoiceId,
+        float $amount,
+        int $appliedBy,
+    ): AdvancePaymentApplication {
+        $application = $this->applyToInvoice($advance, Invoice::findOrFail($invoiceId), $amount, $appliedBy);
+
+        return $application->load([
+            'advancePayment',
+            'appliedTo' => fn ($morphTo) => $morphTo->constrain([
+                Invoice::class => fn ($query) => $query->select(Invoice::REFERENCE_COLUMNS),
+            ]),
+        ]);
+    }
+
+    /**
+     * Delete a draft advance.
+     *
+     * The status is checked on the locked row, so an advance received by a
+     * concurrent request is not deleted through a copy loaded while it was a draft.
+     *
+     * @throws \InvalidArgumentException when the advance is no longer a draft
+     */
+    public function delete(AdvancePayment $advance): void
+    {
+        $advance->lockForTransition(function (AdvancePayment $advance): void {
+            if ($advance->status !== AdvancePayment::STATUS_DRAFT) {
+                throw new \InvalidArgumentException('Only draft advances can be deleted.');
+            }
+
+            $advance->delete();
+        });
+    }
+
+    /**
      * Refund the remaining balance of an advance.
      *
      * The balance is read from the locked advance, so credit applied to an

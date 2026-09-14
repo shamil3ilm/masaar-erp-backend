@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Sales\Contact;
+use App\Models\Sales\Invoice;
 use App\Models\Sales\Refund;
 use App\Models\Sales\SalesReturn;
 use App\Models\Sales\CreditNote;
@@ -11,20 +13,56 @@ use App\Models\Sales\Wallet;
 use App\Exceptions\ApiException;
 use App\Exceptions\ErrorCodes;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class RefundService
 {
+    /**
+     * Columns only this service sets. A refund is approved, processed and
+     * posted through approve() and process(), never by the data it is created from.
+     */
+    private const SERVER_OWNED = [
+        'id', 'uuid', 'status', 'created_by', 'journal_entry_id',
+        'approved_by', 'approved_at', 'processed_by', 'processed_at',
+        'transaction_reference', 'created_at', 'updated_at', 'deleted_at',
+    ];
+
     public function __construct(
         private WalletService $walletService,
         private CreditNoteService $creditNoteService,
         private NumberGeneratorService $numberGenerator,
     ) {}
 
+    /**
+     * A refund of the given organization; 404 when there is none.
+     */
+    public function find(int $organizationId, int $id): Refund
+    {
+        return Refund::where('organization_id', $organizationId)->findOrFail($id);
+    }
+
+    /**
+     * A refund of the given organization with the reference columns of its
+     * contact, its sales return and what it refunds; 404 when there is none.
+     */
+    public function findWithDetails(int $organizationId, int $id): Refund
+    {
+        return Refund::where('organization_id', $organizationId)
+            ->with([
+                'contact:'.implode(',', Contact::REFERENCE_COLUMNS),
+                'salesReturn',
+                'refundable' => fn ($morphTo) => $morphTo->constrain([
+                    Invoice::class => fn ($query) => $query->select(Invoice::REFERENCE_COLUMNS),
+                ]),
+            ])
+            ->findOrFail($id);
+    }
+
     public function create(array $data, int $userId): Refund
     {
         return DB::transaction(function () use ($data, $userId) {
-            return Refund::create(array_merge($data, [
+            return Refund::create(array_merge(Arr::except($data, self::SERVER_OWNED), [
                 'status' => Refund::STATUS_PENDING,
                 'created_by' => $userId,
             ]));
@@ -74,15 +112,23 @@ class RefundService
         });
     }
 
+    /**
+     * Approve a pending refund.
+     *
+     * The status is checked on the locked refund, so a refund cancelled by a
+     * concurrent request is not approved.
+     */
     public function approve(Refund $refund, int $userId): Refund
     {
-        if ($refund->status !== Refund::STATUS_PENDING) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $refund->lockForTransition(function (Refund $refund) use ($userId): Refund {
+            if ($refund->status !== Refund::STATUS_PENDING) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        $refund->approve($userId);
+            $refund->approve($userId);
 
-        return $refund->fresh();
+            return $refund->fresh();
+        });
     }
 
     /**
@@ -120,17 +166,25 @@ class RefundService
         });
     }
 
+    /**
+     * Cancel a refund that has not been processed.
+     *
+     * The status is checked on the locked refund, so a refund paid out by a
+     * concurrent request is not marked cancelled afterwards.
+     */
     public function cancel(Refund $refund): Refund
     {
-        if ($refund->status === Refund::STATUS_PROCESSED) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
-                'message' => 'Cannot cancel a processed refund.',
-            ]);
-        }
+        return $refund->lockForTransition(function (Refund $refund): Refund {
+            if ($refund->status === Refund::STATUS_PROCESSED) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
+                    'message' => 'Cannot cancel a processed refund.',
+                ]);
+            }
 
-        $refund->update(['status' => Refund::STATUS_CANCELLED]);
+            $refund->update(['status' => Refund::STATUS_CANCELLED]);
 
-        return $refund->fresh();
+            return $refund->fresh();
+        });
     }
 
     public function list(int $organizationId, array $filters = [], int $perPage = 20)
@@ -157,7 +211,7 @@ class RefundService
             $query->whereDate('refund_date', '<=', $filters['to_date']);
         }
 
-        return $query->with(['contact', 'salesReturn'])
+        return $query->with(['contact:'.implode(',', Contact::REFERENCE_COLUMNS), 'salesReturn'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }

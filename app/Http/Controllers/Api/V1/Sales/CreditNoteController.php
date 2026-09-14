@@ -7,11 +7,12 @@ namespace App\Http\Controllers\Api\V1\Sales;
 use App\Exceptions\ERP\ValidationException as ErpValidationException;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\CreditNote;
-use App\Models\Sales\Invoice;
 use App\Services\Sales\CreditNoteService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class CreditNoteController extends Controller
 {
@@ -33,6 +34,8 @@ class CreditNoteController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $orgId = $request->user()->organization_id;
+
         // Accept both 'lines' and 'items' keys
         $data = $request->all();
         if (isset($data['lines']) && !isset($data['items'])) {
@@ -41,13 +44,13 @@ class CreditNoteController extends Controller
 
         $validator = Validator::make($data, [
             'credit_note_type' => 'required|in:sales,purchase',
-            'contact_id' => 'required|exists:contacts,id',
-            'invoice_id' => 'nullable|exists:invoices,id',
+            'contact_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
+            'invoice_id' => ['nullable', Rule::exists('invoices', 'id')->where('organization_id', $orgId)],
             'credit_note_date' => 'required|date',
             'currency_code' => 'required|string|size:3',
             'reason' => 'nullable|string|max:500',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', $orgId)],
             'items.*.description' => 'nullable|string',
             'items.*.quantity' => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',
@@ -60,7 +63,7 @@ class CreditNoteController extends Controller
 
         try {
             $creditNote = $this->creditNoteService->create(
-                array_merge($data, ['organization_id' => $request->user()->organization_id]),
+                array_merge($data, ['organization_id' => $orgId]),
                 $request->user()->id
             );
         } catch (ErpValidationException $e) {
@@ -77,7 +80,7 @@ class CreditNoteController extends Controller
 
     public function show(CreditNote $creditNote): JsonResponse
     {
-        return $this->success($creditNote->load(['items.product', 'contact', 'invoice', 'applications.invoice']));
+        return $this->success($this->creditNoteService->loadDetails($creditNote));
     }
 
     public function approve(Request $request, CreditNote $creditNote): JsonResponse
@@ -96,15 +99,20 @@ class CreditNoteController extends Controller
 
     public function apply(Request $request, CreditNote $creditNote): JsonResponse
     {
-        $request->validate([
-            'invoice_id' => 'required|exists:invoices,id',
+        $validated = $request->validate([
+            'invoice_id' => ['required', Rule::exists('invoices', 'id')->where('organization_id', $request->user()->organization_id)],
             'amount' => 'required|numeric|min:0.01',
         ]);
 
-        $invoice = Invoice::findOrFail($request->invoice_id);
-
         try {
-            $application = $this->creditNoteService->applyToInvoice($creditNote, $invoice, (float) $request->amount);
+            $application = $this->creditNoteService->applyToInvoiceId(
+                $creditNote,
+                (int) $validated['invoice_id'],
+                (float) $validated['amount']
+            );
+        } catch (ModelNotFoundException $e) {
+            // A missing invoice answers 404, as a missing credit note does.
+            throw $e;
         } catch (\App\Exceptions\ApiException $e) {
             return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
         } catch (\App\Exceptions\ERP\ErpException $e) {

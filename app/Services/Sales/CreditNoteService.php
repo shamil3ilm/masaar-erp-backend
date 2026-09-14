@@ -8,6 +8,7 @@ use App\Exceptions\ApiException;
 use App\Exceptions\ERP\ValidationException;
 use App\Exceptions\ErrorCodes;
 use App\Models\Accounting\Account;
+use App\Models\Sales\Contact;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\CreditNoteApplication;
 use App\Models\Sales\Invoice;
@@ -117,22 +118,53 @@ class CreditNoteService
         });
     }
 
+    /**
+     * A credit note with its items, the reference columns of its contact and
+     * invoice, and its applications with the reference columns of their invoices.
+     */
+    public function loadDetails(CreditNote $creditNote): CreditNote
+    {
+        return $creditNote->load([
+            'items.product',
+            'contact:'.implode(',', Contact::REFERENCE_COLUMNS),
+            'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+            'applications.invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+        ]);
+    }
+
+    /**
+     * Approve a draft credit note.
+     *
+     * The status is checked on the locked row, so a note voided by a concurrent
+     * request is not approved through a copy loaded while it was a draft.
+     */
     public function approve(CreditNote $creditNote, int $userId): CreditNote
     {
-        if ($creditNote->status !== CreditNote::STATUS_DRAFT) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
-                'current_status' => $creditNote->status,
-                'action' => 'approve',
+        return $creditNote->lockForTransition(function (CreditNote $creditNote) use ($userId): CreditNote {
+            if ($creditNote->status !== CreditNote::STATUS_DRAFT) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
+                    'current_status' => $creditNote->status,
+                    'action' => 'approve',
+                ]);
+            }
+
+            $creditNote->update([
+                'status' => CreditNote::STATUS_APPROVED,
+                'approved_by' => $userId,
+                'approved_at' => now(),
             ]);
-        }
 
-        $creditNote->update([
-            'status' => CreditNote::STATUS_APPROVED,
-            'approved_by' => $userId,
-            'approved_at' => now(),
-        ]);
+            return $creditNote->fresh();
+        });
+    }
 
-        return $creditNote->fresh();
+    /**
+     * Apply a credit note to an invoice of the current organization; 404 when
+     * the invoice is not visible.
+     */
+    public function applyToInvoiceId(CreditNote $creditNote, int $invoiceId, float $amount): CreditNoteApplication
+    {
+        return $this->applyToInvoice($creditNote, Invoice::findOrFail($invoiceId), $amount);
     }
 
     public function applyToInvoice(CreditNote $creditNote, Invoice $invoice, float $amount): CreditNoteApplication
@@ -240,7 +272,10 @@ class CreditNoteService
             $query->where('available_amount', '>', 0);
         }
 
-        return $query->with(['contact', 'invoice'])
+        return $query->with([
+            'contact:'.implode(',', Contact::REFERENCE_COLUMNS),
+            'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+        ])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }
