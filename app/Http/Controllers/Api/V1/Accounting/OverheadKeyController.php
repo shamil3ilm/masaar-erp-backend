@@ -26,19 +26,14 @@ class OverheadKeyController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = OverheadKey::orderBy('code')
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $search = $request->search;
-                $q->where(function ($q) use ($search): void {
-                    $q->where('code', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->filled('overhead_type'), fn($q) => $q->where('overhead_type', $request->overhead_type));
+        $filters = [
+            'search'        => $request->filled('search') ? $request->search : null,
+            'overhead_type' => $request->filled('overhead_type') ? $request->overhead_type : null,
+        ];
 
         $perPage = $request->integer('per_page', 20);
 
-        return $this->paginated($query->paginate($perPage));
+        return $this->paginated($this->service->listOverheadKeys($filters, $perPage));
     }
 
     /**
@@ -66,12 +61,7 @@ class OverheadKeyController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $key = OverheadKey::with([
-            'rates.costCenter:id,code,name',
-            'rates.activityType:id,code,name',
-        ])->findOrFail($id);
-
-        return $this->success($key);
+        return $this->success($this->service->findOverheadKeyWithRates($id));
     }
 
     /**
@@ -79,7 +69,7 @@ class OverheadKeyController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $key = OverheadKey::findOrFail($id);
+        $key = $this->service->findOverheadKey($id);
 
         $validated = $request->validate([
             'code'          => ['sometimes', 'required', 'string', 'max:30'],
@@ -87,9 +77,7 @@ class OverheadKeyController extends Controller
             'overhead_type' => ['sometimes', 'required', Rule::in(OverheadKey::TYPES)],
         ]);
 
-        $key->update($validated);
-
-        return $this->success($key->refresh());
+        return $this->success($this->service->updateOverheadKey($key, $validated));
     }
 
     /**
@@ -97,8 +85,7 @@ class OverheadKeyController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $key = OverheadKey::findOrFail($id);
-        $key->delete();
+        $this->service->deleteOverheadKey($this->service->findOverheadKey($id));
 
         return $this->success(['message' => 'Overhead key deleted.']);
     }
@@ -112,14 +99,9 @@ class OverheadKeyController extends Controller
      */
     public function rates(int $id): JsonResponse
     {
-        $key = OverheadKey::findOrFail($id);
+        $key = $this->service->findOverheadKey($id);
 
-        $rates = $key->rates()->with([
-            'costCenter:id,code,name',
-            'activityType:id,code,name',
-        ])->get();
-
-        return $this->success($rates);
+        return $this->success($this->service->rates($key));
     }
 
     /**
@@ -129,7 +111,7 @@ class OverheadKeyController extends Controller
      */
     public function addRate(Request $request, int $id): JsonResponse
     {
-        $key = OverheadKey::findOrFail($id);
+        $key = $this->service->findOverheadKey($id);
 
         $validated = $request->validate([
             'validity_from'    => ['required', 'date'],

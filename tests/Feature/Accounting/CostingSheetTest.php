@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\CostingSheet;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -184,6 +185,68 @@ class CostingSheetTest extends TestCase
             ->postJson('/api/v1/costing-sheets/' . $sheet->id . '/rows', []);
 
         $response->assertStatus(422);
+    }
+
+    public function test_rows_lists_the_sheet_rows(): void
+    {
+        $sheet = $this->makeSheet();
+
+        foreach (['Material Costs', 'Labour Costs'] as $description) {
+            $this->withToken($this->token)
+                ->postJson('/api/v1/costing-sheets/' . $sheet->id . '/rows', [
+                    'row_type'    => 'base',
+                    'description' => $description,
+                ])
+                ->assertStatus(201);
+        }
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/costing-sheets/' . $sheet->id . '/rows');
+
+        $response->assertStatus(200)
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.costing_sheet_id', $sheet->id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filters and tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_by_search_and_active_only(): void
+    {
+        $this->makeSheet(['code' => 'CS-ALPHA', 'name' => 'Alpha', 'is_active' => true]);
+        $this->makeSheet(['code' => 'CS-BETA', 'name' => 'Beta', 'is_active' => false]);
+        $this->makeSheet(['code' => 'CS-GAMMA', 'name' => 'Gamma', 'is_active' => true]);
+
+        $codes = fn (string $query): array => array_column(
+            $this->withToken($this->token)->getJson('/api/v1/costing-sheets' . $query)->assertStatus(200)->json('data'),
+            'code'
+        );
+
+        $this->assertSame(['CS-ALPHA', 'CS-BETA', 'CS-GAMMA'], $codes(''));
+        $this->assertSame(['CS-ALPHA', 'CS-GAMMA'], $codes('?active_only=1'));
+        $this->assertSame(['CS-BETA'], $codes('?search=Beta'));
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/costing-sheets?per_page=1')
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 3);
+    }
+
+    public function test_another_organizations_sheet_is_not_found(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $sheet    = $this->makeSheet(['organization_id' => $otherOrg->id]);
+        $url      = '/api/v1/costing-sheets/' . $sheet->id;
+
+        $this->withToken($this->token)->getJson($url)->assertStatus(404);
+        $this->withToken($this->token)->putJson($url, ['name' => 'Taken'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($url)->assertStatus(404);
+        $this->withToken($this->token)->getJson($url . '/rows')->assertStatus(404);
+        $this->withToken($this->token)->postJson($url . '/rows', [])->assertStatus(404);
+        $this->withToken($this->token)->postJson($url . '/run', [])->assertStatus(404);
+
+        $this->assertNotSoftDeleted($sheet);
     }
 
     // -------------------------------------------------------------------------

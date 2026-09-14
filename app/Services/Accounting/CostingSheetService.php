@@ -11,6 +11,8 @@ use App\Models\Accounting\CostingSheetRunResult;
 use App\Models\Accounting\OverheadKey;
 use App\Models\Accounting\OverheadKeyRate;
 use App\Models\Manufacturing\WorkOrder;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -27,9 +29,64 @@ class CostingSheetService
     // Costing Sheets
     // ----------------------------------------------------------------
 
+    /**
+     * Costing sheets by code. active_only keeps active sheets; search, when
+     * not null, matches code or name.
+     *
+     * @param  array{active_only?: bool, search?: string|null}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CostingSheet::orderBy('code')
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->when(isset($filters['search']), function ($q) use ($filters): void {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search): void {
+                    $q->where('code', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * A costing sheet of the current organization; another organization's
+     * sheet is not found.
+     */
+    public function findSheet(int $id): CostingSheet
+    {
+        return CostingSheet::findOrFail($id);
+    }
+
+    /**
+     * A costing sheet with its rows and the code and name of what each row
+     * references.
+     */
+    public function findSheetWithRows(int $id): CostingSheet
+    {
+        return CostingSheet::with([
+            'rows.overheadKey:id,code,name',
+            'rows.baseCostElement:id,code,name',
+            'rows.creditCostCenter:id,code,name',
+            'rows.creditCostElement:id,code,name',
+        ])->findOrFail($id);
+    }
+
     public function create(array $data): CostingSheet
     {
         return CostingSheet::create($data);
+    }
+
+    public function update(CostingSheet $sheet, array $data): CostingSheet
+    {
+        $sheet->update($data);
+
+        return $sheet->refresh();
+    }
+
+    public function delete(CostingSheet $sheet): void
+    {
+        $sheet->delete();
     }
 
     /**
@@ -56,6 +113,20 @@ class CostingSheetService
     // ----------------------------------------------------------------
 
     /**
+     * A costing sheet's rows in sort order, with the code and name of what
+     * each row references and the overhead key's type.
+     */
+    public function rows(CostingSheet $sheet): Collection
+    {
+        return $sheet->rows()->with([
+            'overheadKey:id,code,name,overhead_type',
+            'baseCostElement:id,code,name',
+            'creditCostCenter:id,code,name',
+            'creditCostElement:id,code,name',
+        ])->get();
+    }
+
+    /**
      * Append a new row to a costing sheet.
      * Auto-assigns the next sort_order value.
      */
@@ -73,9 +144,74 @@ class CostingSheetService
     // Overhead Keys
     // ----------------------------------------------------------------
 
+    /**
+     * Overhead keys by code. search, when not null, matches code or name;
+     * overhead_type, when not null, keeps that type.
+     *
+     * @param  array{search?: string|null, overhead_type?: string|null}  $filters
+     */
+    public function listOverheadKeys(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return OverheadKey::orderBy('code')
+            ->when(isset($filters['search']), function ($q) use ($filters): void {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search): void {
+                    $q->where('code', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->when(isset($filters['overhead_type']), fn ($q) => $q->where('overhead_type', $filters['overhead_type']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * An overhead key of the current organization; another organization's key
+     * is not found.
+     */
+    public function findOverheadKey(int $id): OverheadKey
+    {
+        return OverheadKey::findOrFail($id);
+    }
+
+    /**
+     * An overhead key with its rates and the code and name of each rate's
+     * cost center and activity type.
+     */
+    public function findOverheadKeyWithRates(int $id): OverheadKey
+    {
+        return OverheadKey::with([
+            'rates.costCenter:id,code,name',
+            'rates.activityType:id,code,name',
+        ])->findOrFail($id);
+    }
+
     public function createOverheadKey(array $data): OverheadKey
     {
         return OverheadKey::create($data);
+    }
+
+    public function updateOverheadKey(OverheadKey $key, array $data): OverheadKey
+    {
+        $key->update($data);
+
+        return $key->refresh();
+    }
+
+    public function deleteOverheadKey(OverheadKey $key): void
+    {
+        $key->delete();
+    }
+
+    /**
+     * An overhead key's rates with the code and name of each rate's cost
+     * center and activity type.
+     */
+    public function rates(OverheadKey $key): Collection
+    {
+        return $key->rates()->with([
+            'costCenter:id,code,name',
+            'activityType:id,code,name',
+        ])->get();
     }
 
     /**
