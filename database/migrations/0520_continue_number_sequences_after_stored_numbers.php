@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
  * Starts NumberGeneratorService's counters for the current year after the
  * numbers documents already carry.
  *
- * The documents below were numbered from the highest number stored for the
+ * The documents below were numbered from the last number stored for the
  * organization. NumberGeneratorService numbers them from a counter per
  * organization, sequence and year in number_sequences, and a counter starting
  * at zero would issue numbers that exist. For each organization, the counter
@@ -29,6 +29,9 @@ return new class extends Migration
         ['table' => 'maintenance_orders', 'column' => 'order_number', 'sequence' => 'MO', 'pattern' => '/^MO-{year}-(?<number>\d+)$/'],
         ['table' => 'warehouse_transfer_orders', 'column' => 'to_number', 'sequence' => 'warehouse_transfer_order', 'pattern' => '/^TO-{year}-(?<number>\d+)$/'],
         ['table' => 'calibration_orders', 'column' => 'order_number', 'sequence' => 'CAL', 'pattern' => '/^CAL-{year}-(?<number>\d+)$/'],
+        ['table' => 'dispute_cases', 'column' => 'case_number', 'sequence' => 'DISP-{year}', 'pattern' => '/^DISP-{year}(?<period>\d{2})-(?<number>\d+)$/'],
+        ['table' => 'travel_requests', 'column' => 'request_number', 'sequence' => 'TRV', 'pattern' => '/^TRV-{year}-(?<number>\d+)$/'],
+        ['table' => 'travel_expense_claims', 'column' => 'claim_number', 'sequence' => 'TEC', 'pattern' => '/^TEC-{year}-(?<number>\d+)$/'],
     ];
 
     public function up(): void

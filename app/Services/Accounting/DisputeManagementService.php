@@ -7,12 +7,17 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\CollectionsWorklist;
 use App\Models\Accounting\DisputeCase;
 use App\Models\Sales\Invoice;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class DisputeManagementService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Paginate dispute cases with optional filters.
      */
@@ -201,19 +206,11 @@ class DisputeManagementService
     }
 
     /**
-     * Generate a sequential case number: DISP-YYYYMM-NNNN.
+     * The next case number, DISP-YYYYMM-NNNN. The month is part of the
+     * counter's name, so each month is numbered from 0001.
      */
     private function generateCaseNumber(int $organizationId): string
     {
-        $prefix = 'DISP-' . now()->format('Ym') . '-';
-
-        $last = DisputeCase::where('organization_id', $organizationId)
-            ->where('case_number', 'like', $prefix . '%')
-            ->orderByDesc('id')
-            ->value('case_number');
-
-        $seq = $last ? ((int) substr($last, -4)) + 1 : 1;
-
-        return $prefix . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('DISP-' . now()->format('Ym'), '{prefix}-{number:4}', $organizationId);
     }
 }

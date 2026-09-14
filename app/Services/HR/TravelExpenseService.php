@@ -8,11 +8,16 @@ use App\Models\HR\PerDiemRate;
 use App\Models\HR\TravelExpenseClaim;
 use App\Models\HR\TravelExpenseLine;
 use App\Models\HR\TravelRequest;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class TravelExpenseService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     // ---------------------------------------------------------------
     // Per Diem Rates
     // ---------------------------------------------------------------
@@ -323,30 +328,16 @@ class TravelExpenseService
     // Private helpers
     // ---------------------------------------------------------------
 
+    /** TRV-2026-000001, numbered per organization and year. */
     private function generateRequestNumber(int $orgId): string
     {
-        $last = TravelRequest::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->withTrashed()
-            ->orderBy('id', 'desc')
-            ->value('request_number');
-
-        $seq = $last !== null ? ((int) substr($last, -6)) + 1 : 1;
-
-        return sprintf('TRV-%s-%06d', date('Y'), $seq);
+        return $this->numberGenerator->generate('TRV', '{prefix}-{year}-{number:6}', $orgId);
     }
 
+    /** TEC-2026-000001, numbered per organization and year. */
     private function generateClaimNumber(int $orgId): string
     {
-        $last = TravelExpenseClaim::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->withTrashed()
-            ->orderBy('id', 'desc')
-            ->value('claim_number');
-
-        $seq = $last !== null ? ((int) substr($last, -6)) + 1 : 1;
-
-        return sprintf('TEC-%s-%06d', date('Y'), $seq);
+        return $this->numberGenerator->generate('TEC', '{prefix}-{year}-{number:6}', $orgId);
     }
 
     private function getMileageRate(int $orgId, string $currency): float
