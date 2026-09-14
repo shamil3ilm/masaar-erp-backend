@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 45 migrations.
+978 tables across 46 migrations.
 
 ## Contents
 
@@ -53,6 +53,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0470_deferred_keys.php`: changes to leads, sales_returns, leave_balances
 - `0480_mysql_indexes.php`: changes to product_attribute_values, failed_jobs_monitor
 - `0490_goods_receipt_inspection_status.php`: changes to goods_receipts
+- `0500_stock_movement_material_types.php`: changes to stock_movements
 
 ## 0010_accounting.php
 
@@ -20124,6 +20125,11 @@ Indexes:
 - `$table->index(['organization_id', 'created_at'])`
 - `$table->index(['reference_type', 'reference_id'])`
 
+Added by later migrations:
+
+- `0500_stock_movement_material_types.php`: `$table->enum('movement_type', [...self::TYPES, 'material_issue', 'material_return'])->change()`
+- `0500_stock_movement_material_types.php`: `$table->enum('direction', ['in', 'out'])->change()`
+
 ### stock_transfer_lines
 
 | Column | Type | Details |
@@ -25220,3 +25226,7 @@ Changes tables created earlier: `product_attribute_values`, `failed_jobs_monitor
 ## 0490_goods_receipt_inspection_status.php
 
 Changes tables created earlier: `goods_receipts`.
+
+## 0500_stock_movement_material_types.php
+
+Changes tables created earlier: `stock_movements`.

@@ -8,6 +8,7 @@ use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class GoodsIssue extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     // ── Status constants ──────────────────────────────────────────────────────
 
