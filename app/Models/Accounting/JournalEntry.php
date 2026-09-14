@@ -8,6 +8,7 @@ use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,6 +25,7 @@ class JournalEntry extends Model
     use BelongsToOrganization;
     use BelongsToBranch;
     use HasAuditTrail;
+    use LocksForTransition;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_POSTED = 'posted';
@@ -191,6 +193,24 @@ class JournalEntry extends Model
         ]);
 
         return true;
+    }
+
+    /**
+     * Void an entry that was never posted, so it can no longer be posted.
+     * A draft has not touched any account balance, so nothing is reversed.
+     */
+    public function discardDraft(string $reason, ?int $userId = null): void
+    {
+        if ($this->status !== self::STATUS_DRAFT) {
+            throw new \InvalidArgumentException('Only draft entries can be discarded.');
+        }
+
+        $this->update([
+            'status' => self::STATUS_VOIDED,
+            'voided_at' => now(),
+            'voided_by' => $userId ?? auth()->id(),
+            'void_reason' => $reason,
+        ]);
     }
 
     /**

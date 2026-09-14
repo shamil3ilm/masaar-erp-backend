@@ -75,7 +75,6 @@ class StateTransitionTest extends TestCase
         'Services/Sales/CustomerAdvanceService.php' => 1,
         'Services/Sales/InvoiceConversionService.php' => 1,
         'Services/Sales/InvoiceService.php' => 1,
-        'Services/Sales/PaymentService.php' => 8,
         'Services/Sales/SalesOrderDeliveryService.php' => 1,
     ];
 

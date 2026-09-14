@@ -241,18 +241,10 @@ class PaymentReceivedController extends Controller
      */
     public function destroy(PaymentReceived $paymentReceived): JsonResponse
     {
-        if ($paymentReceived->status !== PaymentReceived::STATUS_PENDING) {
-            return $this->error('Only pending payments can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        // Remove allocations first
-        foreach ($paymentReceived->allocations as $allocation) {
-            $this->paymentService->deallocate($allocation);
-        }
-
-        $paymentReceived->delete();
-
-        return $this->success(null, 'Payment deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->paymentService->delete($paymentReceived),
+            'Payment deleted successfully.'
+        );
     }
 
     /**
