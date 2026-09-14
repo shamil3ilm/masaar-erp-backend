@@ -7,8 +7,8 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\AttendanceResource;
 use App\Models\HR\Attendance;
-use App\Models\HR\Employee;
 use App\Services\HR\AttendanceService;
+use App\Services\HR\EmployeeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -16,7 +16,8 @@ use Illuminate\Validation\Rule;
 class AttendanceController extends Controller
 {
     public function __construct(
-        private AttendanceService $attendanceService
+        private AttendanceService $attendanceService,
+        private EmployeeService $employeeService,
     ) {
     }
 
@@ -25,18 +26,17 @@ class AttendanceController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Attendance::with(['employee', 'workSchedule'])
-            ->when($request->employee_id, fn($q, $id) => $q->forEmployee($id))
-            ->when($request->status, fn($q, $status) => $q->withStatus($status))
-            ->when($request->date, fn($q, $date) => $q->forDate($date))
-            ->when($request->start_date && $request->end_date, fn($q) =>
-                $q->inDateRange($request->start_date, $request->end_date)
-            )
-            ->when($request->late === 'true', fn($q) => $q->late())
-            ->orderBy('attendance_date', 'desc')
-            ->orderBy('employee_id');
-
-        $attendances = $query->paginate($request->integer('per_page', 15));
+        $attendances = $this->attendanceService->list(
+            [
+                'employee_id' => $request->employee_id,
+                'status'      => $request->status,
+                'date'        => $request->date,
+                'start_date'  => $request->start_date,
+                'end_date'    => $request->end_date,
+                'late'        => $request->late,
+            ],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($attendances, AttendanceResource::class);
     }
@@ -57,7 +57,7 @@ class AttendanceController extends Controller
             'device_id' => 'nullable|string|max:100',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         try {
             $attendance = $this->attendanceService->checkIn(
@@ -90,7 +90,7 @@ class AttendanceController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         return $this->tryAction(
             fn() => new AttendanceResource($this->attendanceService->checkOut(
@@ -121,7 +121,7 @@ class AttendanceController extends Controller
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         $attendance = $this->attendanceService->markAttendance(
             $employee,
@@ -168,7 +168,7 @@ class AttendanceController extends Controller
             'end_date' => 'nullable|date|after_or_equal:start_date',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         $startDate = isset($validated['start_date'])
             ? new \DateTime($validated['start_date'])

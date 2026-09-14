@@ -78,20 +78,26 @@ class EmployeeTransferService
 
     /**
      * Approve a pending transfer.
+     *
+     * Approval, rejection, application and cancellation each run on the locked
+     * transfer, so a copy loaded before another request rejected the transfer
+     * cannot approve it and have it applied to the employee afterwards.
      */
     public function approve(EmployeeTransfer $transfer, User $approver): EmployeeTransfer
     {
-        if ($transfer->status !== EmployeeTransfer::STATUS_PENDING_APPROVAL) {
-            throw new \DomainException('Only transfers with status pending_approval can be approved.');
-        }
+        return $transfer->lockForTransition(function (EmployeeTransfer $transfer) use ($approver): EmployeeTransfer {
+            if ($transfer->status !== EmployeeTransfer::STATUS_PENDING_APPROVAL) {
+                throw new \DomainException('Only transfers with status pending_approval can be approved.');
+            }
 
-        $transfer->update([
-            'status'      => EmployeeTransfer::STATUS_APPROVED,
-            'approved_by' => $approver->id,
-            'approved_at' => now(),
-        ]);
+            $transfer->update([
+                'status'      => EmployeeTransfer::STATUS_APPROVED,
+                'approved_by' => $approver->id,
+                'approved_at' => now(),
+            ]);
 
-        return $transfer->fresh();
+            return $transfer->fresh();
+        });
     }
 
     /**
@@ -99,30 +105,33 @@ class EmployeeTransferService
      */
     public function reject(EmployeeTransfer $transfer, User $approver, string $reason): EmployeeTransfer
     {
-        if ($transfer->status !== EmployeeTransfer::STATUS_PENDING_APPROVAL) {
-            throw new \DomainException('Only transfers with status pending_approval can be rejected.');
-        }
+        return $transfer->lockForTransition(function (EmployeeTransfer $transfer) use ($approver, $reason): EmployeeTransfer {
+            if ($transfer->status !== EmployeeTransfer::STATUS_PENDING_APPROVAL) {
+                throw new \DomainException('Only transfers with status pending_approval can be rejected.');
+            }
 
-        $transfer->update([
-            'status'           => EmployeeTransfer::STATUS_REJECTED,
-            'rejected_by'      => $approver->id,
-            'rejected_at'      => now(),
-            'rejection_reason' => $reason,
-        ]);
+            $transfer->update([
+                'status'           => EmployeeTransfer::STATUS_REJECTED,
+                'rejected_by'      => $approver->id,
+                'rejected_at'      => now(),
+                'rejection_reason' => $reason,
+            ]);
 
-        return $transfer->fresh();
+            return $transfer->fresh();
+        });
     }
 
     /**
-     * Apply an approved transfer — updates the Employee record inside a transaction.
+     * Apply an approved transfer: the employee record and the transfer change
+     * together or not at all.
      */
     public function apply(EmployeeTransfer $transfer): EmployeeTransfer
     {
-        if ($transfer->status !== EmployeeTransfer::STATUS_APPROVED) {
-            throw new \DomainException('Only transfers with status approved can be applied.');
-        }
+        return $transfer->lockForTransition(function (EmployeeTransfer $transfer): EmployeeTransfer {
+            if ($transfer->status !== EmployeeTransfer::STATUS_APPROVED) {
+                throw new \DomainException('Only transfers with status approved can be applied.');
+            }
 
-        return DB::transaction(function () use ($transfer): EmployeeTransfer {
             $employee = $transfer->employee;
 
             $updates = array_filter([
@@ -150,16 +159,18 @@ class EmployeeTransferService
      */
     public function cancel(EmployeeTransfer $transfer): void
     {
-        $cancellable = [
-            EmployeeTransfer::STATUS_DRAFT,
-            EmployeeTransfer::STATUS_PENDING_APPROVAL,
-        ];
+        $transfer->lockForTransition(function (EmployeeTransfer $transfer): void {
+            $cancellable = [
+                EmployeeTransfer::STATUS_DRAFT,
+                EmployeeTransfer::STATUS_PENDING_APPROVAL,
+            ];
 
-        if (!in_array($transfer->status, $cancellable, true)) {
-            throw new \DomainException('Only draft or pending_approval transfers can be cancelled.');
-        }
+            if (!in_array($transfer->status, $cancellable, true)) {
+                throw new \DomainException('Only draft or pending_approval transfers can be cancelled.');
+            }
 
-        $transfer->delete();
+            $transfer->delete();
+        });
     }
 
     private function generateTransferNumber(int $orgId): string

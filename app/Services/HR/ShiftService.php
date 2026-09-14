@@ -68,6 +68,80 @@ class ShiftService
     }
 
     /**
+     * The organization's shifts by name.
+     */
+    public function list(int $organizationId, bool $activeOnly, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return Shift::where('organization_id', $organizationId)
+            ->when($activeOnly, fn($q) => $q->active())
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A shift of the given organization; any other id is a not-found.
+     */
+    public function findForOrganization(int $organizationId, int $id): Shift
+    {
+        return Shift::where('organization_id', $organizationId)->findOrFail($id);
+    }
+
+    /**
+     * A shift of the current organization; the tenant scope turns another
+     * organization's id into a not-found.
+     */
+    public function find(int $id): Shift
+    {
+        return Shift::findOrFail($id);
+    }
+
+    /**
+     * Creates an active shift for the organization.
+     */
+    public function create(array $data, int $organizationId): Shift
+    {
+        return Shift::create(array_merge($this->withCodeColumn($data), [
+            'organization_id' => $organizationId,
+            'is_active' => true,
+        ]));
+    }
+
+    public function update(Shift $shift, array $data): Shift
+    {
+        $shift->update($this->withCodeColumn($data));
+
+        return $shift->fresh();
+    }
+
+    /**
+     * Deletes a shift that no employee is currently assigned to.
+     *
+     * @throws \InvalidArgumentException when an employee is assigned to it
+     */
+    public function delete(Shift $shift): void
+    {
+        if ($shift->assignments()->current()->exists()) {
+            throw new \InvalidArgumentException('Cannot delete a shift that is currently assigned to employees.');
+        }
+
+        $shift->delete();
+    }
+
+    /**
+     * The API calls the shift's code shift_code; the column is code. Shift
+     * guards only its id, so an unmapped shift_code would reach the insert.
+     */
+    private function withCodeColumn(array $data): array
+    {
+        if (array_key_exists('shift_code', $data)) {
+            $data['code'] = $data['shift_code'];
+            unset($data['shift_code']);
+        }
+
+        return $data;
+    }
+
+    /**
      * Retrieve the currently active shift for an employee (null if none).
      */
     public function getActiveShift(Employee $employee): ?Shift
