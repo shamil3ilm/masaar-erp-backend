@@ -13,6 +13,7 @@ use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
+use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -255,15 +256,13 @@ class Invoice extends Model
             throw new \InvalidArgumentException('Fixed discount cannot exceed subtotal.');
         }
 
-        // Apply document-level discount
-        $discountAmount = 0;
-        if ($this->discount_type === 'percentage' && $this->discount_value > 0) {
-            $discountAmount = bcmul((string) $subtotal, bcdiv((string) $this->discount_value, '100', 6), 4);
-        } elseif ($this->discount_type === 'fixed' && $this->discount_value > 0) {
-            $discountAmount = $this->discount_value;
-        }
-
-        $total = bcsub(bcadd((string) $subtotal, (string) $taxAmount, 4), (string) $discountAmount, 4);
+        // The document discount comes off after tax, so it does not reduce the VAT.
+        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
+            (string) $subtotal,
+            (string) $taxAmount,
+            $this->discount_type,
+            $this->discount_value === null ? null : (string) $this->discount_value,
+        );
         $baseTotal = bcmul((string) $total, (string) $this->exchange_rate, 4);
 
         $this->update([

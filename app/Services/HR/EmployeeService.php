@@ -20,13 +20,24 @@ class EmployeeService
     ) {}
 
     /**
+     * The number the organization's next employee gets, EMP-2026-00001, for
+     * an employee created here or imported.
+     */
+    public function nextEmployeeNumber(int $organizationId): string
+    {
+        return $this->numberGenerator->generate('EMP', null, $organizationId);
+    }
+
+    /**
      * Create a new employee.
      */
     public function create(array $data): Employee
     {
         return DB::transaction(function () use ($data) {
             if (empty($data['employee_number'])) {
-                $data['employee_number'] = $this->numberGenerator->generate('EMP');
+                $data['employee_number'] = $this->nextEmployeeNumber(
+                    (int) ($data['organization_id'] ?? auth()->user()->organization_id)
+                );
             }
 
             if (empty($data['display_name'])) {

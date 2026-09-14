@@ -11,6 +11,7 @@ use App\Models\Accounting\ExchangeRate;
 use App\Models\Accounting\ForexGainLossEntry;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\OrganizationCurrency;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,7 @@ class MultiCurrencyService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
     /**
      * Add a currency to an organization.
@@ -80,7 +82,11 @@ class MultiCurrencyService
     public function revalue(array $data, array $accounts): CurrencyRevaluation
     {
         return DB::transaction(function () use ($data, $accounts) {
-            $revaluation = CurrencyRevaluation::create($data);
+            $revaluation = CurrencyRevaluation::create([
+                ...$data,
+                'revaluation_number' => $data['revaluation_number']
+                    ?? $this->numberGenerator->generate('REVAL', '{prefix}-{year}-{number:6}', $data['organization_id']),
+            ]);
 
             foreach ($accounts as $accountData) {
                 $foreignBalance = (string) $accountData['foreign_currency_balance'];

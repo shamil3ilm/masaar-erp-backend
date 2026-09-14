@@ -197,13 +197,7 @@ class CalibrationController extends Controller
             'notes'                    => 'nullable|string',
         ]);
 
-        $orgId  = $this->organizationId($request);
-        $order  = CalibrationOrder::create([
-            'organization_id' => $orgId,
-            'order_number'    => CalibrationOrder::generateOrderNumber($orgId),
-            'status'          => CalibrationOrder::STATUS_PLANNED,
-            ...$validated,
-        ]);
+        $order = $this->calibrationService->createOrder($this->organizationId($request), $validated);
 
         return $this->created($order->load(['equipment', 'plan']));
     }

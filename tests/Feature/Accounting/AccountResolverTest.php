@@ -67,6 +67,19 @@ class AccountResolverTest extends TestCase
         $this->assertNull($resolver->mapped($this->organization->id, 'grni_account_id'));
     }
 
+    public function test_a_bank_account_is_preferred_to_cash_and_cash_used_without_one(): void
+    {
+        $cash = $this->account(['code' => '1000', 'name' => 'Petty Cash', 'sub_type' => 'cash', 'is_system' => true]);
+        $bank = $this->account(['code' => '1010', 'name' => 'Main Bank', 'sub_type' => 'bank', 'is_system' => true]);
+        $resolver = app(AccountResolver::class);
+
+        $this->assertTrue($bank->is($resolver->bankOrCash($this->organization->id)));
+
+        $bank->update(['is_active' => false]);
+
+        $this->assertTrue($cash->is($resolver->bankOrCash($this->organization->id)));
+    }
+
     private function account(array $attributes): Account
     {
         return Account::factory()->create([

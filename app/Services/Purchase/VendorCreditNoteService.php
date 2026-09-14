@@ -9,6 +9,7 @@ use App\Models\Purchase\VendorCreditNote;
 use App\Models\Purchase\VendorCreditNoteLine;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use App\Support\TaxMath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -63,40 +64,7 @@ class VendorCreditNoteService
 
             $creditNote = VendorCreditNote::create($data);
 
-            $subtotal = '0';
-            $taxTotal = '0';
-
-            foreach ($lines as $lineData) {
-                $qty = (string) ($lineData['quantity'] ?? 1);
-                $price = (string) ($lineData['unit_price'] ?? 0);
-                $taxRate = (string) ($lineData['tax_rate'] ?? 0);
-
-                $lineSubtotal = bcmul($qty, $price, 4);
-                $lineTax = bcmul($lineSubtotal, bcdiv($taxRate, '100', 6), 4);
-                $lineTotal = bcadd($lineSubtotal, $lineTax, 4);
-
-                $creditNote->lines()->create([
-                    'organization_id' => $creditNote->organization_id,
-                    'product_id' => $lineData['product_id'] ?? null,
-                    'description' => $lineData['description'] ?? '',
-                    'quantity' => $qty,
-                    'unit_price' => $price,
-                    'tax_rate' => $taxRate,
-                    'tax_amount' => $lineTax,
-                    'line_total' => $lineTotal,
-                ]);
-
-                $subtotal = bcadd($subtotal, $lineSubtotal, 4);
-                $taxTotal = bcadd($taxTotal, $lineTax, 4);
-            }
-
-            $total = bcadd($subtotal, $taxTotal, 4);
-
-            $creditNote->update([
-                'subtotal' => $subtotal,
-                'tax_amount' => $taxTotal,
-                'total_amount' => $total,
-            ]);
+            $this->storeLines($creditNote, $lines);
 
             return $creditNote->load('lines');
         });
@@ -116,38 +84,7 @@ class VendorCreditNoteService
 
             if ($lines !== null) {
                 $creditNote->lines()->delete();
-                $subtotal = '0';
-                $taxTotal = '0';
-
-                foreach ($lines as $lineData) {
-                    $qty = (string) ($lineData['quantity'] ?? 1);
-                    $price = (string) ($lineData['unit_price'] ?? 0);
-                    $taxRate = (string) ($lineData['tax_rate'] ?? 0);
-
-                    $lineSubtotal = bcmul($qty, $price, 4);
-                    $lineTax = bcmul($lineSubtotal, bcdiv($taxRate, '100', 6), 4);
-                    $lineTotal = bcadd($lineSubtotal, $lineTax, 4);
-
-                    $creditNote->lines()->create([
-                        'organization_id' => $creditNote->organization_id,
-                        'product_id' => $lineData['product_id'] ?? null,
-                        'description' => $lineData['description'] ?? '',
-                        'quantity' => $qty,
-                        'unit_price' => $price,
-                        'tax_rate' => $taxRate,
-                        'tax_amount' => $lineTax,
-                        'line_total' => $lineTotal,
-                    ]);
-
-                    $subtotal = bcadd($subtotal, $lineSubtotal, 4);
-                    $taxTotal = bcadd($taxTotal, $lineTax, 4);
-                }
-
-                $creditNote->update([
-                    'subtotal' => $subtotal,
-                    'tax_amount' => $taxTotal,
-                    'total_amount' => bcadd($subtotal, $taxTotal, 4),
-                ]);
+                $this->storeLines($creditNote, $lines);
             }
 
             return $creditNote->fresh('lines');
@@ -277,5 +214,43 @@ class VendorCreditNoteService
         ]);
 
         return $creditNote->fresh();
+    }
+
+    /**
+     * Create the credit note's lines and store its totals from them.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     */
+    private function storeLines(VendorCreditNote $creditNote, array $lines): void
+    {
+        $subtotal = '0';
+        $taxTotal = '0';
+
+        foreach ($lines as $lineData) {
+            $qty = (string) ($lineData['quantity'] ?? 1);
+            $price = (string) ($lineData['unit_price'] ?? 0);
+            $taxRate = (string) ($lineData['tax_rate'] ?? 0);
+            $amounts = TaxMath::line($qty, $price, $taxRate);
+
+            $creditNote->lines()->create([
+                'organization_id' => $creditNote->organization_id,
+                'product_id' => $lineData['product_id'] ?? null,
+                'description' => $lineData['description'] ?? '',
+                'quantity' => $qty,
+                'unit_price' => $price,
+                'tax_rate' => $taxRate,
+                'tax_amount' => $amounts['tax'],
+                'line_total' => $amounts['total'],
+            ]);
+
+            $subtotal = bcadd($subtotal, $amounts['subtotal'], TaxMath::SCALE);
+            $taxTotal = bcadd($taxTotal, $amounts['tax'], TaxMath::SCALE);
+        }
+
+        $creditNote->update([
+            'subtotal' => $subtotal,
+            'tax_amount' => $taxTotal,
+            'total_amount' => bcadd($subtotal, $taxTotal, TaxMath::SCALE),
+        ]);
     }
 }

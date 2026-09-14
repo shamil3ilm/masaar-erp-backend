@@ -35,23 +35,6 @@ class TaxRate extends Model
     }
 
     /**
-     * Calculate tax amount for a given base amount.
-     */
-    public function calculateTax(float $amount): float
-    {
-        return bcmul((string) $amount, bcdiv((string) $this->rate, '100', 6), 4);
-    }
-
-    /**
-     * Calculate base amount from tax-inclusive amount.
-     */
-    public function extractBaseFromInclusive(float $inclusiveAmount): float
-    {
-        $divisor = bcadd('1', bcdiv((string) $this->rate, '100', 6), 6);
-        return bcdiv((string) $inclusiveAmount, $divisor, 4);
-    }
-
-    /**
      * Check if rate is currently effective.
      */
     public function isCurrentlyEffective(): bool

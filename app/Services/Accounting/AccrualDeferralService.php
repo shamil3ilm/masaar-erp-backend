@@ -108,13 +108,12 @@ class AccrualDeferralService
                 $entry->reference
             );
 
-            $this->journalService->createEntry([
+            $this->journalService->createAndPost([
                 'organization_id' => $entry->organization_id,
                 'entry_date'      => now()->toDateString(),
                 'reference'       => $entry->reference . '-P' . $period,
                 'description'     => $description,
                 'currency_code'   => $entry->currency_code,
-                'status'          => 'posted',
                 'source_type'     => AccrualDeferral::class,
                 'source_id'       => $entry->id,
             ], [

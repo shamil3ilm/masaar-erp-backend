@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\DB;
 class ArInterestRunService
 {
     public function __construct(
-        private readonly JournalService $journalService
+        private readonly JournalService $journalService,
+        private readonly AccountResolver $accountResolver,
     ) {}
 
     /**
@@ -80,15 +81,8 @@ class ArInterestRunService
             return array_merge($preview, ['journal_entries_posted' => 0]);
         }
 
-        $arAccount = Account::where('organization_id', $organizationId)
-            ->where('sub_type', Account::SUBTYPE_RECEIVABLE)
-            ->where('is_active', true)
-            ->first();
-
-        $incomeAccount = Account::where('organization_id', $organizationId)
-            ->where('sub_type', Account::SUBTYPE_OTHER_INCOME)
-            ->where('is_active', true)
-            ->first();
+        $arAccount = $this->accountResolver->bySubType($organizationId, Account::SUBTYPE_RECEIVABLE);
+        $incomeAccount = $this->accountResolver->bySubType($organizationId, Account::SUBTYPE_OTHER_INCOME);
 
         if (! $arAccount || ! $incomeAccount) {
             return array_merge($preview, [

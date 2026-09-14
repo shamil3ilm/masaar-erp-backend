@@ -248,7 +248,7 @@ class TransportationService
     public function createTenderRequest(int $organizationId, array $data): FreightTenderRequest
     {
         return DB::transaction(function () use ($organizationId, $data) {
-            $tenderNumber = $this->numberGenerator->generate($organizationId, 'freight_tender');
+            $tenderNumber = $this->numberGenerator->generate('freight_tender', null, $organizationId);
 
             $items = $data['items'] ?? [];
             unset($data['items']);
@@ -362,7 +362,7 @@ class TransportationService
     public function createTransportationOrder(int $organizationId, array $data): TransportationOrder
     {
         return DB::transaction(function () use ($organizationId, $data) {
-            $orderNumber = $this->numberGenerator->generate($organizationId, 'transport_order');
+            $orderNumber = $this->numberGenerator->generate('transport_order', null, $organizationId);
 
             $items = $data['items'] ?? [];
             unset($data['items']);

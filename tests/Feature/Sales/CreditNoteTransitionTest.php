@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Sales;
 
 use App\Exceptions\ApiException;
+use App\Exceptions\ERP\ValidationException;
 use App\Models\Sales\Contact;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\Invoice;
@@ -71,6 +72,36 @@ class CreditNoteTransitionTest extends TestCase
 
         $this->assertRejected(fn () => $this->service->void($stale));
         $this->assertSame($voided->updated_at->toJSON(), $note->fresh()->updated_at->toJSON());
+    }
+
+    public function test_a_credit_note_cannot_credit_more_than_its_invoice(): void
+    {
+        $invoice = Invoice::factory()->sent()->create([
+            'organization_id' => $this->organization->id,
+            'branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'total' => 100,
+            'amount_due' => 100,
+            'currency_code' => 'SAR',
+        ]);
+
+        try {
+            // 90 plus 15% VAT is 103.50.
+            $this->service->create([
+                'organization_id' => $this->organization->id,
+                'contact_id' => $this->customer->id,
+                'invoice_id' => $invoice->id,
+                'credit_note_type' => CreditNote::TYPE_SALES,
+                'credit_note_date' => now()->toDateString(),
+                'currency_code' => 'SAR',
+                'items' => [['description' => 'Returned goods', 'quantity' => '1', 'unit_price' => '90', 'tax_rate' => '15']],
+            ], $this->user->id);
+            $this->fail('A credit note of 103.50 was accepted against an invoice of 100.');
+        } catch (ValidationException $e) {
+            $this->assertSame('Credit note total exceeds invoice total.', $e->getMessage());
+        }
+
+        $this->assertSame(0, CreditNote::count());
     }
 
     private function assertRejected(callable $action): void
