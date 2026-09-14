@@ -55,7 +55,6 @@ class StateTransitionTest extends TestCase
      * @var array<string, int>
      */
     private const BYPASSES = [
-        'Http/Controllers/Api/V1/Sales/QuotationController.php' => 3,
         'Orchestrators/Sales/PostInvoiceOrchestrator.php' => 1,
         'Services/Accounting/CashDiscountService.php' => 1,
         'Services/Accounting/OpenItemClearingService.php' => 4,

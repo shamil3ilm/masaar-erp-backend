@@ -6,33 +6,36 @@ namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\QuotationResource;
-use App\Models\Core\NumberSequence;
-use App\Models\Sales\Contact;
 use App\Models\Sales\Quotation;
-use App\Models\Sales\QuotationLine;
-use App\Models\Sales\SalesOrder;
-use App\Models\Sales\SalesOrderLine;
-use App\Services\Sales\InvoiceConversionService;
+use App\Services\Sales\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class QuotationController extends Controller
 {
+    public function __construct(
+        private readonly QuotationService $quotationService,
+    ) {}
+
     /**
      * List quotations with filters.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Quotation::with(['customer', 'salesperson'])
-            ->latest('quotation_date')
-            ->when($request->has('customer_id'), fn ($q) => $q->forCustomer($request->integer('customer_id')))
-            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('from_date'), fn ($q) => $q->where('quotation_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn ($q) => $q->where('quotation_date', '<=', $request->input('to_date')));
+        $filters = [];
 
-        $quotations = $query->paginate($request->integer('per_page', 15));
+        if ($request->has('customer_id')) {
+            $filters['customer_id'] = $request->integer('customer_id');
+        }
+
+        foreach (['status', 'from_date', 'to_date'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        $quotations = $this->quotationService->list($filters, $request->integer('per_page', 15));
 
         return $this->paginated($quotations, QuotationResource::class);
     }
@@ -71,60 +74,11 @@ class QuotationController extends Controller
         ]);
 
         $user = $request->user();
-        $organizationId = $user->organization_id;
         $branchId = $validated['branch_id']
             ?? $request->attributes->get('branch')?->id
             ?? $user->getDefaultBranch()?->id;
 
-        $quotation = DB::transaction(function () use ($validated, $organizationId, $branchId, $user) {
-            $quotationNumber = NumberSequence::getNext($organizationId, 'quotation', $branchId);
-
-            // Populate customer details from contact
-            $customer = Contact::find($validated['customer_id']);
-
-            $quotation = Quotation::create([
-                'organization_id' => $organizationId,
-                'branch_id' => $branchId,
-                'quotation_number' => $quotationNumber,
-                'customer_id' => $validated['customer_id'],
-                'customer_name' => $customer?->getDisplayName() ?? $customer?->company_name ?? $customer?->first_name ?? 'Customer',
-                'customer_email' => $customer?->email,
-                'quotation_date' => $validated['quotation_date'],
-                'valid_until' => $validated['valid_until'],
-                'currency_code' => $validated['currency_code'] ?? $user->organization->base_currency ?? 'SAR',
-                'exchange_rate' => $validated['exchange_rate'] ?? 1.0000,
-                'discount_type' => $validated['discount_type'] ?? null,
-                'discount_value' => $validated['discount_value'] ?? 0,
-                'salesperson_id' => $validated['salesperson_id'] ?? $user->id,
-                'notes' => $validated['notes'] ?? null,
-                'terms_and_conditions' => $validated['terms_and_conditions'] ?? null,
-                'reference' => $validated['reference'] ?? null,
-                'status' => Quotation::STATUS_DRAFT,
-                'created_by' => $user->id,
-            ]);
-
-            foreach ($validated['lines'] as $order => $lineData) {
-                QuotationLine::create([
-                    'quotation_id' => $quotation->id,
-                    'product_id' => $lineData['product_id'] ?? null,
-                    'variant_id' => $lineData['variant_id'] ?? null,
-                    'description' => $lineData['description'],
-                    'quantity' => $lineData['quantity'],
-                    'unit_id' => $lineData['unit_id'] ?? null,
-                    'unit_price' => $lineData['unit_price'],
-                    'discount_type' => $lineData['discount_type'] ?? null,
-                    'discount_value' => $lineData['discount_value'] ?? 0,
-                    'tax_rate' => $lineData['tax_rate'] ?? 0,
-                    'tax_category_id' => $lineData['tax_category_id'] ?? null,
-                    'line_order' => $order + 1,
-                ]);
-            }
-
-            $quotation->recalculateTotals();
-            $quotation->load('lines');
-
-            return $quotation;
-        });
+        $quotation = $this->quotationService->create($validated, $user, $branchId);
 
         return $this->created(new QuotationResource($quotation), 'Quotation created successfully.');
     }
@@ -149,12 +103,10 @@ class QuotationController extends Controller
      */
     public function update(Request $request, Quotation $quotation): JsonResponse
     {
-        if (! $quotation->isEditable()) {
-            return $this->error(
-                'Quotation cannot be updated in its current status.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->quotationService->assertEditable($quotation);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         $orgId = $request->user()->organization_id;
@@ -184,38 +136,10 @@ class QuotationController extends Controller
             'lines.*.tax_category_id' => ['nullable', 'integer', Rule::exists('tax_categories', 'id')->where('organization_id', $orgId)],
         ]);
 
-        DB::transaction(function () use ($quotation, $validated) {
-            $quotation->update(
-                collect($validated)->except('lines')->filter(fn ($v) => $v !== null)->toArray()
-            );
-
-            if (isset($validated['lines'])) {
-                $quotation->lines()->delete();
-
-                foreach ($validated['lines'] as $order => $lineData) {
-                    QuotationLine::create([
-                        'quotation_id' => $quotation->id,
-                        'product_id' => $lineData['product_id'] ?? null,
-                        'variant_id' => $lineData['variant_id'] ?? null,
-                        'description' => $lineData['description'],
-                        'quantity' => $lineData['quantity'],
-                        'unit_id' => $lineData['unit_id'] ?? null,
-                        'unit_price' => $lineData['unit_price'],
-                        'discount_type' => $lineData['discount_type'] ?? null,
-                        'discount_value' => $lineData['discount_value'] ?? 0,
-                        'tax_rate' => $lineData['tax_rate'] ?? 0,
-                        'tax_category_id' => $lineData['tax_category_id'] ?? null,
-                        'line_order' => $order + 1,
-                    ]);
-                }
-
-                $quotation->recalculateTotals();
-            }
-        });
-
-        $quotation->load(['customer', 'lines', 'salesperson']);
-
-        return $this->success(new QuotationResource($quotation), 'Quotation updated successfully.');
+        return $this->tryAction(
+            fn () => new QuotationResource($this->quotationService->update($quotation, $validated)),
+            'Quotation updated successfully.'
+        );
     }
 
     /**
@@ -223,17 +147,10 @@ class QuotationController extends Controller
      */
     public function destroy(Quotation $quotation): JsonResponse
     {
-        if ($quotation->status !== Quotation::STATUS_DRAFT) {
-            return $this->error(
-                'Only draft quotations can be deleted.',
-                'VALIDATION_ERROR',
-                422
-            );
-        }
-
-        $quotation->delete();
-
-        return $this->success(null, 'Quotation deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->quotationService->delete($quotation),
+            'Quotation deleted successfully.'
+        );
     }
 
     /**
@@ -241,18 +158,10 @@ class QuotationController extends Controller
      */
     public function send(Quotation $quotation): JsonResponse
     {
-        if (! in_array($quotation->status, [Quotation::STATUS_DRAFT, Quotation::STATUS_EXPIRED])) {
-            return $this->error(
-                'Quotation cannot be sent in its current status.',
-                'VALIDATION_ERROR',
-                422
-            );
-        }
-
-        $quotation->update(['status' => Quotation::STATUS_SENT]);
-        $quotation->load(['customer', 'lines', 'salesperson']);
-
-        return $this->success(new QuotationResource($quotation), 'Quotation sent successfully.');
+        return $this->tryAction(
+            fn () => new QuotationResource($this->quotationService->send($quotation)),
+            'Quotation sent successfully.'
+        );
     }
 
     /**
@@ -265,26 +174,14 @@ class QuotationController extends Controller
             'action' => 'required|in:accept,decline',
         ]);
 
-        if (! in_array($quotation->status, [Quotation::STATUS_SENT, Quotation::STATUS_DRAFT])) {
-            return $this->error(
-                'Quotation cannot be reviewed in its current status.',
-                'VALIDATION_ERROR',
-                422
-            );
-        }
-
-        $quotation->update([
-            'status' => $validated['action'] === 'accept'
-                ? Quotation::STATUS_ACCEPTED
-                : Quotation::STATUS_DECLINED,
-        ]);
-        $quotation->load(['customer', 'lines', 'salesperson']);
-
         $message = $validated['action'] === 'accept'
             ? 'Quotation accepted successfully.'
             : 'Quotation declined successfully.';
 
-        return $this->success(new QuotationResource($quotation), $message);
+        return $this->tryAction(
+            fn () => new QuotationResource($this->quotationService->review($quotation, $validated['action'])),
+            $message
+        );
     }
 
     /**
@@ -292,87 +189,19 @@ class QuotationController extends Controller
      */
     public function convert(Request $request, Quotation $quotation): JsonResponse
     {
-        if (! $quotation->canBeConverted()) {
-            return $this->error(
-                'Only accepted quotations can be converted.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->quotationService->assertConvertible($quotation);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
         $validated = $request->validate([
             'convert_to' => 'required|in:invoice,sales_order',
         ]);
 
-        $result = DB::transaction(function () use ($quotation, $validated, $request) {
-            $convertTo = $validated['convert_to'];
-
-            if ($convertTo === 'invoice') {
-                $invoice = app(InvoiceConversionService::class)->createFromQuotation($quotation, $request->all());
-
-                return ['type' => 'invoice', 'id' => $invoice->id, 'number' => $invoice->invoice_number];
-            }
-
-            if ($convertTo === 'sales_order') {
-                $soNumber = NumberSequence::getNext(
-                    $quotation->organization_id,
-                    'sales_order',
-                    $quotation->branch_id
-                );
-
-                $salesOrder = SalesOrder::create([
-                    'organization_id' => $quotation->organization_id,
-                    'branch_id' => $quotation->branch_id,
-                    'order_number' => $soNumber,
-                    'customer_id' => $quotation->customer_id,
-                    'customer_name' => $quotation->customer_name ?: ($quotation->customer?->getDisplayName() ?? 'Customer'),
-                    'customer_email' => $quotation->customer_email,
-                    'order_date' => now(),
-                    'currency_code' => $quotation->currency_code,
-                    'exchange_rate' => $quotation->exchange_rate,
-                    'subtotal' => $quotation->subtotal,
-                    'discount_type' => $quotation->discount_type,
-                    'discount_value' => $quotation->discount_value,
-                    'discount_amount' => $quotation->discount_amount,
-                    'tax_amount' => $quotation->tax_amount,
-                    'total' => $quotation->total,
-                    'salesperson_id' => $quotation->salesperson_id,
-                    'notes' => $quotation->notes,
-                    'reference' => $quotation->quotation_number,
-                    'quotation_id' => $quotation->id,
-                    'status' => 'draft',
-                    'created_by' => auth()->id(),
-                ]);
-
-                foreach ($quotation->lines as $order => $line) {
-                    SalesOrderLine::create([
-                        'sales_order_id' => $salesOrder->id,
-                        'product_id' => $line->product_id,
-                        'variant_id' => $line->variant_id,
-                        'description' => $line->description,
-                        'quantity' => $line->quantity,
-                        'quantity_delivered' => 0,
-                        'quantity_invoiced' => 0,
-                        'unit_price' => $line->unit_price,
-                        'discount_amount' => $line->discount_amount,
-                        'tax_rate' => $line->tax_rate,
-                        'tax_amount' => $line->tax_amount,
-                        'subtotal' => $line->subtotal,
-                        'total' => $line->total,
-                        'line_order' => $line->line_order,
-                    ]);
-                }
-
-                $salesOrder->recalculateTotals();
-
-                $quotation->update(['status' => Quotation::STATUS_CONVERTED]);
-
-                return ['type' => 'sales_order', 'id' => $salesOrder->id, 'number' => $salesOrder->order_number];
-            }
-
-            return null;
-        });
-
-        return $this->success($result, 'Quotation converted successfully.');
+        return $this->tryAction(
+            fn () => $this->quotationService->convert($quotation, $validated['convert_to'], $request->all()),
+            'Quotation converted successfully.'
+        );
     }
 }
