@@ -14,4 +14,3 @@
 # A ratchet: the list may shrink and may not grow, and the test fails if an
 # entry here has been fixed and not removed.
 
-App\Models\Sales\AdvancePaymentApplication::invoice -> advance_payment_applications.invoice_id
