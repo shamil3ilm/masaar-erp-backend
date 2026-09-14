@@ -17,6 +17,7 @@ use App\Services\HR\AttendanceService;
 use App\Services\HR\LeaveService;
 use App\Services\HR\StatutoryDeductionService;
 use App\Services\Print\PrintService;
+use App\Traits\MasksSensitiveData;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,8 @@ use Illuminate\Http\Response;
 
 class EmployeeSelfServiceController extends Controller
 {
+    use MasksSensitiveData;
+
     public function __construct(
         protected AttendanceService $attendanceService,
         protected LeaveService $leaveService,
@@ -52,7 +55,7 @@ class EmployeeSelfServiceController extends Controller
         ]);
 
         return $this->success([
-            'employee' => $employee,
+            'employee' => [...$employee->toArray(), ...$this->maskedNumbers($employee)],
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -60,6 +63,25 @@ class EmployeeSelfServiceController extends Controller
                 'phone' => $user->phone,
             ],
         ]);
+    }
+
+    /**
+     * The employee's identity, tax and bank numbers, masked as EmployeeResource
+     * masks them. The model hides them from serialization, and an employee
+     * sees no more of their own numbers than HR does.
+     *
+     * @return array<string, string|null>
+     */
+    private function maskedNumbers(Employee $employee): array
+    {
+        return [
+            'national_id' => $this->maskNationalId($employee->national_id),
+            'passport_number' => $this->maskNationalId($employee->passport_number),
+            'tax_number' => $this->maskTaxNumber($employee->tax_number),
+            'social_security_number' => $this->maskTaxNumber($employee->social_security_number),
+            'bank_account_number' => $this->maskBankAccount($employee->bank_account_number),
+            'bank_iban' => $this->maskIban($employee->bank_iban),
+        ];
     }
 
     /**
