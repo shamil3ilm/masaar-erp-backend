@@ -8,17 +8,15 @@ use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\Purchase\Bill;
-use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class DebitNote extends Model
 {
-    use HasFactory;
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_APPROVED = 'approved';
@@ -31,7 +29,8 @@ class DebitNote extends Model
         'branch_id',
         'debit_note_number',
         'bill_id',
-        'supplier_id',
+        'contact_id',
+        'contact_name',
         'debit_note_date',
         'currency_code',
         'exchange_rate',
@@ -40,12 +39,10 @@ class DebitNote extends Model
         'total',
         'applied_amount',
         'available_amount',
+        'reason_code',
         'reason',
-        'notes',
         'status',
         'journal_entry_id',
-        'approved_by',
-        'approved_at',
         'created_by',
     ];
 
@@ -59,13 +56,12 @@ class DebitNote extends Model
             'applied_amount' => 'decimal:2',
             'available_amount' => 'decimal:2',
             'exchange_rate' => 'decimal:6',
-            'approved_at' => 'datetime',
         ];
     }
 
-    public function supplier(): BelongsTo
+    public function contact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class, 'supplier_id');
+        return $this->belongsTo(Contact::class);
     }
 
     public function bill(): BelongsTo
@@ -81,11 +77,6 @@ class DebitNote extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
-    }
-
-    public function approvedBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function applyToBill(Bill $bill, float $amount): void

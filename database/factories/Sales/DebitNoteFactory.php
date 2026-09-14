@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Database\Factories\Sales;
 
-use App\Models\Sales\DebitNote;
 use App\Models\Core\Organization;
 use App\Models\Sales\Contact;
+use App\Models\Sales\DebitNote;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class DebitNoteFactory extends Factory
@@ -15,27 +16,30 @@ class DebitNoteFactory extends Factory
 
     public function definition(): array
     {
+        $subtotal = fake()->randomFloat(2, 100, 50000);
+        $tax = round($subtotal * 0.15, 2);
+        $total = round($subtotal + $tax, 2);
+
         return [
             'organization_id' => Organization::factory(),
             'branch_id' => null,
             'debit_note_number' => 'DN-' . fake()->unique()->numerify('######'),
             'bill_id' => null,
-            'supplier_id' => Contact::factory(),
+            'contact_id' => Contact::factory(),
+            'contact_name' => fake()->company(),
             'debit_note_date' => fake()->dateTimeBetween('-3 months', 'now'),
-            'currency_code' => fake()->randomElement(['SAR', 'AED', 'INR']),
-            'exchange_rate' => '1.000000',
-            'subtotal' => fake()->randomFloat(2, 100, 50000),
-            'tax_amount' => fake()->randomFloat(2, 0, 5000),
-            'total' => fake()->randomFloat(2, 100, 55000),
+            'currency_code' => 'SAR',
+            'exchange_rate' => 1,
+            'subtotal' => $subtotal,
+            'tax_amount' => $tax,
+            'total' => $total,
             'applied_amount' => 0,
-            'available_amount' => fake()->randomFloat(2, 100, 55000),
+            'available_amount' => $total,
+            'reason_code' => null,
             'reason' => fake()->sentence(),
-            'notes' => fake()->optional(0.3)->sentence(),
-            'status' => fake()->randomElement(['draft', 'approved', 'applied', 'cancelled']),
+            'status' => DebitNote::STATUS_DRAFT,
             'journal_entry_id' => null,
-            'approved_by' => null,
-            'approved_at' => null,
-            'created_by' => null,
+            'created_by' => User::factory(),
         ];
     }
 }

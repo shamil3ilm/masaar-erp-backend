@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Projects;
 
-use App\Models\Projects\ProjectBudgetAvailabilityLog;
 use App\Models\Projects\ProjectBudgetLineItem;
 use App\Models\Projects\ProjectBudgetSupplement;
 use App\Models\Projects\ProjectBudgetVersion;
@@ -257,20 +256,6 @@ class ProjectBudgetService
             $available = 0.0;
             $message = 'No active budget version found; posting allowed without control.';
 
-            ProjectBudgetAvailabilityLog::create([
-                'organization_id'             => $orgId,
-                'project_budget_line_item_id' => 0,
-                'wbs_element_id'              => $wbsElementId,
-                'document_type'              => $documentType,
-                'document_id'               => $documentId,
-                'requested_amount'           => $amount,
-                'available_amount'           => $available,
-                'result'                    => $result,
-                'message'                   => $message,
-                'checked_at'                => now(),
-                'checked_by'                => auth()->id(),
-            ]);
-
             return compact('result', 'available', 'message');
         }
 
@@ -323,21 +308,6 @@ class ProjectBudgetService
                 $amount
             );
         }
-
-        // 5. Persist the audit log entry
-        ProjectBudgetAvailabilityLog::create([
-            'organization_id'             => $orgId,
-            'project_budget_line_item_id' => $item->id,
-            'wbs_element_id'              => $wbsElementId,
-            'document_type'              => $documentType,
-            'document_id'               => $documentId,
-            'requested_amount'           => $amount,
-            'available_amount'           => $available,
-            'result'                    => $result,
-            'message'                   => $message,
-            'checked_at'                => now(),
-            'checked_by'                => auth()->id(),
-        ]);
 
         return compact('result', 'available', 'message');
     }

@@ -7,7 +7,6 @@ namespace App\Models\Sales;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CouponCode extends Model
 {
@@ -41,11 +40,6 @@ class CouponCode extends Model
     public function assignedContact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'assigned_to_contact_id');
-    }
-
-    public function usages(): HasMany
-    {
-        return $this->hasMany(PromotionUsage::class, 'coupon_code_id');
     }
 
     public function isValid(): bool

@@ -6,11 +6,10 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 class BankTransaction extends Model
 {
     use BelongsToOrganization, HasFactory;
@@ -69,21 +68,6 @@ class BankTransaction extends Model
     public function bankAccount(): BelongsTo
     {
         return $this->belongsTo(BankAccount::class);
-    }
-
-    public function journalEntry(): BelongsTo
-    {
-        return $this->belongsTo(JournalEntry::class);
-    }
-
-    public function journalLine(): BelongsTo
-    {
-        return $this->belongsTo(JournalEntryLine::class, 'journal_line_id');
-    }
-
-    public function source(): MorphTo
-    {
-        return $this->morphTo('source', 'source_type', 'source_id');
     }
 
     public function scopeForPeriod($query, string $startDate, string $endDate)
