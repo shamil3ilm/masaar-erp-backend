@@ -5,18 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Employee;
-use App\Models\HR\SocialInsuranceRecord;
 use App\Models\HR\SocialInsuranceScheme;
 use App\Models\HR\SocialInsuranceSubmission;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\SocialInsuranceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class SocialInsuranceController extends Controller
 {
     public function __construct(
-        private SocialInsuranceService $siService
+        private SocialInsuranceService $siService,
+        private EmployeeService $employeeService,
     ) {}
 
     /**
@@ -24,13 +25,13 @@ class SocialInsuranceController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $schemes = SocialInsuranceScheme::query()
-            ->when($request->country_code, fn($q, $v) => $q->forCountry($v))
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderBy('country_code')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($schemes);
+        return $this->paginated($this->siService->listSchemes(
+            [
+                'country_code' => $request->country_code,
+                'active_only' => $request->boolean('active_only', false),
+            ],
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -51,10 +52,7 @@ class SocialInsuranceController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $scheme = SocialInsuranceScheme::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-        ]));
+        $scheme = $this->siService->createScheme($validated, auth()->user()->organization_id);
 
         return $this->created($scheme, 'Social insurance scheme created successfully.');
     }
@@ -95,14 +93,14 @@ class SocialInsuranceController extends Controller
     public function enroll(Request $request, SocialInsuranceScheme $scheme): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', $scheme->organization_id)],
             'employee_number_si' => 'nullable|string|max:50',
             'enrollment_date' => 'required|date',
             'insurable_salary' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         try {
             $record = $this->siService->enrollEmployee($employee, $scheme, $validated);
@@ -118,12 +116,11 @@ class SocialInsuranceController extends Controller
      */
     public function listRecords(Request $request, SocialInsuranceScheme $scheme): JsonResponse
     {
-        $records = SocialInsuranceRecord::where('scheme_id', $scheme->id)
-            ->with('employee')
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($records);
+        return $this->paginated($this->siService->listRecords(
+            $scheme,
+            $request->status,
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -168,15 +165,10 @@ class SocialInsuranceController extends Controller
      */
     public function indexSubmissions(Request $request): JsonResponse
     {
-        $submissions = SocialInsuranceSubmission::with('scheme')
-            ->when($request->scheme_id, fn($q, $v) => $q->where('scheme_id', $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->year, fn($q, $v) => $q->where('period_year', $v))
-            ->orderByDesc('period_year')
-            ->orderByDesc('period_month')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($submissions);
+        return $this->paginated($this->siService->listSubmissions(
+            $request->only(['scheme_id', 'status', 'year']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
