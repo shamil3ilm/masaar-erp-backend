@@ -52,7 +52,7 @@ Route::middleware(['check.permission:hr.training.manage'])->group(function () {
     Route::post('/sessions/{id}/cancel', [TrainingController::class, 'cancelSession'])->name('hr.training.sessions.cancel');
     Route::post('/sessions/{id}/enroll', [TrainingController::class, 'enroll'])->name('hr.training.sessions.enroll');
     Route::post('/sessions/{id}/bulk-enroll', [TrainingController::class, 'bulkEnroll'])->name('hr.training.sessions.bulk-enroll');
-    Route::delete('/sessions/{sessionId}/enrollments/{enrollmentId}', [TrainingController::class, 'cancelEnrollment'])->name('hr.training.sessions.enrollments.cancel');
+    Route::delete('/sessions/{sessionId}/enrollments/{enrollmentId}', [TrainingController::class, 'cancelSessionEnrollment'])->name('hr.training.sessions.enrollments.cancel');
 });
 
 // Enrollments

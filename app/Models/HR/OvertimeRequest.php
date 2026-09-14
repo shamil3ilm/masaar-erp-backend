@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OvertimeRequest extends Model
 {
     use HasFactory, HasUuid;
+
+    /**
+     * The table has no organization column: a request belongs to the
+     * organization of its employee. Scoping every query through that employee
+     * keeps listings, route binding and summaries inside the authenticated
+     * user's organization, as BelongsToOrganization does for tables that carry
+     * the column. A terminated employee's requests stay visible.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('organization', function (Builder $builder): void {
+            if (auth()->user()) {
+                $builder->whereHas('employee', fn (Builder $employee) => $employee->withTrashed());
+            }
+        });
+    }
 
     public const STATUS_PENDING  = 'pending';
     public const STATUS_APPROVED = 'approved';

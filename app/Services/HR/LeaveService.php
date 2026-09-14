@@ -262,6 +262,30 @@ class LeaveService
     }
 
     /**
+     * Withdraws a request that is not decided yet, as the employee who made it
+     * may. Nothing was taken from the balance, so nothing is restored. The
+     * status is checked on the locked row: HR may have decided the request
+     * since the caller read it.
+     *
+     * @throws \InvalidArgumentException when the request is already decided
+     */
+    public function withdraw(LeaveRequest $request, string $reason): LeaveRequest
+    {
+        return $request->lockForTransition(function (LeaveRequest $locked) use ($reason): LeaveRequest {
+            if (! in_array($locked->status, [LeaveRequest::STATUS_DRAFT, LeaveRequest::STATUS_PENDING], true)) {
+                throw new \InvalidArgumentException('Cannot cancel this request.');
+            }
+
+            $locked->transitionTo(LeaveRequest::STATUS_CANCELLED, [
+                'cancelled_at' => now(),
+                'cancellation_reason' => $reason,
+            ]);
+
+            return $locked;
+        });
+    }
+
+    /**
      * Get leave balance for employee.
      */
     public function getBalance(Employee $employee, LeaveType $leaveType, ?int $year = null): float

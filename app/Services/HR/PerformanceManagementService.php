@@ -7,16 +7,158 @@ namespace App\Services\HR;
 use App\Models\HR\AppraisalCycle;
 use App\Models\HR\AppraisalResponse;
 use App\Models\HR\AppraisalTemplate;
+use App\Models\HR\AppraisalTemplateQuestion;
 use App\Models\HR\AppraisalTemplateSection;
 use App\Models\HR\Employee;
 use App\Models\HR\PerformanceAppraisal;
 use App\Models\HR\PerformanceGoal;
 use App\Models\HR\PerformanceGoalUpdate;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PerformanceManagementService
 {
+    // ---------------------------------------------------------------------------
+    // Listings and lookups, all within the current organization
+    // ---------------------------------------------------------------------------
+
+    /**
+     * @param  array{status?: mixed, search?: mixed}  $filters  empty values are ignored
+     */
+    public function listCycles(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return AppraisalCycle::query()
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findCycle(int $id, array $relations = []): ?AppraisalCycle
+    {
+        return AppraisalCycle::with($relations)->find($id);
+    }
+
+    /**
+     * @param  array{active_only?: bool, search?: mixed}  $filters  empty values are ignored
+     */
+    public function listTemplates(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return AppraisalTemplate::query()
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findTemplate(int $id, array $relations = []): ?AppraisalTemplate
+    {
+        return AppraisalTemplate::with($relations)->find($id);
+    }
+
+    /**
+     * Updates a template. Marking it default clears the flag on the
+     * organization's other templates in the same transaction, so a failed
+     * update never leaves the organization without its previous default.
+     */
+    public function updateTemplate(AppraisalTemplate $template, array $data): AppraisalTemplate
+    {
+        return DB::transaction(function () use ($template, $data): AppraisalTemplate {
+            if (! empty($data['is_default'])) {
+                AppraisalTemplate::where('organization_id', $template->organization_id)
+                    ->where('id', '!=', $template->id)
+                    ->where('is_default', true)
+                    ->update(['is_default' => false]);
+            }
+
+            $template->update($data);
+
+            return $template->fresh('sectionsWithQuestions');
+        });
+    }
+
+    /**
+     * Whether an appraisal in a cycle that is neither completed nor cancelled
+     * uses the template.
+     */
+    public function templateInUse(AppraisalTemplate $template): bool
+    {
+        return PerformanceAppraisal::where('appraisal_template_id', $template->id)
+            ->whereHas('cycle', fn ($q) => $q->whereNotIn('status', [
+                AppraisalCycle::STATUS_COMPLETED,
+                AppraisalCycle::STATUS_CANCELLED,
+            ]))
+            ->exists();
+    }
+
+    /**
+     * @param  array{appraisal_cycle_id?: mixed, employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listAppraisals(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PerformanceAppraisal::with(['cycle', 'employee', 'reviewer'])
+            ->when($filters['appraisal_cycle_id'] ?? null, fn ($q, $id) => $q->forCycle((int) $id))
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findAppraisal(int $id, array $relations = []): ?PerformanceAppraisal
+    {
+        return PerformanceAppraisal::with($relations)->find($id);
+    }
+
+    /**
+     * Ids of the questions on the appraisal's own template, the only questions
+     * its reviews may answer. Question rows carry no organization, so this is
+     * also what keeps another organization's questions out.
+     *
+     * @return list<int>
+     */
+    public function questionIdsOf(PerformanceAppraisal $appraisal): array
+    {
+        if ($appraisal->appraisal_template_id === null) {
+            return [];
+        }
+
+        return AppraisalTemplateQuestion::whereIn(
+            'appraisal_template_section_id',
+            AppraisalTemplateSection::where('appraisal_template_id', $appraisal->appraisal_template_id)->select('id')
+        )->pluck('id')->all();
+    }
+
+    /**
+     * @param  array{employee_id?: mixed, appraisal_cycle_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listGoals(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PerformanceGoal::with(['employee', 'cycle'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['appraisal_cycle_id'] ?? null, fn ($q, $id) => $q->forCycle((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findGoal(int $id, array $relations = []): ?PerformanceGoal
+    {
+        return PerformanceGoal::with($relations)->find($id);
+    }
+
     // ---------------------------------------------------------------------------
     // Appraisal Cycles
     // ---------------------------------------------------------------------------

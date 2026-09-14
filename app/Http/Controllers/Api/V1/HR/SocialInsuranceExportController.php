@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\SocialInsuranceSubmission;
 use App\Services\HR\BahrainSioExportService;
 use App\Services\HR\KuwaitPifssExportService;
 use App\Services\HR\OmanPasiExportService;
 use App\Services\HR\QatarGrsiaExportService;
+use App\Services\HR\SocialInsuranceService;
 use App\Services\HR\UaeGpssaExportService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -23,6 +23,7 @@ class SocialInsuranceExportController extends Controller
     private array $exportServices;
 
     public function __construct(
+        private SocialInsuranceService $siService,
         OmanPasiExportService    $oman,
         KuwaitPifssExportService $kuwait,
         BahrainSioExportService  $bahrain,
@@ -46,10 +47,7 @@ class SocialInsuranceExportController extends Controller
      */
     public function export(string $submission): StreamedResponse
     {
-        /** @var SocialInsuranceSubmission $sub */
-        $sub = SocialInsuranceSubmission::where('uuid', $submission)
-            ->with('scheme')
-            ->firstOrFail();
+        $sub = $this->siService->findSubmissionWithScheme($submission);
 
         abort_unless(
             $sub->organization_id === auth()->user()?->organization_id,

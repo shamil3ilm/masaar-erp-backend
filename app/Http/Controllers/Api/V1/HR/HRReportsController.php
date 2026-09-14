@@ -5,16 +5,20 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
+use App\Models\HR\Employee;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\HRReportService;
 use App\Services\HR\StatutoryDeductionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class HRReportsController extends Controller
 {
     public function __construct(
         protected HRReportService $reportService,
-        protected StatutoryDeductionService $statutoryService
+        protected StatutoryDeductionService $statutoryService,
+        protected EmployeeService $employeeService,
     ) {}
 
     /**
@@ -38,7 +42,7 @@ class HRReportsController extends Controller
     {
         $request->validate([
             'as_of_date' => 'nullable|date',
-            'department_id' => 'nullable|integer|exists:departments,id',
+            'department_id' => $this->departmentRule($request),
         ]);
 
         $user = $request->user();
@@ -47,7 +51,7 @@ class HRReportsController extends Controller
 
         $data = $this->reportService->generateHeadcountReport(
             $request->get('as_of_date', now()->toDateString()),
-            $request->get('department_id')
+            $this->departmentId($request)
         );
 
         return $this->success($data);
@@ -83,7 +87,7 @@ class HRReportsController extends Controller
         $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
-            'department_id' => 'nullable|integer|exists:departments,id',
+            'department_id' => $this->departmentRule($request),
         ]);
 
         $user = $request->user();
@@ -93,7 +97,7 @@ class HRReportsController extends Controller
         $data = $this->reportService->generateAttendanceReport(
             $request->get('start_date'),
             $request->get('end_date'),
-            $request->get('department_id')
+            $this->departmentId($request)
         );
 
         return $this->success($data);
@@ -107,7 +111,7 @@ class HRReportsController extends Controller
         $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
-            'department_id' => 'nullable|integer|exists:departments,id',
+            'department_id' => $this->departmentRule($request),
         ]);
 
         $user = $request->user();
@@ -117,7 +121,7 @@ class HRReportsController extends Controller
         $data = $this->reportService->generateLeaveReport(
             $request->get('start_date'),
             $request->get('end_date'),
-            $request->get('department_id')
+            $this->departmentId($request)
         );
 
         return $this->success($data);
@@ -180,28 +184,27 @@ class HRReportsController extends Controller
      */
     public function calculateStatutory(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         $request->validate([
             'gross_salary' => 'required|numeric|min:0',
             'country_code' => 'nullable|string|size:2',
-            'employee_id' => 'nullable|integer|exists:employees,id',
+            'employee_id' => ['nullable', 'integer', Rule::exists('employees', 'id')->where('organization_id', $user->organization_id)],
             'state' => 'nullable|string', // For India PT
             'tax_regime' => 'nullable|string|in:new,old', // For India TDS
         ]);
 
-        $user = $request->user();
         $countryCode = $request->get('country_code', $user->organization->country_code);
         $grossSalary = (float) $request->get('gross_salary');
 
-        // If employee_id provided, use their data
-        $employee = null;
-        if ($request->has('employee_id')) {
-            $employee = \App\Models\HR\Employee::where('organization_id', $user->organization_id)
-                ->find($request->get('employee_id'));
-        }
+        // Use the named employee's data when one is given
+        $employee = $request->filled('employee_id')
+            ? $this->employeeService->find($request->integer('employee_id'))
+            : null;
 
         // Create mock employee if not provided
         if (!$employee) {
-            $employee = new \App\Models\HR\Employee([
+            $employee = new Employee([
                 'organization_id' => $user->organization_id,
                 'nationality' => $countryCode,
                 'work_state' => $request->get('state', 'MH'),
@@ -240,5 +243,22 @@ class HRReportsController extends Controller
         );
 
         return $this->success($data);
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private function departmentRule(Request $request): array
+    {
+        return ['nullable', 'integer', Rule::exists('departments', 'id')->where('organization_id', $request->user()->organization_id)];
+    }
+
+    /**
+     * The department filter as the report service takes it: the query string
+     * carries it as text.
+     */
+    private function departmentId(Request $request): ?int
+    {
+        return $request->filled('department_id') ? $request->integer('department_id') : null;
     }
 }
