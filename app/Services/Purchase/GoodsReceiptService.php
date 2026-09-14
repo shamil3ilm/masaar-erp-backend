@@ -57,6 +57,38 @@ class GoodsReceiptService
     }
 
     /**
+     * A page of the organization's three-way match results, newest first, with
+     * the bill and the matched lines loaded.
+     *
+     * @param  array<string, mixed>  $filters  match_status, bill_id
+     */
+    public function matchResults(int $orgId, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->matchResultQuery($orgId)
+            ->when($filters['match_status'] ?? null, fn ($q, $status) => $q->where('match_status', $status))
+            ->when($filters['bill_id'] ?? null, fn ($q, $billId) => $q->where('bill_id', $billId))
+            ->paginate($perPage);
+    }
+
+    /**
+     * A page of the organization's three-way match results that did not match.
+     */
+    public function matchExceptions(int $orgId, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->matchResultQuery($orgId)->unmatched()->paginate($perPage);
+    }
+
+    /**
+     * Match results whose bill belongs to the organization, newest first.
+     */
+    private function matchResultQuery(int $orgId): \Illuminate\Database\Eloquent\Builder
+    {
+        return ThreeWayMatchResult::with(['bill', 'purchaseOrderLine', 'goodsReceiptLine'])
+            ->whereHas('bill', fn ($q) => $q->where('organization_id', $orgId))
+            ->orderBy('created_at', 'desc');
+    }
+
+    /**
      * Create a Goods Receipt (draft) against a Purchase Order.
      */
     public function createGr(PurchaseOrder $purchaseOrder, array $data): GoodsReceipt
