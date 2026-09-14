@@ -176,20 +176,35 @@ class CreditNoteService
         });
     }
 
+    /**
+     * Void a credit note that has not been applied.
+     *
+     * The applied amount is read from the locked note: credit applied to an
+     * invoice by a concurrent request has paid part of that invoice, and
+     * voiding the note would leave the payment without its credit.
+     */
     public function void(CreditNote $creditNote): CreditNote
     {
-        if ($creditNote->applied_amount > 0) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
-                'message' => 'Cannot void a credit note that has been partially or fully applied.',
+        return $creditNote->lockForTransition(function (CreditNote $creditNote): CreditNote {
+            if ($creditNote->status === CreditNote::STATUS_VOIDED) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
+                    'message' => 'Credit note is already voided.',
+                ]);
+            }
+
+            if (bccomp((string) $creditNote->applied_amount, '0', 2) > 0) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION, [
+                    'message' => 'Cannot void a credit note that has been partially or fully applied.',
+                ]);
+            }
+
+            $creditNote->update([
+                'status' => CreditNote::STATUS_VOIDED,
+                'available_amount' => 0,
             ]);
-        }
 
-        $creditNote->update([
-            'status' => CreditNote::STATUS_VOIDED,
-            'available_amount' => 0,
-        ]);
-
-        return $creditNote->fresh();
+            return $creditNote->fresh();
+        });
     }
 
     public function list(int $organizationId, array $filters = [], int $perPage = 20)
