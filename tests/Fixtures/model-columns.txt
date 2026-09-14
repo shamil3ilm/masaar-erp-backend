@@ -12,6 +12,5 @@
 # A ratchet, not an approval. The list may shrink and may not grow, and the
 # test fails if an entry here has been fixed and not removed.
 
-App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
 App\Models\Reports\ReportExecution (report_executions): file_format, report_type
 App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, parameters, recipients, report_type
