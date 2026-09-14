@@ -16,6 +16,39 @@ use Throwable;
 
 class ErsService
 {
+    /**
+     * A page of the organization's ERS configurations, with their vendors.
+     */
+    public function listConfigs(int $orgId, int $perPage): \Illuminate\Pagination\LengthAwarePaginator
+    {
+        return ErsConfiguration::where('organization_id', $orgId)
+            ->with('vendor')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A page of the organization's ERS runs, latest run date first.
+     */
+    public function listRuns(int $orgId, int $perPage): \Illuminate\Pagination\LengthAwarePaginator
+    {
+        return ErsRun::where('organization_id', $orgId)
+            ->orderByDesc('run_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * The items of one of the organization's runs, with receipt, bill and
+     * vendor loaded. Another organization's run is not found.
+     *
+     * @return \Illuminate\Support\Collection<int, ErsRunItem>
+     */
+    public function runItems(int $orgId, string $runId): \Illuminate\Support\Collection
+    {
+        $run = ErsRun::where('organization_id', $orgId)->findOrFail($runId);
+
+        return $run->items()->with(['goodsReceipt', 'bill', 'vendor'])->get();
+    }
+
     public function getOrCreateConfig(int $orgId, int $vendorId): ErsConfiguration
     {
         return ErsConfiguration::firstOrCreate(

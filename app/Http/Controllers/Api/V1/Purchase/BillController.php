@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\BillResource;
 use App\Models\Purchase\Bill;
 use App\Services\Purchase\BillService;
+use App\Services\Purchase\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class BillController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private BillService $billService
+        private BillService $billService,
+        private PurchaseOrderService $purchaseOrderService,
     ) {
     }
 
@@ -24,26 +28,12 @@ class BillController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Bill::with(['supplier', 'lines', 'purchaseOrder'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->supplier_id, fn($q, $id) => $q->forSupplier($id))
-            ->when($request->bill_type, fn($q, $type) => $q->where('bill_type', $type))
-            ->when($request->overdue === 'true', fn($q) => $q->overdue())
-            ->when($request->start_date, fn($q, $date) => $q->where('bill_date', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('bill_date', '<=', $date))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('bill_number', 'like', "%{$search}%")
-                        ->orWhere('supplier_name', 'like', "%{$search}%")
-                        ->orWhere('supplier_invoice_number', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['bill_number', 'bill_date', 'due_date', 'status', 'total', 'created_at', 'updated_at'], 'bill_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $bills = $query->paginate($request->integer('per_page', 15));
+        $bills = $this->billService->list(
+            $request->only(['status', 'supplier_id', 'bill_type', 'overdue', 'start_date', 'end_date', 'search']),
+            $this->safeSortBy($request->sort_by, ['bill_number', 'bill_date', 'due_date', 'status', 'total', 'created_at', 'updated_at'], 'bill_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($bills, BillResource::class);
     }
@@ -54,15 +44,15 @@ class BillController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'purchase_order_id' => 'nullable|exists:purchase_orders,id',
+            'supplier_id' => ['required', $this->ownedBy('contacts')],
+            'purchase_order_id' => ['nullable', $this->ownedBy('purchase_orders')],
             'bill_number' => 'nullable|string|max:50',
             'supplier_invoice_number' => 'nullable|string|max:100',
             'bill_type' => 'nullable|in:standard,debit_note,credit_note',
             'bill_date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:bill_date',
             'received_date' => 'nullable|date',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'currency_code' => 'nullable|string|size:3',
             'exchange_rate' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|in:percentage,fixed',
@@ -71,24 +61,8 @@ class BillController extends Controller
             'is_reverse_charge' => 'nullable|boolean',
             'notes' => 'nullable|string',
             'lines' => 'required|array|min:1',
-            'lines.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_price' => 'required|numeric|min:0',
-            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
-            'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_rate' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|exists:tax_categories,id',
-            'lines.*.account_id' => ['nullable', Rule::exists('chart_of_accounts', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            ...$this->lineRules(),
         ]);
-
-        // Validate supplier belongs to user's organization
-        $supplier = \App\Models\Sales\Contact::find($validated['supplier_id']);
-        if ($supplier && $supplier->organization_id !== auth()->user()->organization_id) {
-            return $this->error('The selected supplier does not belong to your organization.', 'VALIDATION_ERROR', 422);
-        }
 
         try {
             $bill = $this->billService->create(
@@ -121,11 +95,7 @@ class BillController extends Controller
     public function update(Request $request, Bill $bill): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => [
-                'sometimes',
-                'nullable',
-                Rule::exists('contacts', 'id')->where('organization_id', auth()->user()->organization_id),
-            ],
+            'supplier_id' => ['sometimes', 'nullable', $this->ownedBy('contacts')],
             'supplier_invoice_number' => 'nullable|string|max:100',
             'bill_date' => 'sometimes|date',
             'due_date' => 'nullable|date|after_or_equal:bill_date',
@@ -137,17 +107,7 @@ class BillController extends Controller
             'notes' => 'nullable|string',
             'version' => 'sometimes|integer',
             'lines' => 'sometimes|array|min:1',
-            'lines.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_price' => 'required|numeric|min:0',
-            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
-            'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_rate' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|exists:tax_categories,id',
-            'lines.*.account_id' => ['nullable', Rule::exists('chart_of_accounts', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            ...$this->lineRules(),
         ]);
 
         try {
@@ -168,14 +128,10 @@ class BillController extends Controller
      */
     public function destroy(Bill $bill): JsonResponse
     {
-        if (!$bill->isEditable()) {
-            return $this->error('Only draft/pending bills can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $bill->lines()->delete();
-        $bill->delete();
-
-        return $this->success(null, 'Bill deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->billService->delete($bill),
+            'Bill deleted successfully.',
+        );
     }
 
     /**
@@ -208,12 +164,12 @@ class BillController extends Controller
     public function createFromPurchaseOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'purchase_order_id' => 'required|exists:purchase_orders,id',
+            'purchase_order_id' => ['required', $this->ownedBy('purchase_orders')],
             'line_quantities' => 'nullable|array',
             'line_quantities.*' => 'numeric|min:0',
         ]);
 
-        $order = \App\Models\Purchase\PurchaseOrder::findOrFail($validated['purchase_order_id']);
+        $order = $this->purchaseOrderService->find((int) $validated['purchase_order_id']);
 
         try {
             $bill = $this->billService->createFromPurchaseOrder(
@@ -235,26 +191,30 @@ class BillController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $query = Bill::query();
+        return $this->success(
+            $this->billService->summary($request->supplier_id ? (int) $request->supplier_id : null)
+        );
+    }
 
-        if ($request->supplier_id) {
-            $query->forSupplier($request->supplier_id);
-        }
-
-        $draft = (clone $query)->draft()->count();
-        $unpaid = (clone $query)->unpaid()->count();
-        $overdue = (clone $query)->overdue()->count();
-
-        $unpaidValue = (clone $query)->unpaid()->sum('amount_due');
-        $overdueValue = (clone $query)->overdue()->sum('amount_due');
-
-        return $this->success([
-            'total_count' => $query->count(),
-            'draft_count' => $draft,
-            'unpaid_count' => $unpaid,
-            'overdue_count' => $overdue,
-            'unpaid_value' => (float) $unpaidValue,
-            'overdue_value' => (float) $overdueValue,
-        ]);
+    /**
+     * Validation for bill lines; every referenced row must belong to the caller's organization.
+     *
+     * @return array<string, mixed>
+     */
+    private function lineRules(): array
+    {
+        return [
+            'lines.*.product_id' => ['nullable', $this->ownedBy('products')],
+            'lines.*.description' => 'nullable|string|max:500',
+            'lines.*.quantity' => 'required|numeric|min:0.0001',
+            'lines.*.unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
+            'lines.*.unit_price' => 'required|numeric|min:0',
+            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
+            'lines.*.discount_value' => 'nullable|numeric|min:0',
+            'lines.*.tax_rate' => 'nullable|numeric|min:0',
+            'lines.*.tax_category_id' => ['nullable', $this->ownedBy('tax_categories')],
+            'lines.*.account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'lines.*.warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
+        ];
     }
 }

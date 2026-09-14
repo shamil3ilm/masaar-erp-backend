@@ -33,7 +33,7 @@ class PurchaseRequisitionLineResource extends JsonResource
             'preferred_vendor_id' => $this->preferred_vendor_id,
             'preferred_vendor' => $this->whenLoaded('preferredVendor', fn() => $this->preferredVendor ? [
                 'id' => $this->preferredVendor->id,
-                'name' => $this->preferredVendor->display_name,
+                'name' => $this->preferredVendor->getDisplayName(),
             ] : null),
             'warehouse_id' => $this->warehouse_id,
             'required_by_date' => $this->required_by_date?->toDateString(),

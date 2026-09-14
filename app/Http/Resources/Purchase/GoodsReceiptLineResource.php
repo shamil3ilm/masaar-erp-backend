@@ -31,7 +31,8 @@ class GoodsReceiptLineResource extends JsonResource
             'unit' => $this->whenLoaded('unit', fn() => [
                 'id' => $this->unit->id,
                 'name' => $this->unit->name,
-                'abbreviation' => $this->unit->abbreviation,
+                // Units store their short form as symbol; the key keeps its published name.
+                'abbreviation' => $this->unit->symbol,
             ]),
             'unit_cost' => (float) $this->unit_cost,
             'total_cost' => (float) $this->total_cost,

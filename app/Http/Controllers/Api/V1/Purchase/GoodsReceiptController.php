@@ -4,20 +4,25 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\GoodsReceiptResource;
-use App\Models\Purchase\Bill;
 use App\Models\Purchase\GoodsReceipt;
-use App\Models\Purchase\PurchaseOrder;
+use App\Services\Purchase\BillService;
 use App\Services\Purchase\GoodsReceiptService;
+use App\Services\Purchase\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class GoodsReceiptController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private GoodsReceiptService $goodsReceiptService
+        private GoodsReceiptService $goodsReceiptService,
+        private PurchaseOrderService $purchaseOrderService,
+        private BillService $billService,
     ) {}
 
     /**
@@ -25,21 +30,14 @@ class GoodsReceiptController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = GoodsReceipt::with(['purchaseOrder', 'vendor', 'warehouse', 'creator'])
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->purchase_order_id, fn($q, $id) => $q->where('purchase_order_id', $id))
-            ->when($request->warehouse_id, fn($q, $id) => $q->where('warehouse_id', $id))
-            ->when($request->start_date, fn($q, $date) => $q->where('gr_date', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('gr_date', '<=', $date))
-            ->when($request->search, function ($q, $search) {
-                $q->where('gr_number', 'like', "%{$search}%");
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['gr_number', 'gr_date', 'status', 'created_at'], 'gr_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
+        $receipts = $this->goodsReceiptService->list(
+            $request->only(['status', 'purchase_order_id', 'warehouse_id', 'start_date', 'end_date', 'search']),
+            $this->safeSortBy($request->sort_by, ['gr_number', 'gr_date', 'status', 'created_at'], 'gr_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 15)), GoodsReceiptResource::class);
+        return $this->paginated($receipts, GoodsReceiptResource::class);
     }
 
     /**
@@ -48,33 +46,37 @@ class GoodsReceiptController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'purchase_order_id' => ['required', Rule::exists('purchase_orders', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'purchase_order_id' => ['required', $this->ownedBy('purchase_orders')],
             'gr_number' => 'nullable|string|max:30',
             'gr_date' => 'nullable|date',
-            'warehouse_id' => ['required', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'contact_id' => ['nullable', Rule::exists('contacts', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'warehouse_id' => ['required', $this->ownedBy('warehouses')],
+            'contact_id' => ['nullable', $this->ownedBy('contacts')],
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'lines' => 'required|array|min:1',
-            'lines.*.po_line_id' => 'nullable|exists:purchase_order_lines,id',
-            'lines.*.product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            // Order lines and locations have no organization column: a line must
+            // belong to the order received and a location to the receiving warehouse.
+            'lines.*.po_line_id' => [
+                'nullable',
+                Rule::exists('purchase_order_lines', 'id')->where('purchase_order_id', (int) $request->input('purchase_order_id')),
+            ],
+            'lines.*.product_id' => ['required', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', $this->ownedBy('product_variants')],
             'lines.*.description' => 'nullable|string|max:500',
             'lines.*.quantity_ordered' => 'nullable|numeric|min:0',
             'lines.*.quantity_received' => 'required|numeric|min:0.0001',
             'lines.*.quantity_rejected' => 'nullable|numeric|min:0',
-            'lines.*.unit_id' => 'required|exists:units_of_measure,id',
+            'lines.*.unit_id' => ['required', $this->ownedBy('units_of_measure')],
             'lines.*.unit_cost' => 'required|numeric|min:0',
-            'lines.*.location_id' => 'nullable|exists:warehouse_locations,id',
+            'lines.*.location_id' => [
+                'nullable',
+                Rule::exists('warehouse_locations', 'id')->where('warehouse_id', (int) $request->input('warehouse_id')),
+            ],
             'lines.*.batch_number' => 'nullable|string|max:100',
             'lines.*.expiry_date' => 'nullable|date',
         ]);
 
-        $purchaseOrder = PurchaseOrder::findOrFail($validated['purchase_order_id']);
-
-        if ($purchaseOrder->organization_id !== auth()->user()->organization_id) {
-            return $this->error('Purchase order not found.', 'NOT_FOUND', 404);
-        }
+        $purchaseOrder = $this->purchaseOrderService->find((int) $validated['purchase_order_id']);
 
         try {
             $gr = $this->goodsReceiptService->createGr($purchaseOrder, $validated);
@@ -161,14 +163,10 @@ class GoodsReceiptController extends Controller
     public function threeWayMatch(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'bill_id' => 'required|exists:bills,id',
+            'bill_id' => ['required', $this->ownedBy('bills')],
         ]);
 
-        $bill = Bill::findOrFail($validated['bill_id']);
-
-        if ($bill->organization_id !== auth()->user()->organization_id) {
-            return $this->error('Bill not found.', 'NOT_FOUND', 404);
-        }
+        $bill = $this->billService->find((int) $validated['bill_id']);
 
         try {
             $result = $this->goodsReceiptService->runThreeWayMatch($bill);

@@ -5,34 +5,30 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Purchase;
 
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\ThreeWayMatchResult;
+use App\Http\Resources\Purchase\ThreeWayMatchResultResource;
+use App\Services\Purchase\GoodsReceiptService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ThreeWayMatchController extends Controller
 {
+    public function __construct(
+        private GoodsReceiptService $goodsReceiptService
+    ) {}
+
     /**
      * GET /api/v1/purchase/three-way-match
      * Returns all three-way match results for the organization.
      */
     public function index(Request $request): JsonResponse
     {
-        $orgId = (int) $request->user()->organization_id;
+        $results = $this->goodsReceiptService->matchResults(
+            (int) $request->user()->organization_id,
+            $request->only(['match_status', 'bill_id']),
+            $request->integer('per_page', 50)
+        );
 
-        $results = ThreeWayMatchResult::with(['bill', 'purchaseOrderLine', 'goodsReceiptLine'])
-            ->whereHas('bill', fn ($q) => $q->where('organization_id', $orgId))
-            ->when(
-                $request->match_status,
-                fn ($q, $status) => $q->where('match_status', $status)
-            )
-            ->when(
-                $request->bill_id,
-                fn ($q, $billId) => $q->where('bill_id', $billId)
-            )
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->integer('per_page', 50));
-
-        return $this->paginated($results);
+        return $this->paginated($results, ThreeWayMatchResultResource::class);
     }
 
     /**
@@ -41,14 +37,11 @@ class ThreeWayMatchController extends Controller
      */
     public function exceptions(Request $request): JsonResponse
     {
-        $orgId = (int) $request->user()->organization_id;
+        $exceptions = $this->goodsReceiptService->matchExceptions(
+            (int) $request->user()->organization_id,
+            $request->integer('per_page', 50)
+        );
 
-        $exceptions = ThreeWayMatchResult::with(['bill', 'purchaseOrderLine', 'goodsReceiptLine'])
-            ->whereHas('bill', fn ($q) => $q->where('organization_id', $orgId))
-            ->unmatched()
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->integer('per_page', 50));
-
-        return $this->paginated($exceptions);
+        return $this->paginated($exceptions, ThreeWayMatchResultResource::class);
     }
 }
