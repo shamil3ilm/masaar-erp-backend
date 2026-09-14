@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\FiscalYear;
 use App\Services\Accounting\AccountBalanceService;
+use App\Services\Accounting\FiscalYearService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
     public function __construct(
-        private AccountBalanceService $balanceService
+        private AccountBalanceService $balanceService,
+        private FiscalYearService $fiscalYears,
     ) {}
 
     /**
@@ -85,8 +86,6 @@ class ReportController extends Controller
 
     private function getCurrentFiscalYearId(): int
     {
-        return (int) FiscalYear::where('organization_id', auth()->user()->organization_id)
-            ->where('is_current', true)
-            ->value('id');
+        return $this->fiscalYears->currentId(auth()->user()->organization_id);
     }
 }

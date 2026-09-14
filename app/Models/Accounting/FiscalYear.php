@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 class FiscalYear extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, LocksForTransition;
 
     protected $fillable = [
         'organization_id',
