@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\Account;
 use App\Models\Accounting\PaymentDifferencePost;
 use App\Models\Accounting\PaymentToleranceGroup;
 use App\Models\Accounting\PaymentToleranceItem;
@@ -26,6 +25,7 @@ class PaymentToleranceService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly AccountResolver $accountResolver,
     ) {}
 
     // =========================================================================
@@ -309,13 +309,13 @@ class PaymentToleranceService
         if ($diffType === PaymentDifferencePost::TYPE_UNDERPAYMENT) {
             $debitAccount  = $item?->underpay_gl_account_id
                 ? $item->underpayGlAccount
-                : $this->fallbackAccount($organizationId, 'other_expense');
-            $creditAccount = $this->fallbackAccount($organizationId, 'receivable');
+                : $this->accountResolver->bySubType($organizationId, 'other_expense');
+            $creditAccount = $this->accountResolver->bySubType($organizationId, 'receivable');
         } else {
-            $debitAccount  = $this->fallbackAccount($organizationId, 'payable');
+            $debitAccount  = $this->accountResolver->bySubType($organizationId, 'payable');
             $creditAccount = $item?->overpay_gl_account_id
                 ? $item->overpayGlAccount
-                : $this->fallbackAccount($organizationId, 'other_income');
+                : $this->accountResolver->bySubType($organizationId, 'other_income');
         }
 
         if (!$debitAccount || !$creditAccount) {
@@ -354,17 +354,6 @@ class PaymentToleranceService
         $this->journalService->postEntry($je);
 
         return $je;
-    }
-
-    private function fallbackAccount(int $organizationId, string $subType): ?Account
-    {
-        return Account::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('sub_type', $subType)
-            ->where('is_active', true)
-            ->where('is_header', false)
-            ->orderBy('id')
-            ->first();
     }
 
     private function assertCodeUnique(string $code, int $organizationId): void

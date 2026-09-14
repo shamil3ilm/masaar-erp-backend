@@ -11,6 +11,7 @@ use App\Models\Accounting\Account;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\CreditNoteApplication;
 use App\Models\Sales\Invoice;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Support\TaxMath;
@@ -19,6 +20,10 @@ use Illuminate\Support\Facades\Log;
 
 class CreditNoteService
 {
+    public function __construct(
+        private readonly AccountResolver $accountResolver,
+    ) {}
+
     public function create(array $data, int $userId): CreditNote
     {
         return DB::transaction(function () use ($data, $userId) {
@@ -60,9 +65,7 @@ class CreditNoteService
                 // An account is classified by account_type and narrowed by
                 // sub_type. There is no type column, and no revenue value:
                 // income is the type, receivable is a sub_type.
-                $receivableAccount = Account::where('organization_id', $orgId)
-                    ->where('sub_type', 'receivable')
-                    ->first()
+                $receivableAccount = $this->accountResolver->bySubType((int) $orgId, Account::SUBTYPE_RECEIVABLE)
                     ?? Account::where('organization_id', $orgId)
                         ->where('code', '1200')
                         ->first();
