@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\DocumentType;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -164,5 +165,43 @@ class DocumentTypeTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/document-types')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filters, tenant isolation and response shape
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_by_active_only(): void
+    {
+        $this->makeDocumentType(['code' => 'D1']);
+        $this->makeDocumentType(['code' => 'D2', 'is_active' => false]);
+        $this->makeDocumentType(['code' => 'D3', 'organization_id' => Organization::factory()->create()->id]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/document-types?per_page=5');
+        $all->assertStatus(200)->assertJsonPath('meta.per_page', 5);
+        $this->assertSame(['D1', 'D2'], array_column($all->json('data'), 'code'));
+
+        $active = $this->withToken($this->token)->getJson('/api/v1/document-types?active_only=true');
+        $active->assertJsonPath('meta.per_page', 20);
+        $this->assertSame(['D1'], array_column($active->json('data'), 'code'));
+    }
+
+    public function test_store_sets_the_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/document-types', ['code' => 'KR', 'name' => 'Vendor Invoice'])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Document type created.')
+            ->assertJsonPath('data.code', 'KR')
+            ->assertJsonPath('data.organization_id', $this->organization->id);
+    }
+
+    public function test_show_returns_404_for_other_organization_document_type(): void
+    {
+        $other = $this->makeDocumentType(['organization_id' => Organization::factory()->create()->id]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/document-types/' . $other->getRouteKey())
+            ->assertStatus(404);
     }
 }
