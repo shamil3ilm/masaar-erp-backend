@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Sales;
 
 use App\Models\Accounting\Account;
+use App\Models\Concerns\CalculatesLineTotals;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\UnitOfMeasure;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InvoiceLine extends Model
 {
-    use HasFactory;
+    use CalculatesLineTotals, HasFactory;
 
     protected $fillable = [
         'invoice_id',
@@ -70,13 +71,6 @@ class InvoiceLine extends Model
         ];
     }
 
-    protected static function booted(): void
-    {
-        static::saving(function (InvoiceLine $line) {
-            $line->calculateTotals();
-        });
-    }
-
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
@@ -112,58 +106,9 @@ class InvoiceLine extends Model
         return $this->belongsTo(Warehouse::class);
     }
 
-    /**
-     * Calculate line totals.
-     */
-    public function calculateTotals(): void
+    protected function splitsGst(): bool
     {
-        // Gross amount
-        $gross = bcmul((string) $this->quantity, (string) $this->unit_price, 4);
-
-        // Apply discount
-        if ($this->discount_type === 'percentage' && $this->discount_value > 0) {
-            $this->discount_amount = bcmul($gross, bcdiv((string) $this->discount_value, '100', 6), 4);
-        } elseif ($this->discount_type === 'fixed') {
-            $this->discount_amount = $this->discount_value;
-        } else {
-            $this->discount_amount = 0;
-        }
-
-        // Subtotal (before tax)
-        $this->subtotal = bcsub($gross, (string) $this->discount_amount, 4);
-
-        // Tax calculation
-        if ($this->tax_rate > 0) {
-            $this->tax_amount = bcmul((string) $this->subtotal, bcdiv((string) $this->tax_rate, '100', 6), 4);
-        } else {
-            $this->tax_amount = 0;
-        }
-
-        // Handle GST split (India)
-        $this->calculateGstSplit();
-
-        // Total (after tax)
-        $this->total = bcadd((string) $this->subtotal, (string) $this->tax_amount, 4);
-    }
-
-    /**
-     * Calculate GST split for India.
-     */
-    protected function calculateGstSplit(): void
-    {
-        // If IGST is set, it's inter-state
-        if ($this->igst_rate > 0) {
-            $this->igst_amount = bcmul((string) $this->subtotal, bcdiv((string) $this->igst_rate, '100', 6), 4);
-            $this->cgst_amount = 0;
-            $this->sgst_amount = 0;
-            $this->tax_amount = $this->igst_amount;
-        } elseif ($this->cgst_rate > 0 || $this->sgst_rate > 0) {
-            // Intra-state: CGST + SGST
-            $this->cgst_amount = bcmul((string) $this->subtotal, bcdiv((string) $this->cgst_rate, '100', 6), 4);
-            $this->sgst_amount = bcmul((string) $this->subtotal, bcdiv((string) $this->sgst_rate, '100', 6), 4);
-            $this->igst_amount = 0;
-            $this->tax_amount = bcadd((string) $this->cgst_amount, (string) $this->sgst_amount, 4);
-        }
+        return true;
     }
 
     /**

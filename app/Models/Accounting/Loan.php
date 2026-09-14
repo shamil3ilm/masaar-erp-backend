@@ -37,31 +37,6 @@ class Loan extends Model
         ];
     }
 
-    protected static function booted(): void
-    {
-        static::creating(function (self $model): void {
-            if (empty($model->loan_number)) {
-                $model->loan_number = static::generateNumber($model->organization_id);
-            }
-        });
-    }
-
-    public static function generateNumber(int $organizationId): string
-    {
-        $year = now()->format('Y');
-        $key = "LN-{$year}-";
-
-        $last = static::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('loan_number', 'like', "{$key}%")
-            ->orderByDesc('id')
-            ->value('loan_number');
-
-        $sequence = $last ? (int) substr($last, strlen($key)) + 1 : 1;
-
-        return $key . str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
-    }
-
     // -------------------------------------------------------------------------
     // Relationships
     // -------------------------------------------------------------------------

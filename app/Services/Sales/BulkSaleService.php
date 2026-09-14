@@ -7,6 +7,7 @@ namespace App\Services\Sales;
 use App\Models\Sales\BulkSaleBatch;
 use App\Models\Sales\BulkSaleItem;
 use App\Services\Core\NumberGeneratorService;
+use App\Support\TaxMath;
 use Illuminate\Support\Facades\DB;
 
 class BulkSaleService
@@ -53,18 +54,20 @@ class BulkSaleService
             foreach ($items as $index => $itemData) {
                 $lineNumber = $lastLineNumber + $index + 1;
 
-                $subtotal = bcmul((string) $itemData['quantity'], (string) $itemData['unit_price'], 4);
-                $discountAmount = $itemData['discount_amount'] ?? 0;
-                $taxRate = $itemData['tax_rate'] ?? 0;
-                $taxableAmount = bcsub($subtotal, (string) $discountAmount, 4);
-                $taxAmount = bcmul($taxableAmount, bcdiv((string) $taxRate, '100', 6), 4);
-                $totalAmount = bcadd($taxableAmount, $taxAmount, 4);
+                // An item carries its discount as an amount, taken off before tax.
+                $amounts = TaxMath::line(
+                    (string) $itemData['quantity'],
+                    (string) $itemData['unit_price'],
+                    (string) ($itemData['tax_rate'] ?? 0),
+                    'fixed',
+                    (string) ($itemData['discount_amount'] ?? 0),
+                );
 
                 BulkSaleItem::create(array_merge($itemData, [
                     'batch_id' => $batch->id,
                     'line_number' => $lineNumber,
-                    'tax_amount' => $taxAmount,
-                    'total_amount' => $totalAmount,
+                    'tax_amount' => $amounts['tax'],
+                    'total_amount' => $amounts['total'],
                     'status' => BulkSaleItem::STATUS_PENDING,
                 ]));
             }

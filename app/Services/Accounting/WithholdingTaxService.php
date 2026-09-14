@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
-use App\Models\Accounting\Account;
 use App\Models\Accounting\WithholdingTaxCode;
 use App\Models\Accounting\WithholdingTaxLine;
 use App\Services\Core\NumberGeneratorService;
@@ -28,6 +27,7 @@ class WithholdingTaxService
     public function __construct(
         private readonly JournalService $journalService,
         private readonly NumberGeneratorService $numberGenerator,
+        private readonly AccountResolver $accountResolver,
     ) {}
 
     // =========================================================================
@@ -216,15 +216,15 @@ class WithholdingTaxService
         // For supplier payments (payment_made): Dr Expense, Cr WHT Payable
         // For customer receipts (payment_received): Dr WHT Receivable, Cr Income
         if ($paymentType === WithholdingTaxLine::TYPE_PAYMENT_MADE) {
-            $debitAccount  = $this->fallbackAccount($organizationId, 'other_expense');
+            $debitAccount  = $this->accountResolver->bySubType($organizationId, 'other_expense');
             $creditAccount = $code->payable_account_id
                 ? $code->payableAccount
-                : $this->fallbackAccount($organizationId, 'tax_payable');
+                : $this->accountResolver->bySubType($organizationId, 'tax_payable');
         } else {
             $debitAccount  = $code->receivable_account_id
                 ? $code->receivableAccount
-                : $this->fallbackAccount($organizationId, 'tax_receivable');
-            $creditAccount = $this->fallbackAccount($organizationId, 'other_income');
+                : $this->accountResolver->bySubType($organizationId, 'tax_receivable');
+            $creditAccount = $this->accountResolver->bySubType($organizationId, 'other_income');
         }
 
         if (!$debitAccount || !$creditAccount) {
@@ -259,17 +259,6 @@ class WithholdingTaxService
         $this->journalService->postEntry($je);
 
         return $je;
-    }
-
-    private function fallbackAccount(int $organizationId, string $subType): ?Account
-    {
-        return Account::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('sub_type', $subType)
-            ->where('is_active', true)
-            ->where('is_header', false)
-            ->orderBy('id')
-            ->first();
     }
 
     private function assertCodeUnique(string $code, int $organizationId): void

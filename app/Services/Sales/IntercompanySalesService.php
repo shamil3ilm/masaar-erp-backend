@@ -9,14 +9,17 @@ use App\Models\Sales\IntercompanyBillingDocument;
 use App\Models\Sales\IntercompanyPurchaseOrderLink;
 use App\Models\Sales\IntercompanySalesOrder;
 use App\Models\Sales\IntercompanySalesOrderLine;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
+use App\Support\TaxMath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class IntercompanySalesService
 {
     public function __construct(
-        private readonly JournalService $journalService
+        private readonly JournalService $journalService,
+        private readonly AccountResolver $accountResolver,
     ) {}
 
     /**
@@ -83,13 +86,12 @@ class IntercompanySalesService
                 $quantity = (string) $lineData['quantity'];
                 $transferPrice = (string) $lineData['transfer_price'];
                 $taxRate = (string) ($lineData['tax_rate'] ?? '0');
-                $lineTotal = bcmul($quantity, $transferPrice, 4);
-                $taxAmount = bcmul($lineTotal, bcdiv($taxRate, '100', 6), 4);
+                $amounts = TaxMath::line($quantity, $transferPrice, $taxRate);
 
                 IntercompanySalesOrderLine::create(array_merge($lineData, [
                     'intercompany_sales_order_id' => $order->id,
-                    'line_total' => $lineTotal,
-                    'tax_amount' => $taxAmount,
+                    'line_total' => $amounts['subtotal'],
+                    'tax_amount' => $amounts['tax'],
                 ]));
             }
 
@@ -236,11 +238,7 @@ class IntercompanySalesService
         $ref = $doc->document_number;
         $description = "IC billing: {$ref}";
 
-        // Resolve AR account for the selling organization (first active receivable account)
-        $arAccount = Account::where('organization_id', $sellingOrgId)
-            ->where('sub_type', Account::SUBTYPE_RECEIVABLE)
-            ->where('is_active', true)
-            ->first();
+        $arAccount = $this->accountResolver->bySubType($sellingOrgId, Account::SUBTYPE_RECEIVABLE);
 
         // Resolve income (IC revenue) account for the selling organization
         $revenueAccount = Account::where('organization_id', $sellingOrgId)
@@ -248,11 +246,7 @@ class IntercompanySalesService
             ->where('is_active', true)
             ->first();
 
-        // Resolve AP account for the buying organization (first active payable account)
-        $apAccount = Account::where('organization_id', $buyingOrgId)
-            ->where('sub_type', Account::SUBTYPE_PAYABLE)
-            ->where('is_active', true)
-            ->first();
+        $apAccount = $this->accountResolver->bySubType($buyingOrgId, Account::SUBTYPE_PAYABLE);
 
         // Resolve expense account for the buying organization
         $expenseAccount = Account::where('organization_id', $buyingOrgId)

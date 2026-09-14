@@ -71,28 +71,30 @@ class RebateSettlementService
             $totalAmount = (float) $accruals->sum('rebate_amount');
             $journalEntryId = null;
 
-            // Post settlement journal entry if accounts are configured
+            // Record the settlement journal entry if accounts are configured
             if ($rebate->accrual_account_id && $rebate->expense_account_id) {
-                $journalEntry = $this->journalService->createJournalEntry(
-                    organizationId: $rebate->organization_id,
-                    description: "Rebate settlement: {$rebate->name} ({$settlementDate->format('Y-m')})",
-                    lines: [
-                        // Debit accrual account (clearing the liability/accrual)
-                        [
-                            'account_id' => $rebate->accrual_account_id,
-                            'type'       => 'debit',
-                            'amount'     => $totalAmount,
-                        ],
-                        // Credit expense / payable account (actual payment obligation)
-                        [
-                            'account_id' => $rebate->expense_account_id,
-                            'type'       => 'credit',
-                            'amount'     => $totalAmount,
-                        ],
+                $journalEntry = $this->journalService->createEntry([
+                    'organization_id' => $rebate->organization_id,
+                    'entry_date'      => $settlementDate->toDateString(),
+                    'description'     => "Rebate settlement: {$rebate->name} ({$settlementDate->format('Y-m')})",
+                    'source_type'     => RebateMaster::class,
+                    'source_id'       => $rebate->id,
+                    'created_by'      => $settledByUserId ?: null,
+                ], [
+                    // Debit accrual account (clearing the liability/accrual)
+                    [
+                        'account_id' => $rebate->accrual_account_id,
+                        'debit'      => $totalAmount,
+                        'credit'     => 0,
                     ],
-                    date: $settlementDate,
-                );
-                $journalEntryId = $journalEntry->id ?? null;
+                    // Credit expense / payable account (actual payment obligation)
+                    [
+                        'account_id' => $rebate->expense_account_id,
+                        'debit'      => 0,
+                        'credit'     => $totalAmount,
+                    ],
+                ]);
+                $journalEntryId = $journalEntry->id;
             }
 
             // Mark accruals as settled

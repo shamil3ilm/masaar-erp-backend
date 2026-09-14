@@ -126,13 +126,12 @@ class ParkedDocumentController extends Controller
                     throw new \InvalidArgumentException('Parked document has no journal lines in document_data.lines.');
                 }
 
-                $entry = $this->journalService->createEntry([
+                $entry = $this->journalService->createAndPost([
                     'organization_id' => $parkedDocument->organization_id,
                     'entry_date'      => $parkedDocument->posting_date->toDateString(),
                     'reference'       => $parkedDocument->reference,
                     'description'     => $data['description'] ?? ('Parked doc: ' . $parkedDocument->document_type),
                     'currency_code'   => $parkedDocument->currency_code,
-                    'status'          => 'posted',
                     'source_type'     => ParkedDocument::class,
                     'source_id'       => $parkedDocument->id,
                 ], $lines);

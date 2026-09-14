@@ -165,23 +165,24 @@ class FxDerivativeService
         $amount = abs((float) $valuation->fair_value_change);
         $isGain = (float) $valuation->fair_value_change >= 0;
 
-        $this->journalService->createJournalEntry(
-            organizationId: $forward->organization_id,
-            description: "FX forward MTM: {$forward->contract_number} @ {$valuation->valuation_date}",
-            lines: [
-                [
-                    'account_id' => $forward->derivative_asset_account_id,
-                    'type'       => $isGain ? 'debit' : 'credit',
-                    'amount'     => $amount,
-                ],
-                [
-                    'account_id' => $forward->unrealised_gain_loss_account_id,
-                    'type'       => $isGain ? 'credit' : 'debit',
-                    'amount'     => $amount,
-                ],
+        $this->journalService->createEntry([
+            'organization_id' => $forward->organization_id,
+            'entry_date'      => $valuation->valuation_date,
+            'description'     => "FX forward MTM: {$forward->contract_number} @ {$valuation->valuation_date}",
+            'source_type'     => FxValuation::class,
+            'source_id'       => $valuation->id,
+        ], [
+            [
+                'account_id' => $forward->derivative_asset_account_id,
+                'debit'      => $isGain ? $amount : 0,
+                'credit'     => $isGain ? 0 : $amount,
             ],
-            date: $valuation->valuation_date,
-        );
+            [
+                'account_id' => $forward->unrealised_gain_loss_account_id,
+                'debit'      => $isGain ? 0 : $amount,
+                'credit'     => $isGain ? $amount : 0,
+            ],
+        ]);
     }
 
     private function postRealisedGainLoss(FxForward $forward, float $gainLoss, Carbon $date): void

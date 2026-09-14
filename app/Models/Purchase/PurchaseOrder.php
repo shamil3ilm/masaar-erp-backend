@@ -14,6 +14,7 @@ use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Warehouse;
 use App\Models\Sales\Contact;
 use App\Models\User;
+use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -199,14 +200,12 @@ class PurchaseOrder extends Model
         $subtotal = $this->lines()->sum('subtotal');
         $taxAmount = $this->lines()->sum('tax_amount');
 
-        $discountAmount = 0;
-        if ($this->discount_type === 'percentage' && $this->discount_value > 0) {
-            $discountAmount = bcmul((string) $subtotal, bcdiv((string) $this->discount_value, '100', 6), 4);
-        } elseif ($this->discount_type === 'fixed' && $this->discount_value > 0) {
-            $discountAmount = $this->discount_value;
-        }
-
-        $total = bcsub(bcadd((string) $subtotal, (string) $taxAmount, 4), (string) $discountAmount, 4);
+        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
+            (string) $subtotal,
+            (string) $taxAmount,
+            $this->discount_type,
+            $this->discount_value === null ? null : (string) $this->discount_value,
+        );
 
         $this->update([
             'subtotal' => $subtotal,

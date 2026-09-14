@@ -10,6 +10,7 @@ use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntryLine;
 use App\Models\Core\Organization;
+use App\Services\Accounting\JournalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -432,6 +433,62 @@ class JournalEntryTest extends TestCase
 
         $this->assertSuccessResponse($response);
         $response->assertJsonFragment(['description' => 'Updated description']);
+    }
+
+    public function test_updating_a_draft_cannot_change_its_status(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.update']);
+        $this->setUpAccountingContext();
+
+        $je = $this->createJournalEntry();
+
+        try {
+            app(JournalService::class)->updateDraft($je, ['description' => 'Posted by hand', 'status' => JournalEntry::STATUS_POSTED]);
+            $this->fail('A draft update set the entry status.');
+        } catch (\InvalidArgumentException) {
+        }
+
+        $fresh = $je->fresh();
+        $this->assertSame(JournalEntry::STATUS_DRAFT, $fresh->status);
+        $this->assertSame('Test journal entry', $fresh->description);
+    }
+
+    public function test_a_posted_entry_cannot_be_updated_through_the_service(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.update']);
+        $this->setUpAccountingContext();
+
+        $je = $this->createJournalEntry([], JournalEntry::STATUS_POSTED);
+
+        try {
+            app(JournalService::class)->updateDraft($je, ['description' => 'Changed after posting']);
+            $this->fail('A posted entry was updated.');
+        } catch (\InvalidArgumentException) {
+        }
+
+        $this->assertSame('Test journal entry', $je->fresh()->description);
+    }
+
+    public function test_updating_a_draft_with_unbalanced_lines_is_refused_and_keeps_its_lines(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.update']);
+        $this->setUpAccountingContext();
+
+        $je = $this->createJournalEntry();
+
+        $response = $this->apiPut("{$this->baseUrl}/{$je->id}", [
+            'lines' => [
+                ['account_id' => $this->debitAccount->id, 'debit' => 1000, 'credit' => 0],
+                ['account_id' => $this->creditAccount->id, 'debit' => 0, 'credit' => 400],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        $lines = $je->fresh()->lines;
+        $this->assertCount(2, $lines);
+        $this->assertEquals(1000, (float) $lines->sum('debit'));
+        $this->assertEquals(1000, (float) $lines->sum('credit'));
     }
 
     public function test_cannot_update_posted_journal_entry(): void

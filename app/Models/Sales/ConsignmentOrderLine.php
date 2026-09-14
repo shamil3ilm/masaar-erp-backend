@@ -8,6 +8,7 @@ use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\UnitOfMeasure;
 use App\Models\Inventory\Warehouse;
+use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -59,8 +60,10 @@ class ConsignmentOrderLine extends Model
             return;
         }
 
-        $subtotal = bcmul((string) $this->quantity, (string) $this->unit_price, 4);
-        $taxAmount = bcmul($subtotal, bcdiv((string) $this->tax_rate, '100', 6), 4);
-        $this->line_total = bcadd($subtotal, $taxAmount, 4);
+        $this->line_total = TaxMath::line(
+            (string) $this->quantity,
+            (string) $this->unit_price,
+            (string) ($this->tax_rate ?? '0'),
+        )['total'];
     }
 }

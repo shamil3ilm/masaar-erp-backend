@@ -159,12 +159,11 @@ class MaterialValuationService
             ];
 
         try {
-            $this->journalService->createEntry([
+            $this->journalService->createAndPost([
                 'organization_id' => $orgId,
                 'entry_date'      => now()->toDateString(),
                 'reference'       => "PPV-{$productId}-" . now()->format('Ymd'),
                 'description'     => "Standard cost variance – product #{$productId}",
-                'status'          => 'posted',
             ], $lines);
         } catch (\Throwable $e) {
             Log::error('Failed to post standard cost variance journal entry', [
@@ -313,12 +312,11 @@ class MaterialValuationService
                 ];
 
             try {
-                $this->journalService->createEntry([
+                $this->journalService->createAndPost([
                     'organization_id' => $orgId,
                     'entry_date'      => now()->toDateString(),
                     'reference'       => "REVAL-{$productId}-" . now()->format('Ymd'),
                     'description'     => "Inventory revaluation – product #{$productId}",
-                    'status'          => 'posted',
                 ], $lines);
             } catch (\Throwable $e) {
                 Log::error('Failed to post inventory revaluation journal entry', [

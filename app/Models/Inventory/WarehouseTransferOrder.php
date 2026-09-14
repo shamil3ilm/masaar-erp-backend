@@ -17,6 +17,14 @@ class WarehouseTransferOrder extends Model
 {
     use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
 
+    /**
+     * Numbered by NumberGeneratorService per organization and year:
+     * TO-2026-000001. The counter has its own name because EWM transfer
+     * orders are numbered TO- from a counter of their own.
+     */
+    public const NUMBER_SEQUENCE = 'warehouse_transfer_order';
+    public const NUMBER_FORMAT = 'TO-{year}-{number:6}';
+
     public const MOVEMENT_GOODS_RECEIPT    = 'goods_receipt';
     public const MOVEMENT_GOODS_ISSUE      = 'goods_issue';
     public const MOVEMENT_INTERNAL         = 'internal_transfer';
@@ -97,25 +105,6 @@ class WarehouseTransferOrder extends Model
     public function canCancel(): bool
     {
         return in_array($this->status, [self::STATUS_CREATED, self::STATUS_IN_PROGRESS], true);
-    }
-
-    /**
-     * Generate TO number: TO-YYYY-000001 scoped to organization.
-     */
-    public static function generateToNumber(int $orgId): string
-    {
-        $year   = now()->format('Y');
-        $prefix = "TO-{$year}-";
-
-        $last = static::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->where('to_number', 'like', "{$prefix}%")
-            ->lockForUpdate()
-            ->max('to_number');
-
-        $seq = $last === null ? 1 : ((int) substr($last, strlen($prefix)) + 1);
-
-        return $prefix . str_pad((string) $seq, 6, '0', STR_PAD_LEFT);
     }
 
     public function scopeForWarehouse($query, int $warehouseId)

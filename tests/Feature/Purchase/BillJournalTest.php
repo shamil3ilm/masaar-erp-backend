@@ -173,6 +173,21 @@ class BillJournalTest extends TestCase
         );
     }
 
+    public function test_voiding_an_approved_bill_voids_its_draft_journal_entry(): void
+    {
+        /** @var BillService $service */
+        $service = app(BillService::class);
+        $approved = $service->approve($this->makeBillWithLines(subtotal: 1000.00, taxAmount: 150.00), $this->user->id);
+
+        $entry = JournalEntry::findOrFail($approved->journal_entry_id);
+        $this->assertSame(JournalEntry::STATUS_DRAFT, $entry->status);
+
+        $service->void($approved->fresh(), 'Entered twice');
+
+        $this->assertSame(Bill::STATUS_VOIDED, $approved->fresh()->status);
+        $this->assertSame(JournalEntry::STATUS_VOIDED, $entry->fresh()->status);
+    }
+
     public function test_approve_journal_ap_credit_line_equals_bill_total(): void
     {
         $subtotal  = 2000.00;

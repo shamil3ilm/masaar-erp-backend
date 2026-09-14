@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Models\Accounting\Account;
 use App\Models\Accounting\FxForward;
+use App\Models\Accounting\JournalEntry;
+use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -160,6 +164,35 @@ class FxDerivativeTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_a_valuation_with_gl_accounts_records_a_balanced_journal_entry(): void
+    {
+        $asset = Account::factory()->create([
+            'organization_id' => $this->organization->id,
+            'account_type'    => Account::TYPE_ASSET,
+            'sub_type'        => Account::SUBTYPE_OTHER_ASSET,
+            'is_header'       => false,
+            'is_active'       => true,
+        ]);
+        $unrealised = Account::factory()->create([
+            'organization_id' => $this->organization->id,
+            'account_type'    => Account::TYPE_INCOME,
+            'sub_type'        => Account::SUBTYPE_OTHER_INCOME,
+            'is_header'       => false,
+            'is_active'       => true,
+        ]);
+        $forward = $this->makeForward([
+            'derivative_asset_account_id'     => $asset->id,
+            'unrealised_gain_loss_account_id' => $unrealised->id,
+        ]);
+
+        // (3.76 - 3.75) x 100,000 notional is a gain of 1,000.
+        app(FxDerivativeService::class)->recordValuation($forward, Carbon::parse('2025-03-31'), 3.76);
+
+        $lines = JournalEntry::withoutGlobalScopes()->with('lines')->sole()->lines;
+        $this->assertEquals(1000, (float) $lines->firstWhere('account_id', $asset->id)->debit);
+        $this->assertEquals(1000, (float) $lines->firstWhere('account_id', $unrealised->id)->credit);
     }
 
     // -------------------------------------------------------------------------

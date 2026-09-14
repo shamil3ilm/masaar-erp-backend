@@ -125,27 +125,17 @@ class JournalEntryController extends Controller
             'lines.*.credit' => ['required_without:lines.*.debit', 'numeric', 'min:0'],
         ]);
 
-        // Update header
-        $journalEntry->update(collect($validated)->except('lines')->toArray());
-
-        // Update lines if provided
-        if (isset($validated['lines'])) {
-            $journalEntry->lines()->delete();
-
-            foreach ($validated['lines'] as $index => $lineData) {
-                $journalEntry->lines()->create([
-                    'account_id' => $lineData['account_id'],
-                    'description' => $lineData['description'] ?? null,
-                    'debit' => $lineData['debit'] ?? 0,
-                    'credit' => $lineData['credit'] ?? 0,
-                    'line_order' => $index,
-                ]);
-            }
-
-            $journalEntry->recalculateTotals();
+        try {
+            $journalEntry = $this->journalService->updateDraft(
+                $journalEntry,
+                collect($validated)->except('lines')->toArray(),
+                $validated['lines'] ?? null,
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
-        return $this->success($journalEntry->fresh(['lines.account']), 'Journal entry updated successfully');
+        return $this->success($journalEntry, 'Journal entry updated successfully');
     }
 
     /**

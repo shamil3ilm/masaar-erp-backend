@@ -11,18 +11,26 @@ use App\Models\Accounting\Account;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\CreditNoteApplication;
 use App\Models\Sales\Invoice;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use App\Support\TaxMath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CreditNoteService
 {
+    public function __construct(
+        private readonly AccountResolver $accountResolver,
+    ) {}
+
     public function create(array $data, int $userId): CreditNote
     {
         return DB::transaction(function () use ($data, $userId) {
             $items = $data['items'] ?? [];
             unset($data['items'], $data['lines']);
+
+            $this->assertWithinInvoiceTotal($data, $items);
 
             // Generate credit note number if not provided
             if (empty($data['credit_note_number'])) {
@@ -38,13 +46,12 @@ class CreditNoteService
 
             if (! empty($items)) {
                 foreach ($items as $item) {
-                    $subtotal = (float) bcmul((string) $item['quantity'], (string) $item['unit_price'], 2);
-                    $taxAmount = (float) bcmul((string) $subtotal, bcdiv((string) ($item['tax_rate'] ?? 0), '100', 4), 2);
+                    $amounts = $this->itemAmounts($item);
 
                     $creditNote->items()->create(array_merge($item, [
-                        'subtotal' => $subtotal,
-                        'total' => (float) bcadd((string) $subtotal, (string) $taxAmount, 2),
-                        'tax_amount' => $taxAmount,
+                        'subtotal' => $amounts['subtotal'],
+                        'total' => $amounts['total'],
+                        'tax_amount' => $amounts['tax'],
                     ]));
                 }
 
@@ -58,9 +65,7 @@ class CreditNoteService
                 // An account is classified by account_type and narrowed by
                 // sub_type. There is no type column, and no revenue value:
                 // income is the type, receivable is a sub_type.
-                $receivableAccount = Account::where('organization_id', $orgId)
-                    ->where('sub_type', 'receivable')
-                    ->first()
+                $receivableAccount = $this->accountResolver->bySubType((int) $orgId, Account::SUBTYPE_RECEIVABLE)
                     ?? Account::where('organization_id', $orgId)
                         ->where('code', '1200')
                         ->first();
@@ -238,6 +243,53 @@ class CreditNoteService
         return $query->with(['contact', 'invoice'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+    }
+
+    /**
+     * A credit note raised against an invoice may not credit more than the
+     * invoice's total, tax included. This holds for every caller: the credit
+     * note endpoint, a refund and a resolved sales return.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function assertWithinInvoiceTotal(array $data, array $items): void
+    {
+        if (empty($data['invoice_id'])) {
+            return;
+        }
+
+        $invoice = Invoice::where('organization_id', $data['organization_id'] ?? null)->find($data['invoice_id']);
+
+        if ($invoice === null) {
+            return;
+        }
+
+        $total = '0';
+        foreach ($items as $item) {
+            $total = bcadd($total, $this->itemAmounts($item)['total'], 2);
+        }
+
+        if (bccomp($total, (string) $invoice->total, 4) > 0) {
+            throw new ValidationException('Credit note total exceeds invoice total.');
+        }
+    }
+
+    /**
+     * An item's subtotal, tax and total. Sales credit notes are stored at two
+     * decimals.
+     *
+     * @param  array<string, mixed>  $item
+     * @return array{discount: string, subtotal: string, tax: string, total: string}
+     */
+    private function itemAmounts(array $item): array
+    {
+        return TaxMath::line(
+            (string) $item['quantity'],
+            (string) $item['unit_price'],
+            (string) ($item['tax_rate'] ?? 0),
+            scale: 2,
+        );
     }
 
     private function recalculateTotals(CreditNote $creditNote): void

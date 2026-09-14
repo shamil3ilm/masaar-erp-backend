@@ -8,6 +8,7 @@ use App\Models\Core\ImportJob;
 use App\Models\Core\ImportTemplate;
 use App\Models\Core\Organization;
 use App\Models\User;
+use App\Services\HR\EmployeeService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,10 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 class ImportService
 {
     protected array $importers = [];
+
+    public function __construct(
+        private readonly EmployeeService $employeeService,
+    ) {}
 
     /**
      * Upload and create an import job.
@@ -619,7 +624,7 @@ class ImportService
             $this->importers[$entityType] = match ($entityType) {
                 ImportJob::ENTITY_CUSTOMERS, ImportJob::ENTITY_SUPPLIERS => new Importers\ContactImporter(),
                 ImportJob::ENTITY_PRODUCTS => new Importers\ProductImporter(),
-                ImportJob::ENTITY_EMPLOYEES => new Importers\EmployeeImporter(),
+                ImportJob::ENTITY_EMPLOYEES => new Importers\EmployeeImporter($this->employeeService),
                 ImportJob::ENTITY_CHART_OF_ACCOUNTS => new Importers\ChartOfAccountImporter(),
                 ImportJob::ENTITY_LEADS => new Importers\LeadImporter(),
                 default => throw new \InvalidArgumentException("No importer for: {$entityType}"),

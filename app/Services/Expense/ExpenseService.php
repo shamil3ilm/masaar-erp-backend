@@ -7,11 +7,16 @@ namespace App\Services\Expense;
 use App\Models\Expense\Expense;
 use App\Models\Expense\ExpenseReceipt;
 use App\Models\Expense\RecurringExpense;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class ExpenseService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Create a new expense with optional line items.
      */
@@ -20,6 +25,7 @@ class ExpenseService
         return DB::transaction(function () use ($data, $userId) {
             $expense = Expense::create([
                 'organization_id' => $data['organization_id'],
+                'expense_number' => $this->numberGenerator->generate(Expense::NUMBER_SEQUENCE, Expense::NUMBER_FORMAT, $data['organization_id']),
                 'branch_id' => $data['branch_id'] ?? null,
                 'category_id' => $data['category_id'],
                 'employee_id' => $data['employee_id'] ?? null,

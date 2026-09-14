@@ -10,6 +10,7 @@ use App\Models\Maintenance\EquipmentSparePart;
 use App\Models\Maintenance\MaintenanceConditionRule;
 use App\Models\Maintenance\MaintenanceMeasurement;
 use App\Models\Maintenance\MaintenanceOrder;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,10 @@ use Illuminate\Support\Facades\Notification;
 
 class ConditionBasedMaintenanceService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Record a measurement reading and evaluate active rules.
      */
@@ -165,7 +170,7 @@ class ConditionBasedMaintenanceService
 
             MaintenanceOrder::create([
                 'organization_id' => $orgId,
-                'order_number'    => MaintenanceOrder::generateOrderNumber($orgId),
+                'order_number'    => $this->numberGenerator->generate(MaintenanceOrder::NUMBER_SEQUENCE, MaintenanceOrder::NUMBER_FORMAT, $orgId),
                 'equipment_id'    => $measurement->equipment_id,
                 'order_type'      => MaintenanceOrder::TYPE_CORRECTIVE,
                 'priority'        => MaintenanceOrder::PRIORITY_HIGH,

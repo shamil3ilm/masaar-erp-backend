@@ -298,8 +298,9 @@ class BillService
                 }
             }
 
+            // A draft entry is discarded, a posted one voided.
             if ($bill->journal_entry_id && ($journalEntry = $bill->journalEntry)) {
-                $this->journalService->void($journalEntry, $reason);
+                $this->journalService->voidSourceEntry($journalEntry, $reason);
             }
 
             // Mirror the approve() guard: only reverse inventory if stock was

@@ -118,30 +118,6 @@ class InvoiceService
                 ->lockForUpdate()
                 ->first();
 
-            // Calculate the gross line total so we can check exposure before persisting.
-            $lineTotal = '0';
-            foreach ($lines as $line) {
-                $lineTotal = bcadd($lineTotal, bcmul((string) ($line['unit_price'] ?? 0), (string) ($line['quantity'] ?? 0), 4), 4);
-            }
-            // Apply any header-level discount
-            $discountValue = (string) ($data['discount_value'] ?? 0);
-            $discountType  = $data['discount_type'] ?? 'fixed';
-            if ($discountType === 'percentage') {
-                $discountAmount = bcdiv(bcmul($lineTotal, $discountValue, 4), '100', 4);
-                $invoiceTotal   = bcsub($lineTotal, $discountAmount, 4);
-            } else {
-                $invoiceTotal = bcsub($lineTotal, $discountValue, 4);
-            }
-            if (bccomp($invoiceTotal, '0', 4) < 0) {
-                $invoiceTotal = '0';
-            }
-            if (!$this->creditManagementService->checkCreditLimit($customer, $invoiceTotal)) {
-                throw ApiException::fromError(
-                    ErrorCodes::SALES_INSUFFICIENT_CREDIT,
-                    ['customer_id' => $customer->id, 'requested_amount' => $invoiceTotal],
-                    "Customer '{$customer->getDisplayName()}' has exceeded their credit limit. Please review the credit limit or obtain approval before proceeding."
-                );
-            }
 
             // --- ATP (Available-to-Promise) check per line ---
             // Skipped for credit notes: credit notes return inventory, not consume it.
@@ -223,6 +199,19 @@ class InvoiceService
             }
 
             $invoice->recalculateTotals();
+
+            // The limit is checked against the invoice as stored, whose total
+            // includes tax and every discount, as the check at posting in
+            // PostInvoiceOrchestrator is. The credit limit row locked above keeps
+            // concurrent invoices for this customer from passing it together,
+            // and a refusal rolls the invoice back.
+            if (!$this->creditManagementService->checkCreditLimit($customer, (string) $invoice->total)) {
+                throw ApiException::fromError(
+                    ErrorCodes::SALES_INSUFFICIENT_CREDIT,
+                    ['customer_id' => $customer->id, 'requested_amount' => (string) $invoice->total],
+                    "Customer '{$customer->getDisplayName()}' has exceeded their credit limit. Please review the credit limit or obtain approval before proceeding."
+                );
+            }
 
             return $invoice->load('lines', 'customer');
         });
@@ -485,10 +474,11 @@ class InvoiceService
                 Invoice::STATUS_PAID,
             ], true);
 
-            // Reverse journal entry — propagates on failure to roll back the
-            // entire void so the books are never left in an unbalanced state.
+            // Void the invoice's journal entry: a draft is discarded, a posted
+            // entry voided. A failure rolls the whole void back, so the ledger
+            // never disagrees with the invoice.
             if ($invoice->journal_entry_id && $invoice->journalEntry) {
-                $this->journalService->void($invoice->journalEntry, $reason);
+                $this->journalService->voidSourceEntry($invoice->journalEntry, $reason);
             }
 
             // Return inventory only if stock was previously deducted (i.e. invoice was sent).
