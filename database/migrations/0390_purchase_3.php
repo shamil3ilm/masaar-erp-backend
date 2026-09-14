@@ -215,25 +215,8 @@ return new class extends Migration
             $table->unsignedSmallInteger('line_order')->default(0);
             $table->timestamps();
 
-            $table->unsignedBigInteger('wbs_element_id')->nullable()
-                ->comment('WBS element for project account assignment');
-            $table->unsignedBigInteger('project_id')->nullable();
             $table->string('account_assignment_type', 20)->nullable()
-                ->comment('K=cost_center, P=project/wbs, F=order, blank=stock');
-
-
-                $table->foreign('wbs_element_id', 'pol_wbs_element_fk')
-                    ->references('id')->on('wbs_elements')->nullOnDelete();
-
-
-
-                $table->foreign('project_id', 'pol_project_fk')
-                    ->references('id')->on('projects')->nullOnDelete();
-
-
-            $table->index('wbs_element_id', 'pol_wbs_element_idx');
-            $table->index('project_id', 'pol_project_idx');
-
+                ->comment('K=cost_center, F=order, blank=stock');
 
             $table->index('purchase_order_id', 'pol_purchase_order_id_idx');
             $table->index('product_id', 'pol_product_id_idx');
@@ -266,24 +249,6 @@ return new class extends Migration
 
             $table->index('gr_id', 'gr_lines_gr_id_idx');
             $table->index('po_line_id', 'gr_lines_po_line_id_idx');
-        });
-
-        Schema::create('po_wbs_commitments', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('organization_id')->constrained('organizations')->cascadeOnDelete();
-            $table->foreignId('purchase_order_id')->constrained('purchase_orders')->cascadeOnDelete();
-            $table->foreignId('purchase_order_line_id')->constrained('purchase_order_lines')->cascadeOnDelete();
-            $table->unsignedBigInteger('wbs_element_id');
-            $table->decimal('committed_amount', 18, 4);
-            $table->string('currency_code', 3)->default('SAR');
-            $table->date('commitment_date');
-            $table->string('status', 20)->default('open')
-                ->comment('open/partially_delivered/closed');
-            $table->timestamps();
-
-            $table->index(['wbs_element_id', 'status'], 'po_wbs_comm_wbs_status_idx');
-            $table->index('purchase_order_id', 'po_wbs_comm_po_idx');
         });
 
         Schema::create('procurement_gr_lines', function (Blueprint $table) {
@@ -843,7 +808,6 @@ return new class extends Migration
         Schema::dropIfExists('purchasing_info_records');
         Schema::dropIfExists('purchase_requisition_lines');
         Schema::dropIfExists('procurement_gr_lines');
-        Schema::dropIfExists('po_wbs_commitments');
         Schema::dropIfExists('goods_receipt_lines');
         Schema::dropIfExists('purchase_order_lines');
         Schema::dropIfExists('outline_agreement_releases');

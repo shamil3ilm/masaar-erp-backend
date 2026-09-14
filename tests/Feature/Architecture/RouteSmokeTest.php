@@ -140,7 +140,7 @@ class RouteSmokeTest extends TestCase
     {
         return [
             'accounting', 'sales', 'purchase', 'inventory', 'manufacturing', 'hr',
-            'crm', 'projects', 'maintenance', 'compliance', 'ecommerce', 'real_estate',
+            'crm', 'maintenance', 'compliance', 'ecommerce', 'real_estate',
             'tm', 'tax', 'messaging', 'billing',
             'automation', 'documents', 'calendar', 'expenses', 'reports',
         ];

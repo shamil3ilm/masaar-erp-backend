@@ -106,8 +106,6 @@ class TimeEvaluationController extends Controller
             'entry_type'     => 'nullable|in:regular,overtime,absence,holiday,training',
             'wage_type_id'   => 'nullable|integer|exists:time_wage_types,id',
             'cost_center_id' => 'nullable|integer|exists:cost_centers,id',
-            'project_id'     => 'nullable|integer',
-            'wbs_element_id' => 'nullable|integer',
             'work_order_id'  => 'nullable|integer',
             'activity_code'  => 'nullable|string|max:20',
             'notes'          => 'nullable|string|max:1000',

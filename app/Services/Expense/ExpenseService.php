@@ -37,7 +37,6 @@ class ExpenseService
                 'base_amount' => ($data['total_amount'] ?? ($data['amount'] + ($data['tax_amount'] ?? 0))) * ($data['exchange_rate'] ?? 1),
                 'is_reimbursable' => $data['is_reimbursable'] ?? false,
                 'is_billable' => $data['is_billable'] ?? false,
-                'project_id' => $data['project_id'] ?? null,
                 'customer_id' => $data['customer_id'] ?? null,
                 'account_id' => $data['account_id'] ?? null,
                 'bank_account_id' => $data['bank_account_id'] ?? null,
@@ -80,7 +79,7 @@ class ExpenseService
                 'category_id', 'expense_date', 'due_date', 'payment_method',
                 'reference', 'description', 'currency_code', 'exchange_rate',
                 'amount', 'tax_amount', 'total_amount', 'is_reimbursable',
-                'is_billable', 'project_id', 'customer_id', 'account_id',
+                'is_billable', 'customer_id', 'account_id',
                 'bank_account_id', 'notes', 'custom_fields',
             ])->filter(fn ($value) => $value !== null)->toArray();
 

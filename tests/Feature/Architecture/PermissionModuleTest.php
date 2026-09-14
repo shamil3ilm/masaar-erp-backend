@@ -35,7 +35,7 @@ class PermissionModuleTest extends TestCase
         'Hr' => 'hr', 'Sales' => 'sales', 'Purchase' => 'purchase',
         'Inventory' => 'inventory', 'Accounting' => 'accounting',
         'Manufacturing' => 'manufacturing', 'Maintenance' => 'maintenance',
-        'Projects' => 'projects', 'Core' => 'core', 'Crm' => 'crm',
+        'Core' => 'core', 'Crm' => 'crm',
         'Billing' => 'billing', 'Budget' => 'budget', 'Calendar' => 'calendar',
         'Compliance' => 'compliance',
         'Document' => 'documents', 'Ecommerce' => 'ecommerce',

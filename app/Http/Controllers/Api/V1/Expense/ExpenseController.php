@@ -71,7 +71,6 @@ class ExpenseController extends Controller
             'total_amount' => ['nullable', 'numeric', 'min:0.01'],
             'is_reimbursable' => ['nullable', 'boolean'],
             'is_billable' => ['nullable', 'boolean'],
-            'project_id' => ['nullable', 'integer'],
             'customer_id' => ['nullable', 'exists:contacts,id'],
             'account_id' => ['nullable', 'exists:chart_of_accounts,id'],
             'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],

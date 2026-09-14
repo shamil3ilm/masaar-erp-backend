@@ -828,7 +828,6 @@ return new class extends Migration
             $table->boolean('is_recurring')->default(false);
             $table->foreignId('recurring_expense_id')->nullable(); // Parent recurring expense
             $table->boolean('is_billable')->default(false);
-            $table->foreignId('project_id')->nullable(); // If billable to project
             $table->foreignId('customer_id')->nullable()->constrained('contacts')->nullOnDelete();
             $table->foreignId('account_id')->nullable()->constrained('chart_of_accounts')->nullOnDelete();
             $table->foreignId('bank_account_id')->nullable()->constrained('bank_accounts')->nullOnDelete();
@@ -850,8 +849,6 @@ return new class extends Migration
 
             $table->foreign('bill_id', 'expense_bill_fk')
                 ->references('id')->on('bills')->nullOnDelete();
-            $table->foreign('project_id', 'expense_project_fk')
-                ->references('id')->on('projects')->nullOnDelete();
             $table->foreign('recurring_expense_id', 'expense_recurring_fk')
                 ->references('id')->on('recurring_expenses')->nullOnDelete();
         });

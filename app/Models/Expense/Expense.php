@@ -59,7 +59,6 @@ class Expense extends Model
         'is_recurring',
         'recurring_expense_id',
         'is_billable',
-        'project_id',
         'customer_id',
         'account_id',
         'bank_account_id',

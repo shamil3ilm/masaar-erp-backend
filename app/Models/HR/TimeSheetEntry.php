@@ -26,8 +26,6 @@ class TimeSheetEntry extends Model
         'entry_type',
         'wage_type_id',
         'cost_center_id',
-        'project_id',
-        'wbs_element_id',
         'work_order_id',
         'activity_code',
         'notes',
