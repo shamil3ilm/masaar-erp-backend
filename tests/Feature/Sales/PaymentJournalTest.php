@@ -213,7 +213,7 @@ class PaymentJournalTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function test_complete_with_missing_account_config_still_completes_payment(): void
+    public function test_complete_with_missing_account_config_leaves_payment_pending(): void
     {
         // Remove account config to force InvalidArgumentException inside JournalEntryFactory
         Config::set('erp.default_accounts.cash', null);
@@ -238,18 +238,18 @@ class PaymentJournalTest extends TestCase
         /** @var PaymentService $service */
         $service = app(PaymentService::class);
 
-        // Must not throw — the service logs and continues
-        $completed = $service->complete($payment);
+        // A payment is not completed without its ledger entry
+        try {
+            $service->complete($payment);
+            $this->fail('complete() must fail when the journal entry cannot be posted.');
+        } catch (\InvalidArgumentException) {
+        }
 
-        $this->assertEquals(
-            PaymentReceived::STATUS_COMPLETED,
-            $completed->status,
-            'Payment must be COMPLETED even when journal entry creation is skipped'
-        );
-        $this->assertNull(
-            $completed->journal_entry_id,
-            'journal_entry_id must be null when journal creation was skipped'
-        );
+        $fresh = $payment->fresh();
+        $this->assertEquals(PaymentReceived::STATUS_PENDING, $fresh->status);
+        $this->assertNull($fresh->journal_entry_id);
+        $this->assertSame(0, JournalEntry::where('source_id', $payment->id)
+            ->where('source_type', PaymentReceived::class)->count());
     }
 
     /*
