@@ -6,6 +6,7 @@ namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\CopaPlanVersion;
 use App\Models\Accounting\FiscalYear;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -206,6 +207,54 @@ class CopaTest extends TestCase
             ->getJson('/api/v1/copa/variance');
 
         $response->assertStatus(422);
+    }
+
+    // -------------------------------------------------------------------------
+    // Plan Versions — filters and tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_plan_versions_are_scoped_to_the_organization_and_filter_by_fiscal_year(): void
+    {
+        $fy2025 = $this->makeFiscalYear(2025);
+        $fy2026 = FiscalYear::factory()->create([
+            'organization_id' => $this->organization->id,
+            'name'            => 'FY 2026',
+            'start_date'      => '2026-01-01',
+            'end_date'        => '2026-12-31',
+            'is_closed'       => false,
+            'is_current'      => false,
+        ]);
+        $this->makePlanVersion($fy2025, ['version_name' => 'Budget A']);
+        $this->makePlanVersion($fy2026, ['version_name' => 'Budget B']);
+
+        $otherOrg = Organization::factory()->create();
+        $otherFy  = FiscalYear::factory()->create([
+            'organization_id' => $otherOrg->id,
+            'name'            => 'FY 2025',
+            'start_date'      => '2025-01-01',
+            'end_date'        => '2025-12-31',
+            'is_closed'       => false,
+            'is_current'      => true,
+        ]);
+        CopaPlanVersion::create([
+            'organization_id' => $otherOrg->id,
+            'fiscal_year_id'  => $otherFy->id,
+            'version_name'    => 'Other Budget',
+            'is_active'       => true,
+        ]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/copa/plan-versions');
+
+        $all->assertStatus(200)
+            ->assertJsonPath('data.total', 2)
+            ->assertJsonPath('data.per_page', 25);
+        $this->assertSame(['Budget B', 'Budget A'], array_column($all->json('data.data'), 'version_name'));
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/copa/plan-versions?fiscal_year_id=' . $fy2025->id)
+            ->assertStatus(200)
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.data.0.version_name', 'Budget A');
     }
 
     // -------------------------------------------------------------------------

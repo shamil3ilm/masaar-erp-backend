@@ -97,6 +97,21 @@ class CostReconciliationService
         return $query->latest()->paginate(25);
     }
 
+    /**
+     * A reconciliation run of the current organization with its entries, the
+     * cost centers and cost element on each entry, and who posted it; another
+     * organization's run is not found.
+     */
+    public function findRun(string $id): CostReconciliationRun
+    {
+        return CostReconciliationRun::with([
+            'entries.senderCostCenter',
+            'entries.receiverCostCenter',
+            'entries.costElement',
+            'postedBy:id,name',
+        ])->findOrFail($id);
+    }
+
     // ----------------------------------------------------------------
     // Core logic
     // ----------------------------------------------------------------
