@@ -78,8 +78,9 @@ class JournalService
      */
     public function createEntry(array $entryData, array $lines): JournalEntry
     {
-        $lines = $this->resolveAccountCodes($lines, $entryData['organization_id'] ?? auth()->user()?->organization_id);
-        $this->validateLines($lines);
+        $entryOrganizationId = $entryData['organization_id'] ?? auth()->user()?->organization_id;
+        $lines = $this->resolveAccountCodes($lines, $entryOrganizationId);
+        $this->validateLines($lines, $entryOrganizationId !== null ? (int) $entryOrganizationId : null);
 
         return DB::transaction(function () use ($entryData, $lines) {
             // Set fiscal year if not provided
@@ -408,7 +409,7 @@ class JournalService
         }, $lines);
     }
 
-    protected function validateLines(array $lines): void
+    protected function validateLines(array $lines, ?int $organizationId): void
     {
         if (count($lines) < 2) {
             throw new InvalidArgumentException('Journal entry must have at least 2 lines.');
@@ -418,8 +419,18 @@ class JournalService
         $totalCredit = '0.0000';
 
         // Batch-load all referenced accounts in a single query to avoid N+1.
+        //
+        // Only the entry's own organization's accounts. Loading by id alone let
+        // a line post to another tenant's account — config('erp.default_accounts')
+        // holds one id for every organization, and any caller-supplied id was
+        // taken as found. Another organization's account is reported the same
+        // as a missing one, so the error does not confirm it exists.
         $accountIds = collect($lines)->pluck('account_id')->filter()->unique()->values();
-        $accounts = Account::whereIn('id', $accountIds)->get()->keyBy('id');
+        $accounts = Account::withoutGlobalScopes()
+            ->whereIn('id', $accountIds)
+            ->when($organizationId !== null, fn ($query) => $query->where('organization_id', $organizationId))
+            ->get()
+            ->keyBy('id');
 
         foreach ($lines as $index => $line) {
             if (! isset($line['account_id'])) {
