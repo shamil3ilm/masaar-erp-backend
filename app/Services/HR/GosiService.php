@@ -209,6 +209,32 @@ class GosiService
     }
 
     /**
+     * The organization's contributions with their employee, latest period first.
+     *
+     * @param  array{employee_id?: mixed, year?: mixed, month?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listContributions(int $organizationId, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return GosiContribution::where('organization_id', $organizationId)
+            ->with('employee')
+            ->when($filters['employee_id'] ?? null, fn($q, $v) => $q->where('employee_id', $v))
+            ->when($filters['year'] ?? null, fn($q, $v) => $q->where('period_year', (int) $v))
+            ->when($filters['month'] ?? null, fn($q, $v) => $q->where('period_month', (int) $v))
+            ->when($filters['status'] ?? null, fn($q, $v) => $q->where('status', $v))
+            ->orderByDesc('period_year')
+            ->orderByDesc('period_month')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Submits the period's draft contributions of the organization with this id.
+     */
+    public function submitPeriodForOrganization(int $organizationId, int $year, int $month): void
+    {
+        $this->submitPeriod(Organization::findOrFail($organizationId), $year, $month);
+    }
+
+    /**
      * Submit all draft GOSI contributions for an organization for a given period.
      * Marks each as 'submitted' with the current timestamp.
      */

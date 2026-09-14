@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Employee;
 use App\Models\HR\EmployeeTransfer;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\EmployeeTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,7 +15,8 @@ use Illuminate\Validation\Rule;
 class EmployeeTransferController extends Controller
 {
     public function __construct(
-        private readonly EmployeeTransferService $transferService
+        private readonly EmployeeTransferService $transferService,
+        private readonly EmployeeService $employeeService,
     ) {}
 
     /**
@@ -64,7 +65,7 @@ class EmployeeTransferController extends Controller
             'notes'                   => 'nullable|string',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         try {
             $transfer = $this->transferService->initiate($employee, $validated);
