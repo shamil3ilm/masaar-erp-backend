@@ -42,6 +42,52 @@ class PurchaseOrderService
     }
 
     /**
+     * The query listing purchase orders that match the filters, with supplier,
+     * warehouse and lines loaded.
+     *
+     * It is returned unpaginated so the caller can page it or hand it to an AG
+     * Grid row model. The sort column and direction are expected already
+     * checked against an allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, supplier_id, pending_receipt ('true'), start_date, end_date, search
+     */
+    public function listQuery(array $filters, string $sortBy, string $sortOrder): \Illuminate\Database\Eloquent\Builder
+    {
+        return PurchaseOrder::with(['supplier', 'warehouse', 'lines'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->forSupplier((int) $id))
+            ->when(($filters['pending_receipt'] ?? null) === 'true', fn ($q) => $q->pendingReceipt())
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('order_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('order_date', '<=', $date))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('order_number', 'like', "%{$search}%")
+                        ->orWhere('supplier_name', 'like', "%{$search}%")
+                        ->orWhere('reference', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder);
+    }
+
+    /**
+     * Delete a draft or sent purchase order with its lines.
+     *
+     * The status is checked on the locked order, so an order confirmed by
+     * another request meanwhile is kept, and the lines and the order go together.
+     */
+    public function delete(PurchaseOrder $order): void
+    {
+        $order->lockForTransition(function (PurchaseOrder $order): void {
+            if (! $order->isEditable()) {
+                throw new \InvalidArgumentException('Only draft/sent orders can be deleted.');
+            }
+
+            $order->lines()->delete();
+            $order->delete();
+        });
+    }
+
+    /**
      * Create a new purchase order.
      */
     public function create(array $data, array $lines): PurchaseOrder
@@ -245,14 +291,18 @@ class PurchaseOrderService
 
     /**
      * Receive items against a purchase order.
+     *
+     * The status and what remains to receive are read under the lock on the
+     * order, so a stale copy of an order cancelled meanwhile is not received
+     * and two receipts cannot both take the same remaining quantity.
      */
     public function receive(PurchaseOrder $order, array $lineQuantities, ?int $warehouseId = null): PurchaseOrder
     {
-        if (!$order->canBeReceived()) {
-            throw new \InvalidArgumentException('Purchase order cannot be received in current status.');
-        }
+        return $order->lockForTransition(function (PurchaseOrder $order) use ($lineQuantities, $warehouseId) {
+            if (! $order->canBeReceived()) {
+                throw new \InvalidArgumentException('Purchase order cannot be received in current status.');
+            }
 
-        return DB::transaction(function () use ($order, $lineQuantities, $warehouseId) {
             // Line id => quantity actually received by this call, after capping
             // each line at what remained to receive.
             $receivedQuantities = [];

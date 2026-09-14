@@ -5,17 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Purchase;
 
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\PurchaseOrderResource;
 use App\Models\Purchase\PurchaseOrder;
 use App\Services\Purchase\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class PurchaseOrderController extends Controller
 {
     use SupportsAgGrid;
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PurchaseOrderService $purchaseOrderService
     ) {
@@ -26,23 +28,11 @@ class PurchaseOrderController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PurchaseOrder::with(['supplier', 'warehouse', 'lines'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->supplier_id, fn($q, $id) => $q->forSupplier($id))
-            ->when($request->pending_receipt === 'true', fn($q) => $q->pendingReceipt())
-            ->when($request->start_date, fn($q, $date) => $q->where('order_date', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('order_date', '<=', $date))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('order_number', 'like', "%{$search}%")
-                        ->orWhere('supplier_name', 'like', "%{$search}%")
-                        ->orWhere('reference', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['po_number', 'order_date', 'expected_delivery_date', 'status', 'total', 'created_at', 'updated_at'], 'order_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
+        $query = $this->purchaseOrderService->listQuery(
+            $request->only(['status', 'supplier_id', 'pending_receipt', 'start_date', 'end_date', 'search']),
+            $this->safeSortBy($request->sort_by, ['po_number', 'order_date', 'expected_delivery_date', 'status', 'total', 'created_at', 'updated_at'], 'order_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+        );
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -59,12 +49,12 @@ class PurchaseOrderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'supplier_id' => ['required', $this->ownedBy('contacts')],
             'order_number' => 'nullable|string|max:50',
             'order_date' => 'required|date',
             'expected_delivery_date' => 'nullable|date|after_or_equal:order_date',
-            'branch_id' => 'nullable|exists:branches,id',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'delivery_address' => 'nullable|string|max:500',
             'currency_code' => 'nullable|string|size:3',
             'exchange_rate' => 'nullable|numeric|min:0',
@@ -74,24 +64,8 @@ class PurchaseOrderController extends Controller
             'terms_and_conditions' => 'nullable|string',
             'reference' => 'nullable|string|max:100',
             'lines' => 'required|array|min:1',
-            'lines.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_price' => 'required|numeric|min:0',
-            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
-            'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_rate' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|exists:tax_categories,id',
-            'lines.*.warehouse_id' => 'nullable|exists:warehouses,id',
+            ...$this->lineRules(),
         ]);
-
-        // Validate supplier belongs to user's organization
-        $supplier = \App\Models\Sales\Contact::withoutGlobalScopes()->find($validated['supplier_id']);
-        if (!$supplier || $supplier->organization_id !== auth()->user()->organization_id) {
-            return $this->error('The selected supplier does not belong to your organization.', 'VALIDATION_ERROR', 422);
-        }
 
         try {
             $order = $this->purchaseOrderService->create(
@@ -126,7 +100,7 @@ class PurchaseOrderController extends Controller
         $validated = $request->validate([
             'order_date' => 'sometimes|date',
             'expected_delivery_date' => 'nullable|date|after_or_equal:order_date',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'delivery_address' => 'nullable|string|max:500',
             'discount_type' => 'nullable|in:percentage,fixed',
             'discount_value' => 'nullable|numeric|min:0',
@@ -135,17 +109,7 @@ class PurchaseOrderController extends Controller
             'reference' => 'nullable|string|max:100',
             'version' => 'sometimes|integer',
             'lines' => 'sometimes|array|min:1',
-            'lines.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_price' => 'required|numeric|min:0',
-            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
-            'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_rate' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|exists:tax_categories,id',
-            'lines.*.warehouse_id' => 'nullable|exists:warehouses,id',
+            ...$this->lineRules(),
         ]);
 
         try {
@@ -166,14 +130,10 @@ class PurchaseOrderController extends Controller
      */
     public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
     {
-        if (!$purchaseOrder->isEditable()) {
-            return $this->error('Only draft/sent orders can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $purchaseOrder->lines()->delete();
-        $purchaseOrder->delete();
-
-        return $this->success(null, 'Purchase order deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->purchaseOrderService->delete($purchaseOrder),
+            'Purchase order deleted successfully.',
+        );
     }
 
     /**
@@ -233,7 +193,7 @@ class PurchaseOrderController extends Controller
             'lines' => 'nullable|array',
             'lines.*.line_id' => 'required_with:lines|integer',
             'lines.*.quantity_received' => 'required_with:lines|numeric|min:0',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
         ]);
 
         // Support both formats: line_quantities (flat) and lines (array of objects)
@@ -314,5 +274,27 @@ class PurchaseOrderController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
+    }
+
+    /**
+     * Validation for order lines; every referenced row must belong to the caller's organization.
+     *
+     * @return array<string, mixed>
+     */
+    private function lineRules(): array
+    {
+        return [
+            'lines.*.product_id' => ['nullable', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', $this->ownedBy('product_variants')],
+            'lines.*.description' => 'nullable|string|max:500',
+            'lines.*.quantity' => 'required|numeric|min:0.0001',
+            'lines.*.unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
+            'lines.*.unit_price' => 'required|numeric|min:0',
+            'lines.*.discount_type' => 'nullable|in:percentage,fixed',
+            'lines.*.discount_value' => 'nullable|numeric|min:0',
+            'lines.*.tax_rate' => 'nullable|numeric|min:0',
+            'lines.*.tax_category_id' => ['nullable', $this->ownedBy('tax_categories')],
+            'lines.*.warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
+        ];
     }
 }
