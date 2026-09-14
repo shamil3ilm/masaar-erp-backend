@@ -10,6 +10,7 @@ use App\Models\HR\TimeWageType;
 use App\Services\HR\TimeEvaluationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TimeEvaluationController extends Controller
 {
@@ -23,30 +24,25 @@ class TimeEvaluationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = TimeSheet::with(['employee', 'creator', 'approver'])
-            ->when($request->employee_id, fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->status, fn ($q, $s) => $q->byStatus($s))
-            ->when($request->period_start, fn ($q, $d) => $q->where('period_start', '>=', $d))
-            ->when($request->period_end, fn ($q, $d) => $q->where('period_end', '<=', $d))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['period_start', 'period_end', 'status', 'created_at'], 'period_start'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $sheets = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($sheets);
+        return $this->paginated($this->service->listTimeSheets(
+            $request->only(['employee_id', 'status', 'period_start', 'period_end']),
+            $this->safeSortBy($request->sort_by, ['period_start', 'period_end', 'status', 'created_at'], 'period_start'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function store(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id'  => 'required|integer|exists:employees,id',
+            'employee_id'  => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
             'period_start' => 'required|date',
             'period_end'   => 'required|date|after_or_equal:period_start',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
         $validated['created_by']      = auth()->id();
 
         try {
@@ -104,8 +100,8 @@ class TimeEvaluationController extends Controller
             'end_time'       => 'nullable|date_format:H:i',
             'hours'          => 'required|numeric|min:0.01|max:24',
             'entry_type'     => 'nullable|in:regular,overtime,absence,holiday,training',
-            'wage_type_id'   => 'nullable|integer|exists:time_wage_types,id',
-            'cost_center_id' => 'nullable|integer|exists:cost_centers,id',
+            'wage_type_id'   => ['nullable', 'integer', Rule::exists('time_wage_types', 'id')->where('organization_id', $timeSheet->organization_id)],
+            'cost_center_id' => ['nullable', 'integer', Rule::exists('cost_centers', 'id')->where('organization_id', $timeSheet->organization_id)],
             'work_order_id'  => 'nullable|integer',
             'activity_code'  => 'nullable|string|max:20',
             'notes'          => 'nullable|string|max:1000',
@@ -199,12 +195,7 @@ class TimeEvaluationController extends Controller
 
     public function wageTypes(Request $request): JsonResponse
     {
-        $wageTypes = TimeWageType::active()
-            ->when($request->category, fn ($q, $c) => $q->byCategory($c))
-            ->orderBy('code')
-            ->get();
-
-        return $this->success($wageTypes);
+        return $this->success($this->service->activeWageTypes($request->category));
     }
 
     public function storeWageType(Request $request): JsonResponse
@@ -219,15 +210,11 @@ class TimeEvaluationController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        $existing = TimeWageType::where('organization_id', $validated['organization_id'])
-            ->where('code', $validated['code'])
-            ->first();
-
-        if ($existing !== null) {
-            return $this->error('A wage type with this code already exists.', 'DUPLICATE_CODE', 422);
+        try {
+            $wageType = $this->service->createWageType($validated);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'DUPLICATE_CODE', 422);
         }
-
-        $wageType = TimeWageType::create($validated);
 
         return $this->success($wageType, 'Wage type created.', 201);
     }

@@ -10,10 +10,78 @@ use App\Models\HR\SocialInsuranceRecord;
 use App\Models\HR\SocialInsuranceScheme;
 use App\Models\HR\SocialInsuranceSubmission;
 use App\Models\HR\SocialInsuranceSubmissionLine;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class SocialInsuranceService
 {
+    /**
+     * Schemes of the current organization by country.
+     *
+     * @param  array{country_code?: mixed, active_only?: bool}  $filters  empty values are ignored
+     */
+    public function listSchemes(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SocialInsuranceScheme::query()
+            ->when($filters['country_code'] ?? null, fn ($q, $code) => $q->forCountry($code))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->orderBy('country_code')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A new scheme of the organization, active from creation.
+     */
+    public function createScheme(array $data, int $organizationId): SocialInsuranceScheme
+    {
+        return SocialInsuranceScheme::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'is_active' => true,
+        ]));
+    }
+
+    /**
+     * Enrolment records of a scheme with their employee.
+     *
+     * @param  mixed  $status  filters by record status when not empty
+     */
+    public function listRecords(SocialInsuranceScheme $scheme, mixed $status, int $perPage): LengthAwarePaginator
+    {
+        return SocialInsuranceRecord::where('scheme_id', $scheme->id)
+            ->with('employee')
+            ->when($status, fn ($q, $value) => $q->where('status', $value))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Submissions of the current organization with their scheme, latest
+     * period first.
+     *
+     * @param  array{scheme_id?: mixed, status?: mixed, year?: mixed}  $filters  empty values are ignored
+     */
+    public function listSubmissions(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SocialInsuranceSubmission::with('scheme')
+            ->when($filters['scheme_id'] ?? null, fn ($q, $id) => $q->where('scheme_id', $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['year'] ?? null, fn ($q, $year) => $q->where('period_year', $year))
+            ->orderByDesc('period_year')
+            ->orderByDesc('period_month')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A submission of the current organization by uuid, with its scheme.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findSubmissionWithScheme(string $uuid): SocialInsuranceSubmission
+    {
+        return SocialInsuranceSubmission::where('uuid', $uuid)
+            ->with('scheme')
+            ->firstOrFail();
+    }
+
     /**
      * Calculate contributions for a single employee and scheme.
      */

@@ -8,10 +8,58 @@ use App\Models\HR\Employee;
 use App\Models\HR\KeyPosition;
 use App\Models\HR\SuccessionCandidate;
 use App\Models\HR\SuccessionPoolActivity;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class SuccessionPlanningService
 {
+    /**
+     * Key positions of the current organization with their department,
+     * holder and active candidate count, most critical first.
+     *
+     * @param  array{criticality?: mixed, department_id?: mixed, active_only?: bool}  $filters
+     *         empty values are ignored; active_only defaults to true
+     */
+    public function listPositions(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return KeyPosition::with(['department', 'currentHolder'])
+            ->withCount('activeCandidates')
+            ->when($filters['criticality'] ?? null, fn ($q, $criticality) => $q->byCriticality($criticality))
+            ->when($filters['department_id'] ?? null, fn ($q, $id) => $q->where('department_id', $id))
+            ->when($filters['active_only'] ?? true, fn ($q) => $q->active())
+            ->orderBy('criticality')
+            ->orderBy('title')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A new key position of the organization, active from creation.
+     */
+    public function createPosition(array $data, int $organizationId, int $userId): KeyPosition
+    {
+        return KeyPosition::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'is_active' => true,
+            'created_by' => $userId,
+        ]));
+    }
+
+    /**
+     * Candidates of a key position with their employee and nominator, by
+     * readiness.
+     *
+     * @param  array{readiness?: mixed, active_only?: bool}  $filters  empty values are ignored; active_only defaults to true
+     */
+    public function listCandidates(KeyPosition $position, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SuccessionCandidate::where('key_position_id', $position->id)
+            ->with(['employee', 'nominatedBy'])
+            ->when($filters['readiness'] ?? null, fn ($q, $readiness) => $q->byReadiness($readiness))
+            ->when($filters['active_only'] ?? true, fn ($q) => $q->active())
+            ->orderBy('readiness')
+            ->paginate($perPage);
+    }
+
     /**
      * Nominate an employee as a succession candidate for a key position.
      */

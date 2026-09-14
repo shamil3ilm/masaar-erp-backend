@@ -9,6 +9,7 @@ use App\Models\HR\OvertimeRequest;
 use App\Services\HR\OvertimeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class OvertimeController extends Controller
 {
@@ -21,14 +22,10 @@ class OvertimeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = OvertimeRequest::with(['employee', 'policy', 'approver'])
-            ->when($request->employee_id, fn($q, $v) => $q->forEmployee((int) $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->from_date, fn($q, $v) => $q->where('ot_date', '>=', $v))
-            ->when($request->to_date, fn($q, $v) => $q->where('ot_date', '<=', $v))
-            ->orderBy('ot_date', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->overtimeService->list(
+            $request->only(['employee_id', 'status', 'from_date', 'to_date']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -36,9 +33,11 @@ class OvertimeController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $organizationId = $request->user()->organization_id;
+
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'policy_id'   => 'required|exists:overtime_policies,id',
+            'employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
+            'policy_id'   => ['required', Rule::exists('overtime_policies', 'id')->where('organization_id', $organizationId)],
             'ot_date'     => 'required|date',
             'ot_start'    => 'required|date_format:H:i',
             'ot_end'      => 'required|date_format:H:i|after:ot_start',

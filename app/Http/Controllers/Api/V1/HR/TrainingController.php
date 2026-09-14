@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\TrainingCertification;
 use App\Models\HR\TrainingCourse;
 use App\Models\HR\TrainingEnrollment;
 use App\Models\HR\TrainingNeed;
-use App\Models\HR\TrainingProvider;
-use App\Models\HR\TrainingSession;
 use App\Services\HR\TrainingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class TrainingController extends Controller
 {
@@ -27,14 +26,10 @@ class TrainingController extends Controller
 
     public function indexProviders(Request $request): JsonResponse
     {
-        $query = TrainingProvider::query()
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->when($request->search, fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
-            ->orderBy('name');
-
-        $providers = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($providers);
+        return $this->paginated($this->trainingService->listProviders(
+            ['active_only' => $request->boolean('active_only'), 'search' => $request->search],
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeProvider(Request $request): JsonResponse
@@ -50,14 +45,12 @@ class TrainingController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        $provider = TrainingProvider::create($validated);
-
-        return $this->created($provider);
+        return $this->created($this->trainingService->createProvider($validated));
     }
 
     public function showProvider(Request $request, int $id): JsonResponse
     {
-        $provider = TrainingProvider::with('courses')->find($id);
+        $provider = $this->trainingService->findProvider($id, ['courses']);
 
         if ($provider === null) {
             return $this->notFound('Training provider not found.');
@@ -68,7 +61,7 @@ class TrainingController extends Controller
 
     public function updateProvider(Request $request, int $id): JsonResponse
     {
-        $provider = TrainingProvider::find($id);
+        $provider = $this->trainingService->findProvider($id);
 
         if ($provider === null) {
             return $this->notFound('Training provider not found.');
@@ -90,7 +83,7 @@ class TrainingController extends Controller
 
     public function destroyProvider(Request $request, int $id): JsonResponse
     {
-        $provider = TrainingProvider::find($id);
+        $provider = $this->trainingService->findProvider($id);
 
         if ($provider === null) {
             return $this->notFound('Training provider not found.');
@@ -107,28 +100,26 @@ class TrainingController extends Controller
 
     public function indexCourses(Request $request): JsonResponse
     {
-        $query = TrainingCourse::with('provider')
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->when($request->boolean('mandatory_only'), fn ($q) => $q->mandatory())
-            ->when($request->category, fn ($q, $v) => $q->where('category', $v))
-            ->when($request->delivery_type, fn ($q, $v) => $q->where('delivery_type', $v))
-            ->when($request->search, fn ($q, $s) => $q->where(function ($q) use ($s): void {
-                $q->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%");
-            }))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'code', 'category', 'duration_hours', 'created_at'], 'name'),
-                $this->safeSortOrder($request->sort_order)
-            );
-
-        $courses = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($courses);
+        return $this->paginated($this->trainingService->listCourses(
+            [
+                'active_only' => $request->boolean('active_only'),
+                'mandatory_only' => $request->boolean('mandatory_only'),
+                'category' => $request->category,
+                'delivery_type' => $request->delivery_type,
+                'search' => $request->search,
+            ],
+            $this->safeSortBy($request->sort_by, ['name', 'code', 'category', 'duration_hours', 'created_at'], 'name'),
+            $this->safeSortOrder($request->sort_order),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeCourse(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'provider_id' => 'nullable|exists:training_providers,id',
+            'provider_id' => ['nullable', $this->ownedBy('training_providers', $organizationId)],
             'code' => 'required|string|max:50',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -143,7 +134,7 @@ class TrainingController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
 
         try {
             $course = $this->trainingService->createCourse($validated, auth()->id());
@@ -156,7 +147,7 @@ class TrainingController extends Controller
 
     public function showCourse(Request $request, int $id): JsonResponse
     {
-        $course = TrainingCourse::with(['provider', 'sessions'])->find($id);
+        $course = $this->trainingService->findCourse($id, ['provider', 'sessions']);
 
         if ($course === null) {
             return $this->notFound('Training course not found.');
@@ -167,14 +158,14 @@ class TrainingController extends Controller
 
     public function updateCourse(Request $request, int $id): JsonResponse
     {
-        $course = TrainingCourse::find($id);
+        $course = $this->trainingService->findCourse($id);
 
         if ($course === null) {
             return $this->notFound('Training course not found.');
         }
 
         $validated = $request->validate([
-            'provider_id' => 'nullable|exists:training_providers,id',
+            'provider_id' => ['nullable', $this->ownedBy('training_providers', $course->organization_id)],
             'code' => 'sometimes|required|string|max:50',
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
@@ -200,7 +191,7 @@ class TrainingController extends Controller
 
     public function destroyCourse(Request $request, int $id): JsonResponse
     {
-        $course = TrainingCourse::find($id);
+        $course = $this->trainingService->findCourse($id);
 
         if ($course === null) {
             return $this->notFound('Training course not found.');
@@ -217,25 +208,18 @@ class TrainingController extends Controller
 
     public function indexSessions(Request $request): JsonResponse
     {
-        $query = TrainingSession::with(['course', 'course.provider'])
-            ->when($request->course_id, fn ($q, $v) => $q->where('course_id', $v))
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->from, fn ($q, $v) => $q->where('start_date', '>=', $v))
-            ->when($request->to, fn ($q, $v) => $q->where('start_date', '<=', $v))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['start_date', 'end_date', 'status', 'session_number'], 'start_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $sessions = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($sessions);
+        return $this->paginated($this->trainingService->listSessions(
+            $request->only(['course_id', 'status', 'from', 'to']),
+            $this->safeSortBy($request->sort_by, ['start_date', 'end_date', 'status', 'session_number'], 'start_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeSession(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'course_id' => 'required|exists:training_courses,id',
+            'course_id' => ['required', $this->ownedBy('training_courses', $this->organizationId($request))],
             'trainer_name' => 'nullable|string|max:255',
             'location' => 'nullable|string|max:255',
             'meeting_link' => 'nullable|url|max:500',
@@ -245,7 +229,7 @@ class TrainingController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $course = TrainingCourse::find($validated['course_id']);
+        $course = $this->trainingService->findCourse((int) $validated['course_id']);
 
         if ($course === null) {
             return $this->notFound('Training course not found.');
@@ -262,7 +246,7 @@ class TrainingController extends Controller
 
     public function showSession(Request $request, int $id): JsonResponse
     {
-        $session = TrainingSession::with(['course', 'course.provider', 'enrollments.employee'])->find($id);
+        $session = $this->trainingService->findSession($id, ['course', 'course.provider', 'enrollments.employee']);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
@@ -273,7 +257,7 @@ class TrainingController extends Controller
 
     public function updateSession(Request $request, int $id): JsonResponse
     {
-        $session = TrainingSession::find($id);
+        $session = $this->trainingService->findSession($id);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
@@ -300,7 +284,7 @@ class TrainingController extends Controller
 
     public function startSession(Request $request, int $id): JsonResponse
     {
-        $session = TrainingSession::find($id);
+        $session = $this->trainingService->findSession($id);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
@@ -317,7 +301,7 @@ class TrainingController extends Controller
 
     public function completeSession(Request $request, int $id): JsonResponse
     {
-        $session = TrainingSession::find($id);
+        $session = $this->trainingService->findSession($id);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
@@ -325,7 +309,7 @@ class TrainingController extends Controller
 
         $validated = $request->validate([
             'results' => 'required|array',
-            'results.*.employee_id' => 'required|exists:employees,id',
+            'results.*.employee_id' => ['required', $this->ownedBy('employees', $session->organization_id)],
             'results.*.score' => 'nullable|numeric|min:0|max:100',
             'results.*.passed' => 'nullable|boolean',
             'results.*.feedback' => 'nullable|string',
@@ -344,19 +328,19 @@ class TrainingController extends Controller
 
     public function cancelSession(Request $request, int $id): JsonResponse
     {
-        $session = TrainingSession::find($id);
+        $session = $this->trainingService->findSession($id);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
         }
 
-        if ($session->status !== TrainingSession::STATUS_SCHEDULED) {
-            return $this->error('Only scheduled sessions can be cancelled.', 'SESSION_CANCEL_ERROR', 422);
+        try {
+            $session = $this->trainingService->cancelSession($session);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 'SESSION_CANCEL_ERROR', 422);
         }
 
-        $session->update(['status' => TrainingSession::STATUS_CANCELLED]);
-
-        return $this->success($session->fresh(), 'Session cancelled successfully.');
+        return $this->success($session, 'Session cancelled successfully.');
     }
 
     // =========================================================================
@@ -365,14 +349,14 @@ class TrainingController extends Controller
 
     public function enroll(Request $request, int $sessionId): JsonResponse
     {
-        $session = TrainingSession::find($sessionId);
+        $session = $this->trainingService->findSession($sessionId);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
         }
 
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', $this->ownedBy('employees', $session->organization_id)],
         ]);
 
         try {
@@ -386,7 +370,7 @@ class TrainingController extends Controller
 
     public function bulkEnroll(Request $request, int $sessionId): JsonResponse
     {
-        $session = TrainingSession::find($sessionId);
+        $session = $this->trainingService->findSession($sessionId);
 
         if ($session === null) {
             return $this->notFound('Training session not found.');
@@ -394,7 +378,7 @@ class TrainingController extends Controller
 
         $validated = $request->validate([
             'employee_ids' => 'required|array|min:1',
-            'employee_ids.*' => 'required|exists:employees,id',
+            'employee_ids.*' => ['required', $this->ownedBy('employees', $session->organization_id)],
         ]);
 
         $result = $this->trainingService->bulkEnroll($session, $validated['employee_ids'], auth()->id());
@@ -404,25 +388,40 @@ class TrainingController extends Controller
 
     public function indexEnrollments(Request $request): JsonResponse
     {
-        $query = TrainingEnrollment::with(['session.course', 'employee'])
-            ->when($request->session_id, fn ($q, $v) => $q->where('session_id', $v))
-            ->when($request->employee_id, fn ($q, $v) => $q->forEmployee((int) $v))
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->orderBy('enrolled_at', 'desc');
-
-        $enrollments = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($enrollments);
+        return $this->paginated($this->trainingService->listEnrollments(
+            $request->only(['session_id', 'employee_id', 'status']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function cancelEnrollment(Request $request, int $id): JsonResponse
     {
-        $enrollment = TrainingEnrollment::find($id);
+        $enrollment = $this->trainingService->findEnrollment($id);
 
         if ($enrollment === null) {
             return $this->notFound('Enrollment not found.');
         }
 
+        return $this->cancelled($enrollment);
+    }
+
+    /**
+     * Cancel an enrollment named under its session. The route carries both
+     * ids; an enrollment of another session is not found.
+     */
+    public function cancelSessionEnrollment(int $sessionId, int $enrollmentId): JsonResponse
+    {
+        $enrollment = $this->trainingService->findSessionEnrollment($sessionId, $enrollmentId);
+
+        if ($enrollment === null) {
+            return $this->notFound('Enrollment not found.');
+        }
+
+        return $this->cancelled($enrollment);
+    }
+
+    private function cancelled(TrainingEnrollment $enrollment): JsonResponse
+    {
         try {
             $enrollment = $this->trainingService->cancelEnrollment($enrollment, auth()->id());
         } catch (\RuntimeException $e) {
@@ -438,23 +437,24 @@ class TrainingController extends Controller
 
     public function indexCertifications(Request $request): JsonResponse
     {
-        $query = TrainingCertification::with(['employee', 'course'])
-            ->when($request->employee_id, fn ($q, $v) => $q->where('employee_id', $v))
-            ->when($request->course_id, fn ($q, $v) => $q->where('course_id', $v))
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('issued_date', 'desc');
-
-        $certs = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($certs);
+        return $this->paginated($this->trainingService->listCertifications(
+            [
+                'employee_id' => $request->employee_id,
+                'course_id' => $request->course_id,
+                'active_only' => $request->boolean('active_only'),
+            ],
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeCertification(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'enrollment_id' => 'nullable|exists:training_enrollments,id',
-            'employee_id' => 'required|exists:employees,id',
-            'course_id' => 'required|exists:training_courses,id',
+            'enrollment_id' => ['nullable', $this->ownedBy('training_enrollments', $organizationId)],
+            'employee_id' => ['required', $this->ownedBy('employees', $organizationId)],
+            'course_id' => ['required', $this->ownedBy('training_courses', $organizationId)],
             'certificate_number' => 'nullable|string|max:100',
             'issued_date' => 'required|date',
             'expiry_date' => 'nullable|date|after:issued_date',
@@ -462,18 +462,18 @@ class TrainingController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
         $validated['created_by'] = auth()->id();
         $validated['is_active'] = true;
 
-        $certification = TrainingCertification::create($validated);
+        $certification = $this->trainingService->createCertification($validated);
 
         return $this->created($certification->load(['employee', 'course']));
     }
 
     public function issueCertificate(Request $request, int $enrollmentId): JsonResponse
     {
-        $enrollment = TrainingEnrollment::find($enrollmentId);
+        $enrollment = $this->trainingService->findEnrollment($enrollmentId);
 
         if ($enrollment === null) {
             return $this->notFound('Enrollment not found.');
@@ -509,35 +509,27 @@ class TrainingController extends Controller
 
     public function indexNeeds(Request $request): JsonResponse
     {
-        $query = TrainingNeed::with(['employee', 'department', 'course'])
-            ->when($request->employee_id, fn ($q, $v) => $q->where('employee_id', $v))
-            ->when($request->department_id, fn ($q, $v) => $q->where('department_id', $v))
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->priority, fn ($q, $v) => $q->where('priority', $v))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['priority', 'status', 'target_date', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $needs = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($needs);
+        return $this->paginated($this->trainingService->listNeeds(
+            $request->only(['employee_id', 'department_id', 'status', 'priority']),
+            $this->safeSortBy($request->sort_by, ['priority', 'status', 'target_date', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeNeed(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id' => 'nullable|exists:employees,id',
-            'department_id' => 'nullable|exists:departments,id',
-            'course_id' => 'nullable|exists:training_courses,id',
+            ...$this->needReferenceRules($organizationId),
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'priority' => 'required|in:'.implode(',', TrainingNeed::PRIORITIES),
-            'identified_by' => 'nullable|exists:users,id',
             'target_date' => 'nullable|date',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
 
         try {
             $need = $this->trainingService->createTrainingNeed($validated, auth()->id());
@@ -550,21 +542,18 @@ class TrainingController extends Controller
 
     public function updateNeed(Request $request, int $id): JsonResponse
     {
-        $need = TrainingNeed::find($id);
+        $need = $this->trainingService->findNeed($id);
 
         if ($need === null) {
             return $this->notFound('Training need not found.');
         }
 
         $validated = $request->validate([
-            'employee_id' => 'nullable|exists:employees,id',
-            'department_id' => 'nullable|exists:departments,id',
-            'course_id' => 'nullable|exists:training_courses,id',
+            ...$this->needReferenceRules($need->organization_id),
             'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'priority' => 'sometimes|in:'.implode(',', TrainingNeed::PRIORITIES),
             'status' => 'sometimes|in:'.implode(',', TrainingNeed::STATUSES),
-            'identified_by' => 'nullable|exists:users,id',
             'target_date' => 'nullable|date',
         ]);
 
@@ -579,7 +568,7 @@ class TrainingController extends Controller
 
     public function destroyNeed(Request $request, int $id): JsonResponse
     {
-        $need = TrainingNeed::find($id);
+        $need = $this->trainingService->findNeed($id);
 
         if ($need === null) {
             return $this->notFound('Training need not found.');
@@ -613,5 +602,27 @@ class TrainingController extends Controller
         $sessions = $this->trainingService->getTrainingCalendar($orgId, $validated['from'], $validated['to']);
 
         return $this->success($sessions);
+    }
+
+    /**
+     * An exists rule for a row of the given organization. Users carry no
+     * tenant scope, so the organization is checked for them as for any table.
+     */
+    private function ownedBy(string $table, ?int $organizationId): Exists
+    {
+        return Rule::exists($table, 'id')->where('organization_id', $organizationId);
+    }
+
+    /**
+     * @return array<string, list<mixed>>
+     */
+    private function needReferenceRules(?int $organizationId): array
+    {
+        return [
+            'employee_id' => ['nullable', $this->ownedBy('employees', $organizationId)],
+            'department_id' => ['nullable', $this->ownedBy('departments', $organizationId)],
+            'course_id' => ['nullable', $this->ownedBy('training_courses', $organizationId)],
+            'identified_by' => ['nullable', $this->ownedBy('users', $organizationId)],
+        ];
     }
 }

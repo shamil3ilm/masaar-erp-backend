@@ -6,15 +6,17 @@ namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
 use App\Models\HR\AppraisalReviewer;
-use App\Models\HR\PerformanceAppraisal;
+use App\Services\HR\PerformanceManagementService;
 use App\Services\HR\PerformanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class AppraisalReviewController extends Controller
 {
     public function __construct(
-        private PerformanceService $service
+        private PerformanceService $service,
+        private PerformanceManagementService $appraisals,
     ) {}
 
     /**
@@ -24,7 +26,7 @@ class AppraisalReviewController extends Controller
      */
     public function addReviewers(Request $request, int $appraisal): JsonResponse
     {
-        $appraisalModel = PerformanceAppraisal::find($appraisal);
+        $appraisalModel = $this->appraisals->findAppraisal($appraisal);
 
         if ($appraisalModel === null) {
             return $this->notFound('Performance appraisal not found.');
@@ -32,7 +34,7 @@ class AppraisalReviewController extends Controller
 
         $validated = $request->validate([
             'reviewers'                    => 'required|array|min:1',
-            'reviewers.*.employee_id'      => 'required|integer|exists:employees,id',
+            'reviewers.*.employee_id'      => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $appraisalModel->organization_id)],
             'reviewers.*.type'             => 'required|in:' . implode(',', AppraisalReviewer::TYPES),
             'reviewers.*.is_anonymous'     => 'nullable|boolean',
             'reviewers.*.due_date'         => 'nullable|date',
@@ -44,11 +46,7 @@ class AppraisalReviewController extends Controller
             return $this->error($e->getMessage(), 'REVIEWER_ERROR', 422);
         }
 
-        $reviewers = AppraisalReviewer::forAppraisal($appraisalModel->id)
-            ->with('reviewer')
-            ->get();
-
-        return $this->success($reviewers, 'Reviewers added successfully.');
+        return $this->success($this->service->reviewersOf($appraisalModel), 'Reviewers added successfully.');
     }
 
     /**
@@ -58,15 +56,13 @@ class AppraisalReviewController extends Controller
      */
     public function listReviewers(int $appraisal): JsonResponse
     {
-        $appraisalModel = PerformanceAppraisal::find($appraisal);
+        $appraisalModel = $this->appraisals->findAppraisal($appraisal);
 
         if ($appraisalModel === null) {
             return $this->notFound('Performance appraisal not found.');
         }
 
-        $reviewers = AppraisalReviewer::forAppraisal($appraisalModel->id)
-            ->with('reviewer')
-            ->get()
+        $reviewers = $this->service->reviewersOf($appraisalModel)
             ->map(function (AppraisalReviewer $r): array {
                 $base = $r->toArray();
 
@@ -90,13 +86,13 @@ class AppraisalReviewController extends Controller
      */
     public function submitReview(Request $request, int $appraisal, int $reviewer): JsonResponse
     {
-        $appraisalModel = PerformanceAppraisal::find($appraisal);
+        $appraisalModel = $this->appraisals->findAppraisal($appraisal);
 
         if ($appraisalModel === null) {
             return $this->notFound('Performance appraisal not found.');
         }
 
-        $reviewerModel = AppraisalReviewer::forAppraisal($appraisalModel->id)->find($reviewer);
+        $reviewerModel = $this->service->findReviewer($appraisalModel, $reviewer);
 
         if ($reviewerModel === null) {
             return $this->notFound('Reviewer record not found.');
@@ -108,7 +104,7 @@ class AppraisalReviewController extends Controller
             'improvements'                => 'nullable|string|max:3000',
             'comments'                    => 'nullable|string|max:3000',
             'responses'                   => 'nullable|array',
-            'responses.*.question_id'     => 'nullable|integer|exists:appraisal_template_questions,id',
+            'responses.*.question_id'     => ['nullable', 'integer', Rule::in($this->appraisals->questionIdsOf($appraisalModel))],
             'responses.*.question_text'   => 'nullable|string|max:1000',
             'responses.*.rating'          => 'nullable|numeric|min:0|max:5',
             'responses.*.response_text'   => 'nullable|string|max:2000',
@@ -128,13 +124,13 @@ class AppraisalReviewController extends Controller
      */
     public function declineReview(int $appraisal, int $reviewer): JsonResponse
     {
-        $appraisalModel = PerformanceAppraisal::find($appraisal);
+        $appraisalModel = $this->appraisals->findAppraisal($appraisal);
 
         if ($appraisalModel === null) {
             return $this->notFound('Performance appraisal not found.');
         }
 
-        $reviewerModel = AppraisalReviewer::forAppraisal($appraisalModel->id)->find($reviewer);
+        $reviewerModel = $this->service->findReviewer($appraisalModel, $reviewer);
 
         if ($reviewerModel === null) {
             return $this->notFound('Reviewer record not found.');
@@ -154,7 +150,7 @@ class AppraisalReviewController extends Controller
      */
     public function aggregateRatings(int $appraisal): JsonResponse
     {
-        $appraisalModel = PerformanceAppraisal::find($appraisal);
+        $appraisalModel = $this->appraisals->findAppraisal($appraisal);
 
         if ($appraisalModel === null) {
             return $this->notFound('Performance appraisal not found.');

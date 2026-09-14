@@ -9,6 +9,8 @@ use App\Models\HR\TimeEvaluationResult;
 use App\Models\HR\TimeSheet;
 use App\Models\HR\TimeSheetEntry;
 use App\Models\HR\TimeWageType;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -21,6 +23,53 @@ class TimeEvaluationService
     // ---------------------------------------------------------------
     // Time Sheet CRUD
     // ---------------------------------------------------------------
+
+    /**
+     * Time sheets of the current organization with their employee, creator
+     * and approver.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed, period_start?: mixed, period_end?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listTimeSheets(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return TimeSheet::with(['employee', 'creator', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->byStatus($status))
+            ->when($filters['period_start'] ?? null, fn ($q, $date) => $q->where('period_start', '>=', $date))
+            ->when($filters['period_end'] ?? null, fn ($q, $date) => $q->where('period_end', '<=', $date))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Active wage types of the current organization by code.
+     *
+     * @param  mixed  $category  filters by wage category when not empty
+     */
+    public function activeWageTypes(mixed $category): Collection
+    {
+        return TimeWageType::active()
+            ->when($category, fn ($q, $c) => $q->byCategory($c))
+            ->orderBy('code')
+            ->get();
+    }
+
+    /**
+     * @throws \InvalidArgumentException when the organization already has a wage type with this code
+     */
+    public function createWageType(array $data): TimeWageType
+    {
+        $taken = TimeWageType::where('organization_id', $data['organization_id'])
+            ->where('code', $data['code'])
+            ->exists();
+
+        if ($taken) {
+            throw new \InvalidArgumentException('A wage type with this code already exists.');
+        }
+
+        return TimeWageType::create($data);
+    }
 
     public function createTimeSheet(array $data): TimeSheet
     {

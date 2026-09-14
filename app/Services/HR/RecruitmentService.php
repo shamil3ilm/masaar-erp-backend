@@ -10,6 +10,7 @@ use App\Models\HR\InterviewSchedule;
 use App\Models\HR\JobApplication;
 use App\Models\HR\JobOffer;
 use App\Models\HR\JobPosting;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -17,6 +18,98 @@ use RuntimeException;
 
 class RecruitmentService
 {
+    // -------------------------------------------------------------------------
+    // Listings and lookups, all within the current organization
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param  array{status?: mixed, department_id?: mixed, employment_type?: mixed, search?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listJobPostings(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return JobPosting::with(['department', 'designation', 'creator'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['department_id'] ?? null, fn ($q, $v) => $q->where('department_id', $v))
+            ->when($filters['employment_type'] ?? null, fn ($q, $v) => $q->where('employment_type', $v))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('title', 'like', "%{$search}%")
+                        ->orWhere('location', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findJobPosting(int $id, array $relations = []): JobPosting
+    {
+        return JobPosting::with($relations)->findOrFail($id);
+    }
+
+    /**
+     * @param  array{source?: mixed, search?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listCandidates(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return Candidate::with(['applications'])
+            ->when($filters['source'] ?? null, fn ($q, $v) => $q->where('source', $v))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('current_company', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findCandidate(int $id, array $relations = []): Candidate
+    {
+        return Candidate::with($relations)->findOrFail($id);
+    }
+
+    /**
+     * @param  array{status?: mixed, job_posting_id?: mixed, candidate_id?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listApplications(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return JobApplication::with(['jobPosting', 'candidate', 'reviewer'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['job_posting_id'] ?? null, fn ($q, $v) => $q->where('job_posting_id', $v))
+            ->when($filters['candidate_id'] ?? null, fn ($q, $v) => $q->where('candidate_id', $v))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $relations
+     */
+    public function findApplication(int $id, array $relations = []): JobApplication
+    {
+        return JobApplication::with($relations)->findOrFail($id);
+    }
+
+    public function findInterview(int $id): InterviewSchedule
+    {
+        return InterviewSchedule::findOrFail($id);
+    }
+
+    public function findOffer(int $id): JobOffer
+    {
+        return JobOffer::findOrFail($id);
+    }
+
     // -------------------------------------------------------------------------
     // Job Postings
     // -------------------------------------------------------------------------
@@ -256,23 +349,30 @@ class RecruitmentService
         });
     }
 
+    /**
+     * Accept an offer, fill one vacancy of its posting and hire the
+     * application, all in one transaction. The offer and the posting are
+     * locked first, so the offer is accepted once and the posting's vacancies
+     * are counted as they are now; when no vacancy is left nothing is changed.
+     */
     public function acceptOffer(JobOffer $offer, int $userId): JobOffer
     {
-        if (!$offer->accept($userId)) {
-            throw new RuntimeException('This offer cannot be accepted. It may already be responded to or expired.');
-        }
-
-        // Increment filled_count on the job posting
         DB::transaction(function () use ($offer, $userId): void {
+            $offer = JobOffer::lockForUpdate()->findOrFail($offer->id);
+
+            if (!$offer->accept($userId)) {
+                throw new RuntimeException('This offer cannot be accepted. It may already be responded to or expired.');
+            }
+
             $posting = JobPosting::lockForUpdate()->findOrFail($offer->job_posting_id);
 
-            if ($posting->filled_count >= $posting->max_positions) {
+            if ($posting->remainingVacancies() <= 0) {
                 throw new RuntimeException('No open positions remaining for this job posting.');
             }
 
             $posting->increment('filled_count');
 
-            // Re-check after increment to auto-close if fully filled
+            // Close the posting once its last vacancy is filled
             if ($posting->fresh()->remainingVacancies() <= 0) {
                 $posting->update(['status' => JobPosting::STATUS_CLOSED]);
             }

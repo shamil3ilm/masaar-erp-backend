@@ -8,11 +8,31 @@ use App\Models\HR\AppraisalReviewer;
 use App\Models\HR\AppraisalReviewerResponse;
 use App\Models\HR\AppraisalTemplateQuestion;
 use App\Models\HR\PerformanceAppraisal;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class PerformanceService
 {
+    /**
+     * The appraisal's reviewers with their employee record.
+     */
+    public function reviewersOf(PerformanceAppraisal $appraisal): Collection
+    {
+        return AppraisalReviewer::forAppraisal($appraisal->id)
+            ->with('reviewer')
+            ->get();
+    }
+
+    /**
+     * A reviewer record of this appraisal, or null when the id is unknown or
+     * belongs to another appraisal.
+     */
+    public function findReviewer(PerformanceAppraisal $appraisal, int $id): ?AppraisalReviewer
+    {
+        return AppraisalReviewer::forAppraisal($appraisal->id)->find($id);
+    }
+
     /**
      * Assign reviewers to an appraisal and create pending reviewer records.
      *
