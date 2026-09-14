@@ -16,4 +16,3 @@ App\Models\Expense\RecurringExpense (recurring_expenses): last_processed_at
 App\Models\HR\AppraisalReviewer (appraisal_reviewers): organization_id
 App\Models\Reports\ReportExecution (report_executions): file_format, report_type
 App\Models\Reports\SavedReport (saved_reports): columns, export_format, is_active, parameters, recipients, report_type
-App\Models\Sales\AdvancePaymentApplication (advance_payment_applications): created_by, invoice_id, notes

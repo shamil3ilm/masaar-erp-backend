@@ -8,6 +8,7 @@ use App\Exceptions\ApiException;
 use App\Exceptions\ErrorCodes;
 use App\Models\Sales\AdvancePayment;
 use App\Models\Sales\AdvancePaymentApplication;
+use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Services\Accounting\JournalService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -65,8 +66,14 @@ class CustomerAdvanceService
             }
 
             $amount = (float) $data['amount'];
+            $contact = Contact::findOrFail($data['contact_id']);
 
             $advance = AdvancePayment::create(array_merge($data, [
+                'payment_type' => AdvancePayment::TYPE_CUSTOMER,
+                'contact_name' => $contact->getDisplayName(),
+                // The endpoint takes no exchange rate, so the amount is already
+                // in the organisation's currency.
+                'base_amount' => $amount,
                 'applied_amount' => 0,
                 'available_amount' => $amount,
                 'status' => AdvancePayment::STATUS_RECEIVED,
@@ -112,9 +119,9 @@ class CustomerAdvanceService
         AdvancePayment $advance,
         Invoice $invoice,
         float $amount,
-        ?string $notes = null,
+        int $appliedBy,
     ): AdvancePaymentApplication {
-        return DB::transaction(function () use ($advance, $invoice, $amount, $notes): AdvancePaymentApplication {
+        return DB::transaction(function () use ($advance, $invoice, $amount, $appliedBy): AdvancePaymentApplication {
             // Validate advance is open
             if (! in_array($advance->status, [
                 AdvancePayment::STATUS_RECEIVED,
@@ -153,11 +160,11 @@ class CustomerAdvanceService
 
             $application = AdvancePaymentApplication::create([
                 'advance_payment_id' => $advance->id,
-                'invoice_id' => $invoice->id,
+                'applied_to_type' => $invoice->getMorphClass(),
+                'applied_to_id' => $invoice->id,
                 'applied_amount' => $amount,
                 'applied_date' => now()->toDateString(),
-                'notes' => $notes,
-                'created_by' => $advance->received_by,
+                'applied_by' => $appliedBy,
             ]);
 
             // Update advance balances

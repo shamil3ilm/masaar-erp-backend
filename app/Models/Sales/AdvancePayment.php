@@ -28,12 +28,18 @@ class AdvancePayment extends Model
 
     public const STATUS_REFUNDED = 'refunded';
 
+    public const TYPE_CUSTOMER = 'customer_advance';
+
     protected $fillable = [
         'organization_id',
+        'payment_type',
         'contact_id',
+        'contact_name',
         'payment_number',
         'payment_date',
+        'exchange_rate',
         'amount',
+        'base_amount',
         'applied_amount',
         'available_amount',
         'currency_code',

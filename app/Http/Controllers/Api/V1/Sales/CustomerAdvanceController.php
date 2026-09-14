@@ -60,7 +60,7 @@ class CustomerAdvanceController extends Controller
     public function show(AdvancePayment $advancePayment): JsonResponse
     {
         return $this->success(
-            $advancePayment->load(['contact:id,contact_name,company_name', 'applications.invoice:id,invoice_number'])
+            $advancePayment->load(['contact:id,contact_name,company_name', 'applications.appliedTo'])
         );
     }
 
@@ -86,7 +86,6 @@ class CustomerAdvanceController extends Controller
         $validated = $request->validate([
             'invoice_id' => ['required', 'exists:invoices,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $invoice = Invoice::findOrFail($validated['invoice_id']);
@@ -94,10 +93,10 @@ class CustomerAdvanceController extends Controller
             $advancePayment,
             $invoice,
             (float) $validated['amount'],
-            $validated['notes'] ?? null,
+            $request->user()->id,
         );
 
-        return $this->created($application->load(['advancePayment', 'invoice:id,invoice_number,amount_due']));
+        return $this->created($application->load(['advancePayment', 'appliedTo']));
     }
 
     /**
