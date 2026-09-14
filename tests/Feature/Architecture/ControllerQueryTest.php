@@ -46,7 +46,6 @@ class ControllerQueryTest extends TestCase
      * @var array<string, int>
      */
     private const OFFENDERS = [
-        'Api/V1/Accounting/AccountController.php' => 4,
         'Api/V1/Accounting/AccountGroupController.php' => 2,
         'Api/V1/Accounting/ActivityConfirmationController.php' => 3,
         'Api/V1/Accounting/AssessmentCycleController.php' => 2,
