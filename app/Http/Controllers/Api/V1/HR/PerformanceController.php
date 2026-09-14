@@ -6,13 +6,13 @@ namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
 use App\Models\HR\AppraisalCycle;
-use App\Models\HR\AppraisalTemplate;
 use App\Models\HR\AppraisalTemplateQuestion;
 use App\Models\HR\PerformanceAppraisal;
 use App\Models\HR\PerformanceGoal;
 use App\Services\HR\PerformanceManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PerformanceController extends Controller
 {
@@ -26,14 +26,10 @@ class PerformanceController extends Controller
 
     public function indexCycles(Request $request): JsonResponse
     {
-        $query = AppraisalCycle::query()
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
-            ->when($request->search, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
-            ->orderByDesc('created_at');
-
-        $cycles = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($cycles);
+        return $this->paginated($this->service->listCycles(
+            $request->only(['status', 'search']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeCycle(Request $request): JsonResponse
@@ -56,7 +52,7 @@ class PerformanceController extends Controller
 
     public function showCycle(int $id): JsonResponse
     {
-        $cycle = AppraisalCycle::with('creator')->find($id);
+        $cycle = $this->service->findCycle($id, ['creator']);
 
         if ($cycle === null) {
             return $this->notFound('Appraisal cycle not found.');
@@ -67,7 +63,7 @@ class PerformanceController extends Controller
 
     public function updateCycle(Request $request, int $id): JsonResponse
     {
-        $cycle = AppraisalCycle::find($id);
+        $cycle = $this->service->findCycle($id);
 
         if ($cycle === null) {
             return $this->notFound('Appraisal cycle not found.');
@@ -94,7 +90,7 @@ class PerformanceController extends Controller
 
     public function activateCycle(int $id): JsonResponse
     {
-        $cycle = AppraisalCycle::find($id);
+        $cycle = $this->service->findCycle($id);
 
         if ($cycle === null) {
             return $this->notFound('Appraisal cycle not found.');
@@ -109,7 +105,7 @@ class PerformanceController extends Controller
 
     public function completeCycle(int $id): JsonResponse
     {
-        $cycle = AppraisalCycle::find($id);
+        $cycle = $this->service->findCycle($id);
 
         if ($cycle === null) {
             return $this->notFound('Appraisal cycle not found.');
@@ -124,15 +120,13 @@ class PerformanceController extends Controller
 
     public function cycleStatistics(int $id): JsonResponse
     {
-        $cycle = AppraisalCycle::find($id);
+        $cycle = $this->service->findCycle($id);
 
         if ($cycle === null) {
             return $this->notFound('Appraisal cycle not found.');
         }
 
-        $stats = $this->service->getCycleStatistics($cycle);
-
-        return $this->success($stats);
+        return $this->success($this->service->getCycleStatistics($cycle));
     }
 
     // =========================================================================
@@ -141,14 +135,10 @@ class PerformanceController extends Controller
 
     public function indexTemplates(Request $request): JsonResponse
     {
-        $query = AppraisalTemplate::query()
-            ->when($request->boolean('active_only', false), fn ($q) => $q->active())
-            ->when($request->search, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
-            ->orderBy('name');
-
-        $templates = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($templates);
+        return $this->paginated($this->service->listTemplates(
+            ['active_only' => $request->boolean('active_only', false), 'search' => $request->search],
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeTemplate(Request $request): JsonResponse
@@ -182,7 +172,7 @@ class PerformanceController extends Controller
 
     public function showTemplate(int $id): JsonResponse
     {
-        $template = AppraisalTemplate::with('sectionsWithQuestions')->find($id);
+        $template = $this->service->findTemplate($id, ['sectionsWithQuestions']);
 
         if ($template === null) {
             return $this->notFound('Appraisal template not found.');
@@ -193,7 +183,7 @@ class PerformanceController extends Controller
 
     public function updateTemplate(Request $request, int $id): JsonResponse
     {
-        $template = AppraisalTemplate::find($id);
+        $template = $this->service->findTemplate($id);
 
         if ($template === null) {
             return $this->notFound('Appraisal template not found.');
@@ -207,36 +197,18 @@ class PerformanceController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        // Handle default flag: unset other defaults in the org first
-        if (!empty($validated['is_default'])) {
-            AppraisalTemplate::where('organization_id', $template->organization_id)
-                ->where('id', '!=', $template->id)
-                ->where('is_default', true)
-                ->update(['is_default' => false]);
-        }
-
-        $template->update($validated);
-
-        return $this->success($template->fresh('sectionsWithQuestions'), 'Template updated successfully.');
+        return $this->success($this->service->updateTemplate($template, $validated), 'Template updated successfully.');
     }
 
     public function destroyTemplate(int $id): JsonResponse
     {
-        $template = AppraisalTemplate::find($id);
+        $template = $this->service->findTemplate($id);
 
         if ($template === null) {
             return $this->notFound('Appraisal template not found.');
         }
 
-        // Prevent deletion if used in active cycles
-        $inUse = PerformanceAppraisal::where('appraisal_template_id', $template->id)
-            ->whereHas('cycle', fn ($q) => $q->whereNotIn('status', [
-                AppraisalCycle::STATUS_COMPLETED,
-                AppraisalCycle::STATUS_CANCELLED,
-            ]))
-            ->exists();
-
-        if ($inUse) {
+        if ($this->service->templateInUse($template)) {
             return $this->error(
                 'Template is in use by one or more active appraisal cycles and cannot be deleted.',
                 'TEMPLATE_IN_USE',
@@ -255,27 +227,22 @@ class PerformanceController extends Controller
 
     public function indexAppraisals(Request $request): JsonResponse
     {
-        $query = PerformanceAppraisal::with(['cycle', 'employee', 'reviewer'])
-            ->when($request->appraisal_cycle_id, fn ($q, $id) => $q->forCycle((int) $id))
-            ->when($request->employee_id, fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
-            ->orderByDesc('created_at');
-
-        $appraisals = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($appraisals);
+        return $this->paginated($this->service->listAppraisals(
+            $request->only(['appraisal_cycle_id', 'employee_id', 'status']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function showAppraisal(int $id): JsonResponse
     {
-        $appraisal = PerformanceAppraisal::with([
+        $appraisal = $this->service->findAppraisal($id, [
             'cycle',
             'employee',
             'reviewer',
             'template.sectionsWithQuestions',
             'selfResponses.question',
             'managerResponses.question',
-        ])->find($id);
+        ]);
 
         if ($appraisal === null) {
             return $this->notFound('Performance appraisal not found.');
@@ -286,7 +253,7 @@ class PerformanceController extends Controller
 
     public function submitSelfReview(Request $request, int $id): JsonResponse
     {
-        $appraisal = PerformanceAppraisal::with('cycle')->find($id);
+        $appraisal = $this->service->findAppraisal($id, ['cycle']);
 
         if ($appraisal === null) {
             return $this->notFound('Performance appraisal not found.');
@@ -294,7 +261,7 @@ class PerformanceController extends Controller
 
         $validated = $request->validate([
             'responses' => 'required|array',
-            'responses.*.question_id' => 'required|integer|exists:appraisal_template_questions,id',
+            'responses.*.question_id' => ['required', 'integer', Rule::in($this->service->questionIdsOf($appraisal))],
             'responses.*.rating' => 'nullable|integer|min:1|max:10',
             'responses.*.text_response' => 'nullable|string|max:2000',
             'self_comments' => 'nullable|string|max:3000',
@@ -313,7 +280,7 @@ class PerformanceController extends Controller
 
     public function submitManagerReview(Request $request, int $id): JsonResponse
     {
-        $appraisal = PerformanceAppraisal::with('cycle')->find($id);
+        $appraisal = $this->service->findAppraisal($id, ['cycle']);
 
         if ($appraisal === null) {
             return $this->notFound('Performance appraisal not found.');
@@ -321,7 +288,7 @@ class PerformanceController extends Controller
 
         $validated = $request->validate([
             'responses' => 'required|array',
-            'responses.*.question_id' => 'required|integer|exists:appraisal_template_questions,id',
+            'responses.*.question_id' => ['required', 'integer', Rule::in($this->service->questionIdsOf($appraisal))],
             'responses.*.rating' => 'nullable|integer|min:1|max:10',
             'responses.*.text_response' => 'nullable|string|max:2000',
             'manager_comments' => 'nullable|string|max:3000',
@@ -342,7 +309,7 @@ class PerformanceController extends Controller
 
     public function acknowledgeAppraisal(Request $request, int $id): JsonResponse
     {
-        $appraisal = PerformanceAppraisal::with('cycle')->find($id);
+        $appraisal = $this->service->findAppraisal($id, ['cycle']);
 
         if ($appraisal === null) {
             return $this->notFound('Performance appraisal not found.');
@@ -369,22 +336,19 @@ class PerformanceController extends Controller
 
     public function indexGoals(Request $request): JsonResponse
     {
-        $query = PerformanceGoal::with(['employee', 'cycle'])
-            ->when($request->employee_id, fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->appraisal_cycle_id, fn ($q, $id) => $q->forCycle((int) $id))
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
-            ->orderByDesc('created_at');
-
-        $goals = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($goals);
+        return $this->paginated($this->service->listGoals(
+            $request->only(['employee_id', 'appraisal_cycle_id', 'status']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeGoal(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id' => 'required|integer|exists:employees,id',
-            'appraisal_cycle_id' => 'nullable|integer|exists:appraisal_cycles,id',
+            'employee_id' => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
+            'appraisal_cycle_id' => ['nullable', 'integer', Rule::exists('appraisal_cycles', 'id')->where('organization_id', $organizationId)],
             'title' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
             'target_date' => 'nullable|date',
@@ -392,7 +356,7 @@ class PerformanceController extends Controller
             'status' => 'nullable|in:' . implode(',', PerformanceGoal::STATUSES),
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
 
         $goal = $this->service->createGoal($validated, auth()->id());
 
@@ -401,7 +365,7 @@ class PerformanceController extends Controller
 
     public function showGoal(int $id): JsonResponse
     {
-        $goal = PerformanceGoal::with(['employee', 'cycle', 'updates.updatedBy'])->find($id);
+        $goal = $this->service->findGoal($id, ['employee', 'cycle', 'updates.updatedBy']);
 
         if ($goal === null) {
             return $this->notFound('Performance goal not found.');
@@ -412,7 +376,7 @@ class PerformanceController extends Controller
 
     public function updateGoal(Request $request, int $id): JsonResponse
     {
-        $goal = PerformanceGoal::find($id);
+        $goal = $this->service->findGoal($id);
 
         if ($goal === null) {
             return $this->notFound('Performance goal not found.');
@@ -441,7 +405,7 @@ class PerformanceController extends Controller
 
     public function destroyGoal(int $id): JsonResponse
     {
-        $goal = PerformanceGoal::find($id);
+        $goal = $this->service->findGoal($id);
 
         if ($goal === null) {
             return $this->notFound('Performance goal not found.');
@@ -454,7 +418,7 @@ class PerformanceController extends Controller
 
     public function updateGoalProgress(Request $request, int $id): JsonResponse
     {
-        $goal = PerformanceGoal::find($id);
+        $goal = $this->service->findGoal($id);
 
         if ($goal === null) {
             return $this->notFound('Performance goal not found.');
