@@ -40,7 +40,7 @@ class NotifyBillApprovedListener implements ShouldQueue
                 'bill_id' => $bill->id,
                 'bill_number' => $bill->bill_number,
                 'total' => $bill->total,
-                'supplier_name' => $bill->supplier?->name,
+                'supplier_name' => $bill->supplier?->getDisplayName(),
             ]
         );
     }

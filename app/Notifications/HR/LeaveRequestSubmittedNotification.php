@@ -34,8 +34,8 @@ class LeaveRequestSubmittedNotification extends Notification implements ShouldQu
             ->line("A new leave request has been submitted and requires your approval.")
             ->line("**Employee:** {$employee->getDisplayName()}")
             ->line("**Leave Type:** {$leaveType->name}")
-            ->line("**From:** {$this->leaveRequest->start_date->format('M d, Y')}")
-            ->line("**To:** {$this->leaveRequest->end_date->format('M d, Y')}")
+            ->line("**From:** {$this->leaveRequest->from_date->format('M d, Y')}")
+            ->line("**To:** {$this->leaveRequest->to_date->format('M d, Y')}")
             ->line("**Total Days:** {$this->leaveRequest->total_days}")
             ->line("**Reason:** " . ($this->leaveRequest->reason ?? 'Not specified'))
             ->action('Review Request', url("/hr/leave-requests/{$this->leaveRequest->id}"))
@@ -50,8 +50,8 @@ class LeaveRequestSubmittedNotification extends Notification implements ShouldQu
             'employee_id' => $this->leaveRequest->employee_id,
             'employee_name' => $this->leaveRequest->employee->getDisplayName(),
             'leave_type' => $this->leaveRequest->leaveType->name,
-            'start_date' => $this->leaveRequest->start_date->format('Y-m-d'),
-            'end_date' => $this->leaveRequest->end_date->format('Y-m-d'),
+            'start_date' => $this->leaveRequest->from_date->format('Y-m-d'),
+            'end_date' => $this->leaveRequest->to_date->format('Y-m-d'),
             'total_days' => $this->leaveRequest->total_days,
         ];
     }

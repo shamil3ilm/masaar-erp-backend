@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\CRM;
 
+use App\Events\CRM\LeadConverted;
 use App\Models\CRM\Activity;
 use App\Models\CRM\Lead;
 use App\Models\CRM\Opportunity;
@@ -177,8 +178,13 @@ class LeadService
                 'converted_by' => $userId,
             ]);
 
+            $lead = $lead->fresh();
+
+            // Held until the conversion transaction commits.
+            LeadConverted::dispatch($lead, $contact, $opportunity);
+
             return [
-                'lead' => $lead->fresh(),
+                'lead' => $lead,
                 'contact' => $contact,
                 'opportunity' => $opportunity,
             ];

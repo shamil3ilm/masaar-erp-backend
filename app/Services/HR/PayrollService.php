@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\HR;
 
+use App\Events\HR\PayslipGenerated;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\ChecksIdempotency;
@@ -469,7 +470,13 @@ class PayrollService
             'approved_at' => now(),
         ]);
 
-        return $payslip->fresh();
+        $payslip = $payslip->fresh();
+
+        // Fired on approval rather than on draft generation: its listener tells
+        // the employee the payslip is available, which is only true once approved.
+        PayslipGenerated::dispatch($payslip);
+
+        return $payslip;
     }
 
     /**

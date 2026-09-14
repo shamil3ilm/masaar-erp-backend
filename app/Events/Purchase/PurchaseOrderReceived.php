@@ -6,10 +6,11 @@ namespace App\Events\Purchase;
 
 use App\Models\Purchase\PurchaseOrder;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PurchaseOrderReceived
+class PurchaseOrderReceived implements ShouldDispatchAfterCommit
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

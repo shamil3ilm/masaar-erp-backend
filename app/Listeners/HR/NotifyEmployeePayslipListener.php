@@ -29,17 +29,22 @@ class NotifyEmployeePayslipListener implements ShouldQueue
             return;
         }
 
+        $periodName = $payslip->payrollPeriod?->name;
+        $message = $periodName
+            ? "Your payslip for {$periodName} is now available"
+            : 'Your payslip is now available';
+
         $this->notificationService->send(
             $user,
             'payslip_generated',
-            "Your payslip for {$payslip->period_label} is now available",
-            "Your payslip for {$payslip->period_label} is now available",
+            $message,
+            $message,
             null,
             null,
             null,
             [
                 'payslip_id' => $payslip->id,
-                'period_label' => $payslip->period_label,
+                'period_label' => $periodName,
                 'net_salary' => $payslip->net_salary,
             ]
         );

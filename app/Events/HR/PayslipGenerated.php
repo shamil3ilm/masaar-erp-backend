@@ -8,10 +8,11 @@ use App\Events\Concerns\HasDomainEventProperties;
 use App\Events\Contracts\DomainEvent;
 use App\Models\HR\Payslip;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PayslipGenerated implements DomainEvent
+class PayslipGenerated implements DomainEvent, ShouldDispatchAfterCommit
 {
     use Dispatchable, HasDomainEventProperties, InteractsWithSockets, SerializesModels;
 

@@ -53,7 +53,7 @@ class NotifyInvoicePaidListener implements ShouldQueue
                     'invoice_id' => $invoice->id,
                     'invoice_number' => $invoice->invoice_number,
                     'amount_paid' => $event->amountPaid,
-                    'customer_name' => $customer->name,
+                    'customer_name' => $customer->getDisplayName(),
                 ]
             );
         }

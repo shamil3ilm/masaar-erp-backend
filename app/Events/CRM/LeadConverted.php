@@ -8,10 +8,11 @@ use App\Models\CRM\Lead;
 use App\Models\CRM\Opportunity;
 use App\Models\Sales\Contact;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class LeadConverted
+class LeadConverted implements ShouldDispatchAfterCommit
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

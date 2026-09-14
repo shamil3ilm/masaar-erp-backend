@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchase;
 
+use App\Events\Purchase\PurchaseOrderReceived;
 use App\Exceptions\ApiException;
 use App\Exceptions\ErrorCodes;
 use App\Models\Core\ApprovalWorkflow;
@@ -244,6 +245,10 @@ class PurchaseOrderService
         }
 
         return DB::transaction(function () use ($order, $lineQuantities, $warehouseId) {
+            // Line id => quantity actually received by this call, after capping
+            // each line at what remained to receive.
+            $receivedQuantities = [];
+
             foreach ($lineQuantities as $lineId => $quantity) {
                 $line = $order->lines()->findOrFail($lineId);
 
@@ -271,11 +276,24 @@ class PurchaseOrderService
                 }
 
                 $line->increment('quantity_received', $quantityToReceive);
+
+                $receivedQuantities[$line->id] = (float) $quantityToReceive;
             }
 
             $this->updateReceivingStatus($order);
 
-            return $order->fresh(['lines', 'supplier']);
+            $order = $order->fresh(['lines', 'supplier']);
+
+            if ($receivedQuantities !== []) {
+                // Held until the receiving transaction commits.
+                PurchaseOrderReceived::dispatch(
+                    $order,
+                    $receivedQuantities,
+                    $order->status === PurchaseOrder::STATUS_RECEIVED,
+                );
+            }
+
+            return $order;
         });
     }
 
