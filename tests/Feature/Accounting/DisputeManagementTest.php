@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\DisputeCase;
+use App\Models\Sales\Contact;
+use App\Models\Sales\Invoice;
+use App\Services\Accounting\DisputeManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -181,6 +184,25 @@ class DisputeManagementTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_a_promise_to_pay_records_how_long_the_oldest_invoice_is_overdue(): void
+    {
+        $contact = Contact::factory()->create(['organization_id' => $this->organization->id]);
+        Invoice::factory()->create([
+            'organization_id' => $this->organization->id,
+            'customer_id'     => $contact->id,
+            'status'          => Invoice::STATUS_SENT,
+            'due_date'        => now()->subDays(10),
+        ]);
+
+        $worklist = app(DisputeManagementService::class)->recordPromiseToPay($contact->id, [
+            'organization_id'     => $this->organization->id,
+            'promise_to_pay_date' => now()->addWeek()->toDateString(),
+            'promise_amount'      => 500,
+        ]);
+
+        $this->assertEquals(10, $worklist->overdue_days_max);
     }
 
     // -------------------------------------------------------------------------

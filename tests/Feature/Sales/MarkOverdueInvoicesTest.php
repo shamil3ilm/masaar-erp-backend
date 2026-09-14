@@ -86,7 +86,8 @@ class MarkOverdueInvoicesTest extends TestCase
 
         Notification::assertSentTo(
             $invoice->customer,
-            InvoiceOverdueNotification::class
+            InvoiceOverdueNotification::class,
+            fn (InvoiceOverdueNotification $notification, array $channels, object $notifiable) => $notification->toArray($notifiable)['days_overdue'] === 10
         );
     }
 
