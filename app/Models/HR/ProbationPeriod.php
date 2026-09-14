@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProbationPeriod extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_ACTIVE = 'active';
     public const STATUS_COMPLETED = 'completed';

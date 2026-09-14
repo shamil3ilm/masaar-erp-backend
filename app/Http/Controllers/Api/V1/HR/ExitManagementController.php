@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\EmployeeExit;
-use App\Models\HR\ExitClearanceItem;
 use App\Services\HR\ExitManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ExitManagementController extends Controller
 {
@@ -29,7 +28,11 @@ class ExitManagementController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'          => 'required|integer|exists:employees,id',
+            'employee_id'          => [
+                'required',
+                'integer',
+                Rule::exists('employees', 'id')->where('organization_id', auth()->user()->organization_id),
+            ],
             'exit_type'            => 'required|in:resignation,termination,retirement,contract_end,death',
             'resignation_date'     => 'nullable|date',
             'last_working_date'    => 'nullable|date',
@@ -45,15 +48,12 @@ class ExitManagementController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $exit = EmployeeExit::with(['employee', 'initiator', 'approver', 'clearanceItems.department', 'clearanceItems.responsiblePerson'])
-            ->findOrFail($id);
-
-        return $this->success($exit);
+        return $this->success($this->service->findWithDetails($id));
     }
 
     public function approve(string $id): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
+        $exit = $this->service->find($id);
 
         try {
             $exit = $this->service->approve($exit, auth()->id());
@@ -66,7 +66,7 @@ class ExitManagementController extends Controller
 
     public function startClearance(string $id): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
+        $exit = $this->service->find($id);
 
         try {
             $exit = $this->service->startClearance($exit);
@@ -79,8 +79,8 @@ class ExitManagementController extends Controller
 
     public function clearItem(string $id, string $itemId): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
-        $item = ExitClearanceItem::where('employee_exit_id', $exit->id)->findOrFail($itemId);
+        $exit = $this->service->find($id);
+        $item = $this->service->findClearanceItem($exit, $itemId);
 
         $validated = request()->validate([
             'remarks' => 'nullable|string',
@@ -95,7 +95,7 @@ class ExitManagementController extends Controller
 
     public function completeClearance(string $id): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
+        $exit = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->completeClearance($exit)->load('clearanceItems'),
@@ -106,7 +106,7 @@ class ExitManagementController extends Controller
 
     public function settle(Request $request, string $id): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
+        $exit = $this->service->find($id);
 
         $validated = $request->validate([
             'final_settlement_amount' => 'nullable|numeric|min:0',
@@ -124,7 +124,7 @@ class ExitManagementController extends Controller
 
     public function close(string $id): JsonResponse
     {
-        $exit = EmployeeExit::findOrFail($id);
+        $exit = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->close($exit),

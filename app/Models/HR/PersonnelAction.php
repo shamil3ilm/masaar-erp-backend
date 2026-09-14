@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,6 +24,7 @@ class PersonnelAction extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
+    use LocksForTransition;
     use SoftDeletes;
 
     protected $table = 'personnel_actions';
