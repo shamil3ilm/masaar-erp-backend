@@ -6,12 +6,13 @@ namespace App\Models\RealEstate;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SecurityDeposit extends Model
 {
-    use BelongsToOrganization, HasUuid;
+    use BelongsToOrganization, HasUuid, LocksForTransition;
 
     protected $table = 'security_deposits';
 
