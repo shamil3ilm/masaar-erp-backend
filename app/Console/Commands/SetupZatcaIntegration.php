@@ -12,9 +12,11 @@ class SetupZatcaIntegration extends Command
 {
     protected $signature = 'zatca:setup';
 
-    protected $description = 'Configure and verify the ZATCA compliance integration';
+    protected $description = 'Check the compliance integration and subscribe to its invoice events';
 
-    public function handle(): int
+    private const EVENTS = ['invoice.cleared', 'invoice.reported', 'invoice.rejected', 'invoice.issued'];
+
+    public function handle(MasaarClient $client): int
     {
         if (!(bool) config('zatca-integration.enabled', true)) {
             $this->info('ZATCA integration is disabled');
@@ -24,78 +26,53 @@ class SetupZatcaIntegration extends Command
 
         $url = (string) config('zatca-integration.url', '');
         $apiKey = (string) config('zatca-integration.api_key', '');
-        $webhookSecret = (string) config('zatca-integration.webhook_secret', '');
 
-        // Validate configuration
-        if (empty($url)) {
-            $this->warn('ZATCA_INTEGRATION_URL is not set.');
+        if ($url === '' || $apiKey === '') {
+            $this->error('Set ZATCA_INTEGRATION_URL and ZATCA_INTEGRATION_API_KEY first.');
+
+            return self::FAILURE;
         }
 
-        if (empty($apiKey)) {
-            $this->warn('ZATCA_INTEGRATION_API_KEY is not set.');
-        }
+        // Replacing the subscription replaces its secret, which stops webhooks
+        // being accepted until the new one is configured.
+        if ((string) config('zatca-integration.webhook_secret', '') !== ''
+            && !$this->confirm('A webhook secret is already set. Replace the subscription and its secret?', false)) {
+            $this->info('Left the existing subscription as it is.');
 
-        if (empty($webhookSecret)) {
-            $this->warn('ZATCA_INTEGRATION_WEBHOOK_SECRET is not set.');
+            return self::SUCCESS;
         }
-
-        // Test connectivity
-        $connectivityStatus = 'FAILED';
 
         try {
-            $response = Http::timeout(10)->get(rtrim($url, '/') . '/health');
-            $connectivityStatus = $response->successful() ? 'OK' : 'FAILED (HTTP ' . $response->status() . ')';
-        } catch (\Exception $e) {
-            $connectivityStatus = 'FAILED (' . $e->getMessage() . ')';
+            $health = Http::timeout(10)->get(rtrim($url, '/') . '/health');
+            $connectivity = $health->successful() ? 'OK' : 'FAILED (HTTP ' . $health->status() . ')';
+        } catch (\Throwable $e) {
+            $connectivity = 'FAILED (' . $e->getMessage() . ')';
         }
 
-        if (str_starts_with($connectivityStatus, 'OK')) {
-            $this->info('Connectivity test passed.');
-        } else {
-            $this->error('Connectivity test failed: ' . $connectivityStatus);
-        }
-
-        // Register webhook
-        $webhookStatus = 'FAILED';
+        $callbackUrl = url('/api/v1/webhooks/zatca');
+        $rows = [
+            ['URL', $url],
+            ['API Key', substr($apiKey, 0, 8) . '****'],
+            ['Connectivity', $connectivity],
+            ['Callback URL', $callbackUrl],
+        ];
 
         try {
-            /** @var MasaarClient $client */
-            $client = app(MasaarClient::class);
+            $webhook = $client->registerWebhook($callbackUrl, self::EVENTS);
+        } catch (\Throwable $e) {
+            $this->table(['Setting', 'Value'], [...$rows, ['Webhook', 'FAILED']]);
+            $this->error('Webhook registration failed: ' . $e->getMessage());
 
-            $result = $client->registerWebhook(
-                url('/api/v1/webhooks/zatca'),
-                ['invoice.cleared', 'invoice.reported', 'invoice.rejected', 'invoice.issued'],
-                $webhookSecret
-            );
-
-            $webhookStatus = $result->status !== 'error' ? 'OK' : 'FAILED (' . ($result->message ?? 'unknown') . ')';
-        } catch (\Exception $e) {
-            $webhookStatus = 'FAILED (' . $e->getMessage() . ')';
+            return self::FAILURE;
         }
 
-        if (str_starts_with($webhookStatus, 'OK')) {
-            $this->info('Webhook registered successfully.');
-        } else {
-            $this->error('Webhook registration failed: ' . $webhookStatus);
-        }
+        $this->table(['Setting', 'Value'], [...$rows, ['Webhook', 'Registered (' . $webhook['id'] . ')']]);
 
-        // Output summary table
-        $maskedApiKey = !empty($apiKey)
-            ? substr($apiKey, 0, 8) . '****'
-            : 'NOT SET';
-
-        $maskedWebhookSecret = !empty($webhookSecret) ? '****' : 'NOT SET';
-
-        $this->table(
-            ['Setting', 'Value'],
-            [
-                ['URL', $url ?: 'NOT SET'],
-                ['API Key', $maskedApiKey],
-                ['Webhook Secret', $maskedWebhookSecret],
-                ['Connectivity', $connectivityStatus],
-                ['Webhook Registration', $webhookStatus],
-            ]
-        );
+        $this->newLine();
+        $this->warn('Masaar shows this secret only once. Set it in this environment and clear the config cache:');
+        $this->line('  ZATCA_INTEGRATION_WEBHOOK_SECRET=' . $webhook['secret']);
+        $this->line('  php artisan config:clear');
+        $this->line('Until then every webhook from Masaar is refused.');
 
         return self::SUCCESS;
     }
