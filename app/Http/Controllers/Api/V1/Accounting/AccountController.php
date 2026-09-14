@@ -4,19 +4,25 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\Account;
 use App\Services\Accounting\AccountBalanceService;
+use App\Services\Accounting\ChartOfAccountsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class AccountController extends Controller
 {
+    use ReportsBusinessRules;
     use SupportsAgGrid;
+
     public function __construct(
-        private AccountBalanceService $balanceService
+        private AccountBalanceService $balanceService,
+        private ChartOfAccountsService $chartOfAccounts,
     ) {}
 
     /**
@@ -24,13 +30,10 @@ class AccountController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Account::with('children')
-            ->whereNull('parent_id')
-            ->orderBy('code')
-            ->when($request->has('type'), fn($q) => $q->where('account_type', $request->type))
-            ->when($request->boolean('active_only'), fn($q) => $q->where('is_active', true));
-
-        $accounts = $query->get();
+        $accounts = $this->chartOfAccounts->tree([
+            ...$request->only(['type']),
+            'active_only' => $request->boolean('active_only'),
+        ]);
 
         return $this->success($this->buildTree($accounts));
     }
@@ -40,11 +43,11 @@ class AccountController extends Controller
      */
     public function flat(Request $request): JsonResponse
     {
-        $query = Account::query()
-            ->orderBy('code')
-            ->when($request->has('type'), fn($q) => $q->where('account_type', $request->type))
-            ->when($request->boolean('postable'), fn($q) => $q->where('is_header', false)->where('is_active', true))
-            ->when($request->boolean('active_only'), fn($q) => $q->where('is_active', true));
+        $query = $this->chartOfAccounts->flatQuery([
+            ...$request->only(['type']),
+            'postable' => $request->boolean('postable'),
+            'active_only' => $request->boolean('active_only'),
+        ]);
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -98,23 +101,7 @@ class AccountController extends Controller
             'is_header' => ['boolean'],
         ]);
 
-        // Calculate level and path
-        $level = 1;
-        $path = $validated['code'];
-
-        if (!empty($validated['parent_id'])) {
-            $parent = Account::findOrFail($validated['parent_id']);
-            $level = $parent->level + 1;
-            $path = "{$parent->path}.{$validated['code']}";
-        }
-
-        $account = Account::create([
-            ...$validated,
-            'organization_id' => auth()->user()->organization_id,
-            'level' => $level,
-            'path' => $path,
-            'is_active' => true,
-        ]);
+        $account = $this->chartOfAccounts->create(auth()->user()->organization_id, $validated);
 
         return $this->success($account, 'Account created successfully', 201);
     }
@@ -124,6 +111,8 @@ class AccountController extends Controller
      */
     public function update(Request $request, Account $account): JsonResponse
     {
+        // A system account is refused before the payload is validated, so it
+        // reports SYSTEM_ACCOUNT whatever was sent.
         if ($account->is_system) {
             return $this->error('System accounts cannot be modified', 'SYSTEM_ACCOUNT', 403);
         }
@@ -135,31 +124,25 @@ class AccountController extends Controller
             'is_active' => ['boolean'],
         ]);
 
-        $account->update($validated);
+        try {
+            $account = $this->chartOfAccounts->update($account, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success($account, 'Account updated successfully');
     }
 
     /**
-     * Delete account (soft check for transactions).
+     * Delete an account that has no children and no journal lines.
      */
     public function destroy(Account $account): JsonResponse
     {
-        if ($account->is_system) {
-            return $this->error('System accounts cannot be deleted', 'SYSTEM_ACCOUNT', 400);
+        try {
+            $this->chartOfAccounts->delete($account);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        // Check for child accounts
-        if ($account->children()->exists()) {
-            return $this->error('Cannot delete account with child accounts', 'HAS_CHILDREN', 400);
-        }
-
-        // Check for journal entries
-        if ($account->journalLines()->exists()) {
-            return $this->error('Cannot delete account with journal entries', 'HAS_TRANSACTIONS', 400);
-        }
-
-        $account->delete();
 
         return $this->success(null, 'Account deleted successfully');
     }
