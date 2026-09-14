@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\ProbationPeriod;
 use App\Services\HR\ProbationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ProbationController extends Controller
 {
@@ -28,7 +28,11 @@ class ProbationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|integer|exists:employees,id',
+            'employee_id' => [
+                'required',
+                'integer',
+                Rule::exists('employees', 'id')->where('organization_id', auth()->user()->organization_id),
+            ],
             'start_date'  => 'required|date',
             'end_date'    => 'required|date|after:start_date',
             'review_date' => 'nullable|date',
@@ -41,14 +45,12 @@ class ProbationController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $period = ProbationPeriod::with(['employee', 'reviewer'])->findOrFail($id);
-
-        return $this->success($period);
+        return $this->success($this->service->findWithRelations($id));
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $period = ProbationPeriod::findOrFail($id);
+        $period = $this->service->find($id);
 
         $validated = $request->validate([
             'start_date'  => 'sometimes|date',
@@ -65,7 +67,7 @@ class ProbationController extends Controller
 
     public function extend(Request $request, string $id): JsonResponse
     {
-        $period = ProbationPeriod::findOrFail($id);
+        $period = $this->service->find($id);
 
         $validated = $request->validate([
             'new_end_date' => 'required|date|after:' . $period->end_date->toDateString(),
@@ -81,11 +83,15 @@ class ProbationController extends Controller
 
     public function complete(Request $request, string $id): JsonResponse
     {
-        $period = ProbationPeriod::findOrFail($id);
+        $period = $this->service->find($id);
 
         $validated = $request->validate([
             'outcome'     => 'required|in:confirmed,extended,terminated',
-            'reviewer_id' => 'required|integer|exists:users,id',
+            'reviewer_id' => [
+                'required',
+                'integer',
+                Rule::exists('users', 'id')->where('organization_id', auth()->user()->organization_id),
+            ],
             'notes'       => 'required|string',
         ]);
 
@@ -103,7 +109,7 @@ class ProbationController extends Controller
 
     public function waive(string $id): JsonResponse
     {
-        $period = ProbationPeriod::findOrFail($id);
+        $period = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->waive($period),

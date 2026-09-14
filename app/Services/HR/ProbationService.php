@@ -9,6 +9,14 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use InvalidArgumentException;
 
+/**
+ * Probation periods: created active, then updated, extended, completed by a
+ * reviewer or waived.
+ *
+ * Every change re-reads the period under a row lock and checks its status
+ * there, so a copy loaded before the period was completed cannot waive,
+ * extend or edit it afterwards.
+ */
 class ProbationService
 {
     public function list(array $filters = []): LengthAwarePaginator
@@ -20,6 +28,20 @@ class ProbationService
             ->orderBy('start_date', 'desc');
 
         return $query->paginate($filters['per_page'] ?? 15);
+    }
+
+    /**
+     * A probation period of the current organization; the tenant scope turns
+     * another organization's id into a not-found.
+     */
+    public function find(int|string $id): ProbationPeriod
+    {
+        return ProbationPeriod::findOrFail($id);
+    }
+
+    public function findWithRelations(int|string $id): ProbationPeriod
+    {
+        return ProbationPeriod::with(['employee', 'reviewer'])->findOrFail($id);
     }
 
     public function create(array $data): ProbationPeriod
@@ -35,33 +57,37 @@ class ProbationService
 
     public function update(ProbationPeriod $period, array $data): ProbationPeriod
     {
-        if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
-            throw new InvalidArgumentException('Completed probation periods cannot be updated.');
-        }
+        return $period->lockForTransition(function (ProbationPeriod $period) use ($data): ProbationPeriod {
+            if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
+                throw new InvalidArgumentException('Completed probation periods cannot be updated.');
+            }
 
-        $period->update(array_intersect_key($data, array_flip([
-            'start_date',
-            'end_date',
-            'review_date',
-        ])));
+            $period->update(array_intersect_key($data, array_flip([
+                'start_date',
+                'end_date',
+                'review_date',
+            ])));
 
-        return $period->fresh();
+            return $period->fresh();
+        });
     }
 
     public function extend(ProbationPeriod $period, string $newEndDate, ?string $reason = null): ProbationPeriod
     {
-        if ($period->status !== ProbationPeriod::STATUS_ACTIVE && $period->status !== ProbationPeriod::STATUS_EXTENDED) {
-            throw new InvalidArgumentException('Only active or extended probation periods can be extended.');
-        }
+        return $period->lockForTransition(function (ProbationPeriod $period) use ($newEndDate, $reason): ProbationPeriod {
+            if ($period->status !== ProbationPeriod::STATUS_ACTIVE && $period->status !== ProbationPeriod::STATUS_EXTENDED) {
+                throw new InvalidArgumentException('Only active or extended probation periods can be extended.');
+            }
 
-        $period->extend($newEndDate);
+            $period->extend($newEndDate);
 
-        if ($reason !== null) {
-            $period->review_notes = $reason;
-            $period->save();
-        }
+            if ($reason !== null) {
+                $period->review_notes = $reason;
+                $period->save();
+            }
 
-        return $period->fresh();
+            return $period->fresh();
+        });
     }
 
     public function complete(ProbationPeriod $period, string $outcome, int $reviewerId, string $notes): ProbationPeriod
@@ -76,13 +102,15 @@ class ProbationService
             throw new InvalidArgumentException("Invalid outcome: {$outcome}. Must be one of: " . implode(', ', $validOutcomes));
         }
 
-        if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
-            throw new InvalidArgumentException('Probation period is already completed.');
-        }
+        return $period->lockForTransition(function (ProbationPeriod $period) use ($outcome, $reviewerId, $notes): ProbationPeriod {
+            if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
+                throw new InvalidArgumentException('Probation period is already completed.');
+            }
 
-        $period->complete($outcome, $reviewerId, $notes);
+            $period->complete($outcome, $reviewerId, $notes);
 
-        return $period->fresh();
+            return $period->fresh();
+        });
     }
 
     public function getDueSoon(int $orgId, int $daysAhead = 30): Collection
@@ -97,12 +125,14 @@ class ProbationService
 
     public function waive(ProbationPeriod $period): ProbationPeriod
     {
-        if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
-            throw new InvalidArgumentException('Completed probation periods cannot be waived.');
-        }
+        return $period->lockForTransition(function (ProbationPeriod $period): ProbationPeriod {
+            if ($period->status === ProbationPeriod::STATUS_COMPLETED) {
+                throw new InvalidArgumentException('Completed probation periods cannot be waived.');
+            }
 
-        $period->update(['status' => ProbationPeriod::STATUS_WAIVED]);
+            $period->update(['status' => ProbationPeriod::STATUS_WAIVED]);
 
-        return $period->fresh();
+            return $period->fresh();
+        });
     }
 }

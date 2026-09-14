@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class EmployeeExit extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const TYPE_RESIGNATION = 'resignation';
     public const TYPE_TERMINATION = 'termination';
