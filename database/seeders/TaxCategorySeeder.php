@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Core\Organization;
 use App\Models\Tax\TaxCategory;
 use App\Models\Tax\TaxRate;
 use Illuminate\Database\Seeder;
@@ -9,6 +10,14 @@ use Illuminate\Database\Seeder;
 class TaxCategorySeeder extends Seeder
 {
     public function run(): void
+    {
+        // Tax categories belong to an organization, so each one gets the set.
+        foreach (Organization::withoutGlobalScopes()->pluck('id') as $organizationId) {
+            $this->seedFor((int) $organizationId);
+        }
+    }
+
+    private function seedFor(int $organizationId): void
     {
         // Standard Tax Categories (ZATCA/GCC compliant codes)
         $categories = [
@@ -34,9 +43,10 @@ class TaxCategorySeeder extends Seeder
             ],
         ];
 
+        $created = [];
         foreach ($categories as $category) {
-            TaxCategory::firstOrCreate(
-                ['code' => $category['code'], 'organization_id' => null],
+            $created[$category['code']] = TaxCategory::firstOrCreate(
+                ['code' => $category['code'], 'organization_id' => $organizationId],
                 array_merge($category, ['is_active' => true])
             );
         }
@@ -62,39 +72,30 @@ class TaxCategorySeeder extends Seeder
             ['country_code' => 'KW', 'name' => 'Kuwait VAT', 'rate' => 0.00, 'effective_from' => '2024-01-01'],
         ];
 
-        $standardCategory = TaxCategory::where('code', 'S')->first();
-
-        if ($standardCategory) {
-            foreach ($vatRates as $rate) {
-                TaxRate::firstOrCreate(
-                    [
-                        'tax_category_id' => $standardCategory->id,
-                        'country_code' => $rate['country_code'],
-                    ],
-                    array_merge($rate, ['is_active' => true])
-                );
-            }
+        foreach ($vatRates as $rate) {
+            TaxRate::firstOrCreate(
+                [
+                    'tax_category_id' => $created['S']->id,
+                    'country_code' => $rate['country_code'],
+                ],
+                array_merge($rate, ['is_active' => true])
+            );
         }
 
         // Zero rates for all countries
-        $zeroCategory = TaxCategory::where('code', 'Z')->first();
-
-        if ($zeroCategory) {
-            $countries = ['SA', 'AE', 'BH', 'OM', 'QA', 'KW'];
-            foreach ($countries as $country) {
-                TaxRate::firstOrCreate(
-                    [
-                        'tax_category_id' => $zeroCategory->id,
-                        'country_code' => $country,
-                    ],
-                    [
-                        'name' => 'Zero Rate',
-                        'rate' => 0.00,
-                        'effective_from' => '2020-01-01',
-                        'is_active' => true,
-                    ]
-                );
-            }
+        foreach (['SA', 'AE', 'BH', 'OM', 'QA', 'KW'] as $country) {
+            TaxRate::firstOrCreate(
+                [
+                    'tax_category_id' => $created['Z']->id,
+                    'country_code' => $country,
+                ],
+                [
+                    'name' => 'Zero Rate',
+                    'rate' => 0.00,
+                    'effective_from' => '2020-01-01',
+                    'is_active' => true,
+                ]
+            );
         }
     }
 }
