@@ -16,6 +16,10 @@ class CalibrationOrder extends Model
 {
     use BelongsToOrganization, HasUuid, SoftDeletes;
 
+    /** Numbered by NumberGeneratorService per organization and year: CAL-2026-00001. */
+    public const NUMBER_SEQUENCE = 'CAL';
+    public const NUMBER_FORMAT = '{prefix}-{year}-{number}';
+
     public const STATUS_PLANNED     = 'planned';
     public const STATUS_IN_PROGRESS = 'in_progress';
     public const STATUS_COMPLETED   = 'completed';
@@ -90,21 +94,5 @@ class CalibrationOrder extends Model
     {
         return $this->status === self::STATUS_OVERDUE
             || ($this->status === self::STATUS_PLANNED && $this->scheduled_date < now()->toDateString());
-    }
-
-    public static function generateOrderNumber(int $orgId): string
-    {
-        $year   = now()->format('Y');
-        $prefix = "CAL-{$year}-";
-
-        $last = static::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->where('order_number', 'like', "{$prefix}%")
-            ->lockForUpdate()
-            ->max('order_number');
-
-        $seq = $last === null ? 1 : (int) substr($last, strlen($prefix)) + 1;
-
-        return $prefix . str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
     }
 }

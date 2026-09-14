@@ -592,7 +592,7 @@ class GoodsReceiptService
         }
 
         return DB::transaction(function () use ($gr, $matchedItems): WarehouseTransferOrder {
-            $toNumber = WarehouseTransferOrder::generateToNumber($gr->organization_id);
+            $toNumber = $this->numberGenerator->generate(WarehouseTransferOrder::NUMBER_SEQUENCE, WarehouseTransferOrder::NUMBER_FORMAT, $gr->organization_id);
 
             $transferOrder = WarehouseTransferOrder::create([
                 'organization_id'     => $gr->organization_id,

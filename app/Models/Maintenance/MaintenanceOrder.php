@@ -24,6 +24,10 @@ class MaintenanceOrder extends Model
     use SoftDeletes;
 
     // Order type constants
+    /** Numbered by NumberGeneratorService per organization and year: MO-2026-000001. */
+    public const NUMBER_SEQUENCE = 'MO';
+    public const NUMBER_FORMAT = '{prefix}-{year}-{number:6}';
+
     public const TYPE_PREVENTIVE  = 'preventive';
     public const TYPE_CORRECTIVE  = 'corrective';
     public const TYPE_EMERGENCY   = 'emergency';
@@ -221,29 +225,6 @@ class MaintenanceOrder extends Model
     }
 
     // Static helpers
-
-    /**
-     * Generate a sequential order number: MO-YYYY-000001
-     */
-    public static function generateOrderNumber(int $orgId): string
-    {
-        $year  = now()->format('Y');
-        $prefix = "MO-{$year}-";
-
-        $last = static::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->where('order_number', 'like', "{$prefix}%")
-            ->lockForUpdate()
-            ->max('order_number');
-
-        if ($last === null) {
-            $seq = 1;
-        } else {
-            $seq = (int) substr($last, strlen($prefix)) + 1;
-        }
-
-        return $prefix . str_pad((string) $seq, 6, '0', STR_PAD_LEFT);
-    }
 
     // Scopes
 

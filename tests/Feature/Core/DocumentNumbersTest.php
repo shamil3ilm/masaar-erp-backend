@@ -24,6 +24,7 @@ use App\Services\Maintenance\MaintenanceService;
 use App\Services\Manufacturing\CalibrationService;
 use App\Services\TM\TransportationService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\BuildsLedger;
@@ -40,6 +41,8 @@ class DocumentNumbersTest extends TestCase
     use BuildsLedger, RefreshDatabase, TestHelpers;
 
     private string $year;
+
+    private ?Migration $numberSequences = null;
 
     protected function setUp(): void
     {
@@ -268,11 +271,12 @@ class DocumentNumbersTest extends TestCase
     }
 
     /**
-     * The step a deployment runs so that number counters continue after the
-     * numbers documents already carry. Numbers derived from the stored
-     * documents need none.
+     * Runs the migration a deployment runs, which starts each number counter
+     * after the numbers documents already carry.
      */
     private function continueCountersAfterStoredNumbers(): void
     {
+        $this->numberSequences ??= require database_path('migrations/0520_continue_number_sequences_after_stored_numbers.php');
+        $this->numberSequences->up();
     }
 }
