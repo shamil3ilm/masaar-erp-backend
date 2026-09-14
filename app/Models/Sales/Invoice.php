@@ -44,6 +44,16 @@ class Invoice extends Model
     public const COMPLIANCE_REPORTED = 'reported';
     public const COMPLIANCE_REJECTED = 'rejected';
 
+    /**
+     * Columns another document may embed to show an invoice it refers to. They
+     * leave out the customer email and tax number copied onto the invoice,
+     * which leave only through InvoiceResource.
+     */
+    public const REFERENCE_COLUMNS = [
+        'id', 'uuid', 'invoice_number', 'invoice_date', 'due_date',
+        'total', 'amount_paid', 'amount_due', 'status', 'currency_code',
+    ];
+
     protected $fillable = [
         'organization_id',
         'branch_id',

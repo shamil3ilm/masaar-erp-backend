@@ -10,6 +10,7 @@ use App\Services\Sales\SalesReturnService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class SalesReturnController extends Controller
 {
@@ -31,6 +32,8 @@ class SalesReturnController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $orgId = $request->user()->organization_id;
+
         // Normalize items: accept both 'quantity' and 'quantity_returned'
         $data = $request->all();
         if (!empty($data['items'])) {
@@ -43,17 +46,17 @@ class SalesReturnController extends Controller
         }
 
         $validator = Validator::make($data, [
-            'customer_id' => 'required|exists:contacts,id',
-            'invoice_id' => 'nullable|exists:invoices,id',
+            'customer_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
+            'invoice_id' => ['nullable', Rule::exists('invoices', 'id')->where('organization_id', $orgId)],
             'return_date' => 'required|date',
             'return_type' => 'required|in:refund,exchange,credit_note,replacement',
-            'return_reason_id' => 'nullable|exists:return_reasons,id',
+            'return_reason_id' => ['nullable', Rule::exists('return_reasons', 'id')->where('organization_id', $orgId)],
             'reason_notes' => 'nullable|string|max:1000',
             'currency_code' => 'nullable|string|size:3',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', $orgId)],
             'restock_items' => 'boolean',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', $orgId)],
             'items.*.description' => 'nullable|string|max:500',
             'items.*.quantity_returned' => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',
@@ -68,7 +71,7 @@ class SalesReturnController extends Controller
 
         try {
             $salesReturn = $this->salesReturnService->create(
-                array_merge($data, ['organization_id' => $request->user()->organization_id]),
+                array_merge($data, ['organization_id' => $orgId]),
                 $request->user()->id
             );
         } catch (\App\Exceptions\ApiException $e) {
@@ -83,11 +86,7 @@ class SalesReturnController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $salesReturn = SalesReturn::where('organization_id', $request->user()->organization_id)
-            ->with(['customer', 'invoice', 'items.product', 'returnReason', 'exchangeOrder.items', 'creditNote', 'refund'])
-            ->findOrFail($id);
-
-        return $this->success($salesReturn);
+        return $this->success($this->salesReturnService->findWithDetails($request->user()->organization_id, $id));
     }
 
     /**
@@ -119,30 +118,23 @@ class SalesReturnController extends Controller
 
     public function receiveItems(Request $request, int $id): JsonResponse
     {
-        $salesReturn = SalesReturn::where('organization_id', $request->user()->organization_id)
-            ->with('items')
-            ->findOrFail($id);
+        $salesReturn = $this->salesReturnService->findWithItems($request->user()->organization_id, $id);
 
         // If no items provided, auto-receive all items from the return
         $items = $request->items;
         if (empty($items)) {
-            $items = $salesReturn->items->map(function ($item) {
-                return [
-                    'id' => $item->id,
-                    'quantity_received' => $item->quantity_returned,
-                    'quantity_damaged' => 0,
-                ];
-            })->toArray();
+            $items = $this->salesReturnService->fullReceipt($salesReturn);
         }
 
         // If the return has no items, just mark as received directly
         if (empty($items)) {
-            if (! in_array($salesReturn->status, [SalesReturn::STATUS_APPROVED, SalesReturn::STATUS_RECEIVED])) {
-                return $this->error('Sales return must be approved before receiving items.', 'VALIDATION_ERROR', 422);
-            }
             try {
-                $salesReturn->markReceived();
-                return $this->success($salesReturn->fresh(['items']), 'Items received successfully.');
+                return $this->success(
+                    $this->salesReturnService->markReceivedWithoutItems($salesReturn),
+                    'Items received successfully.'
+                );
+            } catch (\InvalidArgumentException $e) {
+                return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
             } catch (\App\Exceptions\ApiException $e) {
                 return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
             } catch (\Exception $e) {
@@ -212,13 +204,13 @@ class SalesReturnController extends Controller
             'restock_items' => 'nullable|boolean',
         ]);
 
-        // Update restock_items if provided
-        if ($request->has('restock_items')) {
-            $salesReturn->update(['restock_items' => $request->boolean('restock_items')]);
-        }
-
         try {
-            $salesReturn = $this->salesReturnService->resolve($salesReturn, $request->resolution_type, $request->user()->id);
+            $salesReturn = $this->salesReturnService->resolve(
+                $salesReturn,
+                $request->resolution_type,
+                $request->user()->id,
+                $request->has('restock_items') ? $request->boolean('restock_items') : null,
+            );
         } catch (\App\Exceptions\ApiException $e) {
             return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
         } catch (\Exception $e) {
@@ -255,8 +247,8 @@ class SalesReturnController extends Controller
 
         $validator = Validator::make($data, [
             'items' => 'required|array|min:1',
-            'items.*.original_product_id' => 'nullable|exists:products,id',
-            'items.*.replacement_product_id' => 'nullable|exists:products,id',
+            'items.*.original_product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', $request->user()->organization_id)],
+            'items.*.replacement_product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', $request->user()->organization_id)],
             'items.*.description' => 'nullable|string|max:500',
             'items.*.original_quantity' => 'nullable|numeric|min:0.01',
             'items.*.replacement_quantity' => 'required|numeric|min:0.01',

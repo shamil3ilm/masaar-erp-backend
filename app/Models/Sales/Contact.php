@@ -36,6 +36,13 @@ class Contact extends Model
 
     public const TYPE_BOTH = 'both';
 
+    /**
+     * Columns another document may embed to name its contact. They leave out
+     * the tax number, email, phone and addresses, which leave only through
+     * ContactResource.
+     */
+    public const REFERENCE_COLUMNS = ['id', 'uuid', 'contact_name', 'company_name'];
+
     protected $fillable = [
         'organization_id',
         'contact_type',
