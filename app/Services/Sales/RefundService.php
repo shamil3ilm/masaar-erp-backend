@@ -85,13 +85,19 @@ class RefundService
         return $refund->fresh();
     }
 
+    /**
+     * Pay out an approved refund.
+     *
+     * The status is checked on the locked refund, so a double submit credits
+     * the wallet or issues the credit note once.
+     */
     public function process(Refund $refund, int $userId, ?string $transactionReference = null): Refund
     {
-        if ($refund->status !== Refund::STATUS_APPROVED) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $refund->lockForTransition(function (Refund $refund) use ($userId, $transactionReference): Refund {
+            if ($refund->status !== Refund::STATUS_APPROVED) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        return DB::transaction(function () use ($refund, $userId, $transactionReference) {
             switch ($refund->refund_method) {
                 case Refund::METHOD_WALLET:
                     $this->processWalletRefund($refund);

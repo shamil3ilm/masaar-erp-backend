@@ -6,6 +6,7 @@ namespace App\Models\Sales;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\Sales\SalesReturn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,6 +18,7 @@ class Refund extends Model
 {
     use BelongsToOrganization, HasFactory;
     use HasUuid;
+    use LocksForTransition;
 
     protected $guarded = ['id'];
 
