@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\PayrollPeriodResource;
 use App\Http\Resources\HR\PayslipResource;
-use App\Models\HR\Employee;
 use App\Models\HR\PayrollPeriod;
 use App\Models\HR\Payslip;
 use App\Services\HR\GosiExportService;
@@ -15,7 +14,6 @@ use App\Services\HR\PayrollService;
 use App\Services\HR\WpsExportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -33,12 +31,10 @@ class PayrollController extends Controller
      */
     public function periods(Request $request): JsonResponse
     {
-        $query = PayrollPeriod::query()
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->year, fn($q, $year) => $q->whereYear('start_date', $year))
-            ->orderBy('start_date', 'desc');
-
-        $periods = $query->paginate($request->integer('per_page', 15));
+        $periods = $this->payrollService->listPeriods(
+            ['status' => $request->status, 'year' => $request->year],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($periods, PayrollPeriodResource::class);
     }
@@ -114,13 +110,14 @@ class PayrollController extends Controller
      */
     public function payslips(Request $request): JsonResponse
     {
-        $query = Payslip::with(['employee', 'payrollPeriod'])
-            ->when($request->period_id, fn($q, $id) => $q->forPeriod($id))
-            ->when($request->employee_id, fn($q, $id) => $q->forEmployee($id))
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->orderBy('created_at', 'desc');
-
-        $payslips = $query->paginate($request->integer('per_page', 15));
+        $payslips = $this->payrollService->listPayslips(
+            [
+                'period_id'   => $request->period_id,
+                'employee_id' => $request->employee_id,
+                'status'      => $request->status,
+            ],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($payslips, PayslipResource::class);
     }
@@ -148,8 +145,7 @@ class PayrollController extends Controller
         ]);
 
         try {
-            $employee = Employee::findOrFail($validated['employee_id']);
-            $payslip  = $this->payrollService->generatePayslip($payrollPeriod, $employee);
+            $payslip = $this->payrollService->generatePayslipForEmployee($payrollPeriod, (int) $validated['employee_id']);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
@@ -210,23 +206,11 @@ class PayrollController extends Controller
             ],
         ]);
 
-        $count = DB::transaction(function () use ($validated): int {
-            $payslips = Payslip::where('organization_id', auth()->user()->organization_id)
-                ->whereIn('id', $validated['payslip_ids'])
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $count = 0;
-            foreach ($validated['payslip_ids'] as $id) {
-                $payslip = $payslips->get($id);
-                if ($payslip && $payslip->status === Payslip::STATUS_PENDING) {
-                    $this->payrollService->approvePayslip($payslip, auth()->id());
-                    $count++;
-                }
-            }
-            return $count;
-        });
+        $count = $this->payrollService->bulkApprove(
+            $validated['payslip_ids'],
+            auth()->user()->organization_id,
+            auth()->id()
+        );
 
         return $this->success(null, "Approved {$count} payslips.");
     }
@@ -245,27 +229,12 @@ class PayrollController extends Controller
             'payment_reference' => 'nullable|string|max:100',
         ]);
 
-        $count = DB::transaction(function () use ($validated): int {
-            $payslips = Payslip::where('organization_id', auth()->user()->organization_id)
-                ->whereIn('id', $validated['payslip_ids'])
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $count = 0;
-            foreach ($validated['payslip_ids'] as $id) {
-                $payslip = $payslips->get($id);
-                if ($payslip && $payslip->status === Payslip::STATUS_APPROVED) {
-                    $this->payrollService->markAsPaid(
-                        $payslip,
-                        $validated['payment_mode'],
-                        $validated['payment_reference'] ?? null
-                    );
-                    $count++;
-                }
-            }
-            return $count;
-        });
+        $count = $this->payrollService->bulkPay(
+            $validated['payslip_ids'],
+            auth()->user()->organization_id,
+            $validated['payment_mode'],
+            $validated['payment_reference'] ?? null
+        );
 
         return $this->success(null, "Paid {$count} payslips.");
     }
@@ -313,28 +282,9 @@ class PayrollController extends Controller
     {
         $stats = $this->wpsExportService->getStats($payrollPeriod);
 
-        $warnings = [];
-
-        if ($stats['missing_iban'] > 0) {
-            // Load the specific employees who are missing an IBAN so the
-            // caller can take action.
-            $missingIbanEmployees = Payslip::with('employee')
-                ->where('payroll_period_id', $payrollPeriod->id)
-                ->where('status', Payslip::STATUS_PAID)
-                ->get()
-                ->filter(fn(Payslip $p) => empty($p->employee?->bank_iban))
-                ->map(fn(Payslip $p) => [
-                    'employee_id'     => $p->employee?->id,
-                    'employee_number' => $p->employee?->employee_number,
-                    'name'            => $p->employee?->display_name
-                        ?? trim(($p->employee?->first_name ?? '') . ' ' . ($p->employee?->last_name ?? '')),
-                    'issues'          => ['Bank IBAN is missing.'],
-                ])
-                ->values()
-                ->all();
-
-            $warnings = $missingIbanEmployees;
-        }
+        $warnings = $stats['missing_iban'] > 0
+            ? $this->wpsExportService->missingIbanEmployees($payrollPeriod)
+            : [];
 
         return $this->success([
             'valid'           => $stats['missing_iban'] === 0 && $stats['ready_count'] > 0,

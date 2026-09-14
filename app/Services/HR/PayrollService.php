@@ -442,6 +442,108 @@ class PayrollService
     }
 
     /**
+     * Payroll periods of the current organization, latest start first.
+     *
+     * @param  array{status?: mixed, year?: mixed}  $filters  empty values are ignored
+     */
+    public function listPeriods(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return PayrollPeriod::query()
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
+            ->when($filters['year'] ?? null, fn($q, $year) => $q->whereYear('start_date', $year))
+            ->orderBy('start_date', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Payslips of the current organization with their employee and period,
+     * newest first.
+     *
+     * @param  array{period_id?: mixed, employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listPayslips(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return Payslip::with(['employee', 'payrollPeriod'])
+            ->when($filters['period_id'] ?? null, fn($q, $id) => $q->forPeriod($id))
+            ->when($filters['employee_id'] ?? null, fn($q, $id) => $q->forEmployee($id))
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Generates the payslip of one employee of the current organization.
+     */
+    public function generatePayslipForEmployee(PayrollPeriod $period, int $employeeId): Payslip
+    {
+        return $this->generatePayslip($period, Employee::findOrFail($employeeId));
+    }
+
+    /**
+     * Approves the pending payslips among $payslipIds and returns how many.
+     *
+     * The payslips are locked together first, so a concurrent bulk request
+     * waits and then skips those already approved. Ids of other organizations
+     * or of payslips in another status are skipped.
+     *
+     * @param  list<int|string>  $payslipIds
+     */
+    public function bulkApprove(array $payslipIds, int $organizationId, int $userId): int
+    {
+        return DB::transaction(function () use ($payslipIds, $organizationId, $userId): int {
+            $payslips = $this->lockPayslips($payslipIds, $organizationId);
+
+            $count = 0;
+            foreach ($payslipIds as $id) {
+                $payslip = $payslips->get($id);
+                if ($payslip && $payslip->status === Payslip::STATUS_PENDING) {
+                    $this->approvePayslip($payslip, $userId);
+                    $count++;
+                }
+            }
+
+            return $count;
+        });
+    }
+
+    /**
+     * Marks the approved payslips among $payslipIds as paid and returns how
+     * many; each posts its own journal entry through markAsPaid().
+     *
+     * @param  list<int|string>  $payslipIds
+     */
+    public function bulkPay(array $payslipIds, int $organizationId, string $paymentMode, ?string $paymentReference = null): int
+    {
+        return DB::transaction(function () use ($payslipIds, $organizationId, $paymentMode, $paymentReference): int {
+            $payslips = $this->lockPayslips($payslipIds, $organizationId);
+
+            $count = 0;
+            foreach ($payslipIds as $id) {
+                $payslip = $payslips->get($id);
+                if ($payslip && $payslip->status === Payslip::STATUS_APPROVED) {
+                    $this->markAsPaid($payslip, $paymentMode, $paymentReference);
+                    $count++;
+                }
+            }
+
+            return $count;
+        });
+    }
+
+    /**
+     * @param  list<int|string>  $payslipIds
+     * @return \Illuminate\Support\Collection<int, Payslip>
+     */
+    private function lockPayslips(array $payslipIds, int $organizationId): \Illuminate\Support\Collection
+    {
+        return Payslip::where('organization_id', $organizationId)
+            ->whereIn('id', $payslipIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+    }
+
+    /**
      * Submit a payslip for approval (DRAFT → PENDING).
      */
     public function submitPayslip(Payslip $payslip, int $userId): Payslip

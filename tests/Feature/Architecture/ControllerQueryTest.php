@@ -179,7 +179,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/HR/LeavePolicyController.php' => 2,
         'Api/V1/HR/ManagerSelfServiceController.php' => 2,
         'Api/V1/HR/OvertimeController.php' => 1,
-        'Api/V1/HR/PayrollController.php' => 6,
         'Api/V1/HR/PerformanceController.php' => 22,
         'Api/V1/HR/PersonnelActionController.php' => 6,
         'Api/V1/HR/ProbationController.php' => 5,
