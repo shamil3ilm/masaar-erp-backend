@@ -116,7 +116,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Expense/ExpenseController.php' => 2,
         'Api/V1/Expense/ExpenseReportController.php' => 1,
         'Api/V1/Fraud/FraudAlertController.php' => 8,
-        'Api/V1/HR/RecruitmentController.php' => 18,
         'Api/V1/HR/TrainingController.php' => 26,
         'Api/V1/Inventory/BarcodeController.php' => 3,
         'Api/V1/Inventory/BatchClassificationController.php' => 8,
