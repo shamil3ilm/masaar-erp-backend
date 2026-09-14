@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,6 +15,22 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class SuccessionCandidate extends Model
 {
     use HasUuid, SoftDeletes;
+
+    /**
+     * The table has no organization column: a candidate belongs to the
+     * organization of its key position. Scoping every query through that
+     * position keeps listings and route binding inside the authenticated
+     * user's organization, as BelongsToOrganization does for tables that carry
+     * the column.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('organization', function (Builder $builder): void {
+            if (auth()->user()) {
+                $builder->whereHas('keyPosition', fn (Builder $position) => $position->withTrashed());
+            }
+        });
+    }
 
     protected $table = 'succession_candidates';
 

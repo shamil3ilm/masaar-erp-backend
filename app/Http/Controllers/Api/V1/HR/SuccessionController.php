@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Employee;
 use App\Models\HR\KeyPosition;
 use App\Models\HR\SuccessionCandidate;
 use App\Models\HR\SuccessionPoolActivity;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\SuccessionPlanningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class SuccessionController extends Controller
 {
     public function __construct(
-        private SuccessionPlanningService $successionService
+        private SuccessionPlanningService $successionService,
+        private EmployeeService $employeeService,
     ) {}
 
     /**
@@ -24,16 +26,14 @@ class SuccessionController extends Controller
      */
     public function indexKeyPositions(Request $request): JsonResponse
     {
-        $positions = KeyPosition::with(['department', 'currentHolder'])
-            ->withCount('activeCandidates')
-            ->when($request->criticality, fn($q, $v) => $q->byCriticality($v))
-            ->when($request->department_id, fn($q, $v) => $q->where('department_id', $v))
-            ->when($request->boolean('active_only', true), fn($q) => $q->active())
-            ->orderBy('criticality')
-            ->orderBy('title')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($positions);
+        return $this->paginated($this->successionService->listPositions(
+            [
+                'criticality' => $request->criticality,
+                'department_id' => $request->department_id,
+                'active_only' => $request->boolean('active_only', true),
+            ],
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -41,21 +41,19 @@ class SuccessionController extends Controller
      */
     public function storeKeyPosition(Request $request): JsonResponse
     {
+        $organizationId = auth()->user()->organization_id;
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
-            'department_id' => 'nullable|exists:departments,id',
+            'department_id' => ['nullable', Rule::exists('departments', 'id')->where('organization_id', $organizationId)],
             'criticality' => 'required|in:critical,high,medium',
-            'current_holder_id' => 'nullable|exists:employees,id',
+            'current_holder_id' => ['nullable', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
             'target_fill_date' => 'nullable|date',
             'min_successors' => 'integer|min:1|max:10',
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $position = KeyPosition::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-            'created_by' => auth()->id(),
-        ]));
+        $position = $this->successionService->createPosition($validated, $organizationId, (int) auth()->id());
 
         return $this->created($position->load('department', 'currentHolder'), 'Key position created successfully.');
     }
@@ -83,7 +81,7 @@ class SuccessionController extends Controller
         $validated = $request->validate([
             'title' => 'string|max:255',
             'criticality' => 'in:critical,high,medium',
-            'current_holder_id' => 'nullable|exists:employees,id',
+            'current_holder_id' => ['nullable', Rule::exists('employees', 'id')->where('organization_id', $keyPosition->organization_id)],
             'target_fill_date' => 'nullable|date',
             'min_successors' => 'integer|min:1|max:10',
             'is_active' => 'boolean',
@@ -100,14 +98,14 @@ class SuccessionController extends Controller
      */
     public function indexCandidates(Request $request, KeyPosition $keyPosition): JsonResponse
     {
-        $candidates = SuccessionCandidate::where('key_position_id', $keyPosition->id)
-            ->with(['employee', 'nominatedBy'])
-            ->when($request->readiness, fn($q, $v) => $q->byReadiness($v))
-            ->when($request->boolean('active_only', true), fn($q) => $q->active())
-            ->orderBy('readiness')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($candidates);
+        return $this->paginated($this->successionService->listCandidates(
+            $keyPosition,
+            [
+                'readiness' => $request->readiness,
+                'active_only' => $request->boolean('active_only', true),
+            ],
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -116,7 +114,7 @@ class SuccessionController extends Controller
     public function nominateCandidate(Request $request, KeyPosition $keyPosition): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', $keyPosition->organization_id)],
             'readiness' => 'required|in:ready_now,one_two_years,three_five_years',
             'performance_rating' => 'nullable|integer|min:1|max:5',
             'potential_rating' => 'nullable|integer|min:1|max:5',
@@ -124,7 +122,7 @@ class SuccessionController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         try {
             $candidate = $this->successionService->nominateCandidate($keyPosition, $employee, $validated);

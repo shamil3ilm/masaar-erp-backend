@@ -118,7 +118,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Fraud/FraudAlertController.php' => 8,
         'Api/V1/HR/HRReportsController.php' => 1,
         'Api/V1/HR/RecruitmentController.php' => 18,
-        'Api/V1/HR/SuccessionController.php' => 4,
         'Api/V1/HR/TrainingController.php' => 26,
         'Api/V1/HR/TravelExpenseController.php' => 9,
         'Api/V1/HR/TravelExpenseReportController.php' => 7,

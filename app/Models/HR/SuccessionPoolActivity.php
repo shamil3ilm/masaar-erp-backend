@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -13,6 +14,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class SuccessionPoolActivity extends Model
 {
     use HasUuid, SoftDeletes;
+
+    /**
+     * The table has no organization column: an activity belongs to the
+     * organization of its candidate, which is scoped through its key position.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('organization', function (Builder $builder): void {
+            if (auth()->user()) {
+                $builder->whereHas('candidate', fn (Builder $candidate) => $candidate->withTrashed());
+            }
+        });
+    }
 
     protected $table = 'succession_pool_activities';
 
