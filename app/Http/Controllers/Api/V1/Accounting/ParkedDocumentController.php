@@ -4,17 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\ParkedDocument;
-use App\Services\Accounting\JournalService;
+use App\Services\Accounting\ParkedDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ParkedDocumentController extends Controller
 {
+    use ReportsBusinessRules;
+
     public function __construct(
-        private JournalService $journalService
+        private readonly ParkedDocumentService $parkedDocuments,
     ) {}
 
     /**
@@ -22,15 +25,10 @@ class ParkedDocumentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ParkedDocument::with(['parkedBy:id,name', 'approvedBy:id,name'])
-            ->orderByDesc('document_date')
-            ->orderByDesc('id')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->has('document_type'), fn($q) => $q->where('document_type', $request->document_type))
-            ->when($request->has('date_from'), fn($q) => $q->whereDate('document_date', '>=', $request->date_from))
-            ->when($request->has('date_to'), fn($q) => $q->whereDate('document_date', '<=', $request->date_to));
-
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($this->parkedDocuments->list(
+            $request->only(['status', 'document_type', 'date_from', 'date_to']),
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -50,21 +48,19 @@ class ParkedDocumentController extends Controller
             'parking_reason' => ['nullable', 'string'],
         ]);
 
-        $document = ParkedDocument::create([
-            ...$validated,
-            'organization_id' => $this->organizationId($request),
-            'parked_by'       => auth()->id(),
-            'status'          => ParkedDocument::STATUS_PARKED,
-        ]);
+        $document = $this->parkedDocuments->park($this->organizationId($request), auth()->id(), $validated);
 
         return $this->created($document, 'Document parked successfully.');
     }
 
     /**
-     * Show a single parked document.
+     * Update a parked document.
      */
     public function update(Request $request, ParkedDocument $parkedDocument): JsonResponse
     {
+        // Refused before the payload is validated, so a document that is no
+        // longer parked reports INVALID_STATUS whatever was sent; the service
+        // re-checks on the locked row.
         if ($parkedDocument->status !== ParkedDocument::STATUS_PARKED) {
             return $this->error('Only parked documents can be updated.', 'INVALID_STATUS', 422);
         }
@@ -77,11 +73,18 @@ class ParkedDocumentController extends Controller
             'parking_reason' => ['nullable', 'string'],
         ]);
 
-        $parkedDocument->update($validated);
+        try {
+            $document = $this->parkedDocuments->update($parkedDocument, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
-        return $this->success($parkedDocument->fresh(), 'Parked document updated successfully.');
+        return $this->success($document, 'Parked document updated successfully.');
     }
 
+    /**
+     * Show a single parked document.
+     */
     public function show(ParkedDocument $parkedDocument): JsonResponse
     {
         $parkedDocument->load(['parkedBy:id,name', 'approvedBy:id,name']);
@@ -90,20 +93,17 @@ class ParkedDocumentController extends Controller
     }
 
     /**
-     * Mark a parked document as pending approval.
+     * Approve a parked or pending-approval document for posting.
      */
-    public function approve(Request $request, ParkedDocument $parkedDocument): JsonResponse
+    public function approve(ParkedDocument $parkedDocument): JsonResponse
     {
-        if (!in_array($parkedDocument->status, [ParkedDocument::STATUS_PARKED, ParkedDocument::STATUS_PENDING_APPROVAL], true)) {
-            return $this->error('Only parked or pending-approval documents can be approved.', 'INVALID_STATUS', 422);
+        try {
+            $document = $this->parkedDocuments->approve($parkedDocument, auth()->id());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        $parkedDocument->update([
-            'status'      => ParkedDocument::STATUS_PARKED,
-            'approved_by' => auth()->id(),
-        ]);
-
-        return $this->success($parkedDocument->fresh(), 'Document approved for posting.');
+        return $this->success($document, 'Document approved for posting.');
     }
 
     /**
@@ -111,46 +111,18 @@ class ParkedDocumentController extends Controller
      */
     public function post(ParkedDocument $parkedDocument): JsonResponse
     {
-        if (!$parkedDocument->isPostable()) {
-            return $this->error('Only parked or pending-approval documents can be posted.', 'INVALID_STATUS', 422);
-        }
-
         try {
-            $journalEntry = DB::transaction(function () use ($parkedDocument) {
-                $data = $parkedDocument->document_data;
-
-                // Build journal entry lines from document_data lines key
-                $lines = $data['lines'] ?? [];
-
-                if (empty($lines)) {
-                    throw new \InvalidArgumentException('Parked document has no journal lines in document_data.lines.');
-                }
-
-                $entry = $this->journalService->createAndPost([
-                    'organization_id' => $parkedDocument->organization_id,
-                    'entry_date'      => $parkedDocument->posting_date->toDateString(),
-                    'reference'       => $parkedDocument->reference,
-                    'description'     => $data['description'] ?? ('Parked doc: ' . $parkedDocument->document_type),
-                    'currency_code'   => $parkedDocument->currency_code,
-                    'source_type'     => ParkedDocument::class,
-                    'source_id'       => $parkedDocument->id,
-                ], $lines);
-
-                $parkedDocument->update([
-                    'status'      => ParkedDocument::STATUS_POSTED,
-                    'approved_by' => $parkedDocument->approved_by ?? auth()->id(),
-                ]);
-
-                return $entry;
-            });
-
-            return $this->success(
-                ['parked_document' => $parkedDocument->fresh(), 'journal_entry_id' => $journalEntry->id],
-                'Parked document posted successfully.'
-            );
+            $journalEntry = $this->parkedDocuments->post($parkedDocument, auth()->id());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'POST_FAILED', 422);
         }
+
+        return $this->success(
+            ['parked_document' => $parkedDocument->fresh(), 'journal_entry_id' => $journalEntry->id],
+            'Parked document posted successfully.'
+        );
     }
 
     /**
@@ -158,12 +130,11 @@ class ParkedDocumentController extends Controller
      */
     public function destroy(ParkedDocument $parkedDocument): JsonResponse
     {
-        if ($parkedDocument->status === ParkedDocument::STATUS_POSTED) {
-            return $this->error('Posted documents cannot be deleted.', 'INVALID_STATUS', 422);
+        try {
+            $this->parkedDocuments->delete($parkedDocument);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $parkedDocument->update(['status' => ParkedDocument::STATUS_REJECTED]);
-        $parkedDocument->delete();
 
         return $this->success(null, 'Parked document deleted.');
     }
