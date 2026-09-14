@@ -26,11 +26,7 @@ class DunningController extends Controller
 
     public function indexLevels(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $levels = DunningLevel::where('organization_id', $organizationId)
-            ->orderBy('level_number')
-            ->get();
+        $levels = $this->dunningService->listLevels($this->organizationId($request));
 
         return $this->success($levels, 'Dunning levels retrieved.');
     }
@@ -48,11 +44,7 @@ class DunningController extends Controller
             'is_active'         => 'nullable|boolean',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $level = DunningLevel::create(array_merge($validated, [
-            'organization_id' => $organizationId,
-        ]));
+        $level = $this->dunningService->createLevel($this->organizationId($request), $validated);
 
         return $this->success($level, 'Dunning level created.', 201);
     }
@@ -102,11 +94,10 @@ class DunningController extends Controller
 
     public function indexRuns(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $runs = DunningRun::where('organization_id', $organizationId)
-            ->orderByDesc('run_date')
-            ->paginate($request->integer('per_page', 15));
+        $runs = $this->dunningService->listRuns(
+            $this->organizationId($request),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($runs, null, 'Dunning runs retrieved.');
     }
@@ -139,13 +130,11 @@ class DunningController extends Controller
 
     public function indexBlocks(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $blocks = DunningBlock::where('organization_id', $organizationId)
-            ->with(['contact', 'blockedBy', 'releasedBy'])
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
+        $blocks = $this->dunningService->listBlocks(
+            $this->organizationId($request),
+            $request->boolean('active_only', false),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($blocks, null, 'Dunning blocks retrieved.');
     }

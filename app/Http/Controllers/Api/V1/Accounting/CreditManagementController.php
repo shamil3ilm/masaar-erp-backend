@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CreditExposure;
 use App\Models\Accounting\CreditHold;
 use App\Models\Accounting\CreditLimit;
 use App\Models\Sales\Contact;
@@ -25,13 +24,11 @@ class CreditManagementController extends Controller
 
     public function indexLimits(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $limits = CreditLimit::where('organization_id', $organizationId)
-            ->with(['contact', 'reviewer'])
-            ->when($request->input('risk_class'), fn($q, $v) => $q->where('risk_class', $v))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
+        $limits = $this->creditService->listLimits(
+            $this->organizationId($request),
+            $request->input('risk_class'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($limits, null, 'Credit limits retrieved.');
     }
@@ -49,7 +46,7 @@ class CreditManagementController extends Controller
             'notes'              => 'nullable|string|max:2000',
         ]);
 
-        $contact = Contact::findOrFail($validated['contact_id']);
+        $contact = $this->creditService->findContact($validated['contact_id']);
         $limit   = $this->creditService->setCreditLimit($contact, $validated);
 
         return $this->success($limit->load(['contact', 'reviewer']), 'Credit limit saved.', 201);
@@ -88,10 +85,10 @@ class CreditManagementController extends Controller
 
     public function indexExposureSnapshots(Request $request, Contact $contact): JsonResponse
     {
-        $snapshots = CreditExposure::where('organization_id', $contact->organization_id)
-            ->where('contact_id', $contact->id)
-            ->orderByDesc('snapshot_date')
-            ->paginate($request->integer('per_page', 15));
+        $snapshots = $this->creditService->listExposureSnapshots(
+            $contact,
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($snapshots, null, 'Credit exposure snapshots retrieved.');
     }
@@ -118,13 +115,11 @@ class CreditManagementController extends Controller
 
     public function indexHolds(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $holds = CreditHold::where('organization_id', $organizationId)
-            ->with(['contact', 'heldBy', 'releasedBy'])
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderByDesc('held_at')
-            ->paginate($request->integer('per_page', 15));
+        $holds = $this->creditService->listHolds(
+            $this->organizationId($request),
+            $request->boolean('active_only', false),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($holds, null, 'Credit holds retrieved.');
     }

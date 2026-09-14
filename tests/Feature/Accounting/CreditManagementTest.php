@@ -240,6 +240,70 @@ class CreditManagementTest extends TestCase
         $this->assertNotNull($hold->fresh()->released_at);
     }
 
+    public function test_index_limits_filters_by_risk_class(): void
+    {
+        $this->makeLimit($this->makeContact(), ['risk_class' => CreditLimit::RISK_LOW]);
+        $high = $this->makeLimit($this->makeContact(), ['risk_class' => CreditLimit::RISK_HIGH]);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/credit-management/limits?risk_class=high');
+
+        $response->assertStatus(200);
+        $this->assertSame([$high->id], array_column($response->json('data'), 'id'));
+    }
+
+    public function test_store_limit_returns_404_for_another_organizations_contact(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $contact = Contact::factory()->create(['organization_id' => $otherOrg->id]);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/credit-management/limits', [
+                'contact_id'   => $contact->id,
+                'credit_limit' => 1000,
+                'valid_from'   => '2025-01-01',
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(0, CreditLimit::withoutGlobalScopes()->count());
+    }
+
+    public function test_index_exposure_snapshots_lists_only_the_contacts_snapshots_latest_first(): void
+    {
+        $contact = $this->makeContact();
+        $snapshot = fn (Contact $c, string $date) => \App\Models\Accounting\CreditExposure::create([
+            'organization_id' => $this->organization->id,
+            'contact_id'      => $c->id,
+            'snapshot_date'   => $date,
+        ]);
+        $snapshot($contact, '2025-01-31');
+        $snapshot($contact, '2025-02-28');
+        $snapshot($this->makeContact(), '2025-03-31');
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/credit-management/exposure/contacts/' . $contact->uuid . '/snapshots');
+
+        $response->assertStatus(200);
+        $this->assertSame(
+            ['2025-02-28', '2025-01-31'],
+            array_map(fn (array $row) => substr($row['snapshot_date'], 0, 10), $response->json('data')),
+        );
+    }
+
+    public function test_index_holds_filters_active_only(): void
+    {
+        $active = $this->makeHold($this->makeContact());
+        $this->makeHold($this->makeContact(), ['released_at' => now()]);
+
+        $this->assertCount(2, $this->withToken($this->token)->getJson('/api/v1/credit-management/holds')->json('data'));
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/credit-management/holds?active_only=1');
+
+        $response->assertStatus(200);
+        $this->assertSame([$active->id], array_column($response->json('data'), 'id'));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------
