@@ -155,6 +155,59 @@ class JournalEntryTest extends TestCase
     // GET /api/v1/journal-entries - List
     // -------------------------------------------------------------------------
 
+    public function test_list_journal_entries_applies_each_filter(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.view']);
+        $this->setUpAccountingContext();
+
+        $june = $this->createJournalEntry(['reference' => 'JUNE-REF', 'entry_date' => '2025-06-15']);
+        $march = $this->createJournalEntry(['description' => 'March accrual', 'entry_date' => '2025-03-10'], JournalEntry::STATUS_POSTED);
+
+        $ids = fn (string $query): array => array_column($this->apiGet("{$this->baseUrl}?{$query}")->json('data'), 'id');
+
+        $this->assertSame([$march->id], $ids('status=posted'));
+        $this->assertSame([$june->id], $ids('search=JUNE'));
+        $this->assertSame([$march->id], $ids('search=accrual'));
+        $this->assertSame([$june->id], $ids('start_date=2025-06-01'));
+        $this->assertSame([$march->id], $ids('end_date=2025-03-31'));
+        $this->assertSame([], $ids('fiscal_year_id=999999'));
+        $this->assertSame([$june->id, $march->id], $ids("fiscal_year_id={$this->fiscalYear->id}"));
+    }
+
+    public function test_list_journal_entries_is_newest_first_with_branch_and_paginated(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.view']);
+        $this->setUpAccountingContext();
+
+        $older = $this->createJournalEntry(['entry_date' => '2025-02-01']);
+        $newer = $this->createJournalEntry(['entry_date' => '2025-05-01']);
+        $this->createJournalEntry(['entry_date' => '2025-01-01']);
+
+        $response = $this->apiGet("{$this->baseUrl}?per_page=2");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.0.id', $newer->id)
+            ->assertJsonPath('data.1.id', $older->id)
+            ->assertJsonPath('data.0.branch.id', $this->branch->id)
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.total', 3);
+    }
+
+    public function test_delete_posted_journal_entry_reports_invalid_status(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.delete']);
+        $this->setUpAccountingContext();
+
+        $entry = $this->createJournalEntry([], JournalEntry::STATUS_POSTED);
+
+        $this->apiDelete("{$this->baseUrl}/{$entry->id}")
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'INVALID_STATUS')
+            ->assertJsonPath('error.message', 'Only draft entries can be deleted');
+
+        $this->assertDatabaseHas('journal_entries', ['id' => $entry->id]);
+    }
+
     public function test_can_list_journal_entries_with_permission(): void
     {
         $this->setUpAuthenticatedUser(['accounting.journals.view']);

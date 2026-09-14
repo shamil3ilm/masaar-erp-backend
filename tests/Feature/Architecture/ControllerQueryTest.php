@@ -71,7 +71,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Accounting/FxDerivativeController.php' => 2,
         'Api/V1/Accounting/InterCompanyTransferController.php' => 1,
         'Api/V1/Accounting/IntercompanyReconciliationController.php' => 3,
-        'Api/V1/Accounting/JournalEntryController.php' => 1,
         'Api/V1/Accounting/LoanController.php' => 1,
         'Api/V1/Accounting/MultiCurrencyController.php' => 2,
         'Api/V1/Accounting/OverheadKeyController.php' => 6,
