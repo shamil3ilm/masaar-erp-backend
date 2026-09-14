@@ -55,7 +55,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0490_goods_receipt_inspection_status.php`: changes to goods_receipts
 - `0500_stock_movement_material_types.php`: changes to stock_movements
 - `0510_recurring_profile_log_created_nullable.php`: changes to recurring_profile_logs
-- `0520_continue_number_sequences_after_stored_numbers.php`: changes to 
+- `0520_continue_number_sequences_after_stored_numbers.php`: data only, no schema changes
 
 ## 0010_accounting.php
 
@@ -25243,3 +25243,5 @@ Changes tables created earlier: `stock_movements`.
 Changes tables created earlier: `recurring_profile_logs`.
 
 ## 0520_continue_number_sequences_after_stored_numbers.php
+
+Changes no table structure; it only reads or writes data.

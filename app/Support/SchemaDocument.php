@@ -146,9 +146,11 @@ final class SchemaDocument
         ];
 
         foreach ($sections as $file => $section) {
-            $listed = $section['created'] !== []
-                ? implode(', ', $section['created'])
-                : 'changes to ' . implode(', ', array_unique($section['changed']));
+            $listed = match (true) {
+                $section['created'] !== [] => implode(', ', $section['created']),
+                $section['changed'] !== [] => 'changes to ' . implode(', ', array_unique($section['changed'])),
+                default => 'data only, no schema changes',
+            };
             $out[] = "- `{$file}`: {$listed}";
         }
 
@@ -160,6 +162,11 @@ final class SchemaDocument
                 $out[] = '';
                 $out[] = 'Changes tables created earlier: '
                     . implode(', ', array_map(fn (string $t) => "`{$t}`", array_values(array_unique($section['changed'])))) . '.';
+            }
+
+            if ($section['created'] === [] && $section['changed'] === [] && $section['notes'] === []) {
+                $out[] = '';
+                $out[] = 'Changes no table structure; it only reads or writes data.';
             }
 
             foreach ($section['notes'] as $note) {
