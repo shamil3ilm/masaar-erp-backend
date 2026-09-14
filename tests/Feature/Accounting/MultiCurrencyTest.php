@@ -400,6 +400,84 @@ class MultiCurrencyTest extends TestCase
     // Revaluations
     // -------------------------------------------------------------------------
 
+    private function makeRevaluation(array $overrides = []): CurrencyRevaluation
+    {
+        return CurrencyRevaluation::withoutGlobalScopes()->create(array_merge([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
+            'organization_id' => $this->organization->id,
+            'revaluation_date' => '2025-06-30',
+            'currency_code' => 'USD',
+            'old_rate' => 3.75,
+            'new_rate' => 3.80,
+            'base_currency' => 'SAR',
+            'total_unrealized_gain' => 0,
+            'total_unrealized_loss' => 0,
+            'net_gain_loss' => 0,
+            'status' => CurrencyRevaluation::STATUS_DRAFT,
+            'created_by' => $this->user->id,
+        ], $overrides));
+    }
+
+    public function test_list_revaluations_applies_filters_newest_first(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.multi-currency.view']);
+        $this->setUpMultiCurrencyContext();
+
+        $june = $this->makeRevaluation(['revaluation_date' => '2025-06-30']);
+        $march = $this->makeRevaluation([
+            'revaluation_date' => '2025-03-31',
+            'currency_code' => 'EUR',
+            'status' => CurrencyRevaluation::STATUS_POSTED,
+        ]);
+
+        $ids = fn (string $query): array => array_column(
+            $this->apiGet("{$this->baseUrl}/revaluations?{$query}")->json('data'),
+            'id'
+        );
+
+        $this->assertSame([$june->id, $march->id], $ids(''));
+        $this->assertSame([$march->id], $ids('status=' . CurrencyRevaluation::STATUS_POSTED));
+        $this->assertSame([$june->id], $ids('currency_code=USD'));
+        $this->assertSame([$june->id], $ids('start_date=2025-06-01&end_date=2025-07-01'));
+        $this->assertSame([$june->id, $march->id], $ids('start_date=2025-06-01'));
+
+        $this->apiGet("{$this->baseUrl}/revaluations?per_page=1")
+            ->assertJsonPath('data.0.created_by.id', $this->user->id)
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_add_currency_reports_an_active_currency_as_duplicate(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.multi-currency.manage']);
+        $this->setUpMultiCurrencyContext();
+
+        $this->apiPost("{$this->baseUrl}/currencies", ['currency_code' => 'USD'])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'DUPLICATE')
+            ->assertJsonPath('error.message', 'Currency already added to organization');
+    }
+
+    public function test_add_currency_reactivates_an_inactive_currency(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.multi-currency.manage']);
+        $this->setUpMultiCurrencyContext();
+
+        $gbp = OrganizationCurrency::withoutGlobalScopes()->create([
+            'organization_id' => $this->organization->id,
+            'currency_code' => 'GBP',
+            'is_base_currency' => false,
+            'is_active' => false,
+        ]);
+
+        $response = $this->apiPost("{$this->baseUrl}/currencies", ['currency_code' => 'GBP'])
+            ->assertStatus(201)
+            ->assertJsonPath('data.id', $gbp->id);
+
+        $this->assertTrue((bool) $response->json('data.is_active'));
+        $this->assertTrue((bool) $gbp->fresh()->is_active);
+    }
+
     public function test_can_list_revaluations(): void
     {
         $this->setUpAuthenticatedUser(['accounting.multi-currency.view']);
