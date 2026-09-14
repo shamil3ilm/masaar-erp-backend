@@ -106,6 +106,7 @@ class LoanTest extends TestCase
     private function createLoan(array $overrides = []): Loan
     {
         return Loan::withoutGlobalScopes()->create(array_merge([
+            'loan_number' => 'LN-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $this->organization->id,
             'branch_id' => $this->branch->id,
             'loan_type' => Loan::TYPE_EMPLOYEE_LOAN,
@@ -228,6 +229,7 @@ class LoanTest extends TestCase
             'level' => 1,
         ]);
         Loan::withoutGlobalScopes()->create([
+            'loan_number' => 'LN-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $otherOrg->id,
             'branch_id' => $otherBranch->id,
             'loan_type' => Loan::TYPE_EMPLOYEE_LOAN,
@@ -412,6 +414,7 @@ class LoanTest extends TestCase
             'country_code' => 'AE',
         ]);
         $otherLoan = Loan::withoutGlobalScopes()->create([
+            'loan_number' => 'LN-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $otherOrg->id,
             'branch_id' => $otherBranch->id,
             'loan_type' => Loan::TYPE_EMPLOYEE_LOAN,

@@ -56,15 +56,6 @@ class ExpenseReport extends Model
         ];
     }
 
-    protected static function booted(): void
-    {
-        static::creating(function (ExpenseReport $report) {
-            if (!$report->report_number) {
-                $report->report_number = static::generateReportNumber($report->organization_id);
-            }
-        });
-    }
-
     public function reportItems(): HasMany
     {
         return $this->hasMany(ExpenseReportItem::class, 'report_id');
@@ -84,26 +75,6 @@ class ExpenseReport extends Model
             ->join('expenses', 'expenses.id', '=', 'expense_report_items.expense_id')
             ->sum('expenses.total_amount');
         $this->saveQuietly();
-    }
-
-    public static function generateReportNumber(int $organizationId): string
-    {
-        $year = now()->format('Y');
-        $prefix = "ER-{$year}-";
-
-        $lastNumber = static::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('report_number', 'like', "{$prefix}%")
-            ->orderByRaw('CAST(SUBSTRING(report_number, ?) AS UNSIGNED) DESC', [strlen($prefix) + 1])
-            ->value('report_number');
-
-        if ($lastNumber) {
-            $sequence = (int) substr($lastNumber, strlen($prefix)) + 1;
-        } else {
-            $sequence = 1;
-        }
-
-        return $prefix . str_pad((string) $sequence, 6, '0', STR_PAD_LEFT);
     }
 
     public function scopeDraft($query)

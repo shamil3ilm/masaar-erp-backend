@@ -8,12 +8,15 @@ use App\Models\Accounting\Account;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Core\RecurringProfile;
 use App\Models\Core\RecurringProfileLog;
+use App\Models\Expense\Expense;
+use App\Models\Expense\ExpenseCategory;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\InvoiceLine;
 use App\Orchestrators\Core\RunRecurringProfilesOrchestrator;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\RecurringTransactionService;
+use App\Services\Expense\ExpenseService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -118,6 +121,24 @@ class RecurringTransactionRunTest extends TestCase
         $this->assertCount(2, $entry->lines);
         $this->assertEquals(250, (float) $entry->lines->sum('debit'));
         $this->assertEquals(250, (float) $entry->lines->sum('credit'));
+    }
+
+    public function test_a_recurring_expense_continues_the_expense_number_sequence(): void
+    {
+        $source = app(ExpenseService::class)->create([
+            'organization_id' => $this->organization->id,
+            'category_id' => ExpenseCategory::factory()->create(['organization_id' => $this->organization->id])->id,
+            'expense_date' => now()->toDateString(),
+            'description' => 'Office cleaning',
+            'amount' => 300,
+        ], $this->user->id);
+
+        $result = app(RunRecurringProfilesOrchestrator::class)
+            ->run($this->profile(RecurringProfile::TYPE_EXPENSE, $source, autoSend: false));
+
+        $year = now()->format('Y');
+        $this->assertSame("EXP-{$year}-000001", $source->fresh()->expense_number);
+        $this->assertSame("EXP-{$year}-000002", Expense::findOrFail($result['document_id'])->expense_number);
     }
 
     private function sourceInvoice(float $amount): Invoice

@@ -458,6 +458,7 @@ class MultiCurrencyTest extends TestCase
             ->first();
 
         $revaluation = CurrencyRevaluation::withoutGlobalScopes()->create([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $this->organization->id,
             'revaluation_date' => '2025-06-30',
             'currency_code' => 'USD',
@@ -485,6 +486,7 @@ class MultiCurrencyTest extends TestCase
 
         $otherOrg = Organization::factory()->create(['country_code' => 'AE', 'base_currency' => 'AED']);
         $otherRevaluation = CurrencyRevaluation::withoutGlobalScopes()->create([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $otherOrg->id,
             'revaluation_date' => '2025-06-30',
             'currency_code' => 'USD',
@@ -528,6 +530,7 @@ class MultiCurrencyTest extends TestCase
             ->first();
 
         $revaluation = CurrencyRevaluation::withoutGlobalScopes()->create([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $this->organization->id,
             'revaluation_date' => '2025-06-30',
             'currency_code' => 'USD',
@@ -562,6 +565,7 @@ class MultiCurrencyTest extends TestCase
             ->first();
 
         $revaluation = CurrencyRevaluation::withoutGlobalScopes()->create([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $this->organization->id,
             'revaluation_date' => '2025-06-30',
             'currency_code' => 'USD',
@@ -596,6 +600,7 @@ class MultiCurrencyTest extends TestCase
             ->first();
 
         $revaluation = CurrencyRevaluation::withoutGlobalScopes()->create([
+            'revaluation_number' => 'REVAL-TEST-' . fake()->unique()->numerify('######'),
             'organization_id' => $this->organization->id,
             'revaluation_date' => '2025-06-30',
             'currency_code' => 'USD',
