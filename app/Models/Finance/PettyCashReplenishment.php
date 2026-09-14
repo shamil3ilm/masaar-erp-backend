@@ -6,6 +6,7 @@ namespace App\Models\Finance;
 
 use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PettyCashReplenishment extends Model
 {
-    use HasUuid, SoftDeletes;
+    use HasUuid, LocksForTransition, SoftDeletes;
 
     protected $table = 'petty_cash_replenishments';
 

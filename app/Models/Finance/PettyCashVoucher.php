@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Finance;
 
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PettyCashVoucher extends Model
 {
-    use HasUuid, SoftDeletes;
+    use HasUuid, LocksForTransition, SoftDeletes;
 
     protected $table = 'petty_cash_vouchers';
 
