@@ -7,11 +7,31 @@ namespace App\Services\Sales;
 use App\Models\Accounting\AccountingPeriod;
 use App\Models\Sales\BackdatedTransaction;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class BackdatedTransactionService
 {
     public function __construct() {}
+
+    /**
+     * Backdated transactions of the current organization with their approver
+     * and creator, newest first. Each filter applies when its key is present;
+     * a status other than pending lists the approved ones.
+     *
+     * @param  array{transaction_type?: mixed, status?: mixed, from_date?: mixed, to_date?: mixed, created_by?: int}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return BackdatedTransaction::with(['approver', 'creator'])
+            ->latest()
+            ->when(array_key_exists('transaction_type', $filters), fn ($q) => $q->byTransactionType($filters['transaction_type']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $filters['status'] === 'pending' ? $q->pending() : $q->approved())
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('transaction_date', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('transaction_date', '<=', $filters['to_date']))
+            ->when(array_key_exists('created_by', $filters), fn ($q) => $q->createdBy($filters['created_by']))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a backdated transaction log entry.

@@ -16,9 +16,7 @@ class ShipmentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $shipments = Shipment::with('deliveryMode', 'contact')
-            ->orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
+        $shipments = $this->service->listShipments((int) $request->input('per_page', 20));
         return $this->paginated($shipments);
     }
 

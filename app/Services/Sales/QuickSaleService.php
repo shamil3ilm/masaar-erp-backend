@@ -4,12 +4,30 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Sales\Contact;
 use App\Models\Sales\QuickSaleTemplate;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class QuickSaleService
 {
     public function __construct() {}
+
+    /**
+     * Quick sale templates of the current organization with the reference
+     * columns of their default customer, newest first. Each filter applies
+     * when its key is present.
+     *
+     * @param  array{is_active?: bool, search?: mixed}  $filters
+     */
+    public function listTemplates(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return QuickSaleTemplate::with(['defaultCustomer:'.implode(',', Contact::REFERENCE_COLUMNS)])
+            ->latest()
+            ->when(array_key_exists('is_active', $filters), fn ($q) => $q->where('is_active', $filters['is_active']))
+            ->when(array_key_exists('search', $filters), fn ($q) => $q->search($filters['search']))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a quick sale template.

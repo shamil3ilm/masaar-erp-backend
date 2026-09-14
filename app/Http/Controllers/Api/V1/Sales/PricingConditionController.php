@@ -83,12 +83,11 @@ class PricingConditionController extends Controller
 
     public function indexConditionTypes(Request $request): JsonResponse
     {
-        $organizationId = auth()->user()->organization_id;
-
-        $types = PricingConditionType::where('organization_id', $organizationId)
-            ->when($request->condition_class, fn($q, $v) => $q->byClass($v))
-            ->ordered()
-            ->paginate($request->integer('per_page', 15));
+        $types = $this->service->listConditionTypes(
+            auth()->user()->organization_id,
+            $request->condition_class,
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($types, \App\Http\Resources\Sales\PricingConditionTypeResource::class);
     }
