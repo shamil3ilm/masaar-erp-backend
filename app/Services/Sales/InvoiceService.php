@@ -474,10 +474,11 @@ class InvoiceService
                 Invoice::STATUS_PAID,
             ], true);
 
-            // Reverse journal entry — propagates on failure to roll back the
-            // entire void so the books are never left in an unbalanced state.
+            // Void the invoice's journal entry: a draft is discarded, a posted
+            // entry voided. A failure rolls the whole void back, so the ledger
+            // never disagrees with the invoice.
             if ($invoice->journal_entry_id && $invoice->journalEntry) {
-                $this->journalService->void($invoice->journalEntry, $reason);
+                $this->journalService->voidSourceEntry($invoice->journalEntry, $reason);
             }
 
             // Return inventory only if stock was previously deducted (i.e. invoice was sent).
