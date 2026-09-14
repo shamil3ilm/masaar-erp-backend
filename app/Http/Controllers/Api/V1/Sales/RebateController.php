@@ -7,10 +7,12 @@ namespace App\Http\Controllers\Api\V1\Sales;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\RebateMaster;
 use App\Services\Sales\RebateAccrualService;
+use App\Services\Sales\RebateMasterService;
 use App\Services\Sales\RebateSettlementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 /**
  * Rebate management: masters, accruals, and period-end settlement (SAP SD BO01/VB01).
@@ -20,17 +22,17 @@ class RebateController extends Controller
     public function __construct(
         private readonly RebateAccrualService $accrualService,
         private readonly RebateSettlementService $settlementService,
+        private readonly RebateMasterService $rebateMasterService,
     ) {}
 
     /** GET /rebates */
     public function index(Request $request): JsonResponse
     {
-        $rebates = RebateMaster::where('organization_id', $request->user()->organization_id)
-            ->when($request->status, fn ($q) => $q->where('status', $request->status))
-            ->when($request->contact_id, fn ($q) => $q->where('contact_id', (int) $request->contact_id))
-            ->with('customer:id,name')
-            ->orderByDesc('valid_from')
-            ->paginate((int) $request->get('per_page', 20));
+        $rebates = $this->rebateMasterService->list(
+            $request->user()->organization_id,
+            ['status' => $request->status, 'contact_id' => $request->contact_id],
+            (int) $request->get('per_page', 20)
+        );
 
         return $this->paginated($rebates, null, 'Rebate masters retrieved');
     }
@@ -39,7 +41,7 @@ class RebateController extends Controller
     public function show(RebateMaster $rebate): JsonResponse
     {
         return $this->success(
-            $rebate->load(['customer:id,name', 'accruals']),
+            $this->rebateMasterService->loadDetails($rebate),
             'Rebate master retrieved',
         );
     }
@@ -47,9 +49,11 @@ class RebateController extends Controller
     /** POST /rebates */
     public function store(Request $request): JsonResponse
     {
+        $orgId = $request->user()->organization_id;
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'contact_id' => ['required', 'integer'],
+            'contact_id' => ['required', 'integer', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
             'rebate_type' => ['required', 'in:percentage,fixed_amount,tiered'],
             'calculation_base' => ['required', 'in:invoice_value,quantity,gross_profit'],
             'rebate_rate' => ['required', 'numeric', 'min:0'],
@@ -58,15 +62,12 @@ class RebateController extends Controller
             'valid_to' => ['nullable', 'date', 'after:valid_from'],
             'minimum_purchase' => ['nullable', 'numeric', 'min:0'],
             'maximum_rebate' => ['nullable', 'numeric', 'min:0'],
-            'accrual_account_id' => ['nullable', 'integer'],
-            'expense_account_id' => ['nullable', 'integer'],
+            'accrual_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
+            'expense_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
             'description' => ['nullable', 'string'],
         ]);
 
-        $rebate = RebateMaster::create(array_merge($data, [
-            'organization_id' => $request->user()->organization_id,
-            'status' => RebateMaster::STATUS_ACTIVE,
-        ]));
+        $rebate = $this->rebateMasterService->create($orgId, $data);
 
         return $this->success($rebate, 'Rebate master created', 201);
     }
@@ -74,20 +75,20 @@ class RebateController extends Controller
     /** PUT /rebates/{rebate} */
     public function update(Request $request, RebateMaster $rebate): JsonResponse
     {
+        $orgId = $request->user()->organization_id;
+
         $data = $request->validate([
             'name' => ['string', 'max:255'],
             'rebate_rate' => ['numeric', 'min:0'],
             'valid_to' => ['nullable', 'date'],
             'minimum_purchase' => ['nullable', 'numeric', 'min:0'],
             'maximum_rebate' => ['nullable', 'numeric', 'min:0'],
-            'accrual_account_id' => ['nullable', 'integer'],
-            'expense_account_id' => ['nullable', 'integer'],
+            'accrual_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
+            'expense_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
             'status' => ['in:active,inactive'],
         ]);
 
-        $rebate->update($data);
-
-        return $this->success($rebate, 'Rebate master updated');
+        return $this->success($this->rebateMasterService->update($rebate, $data), 'Rebate master updated');
     }
 
     /** GET /rebates/{rebate}/balance */

@@ -6,18 +6,18 @@ namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\ContactResource;
-use App\Jobs\RunAmlScreeningJob;
 use App\Models\Sales\Contact;
+use App\Services\Sales\ContactService;
 use App\Services\Sales\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class ContactController extends Controller
 {
     public function __construct(
-        private PaymentService $paymentService
+        private PaymentService $paymentService,
+        private ContactService $contactService,
     ) {}
 
     /**
@@ -25,21 +25,16 @@ class ContactController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Contact::query();
+        $filters = [
+            'contact_type' => $request->input('contact_type', $request->input('type')),
+            'active_only' => $request->boolean('active_only'),
+        ];
 
-        $contactType = $request->input('contact_type', $request->input('type'));
-        if ($contactType) {
-            match ($contactType) {
-                'customer' => $query->customers(),
-                'supplier' => $query->suppliers(),
-                default => null,
-            };
+        if ($request->has('search')) {
+            $filters['search'] = $request->input('search');
         }
 
-        $query->when($request->has('search'), fn($q) => $q->search($request->input('search')))
-            ->when($request->boolean('active_only'), fn($q) => $q->active());
-
-        $contacts = $query->latest()->paginate($request->integer('per_page', 15));
+        $contacts = $this->contactService->list($filters, $request->integer('per_page', 15));
 
         return $this->paginated($contacts, ContactResource::class);
     }
@@ -80,19 +75,7 @@ class ContactController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        // Default contact_name from company_name if not provided
-        if (empty($validated['contact_name'])) {
-            $validated['contact_name'] = $validated['company_name'] ?? 'N/A';
-        }
-
-        $contact = Contact::create($validated);
-
-        // Dispatch AML screening asynchronously — non-blocking
-        try {
-            RunAmlScreeningJob::dispatch($contact->id, $contact->organization_id);
-        } catch (\Throwable $e) {
-            Log::warning('AML screening dispatch failed for new contact', ['contact_id' => $contact->id, 'error' => $e->getMessage()]);
-        }
+        $contact = $this->contactService->create($validated);
 
         return $this->created(new ContactResource($contact), 'Contact created successfully.');
     }
@@ -143,9 +126,9 @@ class ContactController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $contact->update($validated);
+        $contact = $this->contactService->update($contact, $validated);
 
-        return $this->success(new ContactResource($contact->fresh()), 'Contact updated successfully.');
+        return $this->success(new ContactResource($contact), 'Contact updated successfully.');
     }
 
     /**
@@ -153,14 +136,10 @@ class ContactController extends Controller
      */
     public function destroy(Contact $contact): JsonResponse
     {
-        // Check for related records
-        if ($contact->invoices()->count() > 0) {
-            return $this->error('Cannot delete contact with existing invoices.', 'VALIDATION_ERROR', 422);
-        }
-
-        $contact->delete();
-
-        return $this->success(null, 'Contact deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->contactService->delete($contact),
+            'Contact deleted successfully.'
+        );
     }
 
     /**
@@ -206,6 +185,9 @@ class ContactController extends Controller
     /**
      * Block or unblock a contact for payment processing (SAP FI-AP).
      * PATCH /contacts/{contact}/payment-block  {"blocked": true, "reason": "..."}
+     *
+     * The contact is returned with its fields as stored, less the tax number,
+     * which leaves only masked through ContactResource.
      */
     public function setPaymentBlock(Request $request, Contact $contact): JsonResponse
     {
@@ -214,13 +196,14 @@ class ContactController extends Controller
             'reason'  => ['required_if:blocked,true', 'nullable', 'string', 'max:500'],
         ]);
 
-        $contact->update([
-            'payment_block'        => $validated['blocked'],
-            'payment_block_reason' => $validated['blocked'] ? $validated['reason'] : null,
-        ]);
+        $contact = $this->contactService->setPaymentBlock(
+            $contact,
+            (bool) $validated['blocked'],
+            $validated['reason'] ?? null
+        );
 
         return $this->success(
-            $contact->fresh(),
+            $contact->makeHidden('tax_number'),
             $validated['blocked'] ? 'Contact payment blocked.' : 'Contact payment unblocked.'
         );
     }

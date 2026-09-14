@@ -25,15 +25,10 @@ class RevenueRecognitionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
-        $query = RevenueContract::with(['customer', 'performanceObligations'])
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->contact_id, fn ($q, $v) => $q->where('contact_id', $v))
-            ->when($request->search, fn ($q, $s) => $q->where('contract_number', 'like', "%{$s}%"))
-            ->orderBy('contract_date', 'desc');
-
-        $contracts = $query->paginate($request->integer('per_page', 15));
+        $contracts = $this->revenueRecognitionService->listContracts(
+            ['status' => $request->status, 'contact_id' => $request->contact_id, 'search' => $request->search],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($contracts);
     }
@@ -63,8 +58,8 @@ class RevenueRecognitionController extends Controller
                 PerformanceObligation::METHOD_OVER_TIME,
                 PerformanceObligation::METHOD_MILESTONE,
             ])],
-            'obligations.*.revenue_account_id' => 'nullable|exists:chart_of_accounts,id',
-            'obligations.*.deferred_account_id' => 'nullable|exists:chart_of_accounts,id',
+            'obligations.*.revenue_account_id' => ['nullable', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
+            'obligations.*.deferred_account_id' => ['nullable', Rule::exists('chart_of_accounts', 'id')->where('organization_id', $orgId)],
         ]);
 
         $contractData = array_merge(
@@ -86,9 +81,7 @@ class RevenueRecognitionController extends Controller
      */
     public function show(RevenueContract $revenueContract): JsonResponse
     {
-        $revenueContract->load(['customer', 'performanceObligations.recognitionEvents.journalEntry']);
-
-        return $this->success($revenueContract);
+        return $this->success($this->revenueRecognitionService->loadContract($revenueContract));
     }
 
     /**
@@ -96,11 +89,11 @@ class RevenueRecognitionController extends Controller
      */
     public function update(Request $request, RevenueContract $revenueContract): JsonResponse
     {
-        if (! $revenueContract->isDraft()) {
-            return $this->error('Only draft contracts can be updated.', 'INVALID_STATUS', 422);
+        try {
+            $this->revenueRecognitionService->assertDraft($revenueContract);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
         }
-
-        $orgId = auth()->user()->organization_id;
 
         $validated = $request->validate([
             'contract_date' => 'sometimes|date',
@@ -115,9 +108,11 @@ class RevenueRecognitionController extends Controller
             ])],
         ]);
 
-        $revenueContract->update($validated);
-
-        return $this->success($revenueContract->fresh('performanceObligations'), 'Contract updated.');
+        return $this->tryAction(
+            fn () => $this->revenueRecognitionService->updateDraftContract($revenueContract, $validated),
+            'Contract updated.',
+            'INVALID_STATUS'
+        );
     }
 
     /**
