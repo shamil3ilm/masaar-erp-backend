@@ -278,15 +278,17 @@ class PaymentRunService
      */
     private function postItem(PaymentRun $run, PaymentRunItem $item): void
     {
+        // Through the state machine, so a document voided or paid since the run
+        // was proposed stops the posting rather than being marked paid again.
         if ($item->document_type === PaymentRunItem::DOC_TYPE_BILL) {
             $bill = Bill::find($item->document_id);
             if ($bill) {
-                $bill->update(['status' => 'paid', 'amount_due' => 0]);
+                $bill->transitionTo(Bill::STATUS_PAID, ['amount_due' => 0]);
             }
         } elseif ($item->document_type === PaymentRunItem::DOC_TYPE_INVOICE) {
             $invoice = Invoice::find($item->document_id);
             if ($invoice) {
-                $invoice->update(['status' => 'paid', 'amount_due' => 0]);
+                $invoice->transitionTo(Invoice::STATUS_PAID, ['amount_due' => 0]);
             }
         }
 
