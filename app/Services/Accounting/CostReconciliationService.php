@@ -34,6 +34,7 @@ class CostReconciliationService
 {
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
+        private readonly JournalService $journalService,
     ) {}
 
     /**
@@ -213,9 +214,8 @@ class CostReconciliationService
 
         $amount = (float) $posting->amount;
 
-        $je = JournalEntry::create([
+        return $this->journalService->createAndPost([
             'organization_id' => $postedBy->organization_id,
-            'fiscal_year_id'  => null,
             'entry_date'      => now()->toDateString(),
             'reference'       => $run->run_number,
             'description'     => "CO Reconciliation — {$run->source_type} run #{$run->source_id}",
@@ -223,35 +223,23 @@ class CostReconciliationService
             'source_id'       => $run->id,
             'currency_code'   => $posting->currency ?? 'SAR',
             'exchange_rate'   => 1,
-            'total_debit'     => $amount,
-            'total_credit'    => $amount,
-            'status'          => JournalEntry::STATUS_POSTED,
-            'posted_at'       => now(),
-            'posted_by'       => $postedBy->id,
-        ]);
-
-        $je->lines()->createMany([
+            'created_by'      => $postedBy->id,
+        ], [
             [
-                'account_id'      => $debitAccount->id,
-                'description'     => 'CO reconciliation debit',
-                'debit'           => $amount,
-                'credit'          => 0,
-                'cost_center_id'  => $posting->sender_cost_center_id,
-                'currency_code'   => $posting->currency ?? 'SAR',
-                'amount_currency' => $amount,
+                'account_id'     => $debitAccount->id,
+                'description'    => 'CO reconciliation debit',
+                'debit'          => $amount,
+                'credit'         => 0,
+                'cost_center_id' => $posting->sender_cost_center_id,
             ],
             [
-                'account_id'      => $creditAccount->id,
-                'description'     => 'CO reconciliation credit',
-                'debit'           => 0,
-                'credit'          => $amount,
-                'cost_center_id'  => $posting->receiver_cost_center_id,
-                'currency_code'   => $posting->currency ?? 'SAR',
-                'amount_currency' => $amount,
+                'account_id'     => $creditAccount->id,
+                'description'    => 'CO reconciliation credit',
+                'debit'          => 0,
+                'credit'         => $amount,
+                'cost_center_id' => $posting->receiver_cost_center_id,
             ],
         ]);
-
-        return $je;
     }
 
     private function generateRunNumber(int $organizationId): string

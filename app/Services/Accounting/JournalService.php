@@ -78,6 +78,12 @@ class JournalService
      */
     public function createEntry(array $entryData, array $lines): JournalEntry
     {
+        // Only postEntry() posts: it checks the budget, stamps who posted the
+        // entry and when, and clears the balance caches of its accounts.
+        if (($entryData['status'] ?? JournalEntry::STATUS_DRAFT) !== JournalEntry::STATUS_DRAFT) {
+            throw new InvalidArgumentException('A journal entry is created as a draft. Post it with postEntry(), or use createAndPost().');
+        }
+
         $entryOrganizationId = $entryData['organization_id'] ?? auth()->user()?->organization_id;
         $lines = $this->resolveAccountCodes($lines, $entryOrganizationId);
         $this->validateLines($lines, $entryOrganizationId !== null ? (int) $entryOrganizationId : null);
@@ -191,6 +197,21 @@ class JournalService
             if (bccomp((string) $totalDebits, (string) $totalCredits, 4) !== 0) {
                 throw new ApiException('Journal entry is unbalanced after line creation.');
             }
+
+            return $entry->fresh(['lines', 'lines.account']);
+        });
+    }
+
+    /**
+     * Create a journal entry and post it, for a transaction that is final when
+     * it is recorded. The entry is validated and stored by createEntry() and
+     * posted by postEntry(), in one transaction.
+     */
+    public function createAndPost(array $entryData, array $lines): JournalEntry
+    {
+        return DB::transaction(function () use ($entryData, $lines): JournalEntry {
+            $entry = $this->createEntry($entryData, $lines);
+            $this->postEntry($entry);
 
             return $entry->fresh(['lines', 'lines.account']);
         });

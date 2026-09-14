@@ -652,12 +652,11 @@ class GoodsReceiptService
             return null;
         }
 
-        $entry = $this->journalService->createEntry([
+        $entry = $this->journalService->createAndPost([
             'organization_id' => $gr->organization_id,
             'entry_date' => $gr->gr_date->toDateString(),
             'reference' => $gr->gr_number,
             'description' => "Goods Receipt {$gr->gr_number}",
-            'status' => 'posted',
         ], [
             // Debit: Inventory asset account
             [
