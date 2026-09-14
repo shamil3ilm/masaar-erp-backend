@@ -142,7 +142,7 @@ class VendorAdvanceService
 
         $bankAccount = $payment->bank_account_id
             ? Account::withoutGlobalScopes()->where('organization_id', $orgId)->whereKey($payment->bank_account_id)->first()
-            : ($this->accountResolver->bySubType($orgId, 'bank') ?? $this->accountResolver->bySubType($orgId, 'cash'));
+            : $this->accountResolver->bankOrCash($orgId);
 
         if (!$advanceAccount || !$bankAccount) {
             Log::info('Vendor advance payment journal entry skipped: accounts not configured', [

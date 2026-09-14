@@ -15,6 +15,10 @@ use InvalidArgumentException;
 
 class LoanService
 {
+    public function __construct(
+        private readonly AccountResolver $accountResolver,
+    ) {}
+
     /**
      * Create a new loan.
      */
@@ -322,13 +326,7 @@ class LoanService
             }
         }
         if ($bankGlAccount === null) {
-            // Bank and cash are sub-types of an asset account, not account types.
-            $bankGlAccount = Account::withoutGlobalScopes()
-                ->where('organization_id', $orgId)
-                ->whereIn('sub_type', [Account::SUBTYPE_BANK, Account::SUBTYPE_CASH])
-                ->where('is_header', false)
-                ->orderByRaw('sub_type = ? desc', [Account::SUBTYPE_BANK])
-                ->first();
+            $bankGlAccount = $this->accountResolver->bankOrCash((int) $orgId);
         }
 
         if ($loanAccount === null || $bankGlAccount === null) {

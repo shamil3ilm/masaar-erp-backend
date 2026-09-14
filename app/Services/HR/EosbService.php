@@ -9,6 +9,7 @@ use App\Models\HR\Employee;
 use App\Models\HR\EosbPolicy;
 use App\Models\HR\EosbProvision;
 use App\Models\HR\EosbSettlement;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,10 @@ use Illuminate\Support\Facades\Log;
 
 class EosbService
 {
+    public function __construct(
+        private readonly AccountResolver $accountResolver,
+    ) {}
+
     /**
      * Calculate and record the monthly EOSB provision for an employee.
      */
@@ -244,12 +249,7 @@ class EosbService
                 ->whereIn('account_type', ['liability'])
                 ->first();
 
-        // Bank and cash are sub-types of an asset account, not account types.
-        $bankAccount = Account::where('organization_id', $orgId)
-            ->whereIn('sub_type', [Account::SUBTYPE_BANK, Account::SUBTYPE_CASH])
-            ->where('is_header', false)
-            ->orderByRaw('sub_type = ? desc', [Account::SUBTYPE_BANK])
-            ->first();
+        $bankAccount = $this->accountResolver->bankOrCash((int) $orgId);
 
         if ($liabilityAccount === null || $bankAccount === null) {
             Log::warning('EosbService: No liability or bank account found for EOSB journal entry.', [
