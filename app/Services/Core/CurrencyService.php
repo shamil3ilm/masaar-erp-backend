@@ -127,7 +127,6 @@ class CurrencyService
      */
     protected function fetchLiveRate(string $from, string $to): float
     {
-        // Use a free exchange rate API (you can replace with your preferred provider)
         $apiKey = config('services.exchange_rate.api_key');
 
         if (! $apiKey) {
@@ -136,12 +135,15 @@ class CurrencyService
         }
 
         try {
-            $response = Http::timeout(5)
-                ->get("https://api.exchangerate-api.com/v4/latest/{$from}");
+            // ExchangeRate-API v6 with the key as a bearer token, which keeps it
+            // out of the URL and so out of access logs. The keyless v4 endpoint
+            // this used never sent the key it checked for.
+            $response = Http::withToken($apiKey)
+                ->timeout(5)
+                ->get("https://v6.exchangerate-api.com/v6/latest/{$from}");
 
-            if ($response->successful()) {
-                $data = $response->json();
-                $rate = $data['rates'][$to] ?? null;
+            if ($response->successful() && $response->json('result') === 'success') {
+                $rate = $response->json("conversion_rates.{$to}");
 
                 if ($rate) {
                     // Store in database for future use
