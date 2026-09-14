@@ -14,6 +14,11 @@ class VatReturnService
 {
     /**
      * Prepare (create or retrieve) a VAT return period.
+     *
+     * The period may not exist yet, so there is no row of it to lock; the
+     * organization's row is locked instead, which makes two requests preparing
+     * the same period find one period rather than create two. The dates are
+     * compared as dates because the columns store them with a time part.
      */
     public function preparePeriod(
         Organization $organization,
@@ -21,30 +26,44 @@ class VatReturnService
         string $periodStart,
         string $periodEnd
     ): VatReturnPeriod {
-        $existing = VatReturnPeriod::where('organization_id', $organization->id)
-            ->where('country_code', $countryCode)
-            ->where('period_start', $periodStart)
-            ->where('period_end', $periodEnd)
-            ->first();
+        return DB::transaction(function () use ($organization, $countryCode, $periodStart, $periodEnd): VatReturnPeriod {
+            Organization::query()->whereKey($organization->id)->lockForUpdate()->first();
 
-        if ($existing !== null) {
-            return $existing;
-        }
+            $existing = VatReturnPeriod::where('organization_id', $organization->id)
+                ->where('country_code', $countryCode)
+                ->whereDate('period_start', $periodStart)
+                ->whereDate('period_end', $periodEnd)
+                ->first();
 
-        return VatReturnPeriod::create([
-            'organization_id' => $organization->id,
-            'country_code'    => $countryCode,
-            'period_start'    => $periodStart,
-            'period_end'      => $periodEnd,
-            'status'          => 'draft',
-        ]);
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            return VatReturnPeriod::create([
+                'organization_id' => $organization->id,
+                'country_code'    => $countryCode,
+                'period_start'    => $periodStart,
+                'period_end'      => $periodEnd,
+                'status'          => 'draft',
+            ]);
+        });
     }
 
     /**
      * Build VAT return boxes by aggregating transactions for the period.
+     *
+     * Runs on the locked period and only while it is a draft or ready: a
+     * submitted return keeps the boxes it was filed with.
      */
     public function buildReturnBoxes(VatReturnPeriod $period): VatReturnPeriod
     {
+        return $period->lockForTransition(fn (VatReturnPeriod $period): VatReturnPeriod => $this->rebuildBoxes($period));
+    }
+
+    private function rebuildBoxes(VatReturnPeriod $period): VatReturnPeriod
+    {
+        $this->assertOpen($period, 'Only draft or ready returns can be rebuilt.');
+
         // Credit notes, refunds and returns carry negative amounts, so they net
         // against the sales they reverse.
         $transactions = VatTransaction::where('organization_id', $period->organization_id)
@@ -95,37 +114,42 @@ class VatReturnService
             ['box_number' => '7',  'box_label' => 'Net VAT due / (refundable)',        'output_amount' => (float) $outputVat,     'input_amount' => (float) $inputVat,  'net_vat' => (float) $netVat],
         ];
 
-        DB::transaction(function () use ($period, $boxes): void {
-            $period->boxes()->delete();
+        $period->boxes()->delete();
 
-            foreach ($boxes as $box) {
-                VatReturnBox::create(array_merge($box, [
-                    'vat_return_period_id' => $period->id,
-                ]));
-            }
+        foreach ($boxes as $box) {
+            VatReturnBox::create(array_merge($box, [
+                'vat_return_period_id' => $period->id,
+            ]));
+        }
 
-            $period->update(['status' => 'ready']);
-        });
+        $period->update(['status' => 'ready']);
 
         return $period->fresh(['boxes']);
     }
 
     /**
-     * Mark a VAT return as submitted.
+     * Mark a VAT return as submitted, once, on the locked period.
      */
     public function submitReturn(VatReturnPeriod $period, ?string $referenceNumber = null): VatReturnPeriod
     {
-        if (!$period->isDraft() && $period->status !== 'ready') {
-            throw new \RuntimeException('Only draft or ready returns can be submitted.');
+        return $period->lockForTransition(function (VatReturnPeriod $period) use ($referenceNumber): VatReturnPeriod {
+            $this->assertOpen($period, 'Only draft or ready returns can be submitted.');
+
+            $period->update([
+                'status'           => 'submitted',
+                'submitted_at'     => now(),
+                'reference_number' => $referenceNumber,
+            ]);
+
+            return $period->fresh();
+        });
+    }
+
+    private function assertOpen(VatReturnPeriod $period, string $message): void
+    {
+        if (! in_array($period->status, ['draft', 'ready'], true)) {
+            throw new \InvalidArgumentException($message);
         }
-
-        $period->update([
-            'status'           => 'submitted',
-            'submitted_at'     => now(),
-            'reference_number' => $referenceNumber,
-        ]);
-
-        return $period->fresh();
     }
 
     /**
