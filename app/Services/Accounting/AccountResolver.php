@@ -36,6 +36,17 @@ class AccountResolver
     }
 
     /**
+     * The account a payment is made from or into when the document names none:
+     * the organization's bank account, or its cash account when it has no bank
+     * account.
+     */
+    public function bankOrCash(int $organizationId): ?Account
+    {
+        return $this->bySubType($organizationId, Account::SUBTYPE_BANK)
+            ?? $this->bySubType($organizationId, Account::SUBTYPE_CASH);
+    }
+
+    /**
      * The account an organization mapped to a role in its accounting settings,
      * e.g. 'grni_account_id'. Only an account of that organization qualifies.
      */

@@ -57,6 +57,22 @@ class LoanPaymentTransitionTest extends TestCase
         $this->assertEquals(100, (float) $lines->firstWhere('account_id', $this->bank->id)->credit);
     }
 
+    public function test_a_payment_is_booked_to_cash_when_the_only_bank_account_is_inactive(): void
+    {
+        $this->bank->update(['is_active' => false]);
+        $cash = $this->ledgerAccount('1000', 'Petty Cash', Account::TYPE_ASSET, Account::SUBTYPE_CASH);
+
+        $payment = $this->service->recordPayment($this->activeLoan(1000), $this->paymentData(100), $this->user->id);
+
+        $lines = JournalEntry::where('source_type', LoanPayment::class)
+            ->where('source_id', $payment->id)
+            ->with('lines')
+            ->sole()
+            ->lines;
+
+        $this->assertEquals(100, (float) $lines->firstWhere('account_id', $cash->id)->credit);
+    }
+
     public function test_a_payment_rolls_back_when_its_journal_entry_cannot_be_posted(): void
     {
         $loan = $this->activeLoan(1000);
