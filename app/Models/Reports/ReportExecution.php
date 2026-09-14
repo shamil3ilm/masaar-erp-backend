@@ -23,15 +23,20 @@ class ReportExecution extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    public const TRIGGER_MANUAL = 'manual';
+
+    public const TRIGGER_SCHEDULED = 'scheduled';
+
     protected $fillable = [
         'organization_id',
         'saved_report_id',
         'user_id',
         'report_type',
         'parameters',
+        'format',
+        'trigger',
         'status',
         'file_path',
-        'file_format',
         'file_size',
         'row_count',
         'execution_time_ms',
@@ -84,7 +89,7 @@ class ReportExecution extends Model
         $this->update([
             'status' => self::STATUS_COMPLETED,
             'file_path' => $filePath,
-            'file_format' => $format,
+            'format' => $format,
             'file_size' => $fileSize,
             'row_count' => $rowCount,
             'execution_time_ms' => $executionTime,

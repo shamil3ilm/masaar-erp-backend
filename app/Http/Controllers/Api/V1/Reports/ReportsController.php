@@ -10,11 +10,13 @@ use App\Models\Reports\ReportExecution;
 use App\Models\Reports\SavedReport;
 use App\Services\Reports\FinancialReportService;
 use App\Services\Reports\InventoryReportService;
+use App\Services\Reports\ReportDataService;
 use App\Services\Reports\ReportExportService;
 use App\Services\Reports\SalesReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportsController extends Controller
@@ -23,7 +25,8 @@ class ReportsController extends Controller
         protected FinancialReportService $financialService,
         protected InventoryReportService $inventoryService,
         protected SalesReportService $salesService,
-        protected ReportExportService $exportService
+        protected ReportExportService $exportService,
+        protected ReportDataService $reportData,
     ) {}
 
     /**
@@ -374,7 +377,7 @@ class ReportsController extends Controller
     public function export(Request $request): JsonResponse|BinaryFileResponse
     {
         $request->validate([
-            'report_type' => 'required|string',
+            'report_type' => ['required', 'string', Rule::in(ReportDataService::TYPES)],
             'format' => 'required|string|in:pdf,xlsx,csv,json',
             'parameters' => 'required|array',
         ]);
@@ -384,20 +387,16 @@ class ReportsController extends Controller
         $format = $request->get('format');
         $parameters = $request->get('parameters');
 
-        // Generate report data
-        $data = $this->generateReportData($reportType, $parameters, $user);
+        $data = $this->reportData->generate($reportType, $parameters, $user->organization_id, $user->current_branch_id);
 
-        if (isset($data['error'])) {
-            return $this->error($data['error'], 'REPORT_ERROR', 400);
-        }
-
-        // Create execution record
         $execution = ReportExecution::create([
             'organization_id' => $user->organization_id,
             'user_id' => $user->id,
             'report_type' => $reportType,
             'parameters' => $parameters,
-            'status' => 'pending',
+            'format' => $format,
+            'trigger' => ReportExecution::TRIGGER_MANUAL,
+            'status' => ReportExecution::STATUS_PENDING,
         ]);
 
         // Get organization data for export
@@ -480,11 +479,11 @@ class ReportsController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'report_type' => 'required|string',
+            'report_type' => ['required', 'string', Rule::in(ReportDataService::TYPES)],
             'parameters' => 'nullable|array',
             'columns' => 'nullable|array',
             'schedule_frequency' => 'nullable|string|in:daily,weekly,monthly,quarterly',
-            'schedule_day' => 'nullable|string',
+            'schedule_day' => 'nullable|string|max:10',
             'schedule_time' => 'nullable|date_format:H:i',
             'recipients' => 'nullable|array',
             'recipients.*' => 'email',
@@ -497,7 +496,9 @@ class ReportsController extends Controller
         $report = SavedReport::create([
             'organization_id' => $user->organization_id,
             'user_id' => $user->id,
-            ...$validated,
+            // A null left out, so a column with a default keeps it.
+            ...array_filter($validated, fn ($v) => $v !== null),
+            'is_scheduled' => ! empty($validated['schedule_frequency']),
         ]);
 
         if ($report->schedule_frequency) {
@@ -529,7 +530,7 @@ class ReportsController extends Controller
             'recipients' => 'nullable|array',
             'export_format' => 'nullable|string|in:pdf,xlsx,csv,json',
             'is_shared' => 'nullable|boolean',
-            'is_active' => 'nullable|boolean',
+            'is_scheduled' => 'nullable|boolean',
         ]);
 
         $report->update($validated);
@@ -572,10 +573,11 @@ class ReportsController extends Controller
             })
             ->findOrFail($id);
 
-        $data = $this->generateReportData(
+        $data = $this->reportData->generate(
             $report->report_type,
             $report->parameters ?? [],
-            $user
+            $user->organization_id,
+            $user->current_branch_id
         );
 
         // Update last run
@@ -598,84 +600,5 @@ class ReportsController extends Controller
             ->paginate($request->get('per_page', 20));
 
         return $this->paginated($executions);
-    }
-
-    /**
-     * Generate report data based on type.
-     */
-    protected function generateReportData(string $reportType, array $parameters, $user): array
-    {
-        // Set context for all services
-        $this->inventoryService->setContext($user->organization_id, $user->current_branch_id);
-        $this->salesService->setContext($user->organization_id, $user->current_branch_id);
-
-        return match ($reportType) {
-            'balance_sheet' => $this->financialService->getBalanceSheet(
-                Carbon::parse($parameters['as_of_date'] ?? now())
-            ),
-            'income_statement', 'profit_loss' => $this->financialService->getProfitAndLoss(
-                Carbon::parse($parameters['start_date'] ?? now()->startOfMonth()),
-                Carbon::parse($parameters['end_date'] ?? now())
-            ),
-            'trial_balance' => $this->financialService->getTrialBalance(
-                Carbon::parse($parameters['as_of_date'] ?? now())
-            ),
-            'cash_flow' => $this->financialService->getCashFlow(
-                Carbon::parse($parameters['start_date'] ?? now()->startOfMonth()),
-                Carbon::parse($parameters['end_date'] ?? now())
-            ),
-            'aged_receivables' => $this->financialService->getReceivableAging(),
-            'aged_payables' => $this->financialService->getPayableAging(),
-            'stock_valuation' => $this->inventoryService->generateStockValuation(
-                $parameters['warehouse_id'] ?? null,
-                $parameters['category_id'] ?? null,
-                $parameters['valuation_method'] ?? null
-            ),
-            'stock_movement' => $this->inventoryService->generateStockMovement(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d'),
-                $parameters['product_id'] ?? null,
-                $parameters['warehouse_id'] ?? null,
-                $parameters['movement_type'] ?? null
-            ),
-            'low_stock' => $this->inventoryService->generateLowStockReport(
-                $parameters['warehouse_id'] ?? null
-            ),
-            'inventory_turnover' => $this->inventoryService->generateInventoryTurnover(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d')
-            ),
-            'batch_expiry' => $this->inventoryService->generateExpiryReport(
-                $parameters['days_ahead'] ?? 90,
-                $parameters['warehouse_id'] ?? null
-            ),
-            'sales_by_customer' => $this->salesService->generateSalesByCustomer(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d'),
-                $parameters['customer_id'] ?? null,
-                $parameters['limit'] ?? 50
-            ),
-            'sales_by_product' => $this->salesService->generateSalesByProduct(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d'),
-                $parameters['category_id'] ?? null,
-                $parameters['product_id'] ?? null,
-                $parameters['limit'] ?? 50
-            ),
-            'sales_by_salesperson' => $this->salesService->generateSalesBySalesperson(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d')
-            ),
-            'sales_trend' => $this->salesService->generateSalesTrend(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d'),
-                $parameters['group_by'] ?? 'day'
-            ),
-            'sales_summary' => $this->salesService->generateSalesSummary(
-                $parameters['start_date'] ?? now()->startOfMonth()->format('Y-m-d'),
-                $parameters['end_date'] ?? now()->format('Y-m-d')
-            ),
-            default => ['error' => "Unknown report type: {$reportType}"],
-        };
     }
 }
