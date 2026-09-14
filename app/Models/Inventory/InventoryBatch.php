@@ -242,6 +242,19 @@ class InventoryBatch extends Model
         return $this->save();
     }
 
+    /**
+     * Takes $quantity off the batch or throws. A caller moving the stock level
+     * with the batch uses this, so neither moves unless both can.
+     */
+    public function deductOrFail(string $quantity): void
+    {
+        if (! $this->deduct($quantity)) {
+            throw new \InvalidArgumentException(
+                "Batch {$this->batch_number} holds {$this->quantity}; {$quantity} cannot be taken from it."
+            );
+        }
+    }
+
     public function markAsExpired(): self
     {
         $this->status = self::STATUS_EXPIRED;

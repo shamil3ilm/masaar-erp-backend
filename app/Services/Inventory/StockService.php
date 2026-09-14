@@ -28,15 +28,13 @@ class StockService
     /**
      * Select batches to deduct from using FIFO / LIFO / FEFO ordering.
      *
-     * Returns a Collection of InventoryBatch models with an additional
-     * 'deduct_quantity' attribute (string, 4 decimal places) set on each
-     * instance. The sum of all deduct_quantity values equals $requiredQuantity.
+     * The batches are read FOR UPDATE: inside the movement's transaction a
+     * concurrent sale waits for this one instead of drawing on the same
+     * quantity. Each entry pairs a batch with the quantity to take from it,
+     * and the quantities add up to $requiredQuantity.
      *
-     * @param  int         $productId
-     * @param  int         $warehouseId
-     * @param  float       $requiredQuantity
      * @param  string|null $strategy  'fifo'|'lifo'|'fefo' — null resolves from product
-     * @return Collection<int, InventoryBatch>
+     * @return Collection<int, array{batch: InventoryBatch, quantity: string}>
      *
      * @throws InvalidArgumentException when there is insufficient batch stock.
      */
@@ -52,21 +50,19 @@ class StockService
         $query = InventoryBatch::where('product_id', $productId)
             ->where('warehouse_id', $warehouseId)
             ->where('status', InventoryBatch::STATUS_AVAILABLE)
-            ->whereRaw('quantity > reserved_quantity');
+            ->whereRaw('quantity > reserved_quantity')
+            ->lockForUpdate();
 
-        $query = match ($strategy) {
-            self::STRATEGY_LIFO => $query->scopeLifo($query),
-            self::STRATEGY_FEFO => $query->scopeFefo($query),
-            default             => $query->scopeFifo($query),
+        $ordered = match ($strategy) {
+            self::STRATEGY_LIFO => $query->lifo(),
+            self::STRATEGY_FEFO => $query->fefo(),
+            default             => $query->fifo(),
         };
 
-        /** @var Collection<int, InventoryBatch> $batches */
-        $batches = $query->get();
+        $remaining = (string) $requiredQuantity;
+        $selected  = new Collection();
 
-        $remaining     = (string) $requiredQuantity;
-        $selectedBatches = new Collection();
-
-        foreach ($batches as $batch) {
+        foreach ($ordered->get() as $batch) {
             if (bccomp($remaining, '0', 4) <= 0) {
                 break;
             }
@@ -78,8 +74,7 @@ class StockService
             }
 
             $toDeduct = bccomp($available, $remaining, 4) >= 0 ? $remaining : $available;
-            $batch->setAttribute('deduct_quantity', $toDeduct);
-            $selectedBatches->push($batch);
+            $selected->push(['batch' => $batch, 'quantity' => $toDeduct]);
             $remaining = bcsub($remaining, $toDeduct, 4);
         }
 
@@ -90,7 +85,7 @@ class StockService
             );
         }
 
-        return $selectedBatches;
+        return $selected;
     }
 
     /**
@@ -340,34 +335,42 @@ class StockService
         ?int $referenceId = null,
         ?string $notes = null
     ): ?StockMovement {
-        $stockLevel      = $this->getStockLevel($productId, $warehouseId, $variantId, $locationId);
-        $currentQuantity = $stockLevel?->quantity ?? 0;
-        $difference      = bcsub((string) $newQuantity, (string) $currentQuantity, 4);
+        return DB::transaction(function () use (
+            $productId, $warehouseId, $newQuantity, $variantId, $locationId,
+            $referenceNumber, $referenceId, $notes
+        ): ?StockMovement {
+            // The difference is taken from this quantity, so it is read under
+            // the lock the movement writes under; a movement committed between
+            // an unlocked read and the write would be applied twice.
+            $stockLevel      = $this->getStockLevel($productId, $warehouseId, $variantId, $locationId, lock: true);
+            $currentQuantity = $stockLevel?->quantity ?? 0;
+            $difference      = bcsub((string) $newQuantity, (string) $currentQuantity, 4);
 
-        if (bccomp($difference, '0', 4) === 0) {
-            return null; // No adjustment needed
-        }
+            if (bccomp($difference, '0', 4) === 0) {
+                return null; // No adjustment needed
+            }
 
-        $direction = bccomp($difference, '0', 4) > 0
-            ? StockMovement::DIRECTION_IN
-            : StockMovement::DIRECTION_OUT;
+            $direction = bccomp($difference, '0', 4) > 0
+                ? StockMovement::DIRECTION_IN
+                : StockMovement::DIRECTION_OUT;
 
-        $movement = $this->recordMovement(
-            productId: $productId,
-            warehouseId: $warehouseId,
-            movementType: StockMovement::TYPE_ADJUSTMENT,
-            direction: $direction,
-            quantity: abs((float) $difference),
-            unitCost: (float) ($stockLevel?->average_cost ?? 0),
-            variantId: $variantId,
-            locationId: $locationId,
-            referenceType: 'stock_adjustment',
-            referenceId: $referenceId,
-            referenceNumber: $referenceNumber,
-            notes: $notes
-        );
+            $movement = $this->recordMovement(
+                productId: $productId,
+                warehouseId: $warehouseId,
+                movementType: StockMovement::TYPE_ADJUSTMENT,
+                direction: $direction,
+                quantity: abs((float) $difference),
+                unitCost: (float) ($stockLevel?->average_cost ?? 0),
+                variantId: $variantId,
+                locationId: $locationId,
+                referenceType: 'stock_adjustment',
+                referenceId: $referenceId,
+                referenceNumber: $referenceNumber,
+                notes: $notes
+            );
 
-        return is_array($movement) ? $movement[0] : $movement;
+            return is_array($movement) ? $movement[0] : $movement;
+        });
     }
 
     /**
@@ -423,17 +426,21 @@ class StockService
 
     /**
      * Get stock level for a product/warehouse combination.
+     *
+     * Pass $lock inside a transaction when the quantity read feeds a write.
      */
     public function getStockLevel(
         int $productId,
         int $warehouseId,
         ?int $variantId = null,
-        ?int $locationId = null
+        ?int $locationId = null,
+        bool $lock = false
     ): ?StockLevel {
         return StockLevel::where('product_id', $productId)
             ->where('warehouse_id', $warehouseId)
             ->where('variant_id', $variantId)
             ->where('location_id', $locationId)
+            ->when($lock, fn ($query) => $query->lockForUpdate())
             ->first();
     }
 
@@ -613,6 +620,9 @@ class StockService
      *
      * If a specific $batchId is provided, deduct from that batch only.
      * Otherwise, auto-select batches using selectBatchesForDeduction().
+     * Every batch is locked before it is read, and a batch that cannot give
+     * its share throws, so the stock level never drops for quantity the
+     * batches did not have.
      *
      * @return array<int, StockMovement>
      */
@@ -634,11 +644,23 @@ class StockService
         ?int $batchId
     ): array {
         if ($batchId !== null) {
-            $batch = InventoryBatch::findOrFail($batchId);
-            $batch->setAttribute('deduct_quantity', (string) $quantity);
-            $batches = new Collection([$batch]);
+            // A batch of another product or warehouse would shrink while this
+            // warehouse's stock level drops.
+            $batch = InventoryBatch::whereKey($batchId)
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', $warehouseId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($batch === null) {
+                throw new InvalidArgumentException(
+                    "Batch #{$batchId} does not hold product #{$product->id} in warehouse #{$warehouseId}."
+                );
+            }
+
+            $slices = new Collection([['batch' => $batch, 'quantity' => (string) $quantity]]);
         } else {
-            $batches = $this->selectBatchesForDeduction(
+            $slices = $this->selectBatchesForDeduction(
                 productId: $product->id,
                 warehouseId: $warehouseId,
                 requiredQuantity: $quantity,
@@ -647,11 +669,8 @@ class StockService
 
         $movements = [];
 
-        foreach ($batches as $batch) {
-            $deductQty = (float) $batch->getAttribute('deduct_quantity');
-
-            // Deduct from the batch record itself
-            $batch->deduct((string) $deductQty);
+        foreach ($slices as ['batch' => $batch, 'quantity' => $deductQty]) {
+            $batch->deductOrFail($deductQty);
 
             // Record the stock-level movement for this batch slice
             $movement = $this->recordSingleMovement(
@@ -659,7 +678,7 @@ class StockService
                 warehouseId: $warehouseId,
                 movementType: $movementType,
                 direction: StockMovement::DIRECTION_OUT,
-                quantity: $deductQty,
+                quantity: (float) $deductQty,
                 unitCost: $unitCost > 0 ? $unitCost : (float) $batch->unit_cost,
                 variantId: $variantId,
                 locationId: $locationId,
