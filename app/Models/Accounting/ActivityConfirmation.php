@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Manufacturing\WorkCenter;
 use App\Models\Manufacturing\WorkOrder;
 use App\Models\User;
@@ -17,6 +18,7 @@ class ActivityConfirmation extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
+    use LocksForTransition;
     use SoftDeletes;
 
     public const STATUS_CONFIRMED = 'confirmed';
