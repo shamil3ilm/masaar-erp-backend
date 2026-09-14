@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\WithholdingTaxCode;
 use App\Models\Accounting\WithholdingTaxLine;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,7 @@ class WithholdingTaxService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
     // =========================================================================
@@ -283,11 +285,6 @@ class WithholdingTaxService
 
     private function generateCertificateNumber(int $organizationId): string
     {
-        $count = WithholdingTaxLine::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->whereNotNull('certificate_number')
-            ->count() + 1;
-
-        return 'WHTC-' . now()->format('Y') . '-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('WHTC', '{prefix}-{year}-{number:6}', $organizationId);
     }
 }

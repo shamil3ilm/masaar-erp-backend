@@ -11,6 +11,7 @@ use App\Models\Sales\AdvancePaymentApplication;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use App\Services\Accounting\JournalService;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,7 @@ class CustomerAdvanceService
 {
     public function __construct(
         private JournalService $journalService,
+        private NumberGeneratorService $numberGenerator,
     ) {}
 
     /**
@@ -61,8 +63,7 @@ class CustomerAdvanceService
 
             // Auto-generate advance number when not supplied
             if (empty($data['payment_number'])) {
-                $count = AdvancePayment::where('organization_id', $orgId)->withTrashed()->count() + 1;
-                $data['payment_number'] = 'ADV-'.str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+                $data['payment_number'] = $this->numberGenerator->generate('ADV', '{prefix}-{year}-{number:6}', $orgId);
             }
 
             $amount = (float) $data['amount'];

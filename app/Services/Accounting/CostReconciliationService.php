@@ -12,6 +12,7 @@ use App\Models\Accounting\CostReconciliationRun;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\JournalEntry;
 use App\Models\User;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -31,6 +32,10 @@ use Illuminate\Support\Facades\DB;
  */
 class CostReconciliationService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Create and post reconciliation entries for a completed assessment run.
      *
@@ -251,7 +256,6 @@ class CostReconciliationService
 
     private function generateRunNumber(int $organizationId): string
     {
-        $count = CostReconciliationRun::where('organization_id', $organizationId)->count() + 1;
-        return 'KALC-' . date('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('KALC', '{prefix}-{year}-{number}', $organizationId);
     }
 }

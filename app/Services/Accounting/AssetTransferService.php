@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\AssetTransaction;
 use App\Models\Accounting\AssetTransfer;
 use App\Models\Accounting\FixedAsset;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -24,6 +25,8 @@ class AssetTransferService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly NumberGeneratorService $numberGenerator,
+        private readonly AssetAccountingService $assetAccounting,
     ) {}
 
     // =========================================================================
@@ -327,15 +330,16 @@ class AssetTransferService
 
     private function generateNumber(int $organizationId): string
     {
-        $count = AssetTransfer::where('sending_organization_id', $organizationId)->count() + 1;
-        return 'AXFER-' . now()->format('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('AXFER', '{prefix}-{year}-{number}', $organizationId);
     }
 
+    /**
+     * The receiving side's asset joins that organization's asset numbering,
+     * which AssetAccountingService owns; a separate count here issued numbers
+     * it had already used.
+     */
     private function generateAssetNumber(int $organizationId): string
     {
-        $count = FixedAsset::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->count() + 1;
-        return 'FA-' . now()->format('Y') . '-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+        return $this->assetAccounting->generateAssetNumber($organizationId);
     }
 }

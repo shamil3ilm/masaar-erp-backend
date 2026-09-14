@@ -13,6 +13,7 @@ use App\Models\Accounting\LiquidityPlanLine;
 use App\Models\Accounting\TreasuryInvestment;
 use App\Models\Purchase\PaymentMade;
 use App\Models\Sales\PaymentReceived;
+use App\Services\Core\NumberGeneratorService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class TreasuryService
 {
     public function __construct(
         private JournalService $journalService,
+        private NumberGeneratorService $numberGenerator,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -38,8 +40,7 @@ class TreasuryService
             $orgId = (int) $data['organization_id'];
 
             if (empty($data['instrument_number'])) {
-                $count = TreasuryInvestment::where('organization_id', $orgId)->withTrashed()->count() + 1;
-                $data['instrument_number'] = 'INV-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+                $data['instrument_number'] = $this->numberGenerator->generate('INV', '{prefix}-{year}-{number:6}', $orgId);
             }
 
             // Calculate maturity value (simple interest approximation for display)

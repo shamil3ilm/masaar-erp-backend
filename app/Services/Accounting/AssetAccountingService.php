@@ -619,7 +619,13 @@ class AssetAccountingService
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private function generateAssetNumber(int $organizationId): string
+    /**
+     * The next asset number for an organization. Asset transfers use it too,
+     * because they create assets in the same numbered sequence; it continues
+     * from the last number issued, so an asset numbered by hand is not
+     * reissued.
+     */
+    public function generateAssetNumber(int $organizationId): string
     {
         $year = now()->format('Y');
         $prefix = "FA-{$year}-";

@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\LeaseContract;
 use App\Models\Accounting\LeaseSchedule;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -24,6 +25,7 @@ class LeaseAccountingService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
     // =========================================================================
@@ -443,10 +445,6 @@ class LeaseAccountingService
 
     private function generateLeaseNumber(int $organizationId): string
     {
-        $count = LeaseContract::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->count() + 1;
-
-        return 'LEASE-' . now()->format('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('LEASE', '{prefix}-{year}-{number}', $organizationId);
     }
 }
