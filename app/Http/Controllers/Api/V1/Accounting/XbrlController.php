@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\XbrlFiling;
 use App\Models\Accounting\XbrlTaxonomy;
 use App\Services\Accounting\XbrlService;
@@ -26,9 +25,10 @@ class XbrlController extends Controller
 
     public function taxonomiesIndex(Request $request): JsonResponse
     {
-        $taxonomies = XbrlTaxonomy::when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 50));
+        $taxonomies = $this->xbrlService->paginateTaxonomies(
+            $request->boolean('active_only'),
+            $request->integer('per_page', 50),
+        );
 
         return $this->paginated($taxonomies);
     }
@@ -70,9 +70,9 @@ class XbrlController extends Controller
             'is_active'       => ['sometimes', 'boolean'],
         ]);
 
-        $xbrlTaxonomy->update($validated);
+        $taxonomy = $this->xbrlService->updateTaxonomy($xbrlTaxonomy, $validated);
 
-        return $this->success($xbrlTaxonomy->fresh(), 'Taxonomy updated.');
+        return $this->success($taxonomy, 'Taxonomy updated.');
     }
 
     // =========================================================================
@@ -81,11 +81,11 @@ class XbrlController extends Controller
 
     public function filingsIndex(Request $request): JsonResponse
     {
-        $filings = XbrlFiling::with(['taxonomy:id,name,version', 'fiscalYear:id,name', 'createdBy:id,name'])
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->fiscal_year_id, fn ($q, $id) => $q->where('fiscal_year_id', $id))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 20));
+        $filings = $this->xbrlService->paginateFilings(
+            $request->status,
+            $request->fiscal_year_id,
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($filings);
     }
@@ -101,13 +101,10 @@ class XbrlController extends Controller
             'seed_from_trial_balance' => ['nullable', 'boolean'],
         ]);
 
-        $fiscalYear = FiscalYear::findOrFail($validated['fiscal_year_id']);
-        $taxonomy   = XbrlTaxonomy::findOrFail($validated['taxonomy_id']);
-
-        $filing = $this->xbrlService->createFiling(
+        $filing = $this->xbrlService->createFilingFromIds(
             $this->organizationId($request),
-            $fiscalYear,
-            $taxonomy,
+            $validated['fiscal_year_id'],
+            $validated['taxonomy_id'],
             $validated,
             auth()->id()
         );
