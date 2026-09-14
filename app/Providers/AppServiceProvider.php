@@ -39,8 +39,6 @@ class AppServiceProvider extends ServiceProvider
             apiKey: (string) config('services.exchange_rate.api_key'),
         ));
 
-        $this->app->singleton(\App\Services\Tax\VatRuleResolver::class);
-
         $this->app->singleton(\App\Services\Compliance\CircuitBreaker::class, function (): \App\Services\Compliance\CircuitBreaker {
             return new \App\Services\Compliance\CircuitBreaker(
                 failureThreshold: (int) config('erp.circuit_breaker.threshold', 5),
