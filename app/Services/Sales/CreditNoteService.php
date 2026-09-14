@@ -25,6 +25,8 @@ class CreditNoteService
             $items = $data['items'] ?? [];
             unset($data['items'], $data['lines']);
 
+            $this->assertWithinInvoiceTotal($data, $items);
+
             // Generate credit note number if not provided
             if (empty($data['credit_note_number'])) {
                 $data['credit_note_number'] = app(NumberGeneratorService::class)->generate('credit_note');
@@ -238,6 +240,36 @@ class CreditNoteService
         return $query->with(['contact', 'invoice'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+    }
+
+    /**
+     * A credit note raised against an invoice may not credit more than the
+     * invoice's total, tax included. This holds for every caller: the credit
+     * note endpoint, a refund and a resolved sales return.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function assertWithinInvoiceTotal(array $data, array $items): void
+    {
+        if (empty($data['invoice_id'])) {
+            return;
+        }
+
+        $invoice = Invoice::where('organization_id', $data['organization_id'] ?? null)->find($data['invoice_id']);
+
+        if ($invoice === null) {
+            return;
+        }
+
+        $total = '0';
+        foreach ($items as $item) {
+            $total = bcadd($total, $this->itemAmounts($item)['total'], 2);
+        }
+
+        if (bccomp($total, (string) $invoice->total, 4) > 0) {
+            throw new ValidationException('Credit note total exceeds invoice total.');
+        }
     }
 
     /**

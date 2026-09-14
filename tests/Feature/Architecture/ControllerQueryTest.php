@@ -296,7 +296,7 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Sales/ConsignmentController.php' => 3,
         'Api/V1/Sales/ContactController.php' => 2,
         'Api/V1/Sales/CpqController.php' => 18,
-        'Api/V1/Sales/CreditNoteController.php' => 2,
+        'Api/V1/Sales/CreditNoteController.php' => 1,
         'Api/V1/Sales/CustomerAdvanceController.php' => 1,
         'Api/V1/Sales/CustomerMaterialInfoController.php' => 3,
         'Api/V1/Sales/DeliverySplitController.php' => 2,
