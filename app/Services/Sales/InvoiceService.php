@@ -26,6 +26,7 @@ use App\Jobs\RunFraudChecksJob;
 use Illuminate\Http\Client\ConnectionException;
 use App\Models\Concerns\ChecksIdempotency;
 use App\Traits\StructuredLogger;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -78,6 +79,77 @@ class InvoiceService
         private RebateAccrualService $rebateAccrualService,
         private PostInvoiceOrchestrator $postInvoiceOrchestrator,
     ) {}
+
+    /**
+     * Invoices of the current organization with their customer and salesperson,
+     * newest first, narrowed by the filters that are set.
+     *
+     * Returned unexecuted so the caller can paginate it or hand it to AG Grid.
+     *
+     * @param  array{customer_id?: mixed, status?: mixed, type?: mixed, from_date?: mixed, to_date?: mixed, overdue?: bool, unpaid?: bool}  $filters
+     * @return Builder<Invoice>
+     */
+    public function listQuery(array $filters): Builder
+    {
+        return Invoice::with(['customer', 'salesperson'])
+            ->latest('invoice_date')
+            ->when($filters['customer_id'] ?? null, fn ($q, $id) => $q->forCustomer((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['type'] ?? null, fn ($q, $v) => $q->ofType($v))
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('invoice_date', '>=', $v))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('invoice_date', '<=', $v))
+            ->when($filters['overdue'] ?? false, fn ($q) => $q->overdue())
+            ->when($filters['unpaid'] ?? false, fn ($q) => $q->unpaid());
+    }
+
+    /**
+     * Counts and totals of the current organization's invoices.
+     *
+     * The totals are bounded by invoice date for each of from_date and to_date
+     * present in $range; the status breakdown and the overdue figures cover
+     * every invoice.
+     *
+     * @param  array{from_date?: ?string, to_date?: ?string}  $range
+     * @return array<string, mixed>
+     */
+    public function summary(array $range): array
+    {
+        $query = Invoice::query()
+            ->when(array_key_exists('from_date', $range), fn ($q) => $q->where('invoice_date', '>=', $range['from_date']))
+            ->when(array_key_exists('to_date', $range), fn ($q) => $q->where('invoice_date', '<=', $range['to_date']));
+
+        return [
+            'total_invoices' => $query->count(),
+            'total_amount' => $query->sum('total'),
+            'total_paid' => $query->sum('amount_paid'),
+            'total_outstanding' => $query->sum('amount_due'),
+            'by_status' => Invoice::selectRaw('status, COUNT(*) as count, SUM(total) as total')
+                ->groupBy('status')
+                ->get()
+                ->keyBy('status'),
+            'overdue_count' => Invoice::overdue()->count(),
+            'overdue_amount' => Invoice::overdue()->sum('amount_due'),
+        ];
+    }
+
+    /**
+     * Delete a draft invoice.
+     *
+     * The status is checked on the locked row, so an invoice sent by a
+     * concurrent request is not deleted through a copy loaded while it was a draft.
+     *
+     * @throws \InvalidArgumentException when the invoice is no longer a draft
+     */
+    public function delete(Invoice $invoice): void
+    {
+        $invoice->lockForTransition(function (Invoice $invoice): void {
+            if ($invoice->status !== Invoice::STATUS_DRAFT) {
+                throw new \InvalidArgumentException('Only draft invoices can be deleted.');
+            }
+
+            $invoice->delete();
+        });
+    }
 
     /**
      * Create a new invoice.
