@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CurrencyRevaluation;
-use App\Models\Accounting\OrganizationCurrency;
 use App\Services\Accounting\MultiCurrencyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,14 +48,7 @@ class MultiCurrencyController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        // Check if currency already exists and is active
-        $existing = OrganizationCurrency::withoutGlobalScopes()
-            ->where('organization_id', $validated['organization_id'])
-            ->where('currency_code', $validated['currency_code'])
-            ->where('is_active', true)
-            ->first();
-
-        if ($existing) {
+        if ($this->multiCurrencyService->hasActiveCurrency($validated['organization_id'], $validated['currency_code'])) {
             return $this->error('Currency already added to organization', 'DUPLICATE', 422);
         }
 
@@ -83,14 +75,10 @@ class MultiCurrencyController extends Controller
      */
     public function revaluations(Request $request): JsonResponse
     {
-        $query = CurrencyRevaluation::with(['createdBy:id,name'])
-            ->orderByDesc('revaluation_date')
-            ->orderByDesc('id')
-            ->when($request->has('status'), fn($q) => $q->forStatus($request->input('status')))
-            ->when($request->has('currency_code'), fn($q) => $q->forCurrency($request->input('currency_code')))
-            ->when($request->has('start_date') && $request->has('end_date'), fn($q) => $q->forDateRange($request->input('start_date'), $request->input('end_date')));
-
-        $revaluations = $query->paginate($request->integer('per_page', 20));
+        $revaluations = $this->multiCurrencyService->listRevaluations(
+            $request->only(['status', 'currency_code', 'start_date', 'end_date']),
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($revaluations);
     }
