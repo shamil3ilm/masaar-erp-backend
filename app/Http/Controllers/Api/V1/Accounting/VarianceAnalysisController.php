@@ -19,12 +19,13 @@ class VarianceAnalysisController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = VarianceAnalysisRun::orderBy('id', 'desc')
-            ->when($request->filled('period'), fn($q) => $q->where('period', $request->integer('period')))
-            ->when($request->filled('fiscal_year'), fn($q) => $q->where('fiscal_year', $request->integer('fiscal_year')))
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')));
+        $filters = [
+            'period'      => $request->filled('period') ? $request->integer('period') : null,
+            'fiscal_year' => $request->filled('fiscal_year') ? $request->integer('fiscal_year') : null,
+            'status'      => $request->filled('status') ? $request->input('status') : null,
+        ];
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($this->service->list($filters, $request->integer('per_page', 20)));
     }
 
     public function store(Request $request): JsonResponse
@@ -54,18 +55,12 @@ class VarianceAnalysisController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $run = VarianceAnalysisRun::with('runBy:id,name')->findOrFail($id);
-
-        return $this->success($run);
+        return $this->success($this->service->findRun($id));
     }
 
     public function results(int $id): JsonResponse
     {
-        VarianceAnalysisRun::findOrFail($id);
-
-        $items = $this->service->getResults($id);
-
-        return $this->success($items);
+        return $this->success($this->service->getResultsForRun($id));
     }
 
     public function summary(Request $request): JsonResponse
@@ -77,7 +72,8 @@ class VarianceAnalysisController extends Controller
 
         $summary = $this->service->getSummaryByCategory(
             (int) $validated['period'],
-            (int) $validated['fiscal_year']
+            (int) $validated['fiscal_year'],
+            (int) $this->organizationId($request)
         );
 
         return $this->success($summary);
