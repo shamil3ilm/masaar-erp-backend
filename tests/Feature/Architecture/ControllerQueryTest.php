@@ -65,7 +65,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Accounting/ProfitabilitySegmentController.php' => 3,
         'Api/V1/Accounting/SpecialLedgerController.php' => 5,
         'Api/V1/Accounting/StatisticalKeyFigureController.php' => 4,
-        'Api/V1/Accounting/TransferPricingController.php' => 6,
         'Api/V1/Accounting/VarianceAnalysisController.php' => 3,
         'Api/V1/Accounting/XbrlController.php' => 3,
         'Api/V1/Admin/FeatureFlagController.php' => 3,

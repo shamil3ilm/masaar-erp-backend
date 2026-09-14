@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\TransferPrice;
+use App\Models\Accounting\TransferPriceHistory;
+use App\Models\Accounting\TransferPriceVersion;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -222,6 +225,120 @@ class TransferPricingTest extends TestCase
             ]);
 
         $response->assertStatus(422);
+    }
+
+    public function test_index_filters_by_method_and_active_flag(): void
+    {
+        $this->makePrice(['transfer_price_method' => TransferPrice::METHOD_COST_PLUS, 'is_active' => true, 'effective_from' => '2025-02-01']);
+        $this->makePrice(['transfer_price_method' => TransferPrice::METHOD_COST_PLUS, 'is_active' => false]);
+        $this->makePrice(['transfer_price_method' => TransferPrice::METHOD_STANDARD_COST, 'is_active' => true]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/transfer-pricing?method=' . TransferPrice::METHOD_COST_PLUS)
+            ->assertStatus(200)
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.per_page', 20)
+            ->assertJsonPath('data.0.effective_from', fn ($date) => str_starts_with((string) $date, '2025-02-01'));
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/transfer-pricing?active_only=1&method=' . TransferPrice::METHOD_COST_PLUS . '&per_page=5')
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('meta.per_page', 5);
+    }
+
+    public function test_show_includes_conditions_and_history(): void
+    {
+        $created = $this->withToken($this->token)
+            ->postJson('/api/v1/transfer-pricing', [
+                'transfer_price_method' => TransferPrice::METHOD_STANDARD_COST,
+                'base_price'            => 80,
+                'effective_from'        => '2025-01-01',
+                'currency_code'         => 'SAR',
+            ])
+            ->json('data.id');
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/transfer-pricing/' . $created)
+            ->assertStatus(200)
+            ->assertJsonPath('data.id', $created)
+            ->assertJsonPath('data.conditions', [])
+            ->assertJsonCount(1, 'data.history');
+    }
+
+    public function test_price_endpoints_return_404_for_another_organizations_price(): void
+    {
+        $otherOrg   = Organization::factory()->create();
+        $otherPrice = $this->makePrice(['organization_id' => $otherOrg->id]);
+        $url        = '/api/v1/transfer-pricing/' . $otherPrice->id;
+
+        $this->withToken($this->token)->getJson($url)->assertStatus(404);
+        $this->withToken($this->token)->putJson($url, ['base_price' => 1])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($url)->assertStatus(404);
+
+        $this->assertEquals(100.0, (float) TransferPrice::withoutGlobalScopes()->find($otherPrice->id)->base_price);
+    }
+
+    public function test_update_with_change_reason_records_it_in_price_history(): void
+    {
+        $price = $this->makePrice();
+
+        $this->withToken($this->token)
+            ->putJson('/api/v1/transfer-pricing/' . $price->id, ['base_price' => 120, 'change_reason' => 'Repriced'])
+            ->assertStatus(200)
+            ->assertJsonPath('data.id', $price->id)
+            ->assertJsonPath('data.from_profit_center', null)
+            ->assertJsonPath('data.to_profit_center', null);
+
+        $history = TransferPriceHistory::where('transfer_price_id', $price->id)->sole();
+        $this->assertSame('Repriced', $history->change_reason);
+        $this->assertEquals(120.0, (float) $history->new_price);
+    }
+
+    public function test_versions_filters_by_status_and_fiscal_year(): void
+    {
+        $this->makeVersion(['status' => TransferPriceVersion::STATUS_DRAFT, 'fiscal_year' => 2025]);
+        $this->makeVersion(['status' => TransferPriceVersion::STATUS_ACTIVE, 'fiscal_year' => 2025]);
+        $this->makeVersion(['status' => TransferPriceVersion::STATUS_ACTIVE, 'fiscal_year' => 2024]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/transfer-pricing/versions?status=active&fiscal_year=2025')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.created_by.id', $this->user->id);
+    }
+
+    public function test_activate_version_returns_the_active_version(): void
+    {
+        $version = $this->makeVersion();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/transfer-pricing/versions/' . $version->id . '/activate')
+            ->assertStatus(200)
+            ->assertJsonPath('data.id', $version->id)
+            ->assertJsonPath('data.status', TransferPriceVersion::STATUS_ACTIVE);
+    }
+
+    public function test_activate_version_returns_404_for_another_organizations_version(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $version  = $this->makeVersion(['organization_id' => $otherOrg->id]);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/transfer-pricing/versions/' . $version->id . '/activate')
+            ->assertStatus(404);
+
+        $this->assertSame(TransferPriceVersion::STATUS_DRAFT, TransferPriceVersion::withoutGlobalScopes()->find($version->id)->status);
+    }
+
+    private function makeVersion(array $overrides = []): TransferPriceVersion
+    {
+        return TransferPriceVersion::create(array_merge([
+            'organization_id' => $this->organization->id,
+            'version_name'    => 'FY2025 v' . fake()->unique()->numerify('##'),
+            'fiscal_year'     => 2025,
+            'status'          => TransferPriceVersion::STATUS_DRAFT,
+            'created_by'      => $this->user->id,
+        ], $overrides));
     }
 
     // -------------------------------------------------------------------------
