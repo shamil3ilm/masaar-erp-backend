@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\PayrollCorrection;
 use App\Services\HR\PayrollCorrectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class PayrollCorrectionController extends Controller
 {
@@ -28,9 +29,9 @@ class PayrollCorrectionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'                  => 'required|integer|exists:employees,id',
-            'original_payroll_period_id'   => 'required|integer|exists:payroll_periods,id',
-            'correction_payroll_period_id' => 'nullable|integer|exists:payroll_periods,id',
+            'employee_id'                  => ['required', 'integer', $this->inOrganization('employees')],
+            'original_payroll_period_id'   => ['required', 'integer', $this->inOrganization('payroll_periods')],
+            'correction_payroll_period_id' => ['nullable', 'integer', $this->inOrganization('payroll_periods')],
             'correction_type'              => 'required|in:salary_change,component_adjustment,tax_correction,deduction_adjustment',
             'original_amount'              => 'required|numeric',
             'corrected_amount'             => 'required|numeric',
@@ -44,42 +45,38 @@ class PayrollCorrectionController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $correction = PayrollCorrection::with(['employee', 'originalPeriod', 'correctionPeriod', 'approver'])
-            ->findOrFail($id);
-
-        return $this->success($correction);
+        return $this->success($this->service->findWithRelations($id));
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $correction = PayrollCorrection::findOrFail($id);
+        $correction = $this->service->find($id);
 
-        if ($correction->status !== PayrollCorrection::STATUS_DRAFT) {
+        // Answered before validation so a correction that is no longer a draft
+        // is reported as such whatever the body holds; the service checks again
+        // on the locked row.
+        if (! $correction->isDraft()) {
             return $this->error('Only draft corrections can be updated.', 'INVALID_STATUS', 422);
         }
 
         $validated = $request->validate([
-            'correction_payroll_period_id' => 'nullable|integer|exists:payroll_periods,id',
+            'correction_payroll_period_id' => ['nullable', 'integer', $this->inOrganization('payroll_periods')],
             'correction_type'              => 'sometimes|in:salary_change,component_adjustment,tax_correction,deduction_adjustment',
             'original_amount'              => 'sometimes|numeric',
             'corrected_amount'             => 'sometimes|numeric',
             'reason'                       => 'nullable|string',
         ]);
 
-        if (isset($validated['original_amount']) || isset($validated['corrected_amount'])) {
-            $original   = (float) ($validated['original_amount'] ?? $correction->original_amount);
-            $corrected  = (float) ($validated['corrected_amount'] ?? $correction->corrected_amount);
-            $validated['difference_amount'] = $corrected - $original;
-        }
-
-        $correction->update($validated);
-
-        return $this->success($correction->fresh(['employee', 'originalPeriod']), 'Payroll correction updated.');
+        return $this->tryAction(
+            fn() => $this->service->update($correction, $validated)->fresh(['employee', 'originalPeriod']),
+            'Payroll correction updated.',
+            'INVALID_STATUS'
+        );
     }
 
     public function approve(string $id): JsonResponse
     {
-        $correction = PayrollCorrection::findOrFail($id);
+        $correction = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->approve($correction, auth()->id())->load(['employee', 'approver']),
@@ -90,7 +87,7 @@ class PayrollCorrectionController extends Controller
 
     public function post(string $id): JsonResponse
     {
-        $correction = PayrollCorrection::findOrFail($id);
+        $correction = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->post($correction)->load(['employee', 'originalPeriod']),
@@ -101,12 +98,18 @@ class PayrollCorrectionController extends Controller
 
     public function cancel(string $id): JsonResponse
     {
-        $correction = PayrollCorrection::findOrFail($id);
+        $correction = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->cancel($correction),
             'Payroll correction cancelled.',
             'INVALID_STATUS'
         );
+    }
+
+    /** An id that must belong to a row of the caller's organization. */
+    private function inOrganization(string $table): Exists
+    {
+        return Rule::exists($table, 'id')->where('organization_id', auth()->user()->organization_id);
     }
 }
