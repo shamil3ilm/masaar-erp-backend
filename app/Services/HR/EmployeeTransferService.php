@@ -7,11 +7,16 @@ namespace App\Services\HR;
 use App\Models\HR\Employee;
 use App\Models\HR\EmployeeTransfer;
 use App\Models\User;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class EmployeeTransferService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * List transfers for the authenticated user's organisation, with optional filters.
      */
@@ -159,13 +164,6 @@ class EmployeeTransferService
 
     private function generateTransferNumber(int $orgId): string
     {
-        $prefix = 'TRF-' . date('Ymd') . '-';
-
-        $seq = EmployeeTransfer::withTrashed()
-            ->where('organization_id', $orgId)
-            ->where('transfer_number', 'like', $prefix . '%')
-            ->count() + 1;
-
-        return $prefix . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('TRF', '{prefix}-{year}{month}{day}-{number:4}', $orgId);
     }
 }

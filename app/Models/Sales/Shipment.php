@@ -7,6 +7,7 @@ namespace App\Models\Sales;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,9 +31,10 @@ class Shipment extends Model
     {
         static::creating(function (self $model): void {
             if (empty($model->shipment_number)) {
-                $prefix = 'SHP';
-                $count = static::where('organization_id', $model->organization_id)->count() + 1;
-                $model->shipment_number = $prefix . '-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+                // A model hook cannot take the generator by injection, and a
+                // row count hands two concurrent shipments the same number.
+                $model->shipment_number = app(NumberGeneratorService::class)
+                    ->generate('SHP', '{prefix}-{year}-{number:6}', $model->organization_id);
             }
             if (empty($model->status)) {
                 $model->status = 'pending';

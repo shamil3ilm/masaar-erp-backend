@@ -403,7 +403,6 @@ class SalesReturnService
 
     private function generateExchangeNumber(int $organizationId): string
     {
-        $count = ExchangeOrder::where('organization_id', $organizationId)->count() + 1;
-        return 'EXC-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('EXC', '{prefix}-{year}-{number:6}', $organizationId);
     }
 }

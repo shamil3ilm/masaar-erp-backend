@@ -15,6 +15,10 @@ use RuntimeException;
 
 class ChangeTransportService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     public function createRequest(array $data): ChangeTransportRequest
     {
         return DB::transaction(function () use ($data): ChangeTransportRequest {
@@ -161,13 +165,7 @@ class ChangeTransportService
 
     private function generateRequestNumber(int $organizationId): string
     {
-        $prefix = 'TR';
-        $year   = date('Y');
-        $count  = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->whereYear('created_at', $year)
-            ->count() + 1;
-
-        return sprintf('%s%s%05d', $prefix, $year, $count);
+        return $this->numberGenerator->generate('TR', '{prefix}{year}{number}', $organizationId);
     }
 
     private function simulateImport(ChangeTransportRequest $request, string $environment): string

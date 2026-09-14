@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\HouseBank;
 use App\Models\Accounting\HouseBankAccount;
 use App\Models\Accounting\PaymentAdvice;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,10 @@ use InvalidArgumentException;
  */
 class HouseBankService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     // =========================================================================
     // House Banks
     // =========================================================================
@@ -213,8 +218,6 @@ class HouseBankService
 
     private function generateAdviceNumber(int $organizationId): string
     {
-        $count = PaymentAdvice::where('organization_id', $organizationId)->count() + 1;
-
-        return 'PADV-' . now()->format('Ymd') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('PADV', '{prefix}-{year}{month}{day}-{number}', $organizationId);
     }
 }

@@ -8,6 +8,7 @@ use App\Models\HR\Employee;
 use App\Models\HR\PersonnelAction;
 use App\Models\HR\PersonnelActionStep;
 use App\Models\User;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -57,6 +58,7 @@ class PersonnelActionService
     public function __construct(
         private readonly EmployeeTransferService $transferService,
         private readonly HCMOnboardingService $onboardingService,
+        private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
     /**
@@ -326,7 +328,6 @@ class PersonnelActionService
 
     private function generateActionNumber(int $organizationId): string
     {
-        $count = PersonnelAction::where('organization_id', $organizationId)->withTrashed()->count() + 1;
-        return 'PA-' . date('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('PA', '{prefix}-{year}-{number}', $organizationId);
     }
 }

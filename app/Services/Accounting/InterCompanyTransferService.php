@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Accounting;
 
 use App\Models\Accounting\InterCompanyTransfer;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -12,7 +13,8 @@ use InvalidArgumentException;
 class InterCompanyTransferService
 {
     public function __construct(
-        private JournalService $journalService
+        private JournalService $journalService,
+        private NumberGeneratorService $numberGenerator,
     ) {}
 
     /**
@@ -21,11 +23,10 @@ class InterCompanyTransferService
     public function create(array $data, int $userId): InterCompanyTransfer
     {
         return DB::transaction(function () use ($data, $userId) {
-            $count = InterCompanyTransfer::where('organization_id', $data['organization_id'])->count() + 1;
             $transfer = InterCompanyTransfer::create([
                 'organization_id' => $data['organization_id'],
                 'uuid'            => Str::uuid()->toString(),
-                'transfer_number' => 'ICT-' . date('Y') . '-' . str_pad((string) $count, 6, '0', STR_PAD_LEFT),
+                'transfer_number' => $this->numberGenerator->generate('ICT', '{prefix}-{year}-{number:6}', (int) $data['organization_id']),
                 'transfer_type' => $data['transfer_type'],
                 'from_branch_id' => $data['from_branch_id'] ?? null,
                 'from_bank_account_id' => $data['from_bank_account_id'] ?? null,

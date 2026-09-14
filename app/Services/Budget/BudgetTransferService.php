@@ -8,6 +8,7 @@ use App\Models\Budget\Budget;
 use App\Models\Budget\BudgetLine;
 use App\Models\Budget\BudgetTransfer;
 use App\Models\User;
+use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -22,6 +23,10 @@ use Illuminate\Support\Facades\DB;
  */
 class BudgetTransferService
 {
+    public function __construct(
+        private readonly NumberGeneratorService $numberGenerator,
+    ) {}
+
     /**
      * Create a draft transfer request.
      *
@@ -199,8 +204,6 @@ class BudgetTransferService
 
     private function generateTransferNumber(int $organizationId): string
     {
-        $count = BudgetTransfer::where('organization_id', $organizationId)->withTrashed()->count() + 1;
-
-        return 'BT-' . date('Y') . '-' . str_pad((string) $count, 5, '0', STR_PAD_LEFT);
+        return $this->numberGenerator->generate('BT', '{prefix}-{year}-{number}', $organizationId);
     }
 }
