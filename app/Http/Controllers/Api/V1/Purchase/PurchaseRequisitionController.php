@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\PurchaseOrderResource;
+use App\Http\Resources\Purchase\PurchaseRequisitionResource;
 use App\Models\Purchase\PurchaseRequisition;
 use App\Services\Purchase\PurchaseRequisitionService;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +15,8 @@ use Illuminate\Http\Request;
 
 class PurchaseRequisitionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PurchaseRequisitionService $service
     ) {}
@@ -32,7 +36,7 @@ class PurchaseRequisitionController extends Controller
             'per_page',
         ]));
 
-        return $this->paginated($requisitions, \App\Http\Resources\Purchase\PurchaseRequisitionResource::class);
+        return $this->paginated($requisitions, PurchaseRequisitionResource::class);
     }
 
     /**
@@ -46,13 +50,13 @@ class PurchaseRequisitionController extends Controller
             'requisition_type' => 'nullable|in:standard,subcontracting,consignment,stock_transfer',
             'notes' => 'nullable|string|max:1000',
             'lines' => 'required|array|min:1',
-            'lines.*.product_id' => 'required|exists:products,id',
-            'lines.*.variant_id' => 'nullable|exists:product_variants,id',
+            'lines.*.product_id' => ['required', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', $this->ownedBy('product_variants')],
             'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.uom_id' => 'nullable|exists:units_of_measure,id',
+            'lines.*.uom_id' => ['nullable', $this->ownedBy('units_of_measure')],
             'lines.*.estimated_unit_price' => 'nullable|numeric|min:0',
-            'lines.*.preferred_vendor_id' => 'nullable|exists:contacts,id',
-            'lines.*.warehouse_id' => 'nullable|exists:warehouses,id',
+            'lines.*.preferred_vendor_id' => ['nullable', $this->ownedBy('contacts')],
+            'lines.*.warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'lines.*.required_by_date' => 'nullable|date',
             'lines.*.notes' => 'nullable|string|max:500',
         ]);
@@ -65,7 +69,7 @@ class PurchaseRequisitionController extends Controller
         }
 
         return $this->created(
-            new \App\Http\Resources\Purchase\PurchaseRequisitionResource($requisition),
+            new PurchaseRequisitionResource($requisition),
             'Purchase requisition created successfully.'
         );
     }
@@ -76,7 +80,7 @@ class PurchaseRequisitionController extends Controller
     public function show(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
         return $this->success(
-            new \App\Http\Resources\Purchase\PurchaseRequisitionResource(
+            new PurchaseRequisitionResource(
                 $purchaseRequisition->load(['lines.product', 'lines.variant', 'lines.preferredVendor', 'requester', 'approver'])
             )
         );
@@ -87,10 +91,6 @@ class PurchaseRequisitionController extends Controller
      */
     public function update(Request $request, PurchaseRequisition $purchaseRequisition): JsonResponse
     {
-        if (!$purchaseRequisition->isDraft()) {
-            return $this->error('Only draft requisitions can be updated.', 'VALIDATION_ERROR', 422);
-        }
-
         $validated = $request->validate([
             'requisition_date' => 'sometimes|date',
             'required_by_date' => 'nullable|date',
@@ -98,10 +98,8 @@ class PurchaseRequisitionController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $purchaseRequisition->update($validated);
-
-        return $this->success(
-            new \App\Http\Resources\Purchase\PurchaseRequisitionResource($purchaseRequisition->fresh(['lines.product', 'requester'])),
+        return $this->tryAction(
+            fn () => new PurchaseRequisitionResource($this->service->update($purchaseRequisition, $validated)),
             'Purchase requisition updated successfully.'
         );
     }
@@ -111,14 +109,10 @@ class PurchaseRequisitionController extends Controller
      */
     public function destroy(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
-        if (!$purchaseRequisition->isDraft()) {
-            return $this->error('Only draft requisitions can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $purchaseRequisition->lines()->delete();
-        $purchaseRequisition->delete();
-
-        return $this->success(null, 'Purchase requisition deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->service->delete($purchaseRequisition),
+            'Purchase requisition deleted successfully.'
+        );
     }
 
     /**
@@ -127,7 +121,7 @@ class PurchaseRequisitionController extends Controller
     public function submit(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
         return $this->tryAction(
-            fn() => new \App\Http\Resources\Purchase\PurchaseRequisitionResource($this->service->submit($purchaseRequisition)),
+            fn() => new PurchaseRequisitionResource($this->service->submit($purchaseRequisition)),
             'Purchase requisition submitted for approval.'
         );
     }
@@ -138,7 +132,7 @@ class PurchaseRequisitionController extends Controller
     public function approve(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
         return $this->tryAction(
-            fn() => new \App\Http\Resources\Purchase\PurchaseRequisitionResource($this->service->approve($purchaseRequisition)),
+            fn() => new PurchaseRequisitionResource($this->service->approve($purchaseRequisition)),
             'Purchase requisition approved.'
         );
     }
@@ -169,7 +163,7 @@ class PurchaseRequisitionController extends Controller
     public function cancel(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
         return $this->tryAction(
-            fn() => new \App\Http\Resources\Purchase\PurchaseRequisitionResource($this->service->cancel($purchaseRequisition)),
+            fn() => new PurchaseRequisitionResource($this->service->cancel($purchaseRequisition)),
             'Purchase requisition cancelled.'
         );
     }
