@@ -8,10 +8,26 @@ use App\Models\HR\Leave\LeavePolicy;
 use App\Models\HR\Leave\LeaveTier;
 use App\Models\HR\Leave\LeaveTierApprover;
 use App\Models\HR\LeaveType;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class LeavePolicyService
 {
+    /**
+     * Leave policies of the current organization by name: all of them, or one
+     * page when a page size is given.
+     */
+    public function list(bool $activeOnly, ?int $perPage): Collection|LengthAwarePaginator
+    {
+        $query = LeavePolicy::query()
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('name');
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
     /**
      * Create a new leave policy.
      */
@@ -47,13 +63,44 @@ class LeavePolicyService
         });
     }
 
+    public function delete(LeavePolicy $policy): void
+    {
+        $policy->delete();
+    }
+
     /**
-     * Assign a tier to a leave type within a policy.
+     * The policy's active leave types in display order, with their tiers.
+     */
+    public function activeLeaveTypes(LeavePolicy $policy): Collection
+    {
+        return $policy->leaveTypes()
+            ->with('leaveTiers')
+            ->active()
+            ->ordered()
+            ->get();
+    }
+
+    /**
+     * Creates a leave type within the policy. Null values are left out, so a
+     * column with a default keeps it.
+     */
+    public function createLeaveType(LeavePolicy $policy, array $data, int $organizationId): LeaveType
+    {
+        $data = array_filter($data, fn ($v) => $v !== null);
+        $data['organization_id'] = $organizationId;
+        $data['leave_policy_id'] = $policy->id;
+
+        return LeaveType::create($data);
+    }
+
+    /**
+     * Assign a tier to a leave type within a policy, with its approvers.
      */
     public function assignTier(LeaveType $leaveType, array $tierData): LeaveTier
     {
         return DB::transaction(function () use ($leaveType, $tierData) {
-            $tier = LeaveTier::create(array_merge($tierData, [
+            // The approvers are rows of their own; the tier does not take them.
+            $tier = LeaveTier::create(array_merge(Arr::except($tierData, ['approvers']), [
                 'leave_type_id' => $leaveType->id,
             ]));
 
@@ -67,6 +114,28 @@ class LeavePolicyService
 
             return $tier->load('approvers');
         });
+    }
+
+    /**
+     * A tier of the current organization. Tiers carry no organization of their
+     * own, so the lookup goes through the tier's leave type, whose tenant scope
+     * turns another organization's tier into a not-found.
+     */
+    public function findTier(int|string $id): LeaveTier
+    {
+        return LeaveTier::whereHas('leaveType')->findOrFail($id);
+    }
+
+    public function updateTier(LeaveTier $tier, array $data): LeaveTier
+    {
+        $tier->update($data);
+
+        return $tier->fresh('approvers');
+    }
+
+    public function deleteTier(LeaveTier $tier): void
+    {
+        $tier->delete();
     }
 
     /**

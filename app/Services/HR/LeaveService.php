@@ -277,6 +277,35 @@ class LeaveService
     }
 
     /**
+     * Active leave types of the current organization in display order.
+     */
+    public function activeTypes(): \Illuminate\Database\Eloquent\Collection
+    {
+        return LeaveType::active()->ordered()->get();
+    }
+
+    /**
+     * Leave requests of the current organization with their employee, type
+     * and approver.
+     *
+     * @param  array{status?: mixed, employee_id?: mixed, leave_type_id?: mixed, pending?: mixed, start_date?: mixed, end_date?: mixed}  $filters
+     *         empty values are ignored; pending applies when it is the string "true"
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listRequests(array $filters, string $sortBy, string $sortOrder, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return LeaveRequest::with(['employee', 'leaveType', 'approver'])
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
+            ->when($filters['employee_id'] ?? null, fn($q, $id) => $q->forEmployee($id))
+            ->when($filters['leave_type_id'] ?? null, fn($q, $id) => $q->where('leave_type_id', $id))
+            ->when(($filters['pending'] ?? null) === 'true', fn($q) => $q->pending())
+            ->when($filters['start_date'] ?? null, fn($q, $date) => $q->where('from_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn($q, $date) => $q->where('to_date', '<=', $date))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
      * Get all leave balances for employee.
      */
     public function getAllBalances(Employee $employee, ?int $year = null): \Illuminate\Support\Collection

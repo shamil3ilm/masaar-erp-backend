@@ -110,6 +110,28 @@ class ManagerSelfServiceService
     }
 
     /**
+     * The delegations a manager has given, latest start first, with their
+     * delegate.
+     */
+    public function listDelegations(int $managerId, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return ManagerDelegation::query()
+            ->with(['delegate'])
+            ->forManager($managerId)
+            ->orderBy('valid_from', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the manager's own delegations; any other delegation is a
+     * not-found.
+     */
+    public function findDelegationForManager(int $managerId, int|string $delegationId): ManagerDelegation
+    {
+        return ManagerDelegation::where('manager_id', $managerId)->findOrFail($delegationId);
+    }
+
+    /**
      * Create a delegation record.
      */
     public function createDelegation(array $data): ManagerDelegation

@@ -14,6 +14,29 @@ use Illuminate\Support\Facades\DB;
 class AttendanceService
 {
     /**
+     * Attendance records of the current organization with their employee and
+     * work schedule, latest day first.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed, date?: mixed, start_date?: mixed, end_date?: mixed, late?: mixed}  $filters
+     *         empty values are ignored; the date range applies only with both ends, and late when it is the string "true"
+     */
+    public function list(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $startDate = $filters['start_date'] ?? null;
+        $endDate = $filters['end_date'] ?? null;
+
+        return Attendance::with(['employee', 'workSchedule'])
+            ->when($filters['employee_id'] ?? null, fn($q, $id) => $q->forEmployee($id))
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->withStatus($status))
+            ->when($filters['date'] ?? null, fn($q, $date) => $q->forDate($date))
+            ->when($startDate && $endDate, fn($q) => $q->inDateRange($startDate, $endDate))
+            ->when(($filters['late'] ?? null) === 'true', fn($q) => $q->late())
+            ->orderBy('attendance_date', 'desc')
+            ->orderBy('employee_id')
+            ->paginate($perPage);
+    }
+
+    /**
      * Record check-in.
      */
     public function checkIn(

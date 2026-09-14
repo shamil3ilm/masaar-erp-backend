@@ -145,6 +145,28 @@ class WpsExportService
         ];
     }
 
+    /**
+     * The employees paid in the period who have no IBAN, identified by id,
+     * number and name so their records can be completed. The IBAN itself is
+     * never part of the answer.
+     *
+     * @return list<array{employee_id: ?int, employee_number: ?string, name: string, issues: list<string>}>
+     */
+    public function missingIbanEmployees(PayrollPeriod $period): array
+    {
+        return $this->loadPaidPayslips($period)
+            ->filter(fn(Payslip $p) => empty($p->employee?->bank_iban))
+            ->map(fn(Payslip $p) => [
+                'employee_id'     => $p->employee?->id,
+                'employee_number' => $p->employee?->employee_number,
+                'name'            => $p->employee?->display_name
+                    ?? trim(($p->employee?->first_name ?? '') . ' ' . ($p->employee?->last_name ?? '')),
+                'issues'          => ['Bank IBAN is missing.'],
+            ])
+            ->values()
+            ->all();
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------

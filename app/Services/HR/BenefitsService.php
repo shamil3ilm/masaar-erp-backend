@@ -13,6 +13,71 @@ use Illuminate\Support\Facades\DB;
 class BenefitsService
 {
     /**
+     * Benefit types of the current organization by category, then name.
+     *
+     * @param  array{category?: mixed, active_only?: bool}  $filters  an empty category is ignored
+     */
+    public function listTypes(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return BenefitType::query()
+            ->when($filters['category'] ?? null, fn ($q, $v) => $q->byCategory($v))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->orderBy('category')
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A benefit type of the current organization; the tenant scope turns
+     * another organization's id into a not-found.
+     */
+    public function findType(int $id): BenefitType
+    {
+        return BenefitType::findOrFail($id);
+    }
+
+    /**
+     * Creates an active benefit type for the organization.
+     */
+    public function createType(array $data, int $organizationId): BenefitType
+    {
+        return BenefitType::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'is_active' => true,
+        ]));
+    }
+
+    public function updateType(BenefitType $benefitType, array $data): BenefitType
+    {
+        $benefitType->update($data);
+
+        return $benefitType->fresh();
+    }
+
+    /**
+     * An employee's benefits with their type, latest start first.
+     *
+     * @param  array{status?: mixed, benefit_type_id?: mixed}  $filters  empty values are ignored
+     */
+    public function listEmployeeBenefits(Employee $employee, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return EmployeeBenefit::forEmployee($employee->id)
+            ->with('benefitType')
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['benefit_type_id'] ?? null, fn ($q, $v) => $q->where('benefit_type_id', $v))
+            ->orderByDesc('start_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A benefit's recorded changes, newest first, with who made each.
+     */
+    public function changesOf(EmployeeBenefit $benefit): \Illuminate\Database\Eloquent\Collection
+    {
+        return $benefit->changes()->with('changedBy')->orderByDesc('changed_at')->get();
+    }
+
+    /**
      * Enroll an employee in a benefit.
      */
     public function enrollBenefit(Employee $employee, BenefitType $benefitType, array $data): EmployeeBenefit
