@@ -7,33 +7,32 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\DesignationResource;
 use App\Models\HR\Designation;
+use App\Services\HR\DesignationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class DesignationController extends Controller
 {
+    public function __construct(
+        private readonly DesignationService $service,
+    ) {}
+
     /**
      * List designations with filters and pagination.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Designation::query()
-            ->withCount('activeEmployees')
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('code', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->has('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->level, fn ($q, $level) => $q->byLevel((int) $level))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
-
-        $designations = $query->paginate($request->integer('per_page', 15));
+        $designations = $this->service->list(
+            [
+                'search'    => $request->search,
+                'is_active' => $request->has('is_active') ? $request->boolean('is_active') : null,
+                'level'     => $request->level,
+            ],
+            $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($designations, DesignationResource::class);
     }
@@ -67,10 +66,7 @@ class DesignationController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $designation = Designation::create([
-            'organization_id' => $organizationId,
-            ...$validated,
-        ]);
+        $designation = $this->service->create($validated, $organizationId);
 
         return $this->created(new DesignationResource($designation), 'Designation created successfully.');
     }
@@ -116,7 +112,7 @@ class DesignationController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $designation->update($validated);
+        $designation = $this->service->update($designation, $validated);
 
         return $this->success(new DesignationResource($designation), 'Designation updated successfully.');
     }
@@ -126,15 +122,11 @@ class DesignationController extends Controller
      */
     public function destroy(Designation $designation): JsonResponse
     {
-        if ($designation->employees()->count() > 0) {
-            return $this->error(
-                'Cannot delete designation with assigned employees. Reassign employees first.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->service->delete($designation);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
-
-        $designation->delete();
 
         return $this->success(null, 'Designation deleted successfully.');
     }

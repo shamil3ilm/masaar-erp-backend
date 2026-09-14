@@ -33,6 +33,21 @@ class Employee extends Model
     public const STATUS_RESIGNED = 'resigned';
     public const STATUS_ABSCONDED = 'absconded';
 
+    /**
+     * Identity, tax and bank numbers are left out whenever an employee is
+     * serialized as a model, which is how most HR records return the employee
+     * they belong to. EmployeeResource shows them masked, and
+     * SensitiveAccessController reveals them after an audited request.
+     */
+    protected $hidden = [
+        'national_id',
+        'passport_number',
+        'bank_account_number',
+        'bank_iban',
+        'tax_number',
+        'social_security_number',
+    ];
+
     protected $fillable = [
         'organization_id',
         'branch_id',

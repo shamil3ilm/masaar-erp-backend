@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\OffCyclePayrollItem;
-use App\Models\HR\OffCyclePayrollRun;
 use App\Services\HR\OffCyclePayrollService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class OffCyclePayrollController extends Controller
 {
@@ -42,15 +41,16 @@ class OffCyclePayrollController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::with(['items.employee', 'processor'])->findOrFail($id);
-
-        return $this->success($run);
+        return $this->success($this->service->findWithItems($id));
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
+        // Answered before validation so a run that is no longer a draft is
+        // reported as such whatever the body holds; the service checks again
+        // on the locked row.
         if (! $run->isDraft()) {
             return $this->error('Only draft runs can be updated.', 'INVALID_STATUS', 422);
         }
@@ -61,30 +61,36 @@ class OffCyclePayrollController extends Controller
             'notes'    => 'nullable|string',
         ]);
 
-        $run->update($validated);
-
-        return $this->success($run->fresh('processor'), 'Off-cycle payroll run updated.');
+        return $this->tryAction(
+            fn() => $this->service->update($run, $validated)->fresh('processor'),
+            'Off-cycle payroll run updated.',
+            'INVALID_STATUS'
+        );
     }
 
     public function destroy(string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
-        if (! $run->isDraft()) {
-            return $this->error('Only draft runs can be deleted.', 'INVALID_STATUS', 422);
+        try {
+            $this->service->delete($run);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
         }
-
-        $run->delete();
 
         return $this->noContent();
     }
 
     public function addItem(Request $request, string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
         $validated = $request->validate([
-            'employee_id'     => 'required|integer|exists:employees,id',
+            'employee_id'     => [
+                'required',
+                'integer',
+                Rule::exists('employees', 'id')->where('organization_id', auth()->user()->organization_id),
+            ],
             'component_code'  => 'required|string|max:50',
             'component_name'  => 'required|string|max:100',
             'amount'          => 'required|numeric|min:0',
@@ -104,7 +110,7 @@ class OffCyclePayrollController extends Controller
 
     public function removeItem(string $id, string $itemId): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
         try {
             $this->service->removeItem($run, (int) $itemId);
@@ -117,7 +123,7 @@ class OffCyclePayrollController extends Controller
 
     public function process(string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->process($run)->load(['items.employee', 'processor']),
@@ -128,7 +134,7 @@ class OffCyclePayrollController extends Controller
 
     public function cancel(string $id): JsonResponse
     {
-        $run = OffCyclePayrollRun::findOrFail($id);
+        $run = $this->service->find($id);
 
         return $this->tryAction(
             fn() => $this->service->cancel($run),

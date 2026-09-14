@@ -186,6 +186,49 @@ class LeaveAccrualService
     }
 
     /**
+     * A balance's accruals, latest first. Accruals carry no organization of
+     * their own, so the balance must come from a tenant-scoped lookup.
+     */
+    public function accrualsFor(LeaveBalance $balance): \Illuminate\Database\Eloquent\Collection
+    {
+        return LeaveAccrual::where('leave_balance_id', $balance->id)
+            ->orderByDesc('accrual_date')
+            ->get();
+    }
+
+    /**
+     * Adjustments of the current organization, newest first: all of them, or
+     * one page when a page size is given.
+     *
+     * @param  array{employee_id?: mixed, leave_type_id?: mixed}  $filters  empty values are ignored
+     */
+    public function listAdjustments(array $filters, ?int $perPage): \Illuminate\Database\Eloquent\Collection|\Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $query = LeaveAdjustment::with(['employee', 'leaveType', 'creator', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['leave_type_id'] ?? null, fn ($q, $id) => $q->where('leave_type_id', $id))
+            ->orderByDesc('created_at');
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
+    /**
+     * Encashments of the current organization, newest first: all of them, or
+     * one page when a page size is given.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listEncashments(array $filters, ?int $perPage): \Illuminate\Database\Eloquent\Collection|\Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $query = LeaveEncashment::with(['employee', 'leaveType', 'creator', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->orderByDesc('created_at');
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
+    /**
      * Get the current balance for an employee and leave type.
      */
     public function getBalance(int $employeeId, int $leaveTypeId, ?int $year = null): ?LeaveBalance

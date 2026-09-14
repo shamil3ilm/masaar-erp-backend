@@ -6,9 +6,8 @@ namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\LeaveRequestResource;
-use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
-use App\Models\HR\LeaveType;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\LeaveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +16,8 @@ use Illuminate\Validation\Rule;
 class LeaveController extends Controller
 {
     public function __construct(
-        private LeaveService $leaveService
+        private LeaveService $leaveService,
+        private EmployeeService $employeeService,
     ) {
     }
 
@@ -26,9 +26,7 @@ class LeaveController extends Controller
      */
     public function leaveTypes(): JsonResponse
     {
-        $types = LeaveType::active()->ordered()->get();
-
-        return $this->success($types);
+        return $this->success($this->leaveService->activeTypes());
     }
 
     /**
@@ -36,19 +34,19 @@ class LeaveController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = LeaveRequest::with(['employee', 'leaveType', 'approver'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->employee_id, fn($q, $id) => $q->forEmployee($id))
-            ->when($request->leave_type_id, fn($q, $id) => $q->where('leave_type_id', $id))
-            ->when($request->pending === 'true', fn($q) => $q->pending())
-            ->when($request->start_date, fn($q, $date) => $q->where('from_date', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('to_date', '<=', $date))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['from_date', 'to_date', 'status', 'created_at', 'updated_at'], 'from_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $requests = $query->paginate($request->integer('per_page', 15));
+        $requests = $this->leaveService->listRequests(
+            [
+                'status'        => $request->status,
+                'employee_id'   => $request->employee_id,
+                'leave_type_id' => $request->leave_type_id,
+                'pending'       => $request->pending,
+                'start_date'    => $request->start_date,
+                'end_date'      => $request->end_date,
+            ],
+            $this->safeSortBy($request->sort_by, ['from_date', 'to_date', 'status', 'created_at', 'updated_at'], 'from_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($requests, LeaveRequestResource::class);
     }
@@ -71,7 +69,7 @@ class LeaveController extends Controller
             'attachment_path' => 'nullable|string|max:500',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         try {
             $leaveRequest = $this->leaveService->createRequest($employee, $validated);
@@ -104,9 +102,6 @@ class LeaveController extends Controller
         );
     }
 
-    /**
-     * Approve a leave request.
-     */
     /**
      * Approve or reject a leave request.
      * POST /leave/requests/{id}/review  {"action": "approve"|"reject", "rejection_reason": "..."}
@@ -151,10 +146,12 @@ class LeaveController extends Controller
             'year' => 'nullable|integer|min:2000|max:2100',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
-        $balances = $this->leaveService->getAllBalances($employee, $validated['year'] ?? null);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
-        return $this->success($balances);
+        // A query-string year arrives as a string; the integer rule only checks its form.
+        $year = isset($validated['year']) ? (int) $validated['year'] : null;
+
+        return $this->success($this->leaveService->getAllBalances($employee, $year));
     }
 
     /**

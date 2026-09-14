@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\Organization;
-use App\Models\HR\Employee;
-use App\Models\HR\GosiContribution;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\GosiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,7 +13,8 @@ use Illuminate\Http\Request;
 class GosiController extends Controller
 {
     public function __construct(
-        private GosiService $gosiService
+        private GosiService $gosiService,
+        private EmployeeService $employeeService,
     ) {}
 
     /**
@@ -23,17 +22,16 @@ class GosiController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
-        $contributions = GosiContribution::where('organization_id', $orgId)
-            ->with('employee')
-            ->when($request->employee_id, fn($q, $v) => $q->where('employee_id', $v))
-            ->when($request->year, fn($q, $v) => $q->where('period_year', (int) $v))
-            ->when($request->month, fn($q, $v) => $q->where('period_month', (int) $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->orderByDesc('period_year')
-            ->orderByDesc('period_month')
-            ->paginate($request->integer('per_page', 20));
+        $contributions = $this->gosiService->listContributions(
+            auth()->user()->organization_id,
+            [
+                'employee_id' => $request->employee_id,
+                'year'        => $request->year,
+                'month'       => $request->month,
+                'status'      => $request->status,
+            ],
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($contributions);
     }
@@ -49,7 +47,7 @@ class GosiController extends Controller
             'month' => 'required|integer|min:1|max:12',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
 
         return $this->tryAction(
             fn() => $this->gosiService->calculateContributions($employee, (int) $validated['year'], (int) $validated['month'])->load('employee'),
@@ -68,9 +66,11 @@ class GosiController extends Controller
             'month' => 'required|integer|min:1|max:12',
         ]);
 
-        $org = Organization::findOrFail(auth()->user()->organization_id);
-
-        $this->gosiService->submitPeriod($org, (int) $validated['year'], (int) $validated['month']);
+        $this->gosiService->submitPeriodForOrganization(
+            auth()->user()->organization_id,
+            (int) $validated['year'],
+            (int) $validated['month']
+        );
 
         return $this->success(null, 'GOSI contributions submitted for the period.');
     }

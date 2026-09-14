@@ -23,12 +23,13 @@ class BenefitsController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $types = BenefitType::query()
-            ->when($request->category, fn($q, $v) => $q->byCategory($v))
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderBy('category')
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 20));
+        $types = $this->benefitsService->listTypes(
+            [
+                'category'    => $request->category,
+                'active_only' => $request->boolean('active_only', false),
+            ],
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($types);
     }
@@ -50,10 +51,7 @@ class BenefitsController extends Controller
             'description' => 'nullable|string|max:1000',
         ]);
 
-        $type = BenefitType::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-        ]));
+        $type = $this->benefitsService->createType($validated, auth()->user()->organization_id);
 
         return $this->created($type, 'Benefit type created successfully.');
     }
@@ -82,9 +80,10 @@ class BenefitsController extends Controller
             'description' => 'nullable|string|max:1000',
         ]);
 
-        $benefitType->update($validated);
-
-        return $this->success($benefitType->fresh(), 'Benefit type updated successfully.');
+        return $this->success(
+            $this->benefitsService->updateType($benefitType, $validated),
+            'Benefit type updated successfully.'
+        );
     }
 
     /**
@@ -92,12 +91,11 @@ class BenefitsController extends Controller
      */
     public function listEmployeeBenefits(Request $request, Employee $employee): JsonResponse
     {
-        $benefits = EmployeeBenefit::forEmployee($employee->id)
-            ->with('benefitType')
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->benefit_type_id, fn($q, $v) => $q->where('benefit_type_id', $v))
-            ->orderByDesc('start_date')
-            ->paginate($request->integer('per_page', 15));
+        $benefits = $this->benefitsService->listEmployeeBenefits(
+            $employee,
+            ['status' => $request->status, 'benefit_type_id' => $request->benefit_type_id],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($benefits);
     }
@@ -118,7 +116,7 @@ class BenefitsController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $benefitType = BenefitType::findOrFail($validated['benefit_type_id']);
+        $benefitType = $this->benefitsService->findType((int) $validated['benefit_type_id']);
 
         try {
             $benefit = $this->benefitsService->enrollBenefit($employee, $benefitType, $validated);
@@ -174,8 +172,6 @@ class BenefitsController extends Controller
      */
     public function changeHistory(EmployeeBenefit $employeeBenefit): JsonResponse
     {
-        $changes = $employeeBenefit->changes()->with('changedBy')->orderByDesc('changed_at')->get();
-
-        return $this->success($changes);
+        return $this->success($this->benefitsService->changesOf($employeeBenefit));
     }
 }

@@ -9,6 +9,7 @@ use App\Models\HR\PersonnelAction;
 use App\Models\HR\PersonnelActionStep;
 use App\Models\User;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -19,6 +20,10 @@ use Illuminate\Support\Facades\Log;
  * sub-steps when a significant HR lifecycle event occurs (hire, transfer,
  * promotion, exit, etc.).  Each step is recorded independently so failures
  * are traceable without unwinding completed work.
+ *
+ * Status changes re-read the action under a row lock and check the transition
+ * there, so a copy loaded before another request rejected or approved the
+ * action cannot approve it, and its steps cannot run twice.
  *
  * Step registry per action type:
  *   hire              → create_contract, assign_position, set_salary, setup_payroll, notify_it, notify_facilities
@@ -60,6 +65,37 @@ class PersonnelActionService
         private readonly HCMOnboardingService $onboardingService,
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * The organization's personnel actions, newest first and 25 to a page,
+     * each with only its employee's identifying columns.
+     *
+     * @param  array{employee_id?: mixed, action_type?: mixed, status?: mixed}  $filters  blank values are ignored
+     */
+    public function list(int $organizationId, array $filters): LengthAwarePaginator
+    {
+        return PersonnelAction::with(['employee:id,first_name,last_name,employee_number', 'initiator:id,name'])
+            ->where('organization_id', $organizationId)
+            ->when(filled($filters['employee_id'] ?? null), fn ($q) => $q->where('employee_id', $filters['employee_id']))
+            ->when(filled($filters['action_type'] ?? null), fn ($q) => $q->where('action_type', $filters['action_type']))
+            ->when(filled($filters['status'] ?? null), fn ($q) => $q->where('status', $filters['status']))
+            ->latest()
+            ->paginate(25);
+    }
+
+    /**
+     * An action of the current organization; the tenant scope turns another
+     * organization's id into a not-found.
+     */
+    public function find(int|string $id): PersonnelAction
+    {
+        return PersonnelAction::findOrFail($id);
+    }
+
+    public function findWithDetails(int|string $id): PersonnelAction
+    {
+        return PersonnelAction::with(['employee', 'initiator:id,name', 'approver:id,name', 'steps'])->findOrFail($id);
+    }
 
     /**
      * Initiate a new personnel action (creates in draft status).
@@ -107,39 +143,51 @@ class PersonnelActionService
     /** Submit draft for approval. */
     public function submit(PersonnelAction $action): PersonnelAction
     {
-        $this->assertTransition($action, PersonnelAction::STATUS_SUBMITTED);
-        $action->update(['status' => PersonnelAction::STATUS_SUBMITTED]);
-        return $action->fresh();
+        return $action->lockForTransition(function (PersonnelAction $action): PersonnelAction {
+            $this->assertTransition($action, PersonnelAction::STATUS_SUBMITTED);
+            $action->update(['status' => PersonnelAction::STATUS_SUBMITTED]);
+
+            return $action->fresh();
+        });
     }
 
-    /** Approve and immediately execute the action. */
+    /**
+     * Approve and immediately execute the action.
+     *
+     * The approval commits on its own before the steps run, so a step that
+     * fails is recorded without undoing the approval or the steps before it.
+     */
     public function approve(PersonnelAction $action, User $approver): PersonnelAction
     {
-        $this->assertTransition($action, PersonnelAction::STATUS_APPROVED);
+        $approved = $action->lockForTransition(function (PersonnelAction $action) use ($approver): PersonnelAction {
+            $this->assertTransition($action, PersonnelAction::STATUS_APPROVED);
 
-        DB::transaction(function () use ($action, $approver): void {
             $action->update([
                 'status'      => PersonnelAction::STATUS_APPROVED,
                 'approved_by' => $approver->id,
                 'approved_at' => now(),
             ]);
+
+            return $action;
         });
 
-        return $this->execute($action);
+        return $this->execute($approved);
     }
 
     /** Reject a submitted action. */
     public function reject(PersonnelAction $action, User $rejector, string $reason): PersonnelAction
     {
-        $this->assertTransition($action, PersonnelAction::STATUS_REJECTED);
+        return $action->lockForTransition(function (PersonnelAction $action) use ($rejector, $reason): PersonnelAction {
+            $this->assertTransition($action, PersonnelAction::STATUS_REJECTED);
 
-        $action->update([
-            'status'           => PersonnelAction::STATUS_REJECTED,
-            'approved_by'      => $rejector->id,
-            'rejection_reason' => $reason,
-        ]);
+            $action->update([
+                'status'           => PersonnelAction::STATUS_REJECTED,
+                'approved_by'      => $rejector->id,
+                'rejection_reason' => $reason,
+            ]);
 
-        return $action->fresh();
+            return $action->fresh();
+        });
     }
 
     /**
@@ -193,19 +241,21 @@ class PersonnelActionService
      */
     public function reverse(PersonnelAction $action, User $reversedBy): PersonnelAction
     {
-        $this->assertTransition($action, PersonnelAction::STATUS_REVERSED);
+        return $action->lockForTransition(function (PersonnelAction $action) use ($reversedBy): PersonnelAction {
+            $this->assertTransition($action, PersonnelAction::STATUS_REVERSED);
 
-        if (! in_array($action->action_type, [PersonnelAction::TYPE_TRANSFER, PersonnelAction::TYPE_PROMOTION, PersonnelAction::TYPE_DEMOTION], true)) {
-            throw new \LogicException("Action type '{$action->action_type}' cannot be reversed.");
-        }
+            if (! in_array($action->action_type, [PersonnelAction::TYPE_TRANSFER, PersonnelAction::TYPE_PROMOTION, PersonnelAction::TYPE_DEMOTION], true)) {
+                throw new \LogicException("Action type '{$action->action_type}' cannot be reversed.");
+            }
 
-        $action->update([
-            'status'      => PersonnelAction::STATUS_REVERSED,
-            'reversed_at' => now(),
-            'reversed_by' => $reversedBy->id,
-        ]);
+            $action->update([
+                'status'      => PersonnelAction::STATUS_REVERSED,
+                'reversed_at' => now(),
+                'reversed_by' => $reversedBy->id,
+            ]);
 
-        return $action->fresh();
+            return $action->fresh();
+        });
     }
 
     // ----------------------------------------------------------------

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\ManagerDelegation;
 use App\Services\HR\ManagerSelfServiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ManagerSelfServiceController extends Controller
 {
@@ -79,12 +79,7 @@ class ManagerSelfServiceController extends Controller
      */
     public function delegations(Request $request): JsonResponse
     {
-        $managerId   = (int) auth()->id();
-        $delegations = ManagerDelegation::query()
-            ->with(['delegate'])
-            ->forManager($managerId)
-            ->orderBy('valid_from', 'desc')
-            ->paginate($request->integer('per_page', 15));
+        $delegations = $this->service->listDelegations((int) auth()->id(), $request->integer('per_page', 15));
 
         return $this->paginated($delegations);
     }
@@ -95,7 +90,12 @@ class ManagerSelfServiceController extends Controller
     public function createDelegation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'delegate_id'     => 'required|integer|exists:users,id',
+            // The delegate acts on the manager's approvals and is returned with the delegation.
+            'delegate_id'     => [
+                'required',
+                'integer',
+                Rule::exists('users', 'id')->where('organization_id', auth()->user()->organization_id),
+            ],
             'delegation_type' => 'required|in:full,leave_approval,attendance_approval,expense_approval',
             'valid_from'      => 'required|date',
             'valid_to'        => 'nullable|date|after_or_equal:valid_from',
@@ -118,8 +118,7 @@ class ManagerSelfServiceController extends Controller
      */
     public function revokeDelegation(string $delegationId): JsonResponse
     {
-        $managerId  = (int) auth()->id();
-        $delegation = ManagerDelegation::where('manager_id', $managerId)->findOrFail($delegationId);
+        $delegation = $this->service->findDelegationForManager((int) auth()->id(), $delegationId);
 
         $delegation = $this->service->revokeDelegation($delegation);
 

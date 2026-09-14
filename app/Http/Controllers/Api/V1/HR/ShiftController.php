@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Employee;
-use App\Models\HR\Shift;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\ShiftService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +13,8 @@ use Illuminate\Http\Request;
 class ShiftController extends Controller
 {
     public function __construct(
-        private ShiftService $shiftService
+        private ShiftService $shiftService,
+        private EmployeeService $employeeService,
     ) {}
 
     /**
@@ -22,12 +22,11 @@ class ShiftController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
-        $shifts = Shift::where('organization_id', $orgId)
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 20));
+        $shifts = $this->shiftService->list(
+            auth()->user()->organization_id,
+            $request->boolean('active_only', false),
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($shifts);
     }
@@ -39,7 +38,7 @@ class ShiftController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'shift_code' => 'required|string|max:30',
+            'shift_code' => 'required|string|max:20',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
             'break_minutes' => 'integer|min:0|max:480',
@@ -49,10 +48,7 @@ class ShiftController extends Controller
             'overtime_eligible' => 'boolean',
         ]);
 
-        $shift = Shift::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-        ]));
+        $shift = $this->shiftService->create($validated, auth()->user()->organization_id);
 
         return $this->created($shift, 'Shift created successfully.');
     }
@@ -62,12 +58,11 @@ class ShiftController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $shift = Shift::where('organization_id', auth()->user()->organization_id)
-            ->findOrFail($id);
+        $shift = $this->shiftService->findForOrganization(auth()->user()->organization_id, $id);
 
         $validated = $request->validate([
             'name' => 'string|max:255',
-            'shift_code' => 'string|max:30',
+            'shift_code' => 'string|max:20',
             'start_time' => 'date_format:H:i',
             'end_time' => 'date_format:H:i',
             'break_minutes' => 'integer|min:0|max:480',
@@ -78,9 +73,7 @@ class ShiftController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $shift->update($validated);
-
-        return $this->success($shift->fresh(), 'Shift updated successfully.');
+        return $this->success($this->shiftService->update($shift, $validated), 'Shift updated successfully.');
     }
 
     /**
@@ -88,18 +81,13 @@ class ShiftController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $shift = Shift::where('organization_id', auth()->user()->organization_id)
-            ->findOrFail($id);
+        $shift = $this->shiftService->findForOrganization(auth()->user()->organization_id, $id);
 
-        if ($shift->assignments()->current()->exists()) {
-            return $this->error(
-                'Cannot delete a shift that is currently assigned to employees.',
-                'SHIFT_IN_USE',
-                422
-            );
+        try {
+            $this->shiftService->delete($shift);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'SHIFT_IN_USE', 422);
         }
-
-        $shift->delete();
 
         return $this->noContent();
     }
@@ -116,8 +104,8 @@ class ShiftController extends Controller
             'effective_to' => 'nullable|date|after_or_equal:effective_from',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
-        $shift = Shift::findOrFail($validated['shift_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
+        $shift = $this->shiftService->find((int) $validated['shift_id']);
 
         try {
             $assignment = $this->shiftService->assignShift($employee, $shift, $validated);
