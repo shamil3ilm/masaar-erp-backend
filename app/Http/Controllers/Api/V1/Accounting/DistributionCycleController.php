@@ -24,14 +24,16 @@ class DistributionCycleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = DistributionCycle::with('executedBy:id,name')
-            ->where('organization_id', $this->organizationId($request))
-            ->orderByDesc('fiscal_year')
-            ->orderBy('name')
-            ->when($request->filled('fiscal_year'), fn($q) => $q->where('fiscal_year', $request->integer('fiscal_year')))
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status));
+        $filters = [
+            'fiscal_year' => $request->filled('fiscal_year') ? $request->integer('fiscal_year') : null,
+            'status'      => $request->filled('status') ? $request->status : null,
+        ];
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($this->service->list(
+            (int) $this->organizationId($request),
+            $filters,
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -48,10 +50,7 @@ class DistributionCycleController extends Controller
             'period_to'   => ['required', 'integer', 'min:1', 'max:12', 'gte:period_from'],
         ]);
 
-        $data['organization_id'] = $this->organizationId($request);
-        $data['status']          = DistributionCycle::STATUS_OPEN;
-
-        $cycle = DistributionCycle::create($data);
+        $cycle = $this->service->create($data, (int) $this->organizationId($request));
 
         return $this->created($cycle, 'Distribution cycle created.');
     }
@@ -159,14 +158,10 @@ class DistributionCycleController extends Controller
      */
     public function postings(Request $request, DistributionCycle $distributionCycle): JsonResponse
     {
-        $query = $distributionCycle->postings()
-            ->with([
-                'senderCostCenter:id,code,name',
-                'receiverCostCenter:id,code,name',
-            ])
-            ->orderBy('period')
-            ->when($request->filled('period'), fn($q) => $q->where('period', $request->integer('period')));
-
-        return $this->paginated($query->paginate($request->integer('per_page', 50)));
+        return $this->paginated($this->service->postings(
+            $distributionCycle,
+            $request->filled('period') ? $request->integer('period') : null,
+            $request->integer('per_page', 50)
+        ));
     }
 }

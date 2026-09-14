@@ -11,6 +11,7 @@ use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\CostCenter;
 use App\Models\Accounting\CostElement;
 use App\Models\Accounting\StatisticalKeyFigureValue;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -25,10 +26,64 @@ class AssessmentCycleService
     ) {}
 
     /**
+     * Cycles of one organization, latest fiscal year first, then by name.
+     *
+     * @param  array{fiscal_year?: ?int, status?: mixed}  $filters
+     *         A filter applies only when it is set and not null.
+     */
+    public function list(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        $query = AssessmentCycle::with('executedBy:id,name')
+            ->where('organization_id', $organizationId)
+            ->orderByDesc('fiscal_year')
+            ->orderBy('name');
+
+        foreach (['fiscal_year', 'status'] as $column) {
+            if (isset($filters[$column])) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * Create a cycle in open status.
+     *
+     * @param  array<string, mixed>  $data  Validated cycle attributes.
+     */
+    public function create(array $data, int $organizationId): AssessmentCycle
+    {
+        return AssessmentCycle::create([
+            ...$data,
+            'organization_id' => $organizationId,
+            'status'          => AssessmentCycle::STATUS_OPEN,
+        ]);
+    }
+
+    /**
+     * Postings of a cycle by period, with sender and receiver cost centres.
+     */
+    public function postings(AssessmentCycle $cycle, ?int $period, int $perPage): LengthAwarePaginator
+    {
+        return $cycle->postings()
+            ->with([
+                'senderCostCenter:id,code,name',
+                'receiverCostCenter:id,code,name',
+            ])
+            ->orderBy('period')
+            ->when($period !== null, fn ($q) => $q->where('period', $period))
+            ->paginate($perPage);
+    }
+
+    /**
      * Execute an assessment cycle for a given period.
      *
      * Calculates allocations per segment and writes assessment_postings rows.
      * Returns the list of posting records created.
+     *
+     * Runs on the locked cycle, so two concurrent requests cannot both find it
+     * open and post the allocations to the ledger twice.
      *
      * @throws InvalidArgumentException if the cycle is not in open status
      * @throws RuntimeException         if no sender balance is found for a segment
@@ -37,19 +92,19 @@ class AssessmentCycleService
      */
     public function execute(AssessmentCycle $cycle, int $period): array
     {
-        if (! $cycle->isOpen()) {
-            throw new InvalidArgumentException(
-                "Assessment cycle [{$cycle->id}] is not open (status: {$cycle->status})."
-            );
-        }
+        $postings = $cycle->lockForTransition(function (AssessmentCycle $cycle) use ($period): array {
+            if (! $cycle->isOpen()) {
+                throw new InvalidArgumentException(
+                    "Assessment cycle [{$cycle->id}] is not open (status: {$cycle->status})."
+                );
+            }
 
-        if ($period < $cycle->period_from || $period > $cycle->period_to) {
-            throw new InvalidArgumentException(
-                "Period {$period} is outside cycle range [{$cycle->period_from}-{$cycle->period_to}]."
-            );
-        }
+            if ($period < $cycle->period_from || $period > $cycle->period_to) {
+                throw new InvalidArgumentException(
+                    "Period {$period} is outside cycle range [{$cycle->period_from}-{$cycle->period_to}]."
+                );
+            }
 
-        $postings = DB::transaction(function () use ($cycle, $period): array {
             $created = [];
 
             /** @var Collection<int, AssessmentCycleSegment> $segments */
@@ -118,18 +173,20 @@ class AssessmentCycleService
      * Reverse all postings of an executed cycle for a given period.
      *
      * Creates negating posting rows and marks the original postings with reversal_id.
+     * Runs on the locked cycle, so two concurrent requests cannot both find it
+     * executed and write two sets of reversal postings.
      *
      * @throws InvalidArgumentException if cycle is not executed
      */
     public function reverse(AssessmentCycle $cycle, int $period): void
     {
-        if (! $cycle->isExecuted()) {
-            throw new InvalidArgumentException(
-                "Assessment cycle [{$cycle->id}] is not executed (status: {$cycle->status})."
-            );
-        }
+        $cycle->lockForTransition(function (AssessmentCycle $cycle) use ($period): void {
+            if (! $cycle->isExecuted()) {
+                throw new InvalidArgumentException(
+                    "Assessment cycle [{$cycle->id}] is not executed (status: {$cycle->status})."
+                );
+            }
 
-        DB::transaction(function () use ($cycle, $period): void {
             $originals = AssessmentPosting::where('assessment_cycle_id', $cycle->id)
                 ->where('period', $period)
                 ->whereNull('reversal_id')

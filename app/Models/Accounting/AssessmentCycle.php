@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,7 @@ class AssessmentCycle extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
+    use LocksForTransition;
     use SoftDeletes;
 
     public const TYPE_ASSESSMENT  = 'assessment';
