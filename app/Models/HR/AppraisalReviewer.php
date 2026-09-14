@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models\HR;
 
-use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AppraisalReviewer extends Model
 {
-    use HasUuid;
-
     // Reviewer types
     public const TYPE_SELF        = 'self';
     public const TYPE_PEER        = 'peer';
@@ -44,7 +41,6 @@ class AppraisalReviewer extends Model
     protected $table = 'appraisal_reviewers';
 
     protected $fillable = [
-        'organization_id',
         'appraisal_id',
         'reviewer_id',
         'reviewer_type',
