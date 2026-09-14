@@ -7,6 +7,7 @@ namespace App\Models\Purchase;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\Sales\Contact;
 use App\Models\User;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class VendorAdvanceRequest extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_APPROVED = 'approved';
