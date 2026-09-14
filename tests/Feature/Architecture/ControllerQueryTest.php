@@ -223,7 +223,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Purchase/ErsController.php' => 3,
         'Api/V1/Purchase/GoodsReceiptController.php' => 3,
         'Api/V1/Purchase/OutlineAgreementController.php' => 10,
-        'Api/V1/Purchase/PaymentMadeController.php' => 5,
         'Api/V1/Purchase/PurchaseOrderController.php' => 2,
         'Api/V1/Purchase/PurchasingInfoRecordController.php' => 6,
         'Api/V1/Purchase/QuotaArrangementController.php' => 7,

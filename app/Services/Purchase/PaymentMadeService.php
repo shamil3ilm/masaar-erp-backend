@@ -12,6 +12,8 @@ use App\Models\Purchase\SupplierCredit;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 class PaymentMadeService
@@ -23,10 +25,74 @@ class PaymentMadeService
     ) {}
 
     /**
+     * A page of payments matching the filters, with supplier, bank account and
+     * allocated bills loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, supplier_id, payment_method, start_date, end_date, search
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return PaymentMade::with(['supplier', 'bankAccount', 'allocations.bill'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->forSupplier((int) $id))
+            ->when($filters['payment_method'] ?? null, fn ($q, $method) => $q->where('payment_method', $method))
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('payment_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('payment_date', '<=', $date))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('payment_number', 'like', "%{$search}%")
+                        ->orWhere('reference', 'like', "%{$search}%")
+                        ->orWhereHas('supplier', function ($q) use ($search) {
+                            $q->where('company_name', 'like', "%{$search}%")
+                                ->orWhere('contact_name', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Counts and values of the organization's payments, optionally for one supplier.
+     *
+     * @return array{total_count: int, pending_count: int, completed_count: int, pending_value: float, completed_value: float, this_month_value: float}
+     */
+    public function summary(?int $supplierId = null): array
+    {
+        $query = PaymentMade::query()->when($supplierId, fn ($q, $id) => $q->forSupplier($id));
+
+        return [
+            'total_count' => (clone $query)->count(),
+            'pending_count' => (clone $query)->pending()->count(),
+            'completed_count' => (clone $query)->completed()->count(),
+            'pending_value' => (float) (clone $query)->pending()->sum('amount'),
+            'completed_value' => (float) (clone $query)->completed()->sum('amount'),
+            'this_month_value' => (float) (clone $query)->completed()
+                ->whereBetween('payment_date', [now()->startOfMonth(), now()->endOfMonth()])
+                ->sum('amount'),
+        ];
+    }
+
+    /**
      * Create a new payment.
      */
     public function create(array $data, array $allocations = []): PaymentMade
     {
+        $data['payment_date'] = $data['payment_date'] ?? now()->toDateString();
+
+        $requested = array_reduce(
+            $allocations,
+            fn (string $sum, array $allocation): string => bcadd($sum, (string) $allocation['amount'], 4),
+            '0'
+        );
+
+        if (bccomp($requested, (string) $data['amount'], 4) > 0) {
+            throw new \InvalidArgumentException('Total allocation amount cannot exceed payment amount.');
+        }
+
         return DB::transaction(function () use ($data, $allocations) {
             if (empty($data['payment_number'])) {
                 $data['payment_number'] = $this->numberGenerator->generate('PAYM');
@@ -46,7 +112,10 @@ class PaymentMadeService
             // may still send these keys; they are not columns.
             unset($data['tds_section_code'], $data['tds_deductee_type'], $data['supplier_pan']);
 
-            $payment = PaymentMade::create($data);
+            // Read back the columns the database filled in, such as the
+            // currency and exchange rate, which the allocations and the
+            // overpayment credit copy.
+            $payment = PaymentMade::create($data)->refresh();
 
             $totalAllocated = 0;
             $orgId = $data['organization_id'] ?? ($payment->organization_id ?? null);
@@ -135,17 +204,7 @@ class PaymentMadeService
                 throw new \InvalidArgumentException("A {$payment->status} payment cannot be voided.");
             }
 
-            // Each bill is read and written under its own lock, so a payment
-            // recorded on it meanwhile is kept.
-            foreach ($payment->allocations()->with('bill')->get() as $allocation) {
-                $allocation->bill->reversePayment($allocation->amount);
-            }
-
-            $payment->allocations()->delete();
-
-            SupplierCredit::where('source_type', SupplierCredit::SOURCE_OVERPAYMENT)
-                ->where('source_id', $payment->id)
-                ->update(['is_active' => false, 'remaining_amount' => 0]);
+            $this->releaseAllocations($payment);
 
             if ($payment->journal_entry_id && ($journalEntry = $payment->journalEntry)) {
                 $this->journalService->voidSourceEntry($journalEntry, $reason);
@@ -156,6 +215,69 @@ class PaymentMadeService
             ]);
 
             return $payment->fresh();
+        });
+    }
+
+    /**
+     * Delete a pending payment.
+     *
+     * Creating a payment already records its allocations on the bills and
+     * books any overpayment as a supplier credit, so deleting it takes both
+     * back. The status is checked on the locked row, so a payment completed by
+     * another request meanwhile is not deleted.
+     */
+    public function delete(PaymentMade $payment): void
+    {
+        $payment->lockForTransition(function (PaymentMade $payment): void {
+            if (! $payment->isEditable()) {
+                throw new \InvalidArgumentException('Only pending payments can be deleted.');
+            }
+
+            $this->releaseAllocations($payment);
+            $payment->delete();
+        });
+    }
+
+    /**
+     * Allocate a payment to several bills as one change.
+     *
+     * Every bill must be the payment's supplier's and the total must fit the
+     * unallocated amount of the locked payment. When any allocation is refused,
+     * none is recorded.
+     *
+     * @param  list<array{bill_id: int|string, amount: int|float|string}>  $allocations
+     */
+    public function allocateMany(PaymentMade $payment, array $allocations): PaymentMade
+    {
+        return $payment->lockForTransition(function (PaymentMade $payment) use ($allocations): PaymentMade {
+            $bills = Bill::whereIn('id', array_column($allocations, 'bill_id'))->get()->keyBy('id');
+            $planned = [];
+            $total = '0';
+
+            foreach ($allocations as $allocation) {
+                $bill = $bills->get($allocation['bill_id'])
+                    ?? throw (new ModelNotFoundException)->setModel(Bill::class, [$allocation['bill_id']]);
+
+                if ((int) $bill->supplier_id !== (int) $payment->supplier_id) {
+                    throw new \InvalidArgumentException('Cannot allocate payment to bills from a different supplier.');
+                }
+
+                $planned[] = [$bill, (float) $allocation['amount']];
+                $total = bcadd($total, (string) $allocation['amount'], 4);
+            }
+
+            $available = $payment->getUnallocatedAmount();
+            if (bccomp($total, (string) $available, 4) > 0) {
+                $requested = (float) $total;
+
+                throw new \InvalidArgumentException("Cannot allocate {$requested}. Only {$available} available.");
+            }
+
+            foreach ($planned as [$bill, $amount]) {
+                $this->allocate($payment, $bill, $amount);
+            }
+
+            return $payment->fresh(['allocations.bill']);
         });
     }
 
@@ -198,6 +320,25 @@ class PaymentMadeService
 
             return $allocation;
         });
+    }
+
+    /**
+     * Take a payment's allocations off their bills and withdraw its
+     * overpayment credit. Runs inside the caller's lock on the payment.
+     */
+    private function releaseAllocations(PaymentMade $payment): void
+    {
+        // Each bill is read and written under its own lock, so a payment
+        // recorded on it meanwhile is kept.
+        foreach ($payment->allocations()->with('bill')->get() as $allocation) {
+            $allocation->bill->reversePayment($allocation->amount);
+        }
+
+        $payment->allocations()->delete();
+
+        SupplierCredit::where('source_type', SupplierCredit::SOURCE_OVERPAYMENT)
+            ->where('source_id', $payment->id)
+            ->update(['is_active' => false, 'remaining_amount' => 0]);
     }
 
     /**
