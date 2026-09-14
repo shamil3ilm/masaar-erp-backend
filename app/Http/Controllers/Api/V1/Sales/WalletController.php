@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
-use App\Models\Sales\Wallet;
 use App\Services\Sales\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,33 +18,23 @@ class WalletController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $wallets = Wallet::where('organization_id', $request->user()->organization_id)
-            ->with('contact')
-            ->when($request->wallet_type, fn ($q, $type) => $q->where('wallet_type', $type))
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->integer('per_page', 20));
+        $wallets = $this->walletService->list(
+            $request->user()->organization_id,
+            ['wallet_type' => $request->wallet_type, 'active_only' => $request->boolean('active_only')],
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($wallets);
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $wallet = Wallet::where('organization_id', $request->user()->organization_id)
-            ->with('contact')
-            ->findOrFail($id);
-
-        return $this->success($wallet);
+        return $this->success($this->walletService->findWithContact($request->user()->organization_id, $id));
     }
 
     public function balance(Request $request, int $contactId): JsonResponse
     {
-        // Check if the contact exists
-        $contactExists = \App\Models\Sales\Contact::where('organization_id', $request->user()->organization_id)
-            ->where('id', $contactId)
-            ->exists();
-
-        if (!$contactExists) {
+        if (! $this->walletService->hasContact($request->user()->organization_id, $contactId)) {
             return $this->notFound('Contact not found.');
         }
 
@@ -65,18 +54,16 @@ class WalletController extends Controller
             'description' => 'required|string|max:500',
         ]);
 
-        $wallet = Wallet::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-
-        if (!$wallet->is_active) {
-            return $this->error('Cannot credit an inactive wallet.', 'WALLET_INACTIVE', 422);
-        }
+        $wallet = $this->walletService->find($request->user()->organization_id, $id);
 
         try {
-            $transaction = $this->walletService->credit(
+            $transaction = $this->walletService->creditActive(
                 $wallet,
                 (float) $request->amount,
                 $request->description
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'WALLET_INACTIVE', 422);
         } catch (\App\Exceptions\ApiException $e) {
             return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
         } catch (\Exception $e) {
@@ -94,18 +81,16 @@ class WalletController extends Controller
             'description' => 'required|string|max:500',
         ]);
 
-        $wallet = Wallet::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-
-        if (!$wallet->is_active) {
-            return $this->error('Cannot debit an inactive wallet.', 'WALLET_INACTIVE', 422);
-        }
+        $wallet = $this->walletService->find($request->user()->organization_id, $id);
 
         try {
-            $transaction = $this->walletService->debit(
+            $transaction = $this->walletService->debitActive(
                 $wallet,
                 (float) $request->amount,
                 $request->description
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'WALLET_INACTIVE', 422);
         } catch (\App\Exceptions\ApiException $e) {
             return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
         } catch (\Exception $e) {
@@ -118,7 +103,7 @@ class WalletController extends Controller
 
     public function statement(Request $request, int $id): JsonResponse
     {
-        $wallet = Wallet::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $wallet = $this->walletService->find($request->user()->organization_id, $id);
 
         $transactions = $this->walletService->getStatement(
             $wallet,
@@ -137,7 +122,7 @@ class WalletController extends Controller
             'description' => 'required|string|max:500',
         ]);
 
-        $wallet = Wallet::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $wallet = $this->walletService->find($request->user()->organization_id, $id);
 
         try {
             $transaction = $this->walletService->adjustBalance(

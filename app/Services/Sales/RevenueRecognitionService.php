@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Sales\Contact;
 use App\Models\Sales\PerformanceObligation;
 use App\Models\Sales\RevenueContract;
 use App\Models\Sales\RevenueRecognitionEvent;
 use App\Services\Accounting\JournalService;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -17,6 +19,66 @@ class RevenueRecognitionService
     public function __construct(
         private JournalService $journalService
     ) {}
+
+    /**
+     * Revenue contracts of the current organization with the reference
+     * columns of their customer and their obligations, latest contract date
+     * first, narrowed by the filters that are set.
+     *
+     * @param  array{status?: mixed, contact_id?: mixed, search?: mixed}  $filters
+     */
+    public function listContracts(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return RevenueContract::with(['customer:'.implode(',', Contact::REFERENCE_COLUMNS), 'performanceObligations'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['contact_id'] ?? null, fn ($q, $v) => $q->where('contact_id', $v))
+            ->when($filters['search'] ?? null, fn ($q, $s) => $q->where('contract_number', 'like', "%{$s}%"))
+            ->orderBy('contract_date', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A contract with the reference columns of its customer and its
+     * obligations with their recognition events and journal entries.
+     */
+    public function loadContract(RevenueContract $contract): RevenueContract
+    {
+        return $contract->load([
+            'customer:'.implode(',', Contact::REFERENCE_COLUMNS),
+            'performanceObligations.recognitionEvents.journalEntry',
+        ]);
+    }
+
+    /**
+     * @throws InvalidArgumentException when the contract is not a draft
+     */
+    public function assertDraft(RevenueContract $contract): void
+    {
+        if (! $contract->isDraft()) {
+            throw new InvalidArgumentException('Only draft contracts can be updated.');
+        }
+    }
+
+    /**
+     * Update a draft contract, which may also activate or cancel it.
+     *
+     * The draft status is checked on the locked row, so a contract activated
+     * by a concurrent request is not changed through a copy loaded before that.
+     *
+     * @param  array<string, mixed>  $data  validated contract fields
+     *
+     * @throws InvalidArgumentException when the contract is no longer a draft
+     */
+    public function updateDraftContract(RevenueContract $contract, array $data): RevenueContract
+    {
+        return $contract->lockForTransition(function (RevenueContract $contract) use ($data): RevenueContract {
+            $this->assertDraft($contract);
+
+            $contract->update($data);
+
+            return $contract->fresh('performanceObligations');
+        });
+    }
 
     /**
      * Create a revenue contract with its performance obligations.
