@@ -183,6 +183,12 @@ class LoanService
         return DB::transaction(function () use ($loan, $data, $userId) {
             $loan = Loan::lockForUpdate()->findOrFail($loan->id);
 
+            // Checked again on the locked loan: a payment committed meanwhile
+            // may have repaid it.
+            if (! in_array($loan->status, [Loan::STATUS_ACTIVE, Loan::STATUS_APPROVED], true)) {
+                throw new InvalidArgumentException('Payments can only be recorded for active or approved loans.');
+            }
+
             $principalPaid = (float) ($data['principal_paid'] ?? 0);
             $interestPaid = (float) ($data['interest_paid'] ?? 0);
             $penaltyPaid = (float) ($data['penalty_paid'] ?? 0);
@@ -193,9 +199,20 @@ class LoanService
 
             $totalPaid = (float) bcadd(bcadd((string) $principalPaid, (string) $interestPaid, 4), (string) $penaltyPaid, 4);
 
+            // An installment of another loan would be marked paid by this one.
+            $schedule = null;
+
+            if (! empty($data['schedule_id'])) {
+                $schedule = LoanSchedule::where('loan_id', $loan->id)->find($data['schedule_id']);
+
+                if ($schedule === null) {
+                    throw new InvalidArgumentException('The schedule does not belong to this loan.');
+                }
+            }
+
             $payment = LoanPayment::create([
                 'loan_id' => $loan->id,
-                'schedule_id' => $data['schedule_id'] ?? null,
+                'schedule_id' => $schedule?->id,
                 'payment_date' => $data['payment_date'],
                 'principal_paid' => $principalPaid,
                 'interest_paid' => $interestPaid,
@@ -209,19 +226,15 @@ class LoanService
                 'received_by' => $data['received_by'] ?? $userId,
             ]);
 
-            // Update schedule if linked
-            if ($payment->schedule_id) {
-                $schedule = LoanSchedule::find($payment->schedule_id);
-                if ($schedule) {
-                    $newPaidAmount = (float) bcadd((string) $schedule->paid_amount, (string) $totalPaid, 4);
-                    $schedule->update([
-                        'paid_amount' => $newPaidAmount,
-                        'paid_date' => $data['payment_date'],
-                        'status' => $newPaidAmount >= $schedule->total_amount
-                            ? LoanSchedule::STATUS_PAID
-                            : LoanSchedule::STATUS_PARTIAL,
-                    ]);
-                }
+            if ($schedule !== null) {
+                $newPaidAmount = (float) bcadd((string) $schedule->paid_amount, (string) $totalPaid, 4);
+                $schedule->update([
+                    'paid_amount' => $newPaidAmount,
+                    'paid_date' => $data['payment_date'],
+                    'status' => $newPaidAmount >= $schedule->total_amount
+                        ? LoanSchedule::STATUS_PAID
+                        : LoanSchedule::STATUS_PARTIAL,
+                ]);
             }
 
             // Update loan outstanding balance and paid installments
@@ -247,124 +260,123 @@ class LoanService
 
             $loan->save();
 
-            // Create GL journal entry for the loan payment.
-            try {
-                $orgId = $loan->organization_id;
-
-                // Resolve loan liability account.
-                $loanAccount = null;
-                if (!empty($loan->loan_account_id)) {
-                    $loanAccount = Account::withoutGlobalScopes()
-                        ->where('organization_id', $orgId)
-                        ->where('id', $loan->loan_account_id)
-                        ->first();
-                }
-                if ($loanAccount === null) {
-                    $loanAccount = Account::withoutGlobalScopes()
-                        ->where('organization_id', $orgId)
-                        ->whereIn('account_type', ['liability'])
-                        ->where(function ($q) {
-                            $q->where('name', 'like', '%loan%')
-                              ->orWhere('name', 'like', '%Loan%');
-                        })
-                        ->first();
-                }
-
-                // Resolve interest expense account.
-                $interestAccount = null;
-                if ($interestPaid > 0 && !empty($loan->interest_account_id)) {
-                    $interestAccount = Account::withoutGlobalScopes()
-                        ->where('organization_id', $orgId)
-                        ->where('id', $loan->interest_account_id)
-                        ->first();
-                }
-
-                // Resolve bank/cash credit account from payment bank account.
-                $bankGlAccount = null;
-                if (!empty($loan->bank_account_id)) {
-                    $bankRecord = BankAccount::find($loan->bank_account_id);
-                    if ($bankRecord && !empty($bankRecord->gl_account_id)) {
-                        $bankGlAccount = Account::withoutGlobalScopes()
-                            ->where('organization_id', $orgId)
-                            ->where('id', $bankRecord->gl_account_id)
-                            ->first();
-                    }
-                }
-                if ($bankGlAccount === null) {
-                    $bankGlAccount = Account::withoutGlobalScopes()
-                        ->where('organization_id', $orgId)
-                        ->whereIn('account_type', ['bank', 'cash'])
-                        ->first();
-                }
-
-                if ($loanAccount === null || $bankGlAccount === null) {
-                    Log::warning('LoanService: Missing GL accounts for loan payment journal entry.', [
-                        'loan_id'        => $loan->id,
-                        'payment_id'     => $payment->id,
-                        'has_loan_acct'  => $loanAccount !== null,
-                        'has_bank_acct'  => $bankGlAccount !== null,
-                    ]);
-                } else {
-                    $journalLines = [];
-
-                    // Debit loan liability for principal portion.
-                    if ($principalPaid > 0) {
-                        $journalLines[] = [
-                            'account_id'  => $loanAccount->id,
-                            'description' => 'Loan principal payment',
-                            'debit'       => $principalPaid,
-                            'credit'      => 0,
-                            'line_order'  => 0,
-                        ];
-                    }
-
-                    // Debit interest expense for interest portion.
-                    if ($interestPaid > 0) {
-                        $interestDebitAccountId = $interestAccount?->id ?? $loanAccount->id;
-                        $journalLines[] = [
-                            'account_id'  => $interestDebitAccountId,
-                            'description' => 'Loan interest payment',
-                            'debit'       => $interestPaid,
-                            'credit'      => 0,
-                            'line_order'  => count($journalLines),
-                        ];
-                    }
-
-                    // Credit bank/cash for total payment.
-                    $journalLines[] = [
-                        'account_id'  => $bankGlAccount->id,
-                        'description' => 'Loan payment disbursed',
-                        'debit'       => 0,
-                        'credit'      => $totalPaid,
-                        'line_order'  => count($journalLines),
-                    ];
-
-                    if (!empty($journalLines)) {
-                        app(JournalService::class)->createEntry(
-                            [
-                                'organization_id' => $orgId,
-                                'entry_date'      => is_string($data['payment_date'])
-                                    ? $data['payment_date']
-                                    : $data['payment_date']->toDateString(),
-                                'reference'       => 'LOAN-PMT-' . $payment->id,
-                                'description'     => "Loan payment for loan #{$loan->id}",
-                                'source_type'     => LoanPayment::class,
-                                'source_id'       => $payment->id,
-                            ],
-                            $journalLines
-                        );
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('LoanService: Failed to create journal entry for loan payment.', [
-                    'loan_id'    => $loan->id,
-                    'payment_id' => $payment->id,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
+            $this->bookPayment(
+                $loan,
+                $payment,
+                $principalPaid,
+                (float) bcadd((string) $interestPaid, (string) $penaltyPaid, 4),
+                is_string($data['payment_date']) ? $data['payment_date'] : $data['payment_date']->toDateString(),
+            );
 
             return $payment->fresh(['loan', 'schedule', 'receivedBy']);
         });
+    }
+
+    /**
+     * Books a loan payment: the principal debits the loan account, interest and
+     * penalty debit the interest account (the loan account when none is set),
+     * and the total credits the bank.
+     *
+     * Without a loan or bank account the entry is skipped with a warning. Once
+     * both exist a failure to post throws, so the payment is not recorded
+     * without its entry.
+     */
+    private function bookPayment(Loan $loan, LoanPayment $payment, float $principal, float $charges, string $entryDate): void
+    {
+        $orgId = $loan->organization_id;
+
+        $loanAccount = null;
+        if (!empty($loan->loan_account_id)) {
+            $loanAccount = Account::withoutGlobalScopes()
+                ->where('organization_id', $orgId)
+                ->where('id', $loan->loan_account_id)
+                ->first();
+        }
+        if ($loanAccount === null) {
+            $loanAccount = Account::withoutGlobalScopes()
+                ->where('organization_id', $orgId)
+                ->whereIn('account_type', ['liability'])
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%loan%')
+                      ->orWhere('name', 'like', '%Loan%');
+                })
+                ->first();
+        }
+
+        $interestAccount = null;
+        if ($charges > 0 && !empty($loan->interest_account_id)) {
+            $interestAccount = Account::withoutGlobalScopes()
+                ->where('organization_id', $orgId)
+                ->where('id', $loan->interest_account_id)
+                ->first();
+        }
+
+        $bankGlAccount = null;
+        if (!empty($loan->bank_account_id)) {
+            $bankRecord = BankAccount::find($loan->bank_account_id);
+            if ($bankRecord && !empty($bankRecord->gl_account_id)) {
+                $bankGlAccount = Account::withoutGlobalScopes()
+                    ->where('organization_id', $orgId)
+                    ->where('id', $bankRecord->gl_account_id)
+                    ->first();
+            }
+        }
+        if ($bankGlAccount === null) {
+            // Bank and cash are sub-types of an asset account, not account types.
+            $bankGlAccount = Account::withoutGlobalScopes()
+                ->where('organization_id', $orgId)
+                ->whereIn('sub_type', [Account::SUBTYPE_BANK, Account::SUBTYPE_CASH])
+                ->where('is_header', false)
+                ->orderByRaw('sub_type = ? desc', [Account::SUBTYPE_BANK])
+                ->first();
+        }
+
+        if ($loanAccount === null || $bankGlAccount === null) {
+            Log::warning('LoanService: Missing GL accounts for loan payment journal entry.', [
+                'loan_id'        => $loan->id,
+                'payment_id'     => $payment->id,
+                'has_loan_acct'  => $loanAccount !== null,
+                'has_bank_acct'  => $bankGlAccount !== null,
+            ]);
+
+            return;
+        }
+
+        $journalLines = [];
+
+        if ($principal > 0) {
+            $journalLines[] = [
+                'account_id'  => $loanAccount->id,
+                'description' => 'Loan principal payment',
+                'debit'       => $principal,
+                'credit'      => 0,
+            ];
+        }
+
+        if ($charges > 0) {
+            $journalLines[] = [
+                'account_id'  => $interestAccount?->id ?? $loanAccount->id,
+                'description' => 'Loan interest and penalty payment',
+                'debit'       => $charges,
+                'credit'      => 0,
+            ];
+        }
+
+        $journalLines[] = [
+            'account_id'  => $bankGlAccount->id,
+            'description' => 'Loan payment disbursed',
+            'debit'       => 0,
+            'credit'      => (float) bcadd((string) $principal, (string) $charges, 4),
+        ];
+
+        app(JournalService::class)->createEntry([
+            'organization_id' => $orgId,
+            'entry_date'      => $entryDate,
+            'reference'       => 'LOAN-PMT-' . $payment->id,
+            'description'     => "Loan payment for loan #{$loan->id}",
+            'source_type'     => LoanPayment::class,
+            'source_id'       => $payment->id,
+        ], $journalLines);
     }
 
     /**

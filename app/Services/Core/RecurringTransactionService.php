@@ -18,6 +18,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Creates the documents of recurring profiles. Running due profiles and
+ * sending what they create spans modules, so it lives in
+ * App\Orchestrators\Core\RunRecurringProfilesOrchestrator.
+ */
 class RecurringTransactionService
 {
     public function __construct(
@@ -90,51 +95,17 @@ class RecurringTransactionService
     }
 
     /**
-     * Process all due recurring profiles.
-     */
-    public function processDueProfiles(?Carbon $date = null): array
-    {
-        $date = $date ?? today();
-        $results = [
-            'processed' => 0,
-            'success' => 0,
-            'failed' => 0,
-            'skipped' => 0,
-            'errors' => [],
-        ];
-
-        $dueProfiles = RecurringProfile::dueToRun($date)->get();
-
-        foreach ($dueProfiles as $profile) {
-            try {
-                $result = $this->processProfile($profile, $date);
-                $results['processed']++;
-
-                if ($result['status'] === 'success') {
-                    $results['success']++;
-                } elseif ($result['status'] === 'skipped') {
-                    $results['skipped']++;
-                }
-            } catch (\Exception $e) {
-                $results['processed']++;
-                $results['failed']++;
-                $results['errors'][] = [
-                    'profile_id' => $profile->id,
-                    'error' => $e->getMessage(),
-                ];
-
-                Log::error('Recurring profile processing failed', [
-                    'profile_id' => $profile->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return $results;
-    }
-
-    /**
      * Process a single recurring profile.
+     *
+     * The document, its log entry and the occurrence count are written in one
+     * transaction on the locked profile, which is checked again for being due,
+     * so two runs cannot both create the same occurrence. The creator is
+     * notified once that transaction has committed, and a failed run is logged
+     * after its transaction has rolled back, so the log entry is kept.
+     *
+     * Sending the document is not done here: it posts journals, moves stock and
+     * calls ZATCA through other modules, so RunRecurringProfilesOrchestrator
+     * does it after this has returned.
      */
     public function processProfile(RecurringProfile $profile, ?Carbon $date = null): array
     {
@@ -147,59 +118,67 @@ class RecurringTransactionService
             ];
         }
 
-        return DB::transaction(function () use ($profile, $date) {
-            try {
-                // Lock the profile row to prevent concurrent processing from
-                // incrementing the occurrence counter more than once.
-                $profile = \App\Models\Core\RecurringProfile::lockForUpdate()->findOrFail($profile->id);
+        try {
+            $run = DB::transaction(function () use ($profile, $date): ?array {
+                $profile = RecurringProfile::lockForUpdate()->findOrFail($profile->id);
 
-                // Create the new document based on profile type
-                $createdDocument = $this->createDocument($profile);
+                if (! $profile->isDueToRun($date)) {
+                    return null;
+                }
 
-                // Log the successful creation
+                $document = $this->createDocument($profile);
+
                 $log = RecurringProfileLog::create([
                     'recurring_profile_id' => $profile->id,
-                    'created_type' => get_class($createdDocument),
-                    'created_id' => $createdDocument->id,
+                    'created_type' => get_class($document),
+                    'created_id' => $document->id,
                     'scheduled_date' => $profile->next_run_date,
                     'created_date' => $date,
                     'status' => RecurringProfileLog::STATUS_SUCCESS,
                 ]);
 
-                // Update profile
                 $profile->incrementOccurrence();
 
-                // Send notification if configured
-                if ($profile->notify_on_creation) {
-                    $this->sendNotification($profile, $createdDocument);
-                }
+                return [$profile, $document, $log];
+            });
+        } catch (\Exception $e) {
+            $this->logFailedRun($profile, $date, $e);
 
-                // Auto-send if configured
-                if ($profile->auto_send) {
-                    $this->autoSendDocument($createdDocument);
-                }
+            throw $e;
+        }
 
-                return [
-                    'status' => 'success',
-                    'document_type' => get_class($createdDocument),
-                    'document_id' => $createdDocument->id,
-                    'log_id' => $log->id,
-                ];
-            } catch (\Exception $e) {
-                // Log the failure
-                RecurringProfileLog::create([
-                    'recurring_profile_id' => $profile->id,
-                    'created_type' => null,
-                    'created_id' => null,
-                    'scheduled_date' => $profile->next_run_date,
-                    'created_date' => $date,
-                    'status' => RecurringProfileLog::STATUS_FAILED,
-                    'error_message' => $e->getMessage(),
-                ]);
+        if ($run === null) {
+            return [
+                'status' => 'skipped',
+                'reason' => 'Not due to run',
+            ];
+        }
 
-                throw $e;
-            }
-        });
+        [$profile, $document, $log] = $run;
+
+        if ($profile->notify_on_creation) {
+            $this->sendNotification($profile, $document);
+        }
+
+        return [
+            'status' => 'success',
+            'document_type' => get_class($document),
+            'document_id' => $document->id,
+            'log_id' => $log->id,
+        ];
+    }
+
+    private function logFailedRun(RecurringProfile $profile, Carbon $date, \Throwable $e): void
+    {
+        RecurringProfileLog::create([
+            'recurring_profile_id' => $profile->id,
+            'created_type' => null,
+            'created_id' => null,
+            'scheduled_date' => $profile->next_run_date,
+            'created_date' => $date,
+            'status' => RecurringProfileLog::STATUS_FAILED,
+            'error_message' => $e->getMessage(),
+        ]);
     }
 
     /**
@@ -233,6 +212,7 @@ class RecurringTransactionService
     {
         // Replicate the source invoice
         $newInvoice = $source->replicate([
+            'uuid',
             'invoice_number',
             'status',
             'compliance_status',
@@ -254,7 +234,6 @@ class RecurringTransactionService
         $newInvoice->compliance_status = Invoice::COMPLIANCE_PENDING;
         $newInvoice->amount_paid = 0;
         $newInvoice->amount_due = $source->total;
-        $newInvoice->recurring_profile_id = $profile->id;
 
         // Generate new invoice number
         $newInvoice->invoice_number = app(NumberGeneratorService::class)->generate(
@@ -265,11 +244,9 @@ class RecurringTransactionService
 
         $newInvoice->save();
 
-        // Replicate lines
+        // Saved through the relation, which points each copy at the new invoice.
         foreach ($source->lines as $line) {
-            $newLine = $line->replicate();
-            $newLine->document_id = $newInvoice->id;
-            $newLine->save();
+            $newInvoice->lines()->save($line->replicate());
         }
 
         return $newInvoice;
@@ -281,6 +258,7 @@ class RecurringTransactionService
     protected function createBillFromSource(Model $source, RecurringProfile $profile): Model
     {
         $newBill = $source->replicate([
+            'uuid',
             'bill_number',
             'status',
             'amount_paid',
@@ -293,7 +271,6 @@ class RecurringTransactionService
         $newBill->status = Bill::STATUS_DRAFT;
         $newBill->amount_paid = 0;
         $newBill->amount_due = $source->total;
-        $newBill->recurring_profile_id = $profile->id;
 
         $newBill->bill_number = app(NumberGeneratorService::class)->generate(
             'BILL',
@@ -304,9 +281,7 @@ class RecurringTransactionService
         $newBill->save();
 
         foreach ($source->lines as $line) {
-            $newLine = $line->replicate();
-            $newLine->document_id = $newBill->id;
-            $newLine->save();
+            $newBill->lines()->save($line->replicate());
         }
 
         return $newBill;
@@ -318,6 +293,7 @@ class RecurringTransactionService
     protected function createJournalFromSource(Model $source, RecurringProfile $profile): Model
     {
         $newJournal = $source->replicate([
+            'uuid',
             'entry_number',
             'status',
             'posted_at',
@@ -326,7 +302,6 @@ class RecurringTransactionService
 
         $newJournal->entry_date = today();
         $newJournal->status = JournalEntry::STATUS_DRAFT;
-        $newJournal->recurring_profile_id = $profile->id;
 
         $newJournal->entry_number = app(NumberGeneratorService::class)->generate(
             'JE',
@@ -351,6 +326,7 @@ class RecurringTransactionService
     protected function createExpenseFromSource(Model $source, RecurringProfile $profile): Model
     {
         $newExpense = $source->replicate([
+            'uuid',
             'expense_number',
             'status',
             'journal_entry_id',
@@ -358,7 +334,6 @@ class RecurringTransactionService
 
         $newExpense->expense_date = today();
         $newExpense->status = \App\Models\Expense\Expense::STATUS_DRAFT;
-        $newExpense->recurring_profile_id = $profile->id;
 
         $newExpense->expense_number = app(NumberGeneratorService::class)->generate(
             'EXP',
@@ -465,94 +440,12 @@ class RecurringTransactionService
     }
 
     /**
-     * Auto-send/post the document based on its type.
-     *
-     * Invoices are marked as sent, journal entries are posted, and bills are
-     * approved.  Expenses and unknown types are skipped with a log entry.
+     * Records on a run's log entry that its document was created but could not
+     * be sent, so the draft is visible and can be sent by hand.
      */
-    protected function autoSendDocument(Model $document): void
+    public function recordAutoSendFailure(RecurringProfileLog $log, string $error): void
     {
-        $documentClass = get_class($document);
-
-        try {
-            match (true) {
-                $document instanceof \App\Models\Sales\Invoice => $this->autoSendInvoice($document),
-                $document instanceof \App\Models\Accounting\JournalEntry => $this->autoPostJournalEntry($document),
-                $document instanceof \App\Models\Purchase\Bill => $this->autoApproveBill($document),
-                default => Log::warning('Auto-send not supported for document type', [
-                    'document_class' => $documentClass,
-                    'document_id'    => $document->id,
-                ]),
-            };
-        } catch (\Throwable $e) {
-            Log::error('Auto-send failed for recurring document', [
-                'document_class' => $documentClass,
-                'document_id'    => $document->id,
-                'error'          => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Mark a recurring invoice as sent.
-     */
-    protected function autoSendInvoice(Model $invoice): void
-    {
-        if (method_exists($invoice, 'send')) {
-            $invoice->send();
-            return;
-        }
-
-        // Fallback: update status directly
-        $invoice->status = Invoice::STATUS_SENT;
-        $invoice->sent_at = now();
-        $invoice->save();
-
-        Log::info('Recurring invoice auto-sent', [
-            'invoice_id'     => $invoice->id,
-            'invoice_number' => $invoice->invoice_number ?? null,
-        ]);
-    }
-
-    /**
-     * Post a recurring journal entry.
-     */
-    protected function autoPostJournalEntry(Model $journal): void
-    {
-        if (method_exists($journal, 'post')) {
-            $journal->post();
-            return;
-        }
-
-        // Fallback: update status directly
-        $journal->status = JournalEntry::STATUS_POSTED;
-        $journal->posted_at = now();
-        $journal->save();
-
-        Log::info('Recurring journal entry auto-posted', [
-            'journal_id'   => $journal->id,
-            'entry_number' => $journal->entry_number ?? null,
-        ]);
-    }
-
-    /**
-     * Approve a recurring bill so it is ready for payment.
-     */
-    protected function autoApproveBill(Model $bill): void
-    {
-        if (method_exists($bill, 'approve')) {
-            $bill->approve();
-            return;
-        }
-
-        // Fallback: update status directly
-        $bill->status = Bill::STATUS_APPROVED;
-        $bill->save();
-
-        Log::info('Recurring bill auto-approved', [
-            'bill_id'     => $bill->id,
-            'bill_number' => $bill->bill_number ?? null,
-        ]);
+        $log->update(['error_message' => $error]);
     }
 
     /**

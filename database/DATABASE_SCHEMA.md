@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 44 migrations.
+978 tables across 47 migrations.
 
 ## Contents
 
@@ -52,6 +52,9 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0460_shared_3.php`: work_schedule_rules, equipment_counters, counter_based_plans, counter_based_orders, counter_readings, calibration_plans, calibration_orders, calibration_certificates, saved_reports, report_executions
 - `0470_deferred_keys.php`: changes to leads, sales_returns, leave_balances
 - `0480_mysql_indexes.php`: changes to product_attribute_values, failed_jobs_monitor
+- `0490_goods_receipt_inspection_status.php`: changes to goods_receipts
+- `0500_stock_movement_material_types.php`: changes to stock_movements
+- `0510_recurring_profile_log_created_nullable.php`: changes to recurring_profile_logs
 
 ## 0010_accounting.php
 
@@ -2811,6 +2814,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['recurring_profile_id', 'status'])`
+
+Added by later migrations:
+
+- `0510_recurring_profile_log_created_nullable.php`: `$table->string('created_type', 100)->nullable()->change()`
+- `0510_recurring_profile_log_created_nullable.php`: `$table->unsignedBigInteger('created_id')->nullable()->change()`
 
 ### sensitive_access_logs
 
@@ -20123,6 +20131,11 @@ Indexes:
 - `$table->index(['organization_id', 'created_at'])`
 - `$table->index(['reference_type', 'reference_id'])`
 
+Added by later migrations:
+
+- `0500_stock_movement_material_types.php`: `$table->enum('movement_type', [...self::TYPES, 'material_issue', 'material_return'])->change()`
+- `0500_stock_movement_material_types.php`: `$table->enum('direction', ['in', 'out'])->change()`
+
 ### stock_transfer_lines
 
 | Column | Type | Details |
@@ -21883,6 +21896,10 @@ Foreign keys:
 - `$table->foreign('created_by')->references('id')->on('users')`
 - `$table->foreign('branch_id')->references('id')->on('branches')->nullOnDelete()`
 - `$table->foreign('inspection_lot_id')->references('id')->on('inspection_lots')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0490_goods_receipt_inspection_status.php`: `$table->enum('status', ['draft', 'in_inspection', 'posted', 'reversed'])->default('draft')->change()`
 
 ### ers_run_items
 
@@ -25211,3 +25228,15 @@ Changes tables created earlier: `leads`, `sales_returns`, `leave_balances`.
 ## 0480_mysql_indexes.php
 
 Changes tables created earlier: `product_attribute_values`, `failed_jobs_monitor`.
+
+## 0490_goods_receipt_inspection_status.php
+
+Changes tables created earlier: `goods_receipts`.
+
+## 0500_stock_movement_material_types.php
+
+Changes tables created earlier: `stock_movements`.
+
+## 0510_recurring_profile_log_created_nullable.php
+
+Changes tables created earlier: `recurring_profile_logs`.

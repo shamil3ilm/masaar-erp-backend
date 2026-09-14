@@ -170,6 +170,8 @@ class GoodsReceiptService
      * - If accepted_quantity > 0  → the GR can be posted (call postGr() next).
      * - If rejected_quantity >= total quantity → the GR is rejected outright.
      * - Partial accept             → the GR lines are adjusted and can be posted.
+     *
+     * Runs on the locked receipt, so an inspection is resolved once.
      */
     public function resolveInspection(
         GoodsReceipt $gr,
@@ -177,15 +179,15 @@ class GoodsReceiptService
         float $rejectedQuantity,
         int $userId
     ): GoodsReceipt {
-        if (!$gr->isInInspection()) {
-            throw new \InvalidArgumentException('GR is not currently in inspection.');
-        }
+        return $gr->lockForTransition(function (GoodsReceipt $gr) use ($acceptedQuantity, $rejectedQuantity, $userId): GoodsReceipt {
+            if (! $gr->isInInspection()) {
+                throw new \InvalidArgumentException('GR is not currently in inspection.');
+            }
 
-        if (!$gr->inspection_lot_id) {
-            throw new \InvalidArgumentException('GR has no associated inspection lot.');
-        }
+            if (! $gr->inspection_lot_id) {
+                throw new \InvalidArgumentException('GR has no associated inspection lot.');
+            }
 
-        return DB::transaction(function () use ($gr, $acceptedQuantity, $rejectedQuantity, $userId): GoodsReceipt {
             $lot = InspectionLot::lockForUpdate()->findOrFail($gr->inspection_lot_id);
 
             // Complete the inspection lot (updates status internally).
@@ -231,34 +233,32 @@ class GoodsReceiptService
     /**
      * Post a Goods Receipt: update stock and generate accounting entry.
      *
-     * If the GR has products requiring quality inspection AND the inspection has not
-     * yet been triggered, this method will create an InspectionLot, put the GR into
-     * `in_inspection` status, and throw an exception — the caller must wait for the
-     * inspection to be resolved (via resolveInspection()) before calling postGr() again.
+     * Runs on the locked receipt, so a second submit waits and then finds it
+     * posted.
+     *
+     * Quality inspection gates the posting. A receipt with products needing
+     * inspection and no inspection lot yet is not posted: its lot is created
+     * and the receipt is returned in `in_inspection`, both committed. While the
+     * lot is open the receipt is refused; once resolveInspection() has completed
+     * it, the receipt posts its accepted quantities.
      */
     public function postGr(GoodsReceipt $gr): GoodsReceipt
     {
-        if (!$gr->canBePosted()) {
-            throw new \InvalidArgumentException('Only draft or in-inspection Goods Receipts can be posted.');
-        }
+        return $gr->lockForTransition(function (GoodsReceipt $gr): GoodsReceipt {
+            if (! $gr->canBePosted()) {
+                throw new \InvalidArgumentException('Only draft or in-inspection Goods Receipts can be posted.');
+            }
 
-        return DB::transaction(function () use ($gr) {
-            $gr->load(['lines.product', 'lines.unit', 'purchaseOrder']);
+            $gr->load(['lines.product', 'lines.unit', 'purchaseOrder', 'inspectionLot']);
 
-            // Quality inspection gate — only run when coming from draft (not after
-            // inspection has already been resolved).
-            if ($gr->isDraft()) {
-                $lot = $this->triggerInspectionIfRequired($gr);
-
-                if ($lot !== null) {
-                    // Re-load the GR to pick up the status change made inside triggerInspectionIfRequired.
-                    $gr->refresh();
-
-                    throw new \RuntimeException(
-                        "GR {$gr->gr_number} has been placed in quality inspection (lot {$lot->lot_number}). " .
-                        'Resolve the inspection before posting.'
-                    );
+            if ($gr->inspection_lot_id === null) {
+                if ($this->triggerInspectionIfRequired($gr) !== null) {
+                    return $gr->fresh(['lines', 'inspectionLot']);
                 }
+            } elseif ($gr->inspectionLot?->isPending() || $gr->inspectionLot?->isInInspection()) {
+                throw new \InvalidArgumentException(
+                    "GR {$gr->gr_number} is in quality inspection. Resolve the inspection before posting."
+                );
             }
 
             foreach ($gr->lines as $line) {
@@ -311,16 +311,20 @@ class GoodsReceiptService
     }
 
     /**
-     * Reverse a posted Goods Receipt.
+     * Reverse a posted Goods Receipt: take its accepted quantities back out of
+     * stock and reverse its journal entry.
+     *
+     * Runs on the locked receipt, so a second submit waits and then finds it
+     * reversed. A journal entry that cannot be reversed throws and nothing is.
      */
     public function reverseGr(GoodsReceipt $gr, string $reason): GoodsReceipt
     {
-        if (!$gr->canBeReversed()) {
-            throw new \InvalidArgumentException('Only posted Goods Receipts can be reversed.');
-        }
+        return $gr->lockForTransition(function (GoodsReceipt $gr) use ($reason): GoodsReceipt {
+            if (! $gr->canBeReversed()) {
+                throw new \InvalidArgumentException('Only posted Goods Receipts can be reversed.');
+            }
 
-        return DB::transaction(function () use ($gr, $reason) {
-            $gr->load(['lines.product']);
+            $gr->load(['lines.product', 'journalEntry']);
 
             foreach ($gr->lines as $line) {
                 $acceptedQty = $line->getAcceptedQuantity();
@@ -338,6 +342,10 @@ class GoodsReceiptService
                         referenceId: $gr->id
                     );
                 }
+            }
+
+            if ($gr->journalEntry !== null) {
+                $this->journalService->reverseSourceEntry($gr->journalEntry, $reason);
             }
 
             $gr->update([

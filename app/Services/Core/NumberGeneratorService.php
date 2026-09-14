@@ -101,55 +101,49 @@ class NumberGeneratorService
 
     /**
      * Get and increment the next sequence number.
+     *
+     * The sequence row is created, if it is missing, before it is locked:
+     * locking a row that does not exist locks nothing, so two requests taking
+     * the first number of a sequence would both read no row. sequence_key is
+     * unique, so insertOrIgnore leaves a row another request has just created
+     * alone, and the locked read counts the numbers already taken from it.
+     *
      * Handles year rollover: if the stored sequence key belongs to a previous
      * year, a fresh sequence starting at 1 is created for the current year.
      */
     protected function getNextSequence(string $key, ?int $organizationId): int
     {
         $newValue = DB::transaction(function () use ($key, $organizationId) {
-            // lockForUpdate prevents concurrent reads from getting the same value
+            DB::table('number_sequences')->insertOrIgnore([
+                'organization_id' => $organizationId,
+                'sequence_key'    => $key,
+                'current_value'   => 0,
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+
             $result = DB::table('number_sequences')
                 ->where('sequence_key', $key)
                 ->lockForUpdate()
                 ->first();
 
-            if ($result) {
-                // Year-rollover check: if the key embeds the current year but the
-                // stored row was created in a prior year, reset the counter to 1.
-                $currentYear = (int) date('Y');
-                $storedYear  = (int) date('Y', strtotime((string) $result->updated_at));
-
-                if ($storedYear < $currentYear) {
-                    // New year — reset sequence for this key
-                    $newValue = 1;
-
-                    DB::table('number_sequences')
-                        ->where('sequence_key', $key)
-                        ->update([
-                            'current_value' => $newValue,
-                            'updated_at'    => now(),
-                        ]);
-                } else {
-                    $newValue = $result->current_value + 1;
-
-                    DB::table('number_sequences')
-                        ->where('sequence_key', $key)
-                        ->update([
-                            'current_value' => $newValue,
-                            'updated_at'    => now(),
-                        ]);
-                }
-            } else {
-                $newValue = 1;
-
-                DB::table('number_sequences')->insert([
-                    'organization_id' => $organizationId,
-                    'sequence_key'    => $key,
-                    'current_value'   => $newValue,
-                    'created_at'      => now(),
-                    'updated_at'      => now(),
-                ]);
+            if ($result === null) {
+                throw new \RuntimeException("Number sequence {$key} could not be created.");
             }
+
+            // Year-rollover check: if the key embeds the current year but the
+            // stored row was last used in a prior year, restart the counter at 1.
+            $currentYear = (int) date('Y');
+            $storedYear  = (int) date('Y', strtotime((string) $result->updated_at));
+
+            $newValue = $storedYear < $currentYear ? 1 : $result->current_value + 1;
+
+            DB::table('number_sequences')
+                ->where('sequence_key', $key)
+                ->update([
+                    'current_value' => $newValue,
+                    'updated_at'    => now(),
+                ]);
 
             return $newValue;
         });

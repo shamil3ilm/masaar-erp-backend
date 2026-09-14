@@ -8,6 +8,7 @@ use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\Inventory\Warehouse;
 use App\Models\Manufacturing\InspectionLot;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class GoodsReceipt extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_IN_INSPECTION = 'in_inspection';

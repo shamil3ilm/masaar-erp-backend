@@ -110,18 +110,20 @@ class GoodsIssueService
      *  1. Deduct stock for every line via StockService::recordMovement().
      *  2. Create a GL journal entry (COGS/expense debit, Inventory credit).
      *  3. Transition status to `posted`.
+     *
+     * Runs on the locked issue, so a second submit waits and then finds it
+     * posted instead of deducting the stock again.
      */
     public function post(GoodsIssue $gi, int $userId): GoodsIssue
     {
-        if (!$gi->canBePosted()) {
-            throw new \InvalidArgumentException(
-                'Only draft Goods Issues with at least one line can be posted.'
-            );
-        }
+        return $gi->lockForTransition(function (GoodsIssue $gi) use ($userId): GoodsIssue {
+            if (! $gi->canBePosted()) {
+                throw new \InvalidArgumentException(
+                    'Only draft Goods Issues with at least one line can be posted.'
+                );
+            }
 
-        return DB::transaction(function () use ($gi, $userId): GoodsIssue {
-            // Re-fetch with a pessimistic lock to serialise concurrent posts.
-            $gi = GoodsIssue::lockForUpdate()->with(['lines.product'])->findOrFail($gi->id);
+            $gi->load('lines.product');
 
             foreach ($gi->lines as $line) {
                 if ($line->product_id && $line->product?->track_inventory) {
@@ -161,15 +163,18 @@ class GoodsIssueService
      *  1. Restore stock for every line (IN movement).
      *  2. Reverse the GL journal entry.
      *  3. Transition status to `reversed`.
+     *
+     * Runs on the locked issue, so a second submit finds it reversed. A journal
+     * entry that cannot be voided throws and nothing is reversed.
      */
     public function reverse(GoodsIssue $gi, string $reason, int $userId): GoodsIssue
     {
-        if (!$gi->canBeReversed()) {
-            throw new \InvalidArgumentException('Only posted Goods Issues can be reversed.');
-        }
+        return $gi->lockForTransition(function (GoodsIssue $gi) use ($reason, $userId): GoodsIssue {
+            if (! $gi->canBeReversed()) {
+                throw new \InvalidArgumentException('Only posted Goods Issues can be reversed.');
+            }
 
-        return DB::transaction(function () use ($gi, $reason, $userId): GoodsIssue {
-            $gi = GoodsIssue::lockForUpdate()->with(['lines.product'])->findOrFail($gi->id);
+            $gi->load(['lines.product', 'journalEntry']);
 
             // Restore inventory for each line.
             foreach ($gi->lines as $line) {
@@ -192,16 +197,8 @@ class GoodsIssueService
                 }
             }
 
-            // Reverse the GL journal entry if one was created.
-            if ($gi->journal_entry_id && $gi->journalEntry) {
-                try {
-                    $this->journalService->void($gi->journalEntry, $reason);
-                } catch (\Throwable $e) {
-                    Log::warning('GI journal reversal failed — continuing', [
-                        'gi_id' => $gi->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            if ($gi->journalEntry !== null) {
+                $this->journalService->voidSourceEntry($gi->journalEntry, $reason);
             }
 
             $gi->update([
