@@ -52,7 +52,7 @@ class VacancyPeriod extends Model
     public function getDaysVacant(): int
     {
         $end = $this->vacant_to ?? now()->toDateObject();
-        return $this->vacant_from->diffInDays($end);
+        return (int) $this->vacant_from->diffInDays($end);
     }
 
     public function computeVacancyLoss(): float

@@ -21,7 +21,7 @@ class WorkOrderOperationFactory extends Factory
             'instructions' => fake()->optional(0.3)->paragraph(),
             'sequence' => fake()->numberBetween(1, 10),
             'estimated_minutes' => fake()->numberBetween(10, 480),
-            'actual_minutes' => fake()->optional(0.5)->numberBetween(10, 600),
+            'actual_minutes' => fake()->optional(0.5, 0)->numberBetween(10, 600),
             'started_at' => fake()->optional(0.3)->dateTimeBetween('-1 month', 'now'),
             'completed_at' => null,
             'status' => fake()->randomElement(['pending', 'in_progress', 'completed', 'skipped']),

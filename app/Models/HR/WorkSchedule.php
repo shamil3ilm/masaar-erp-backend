@@ -69,7 +69,7 @@ class WorkSchedule extends Model
         $scheduledStart = \Carbon\Carbon::createFromTimeString($this->start_time->format('H:i'));
         $actualStart = \Carbon\Carbon::createFromFormat('H:i', $checkInTime->format('H:i'));
 
-        return max(0, $actualStart->diffInMinutes($scheduledStart) - $this->grace_period_minutes);
+        return max(0, (int) $scheduledStart->diffInMinutes($actualStart) - $this->grace_period_minutes);
     }
 
     public function isEarlyLeaving(\DateTime $checkOutTime): bool
@@ -87,7 +87,7 @@ class WorkSchedule extends Model
         $scheduledEnd = \Carbon\Carbon::createFromTimeString($this->end_time->format('H:i'));
         $actualEnd = \Carbon\Carbon::createFromFormat('H:i', $checkOutTime->format('H:i'));
 
-        return max(0, $scheduledEnd->diffInMinutes($actualEnd));
+        return max(0, (int) $actualEnd->diffInMinutes($scheduledEnd));
     }
 
     public function scopeActive($query)

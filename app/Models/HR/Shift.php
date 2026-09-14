@@ -51,6 +51,6 @@ class Shift extends Model
             ? $start->diffInMinutes($end->addDay())
             : $start->diffInMinutes($end);
 
-        return max(0, $minutes - $this->break_minutes);
+        return max(0, (int) $minutes - $this->break_minutes);
     }
 }
