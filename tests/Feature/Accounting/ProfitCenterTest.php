@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\ProfitCenter;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -230,6 +231,36 @@ class ProfitCenterTest extends TestCase
             ->getJson('/api/v1/controlling/profit-centers/' . $center->uuid . '/plan');
 
         $response->assertStatus(422);
+    }
+
+    // -------------------------------------------------------------------------
+    // Index filters and tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_and_excludes_other_organizations(): void
+    {
+        $root = $this->makeCenter(['code' => 'PC-ROOT', 'name' => 'Root']);
+        $this->makeCenter(['code' => 'PC-CHILD', 'name' => 'Child', 'parent_id' => $root->id]);
+        $this->makeCenter(['code' => 'PC-OFF', 'name' => 'Dormant', 'status' => ProfitCenter::STATUS_INACTIVE]);
+
+        $otherOrg = Organization::factory()->create();
+        $this->makeCenter(['organization_id' => $otherOrg->id, 'code' => 'PC-OTHER', 'name' => 'Other']);
+
+        $codes = fn (string $query): array => array_column(
+            $this->withToken($this->token)->getJson('/api/v1/controlling/profit-centers' . $query)->assertStatus(200)->json('data'),
+            'code'
+        );
+
+        $this->assertSame(['PC-CHILD', 'PC-OFF', 'PC-ROOT'], $codes(''));
+        $this->assertSame(['PC-OFF'], $codes('?status=' . ProfitCenter::STATUS_INACTIVE));
+        $this->assertSame(['PC-CHILD'], $codes('?search=Child'));
+        $this->assertSame(['PC-OFF', 'PC-ROOT'], $codes('?roots_only=1'));
+        $this->assertSame(['PC-CHILD'], $codes('?roots_only=1&parent_id=' . $root->id));
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/controlling/profit-centers?per_page=1')
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 3);
     }
 
     // -------------------------------------------------------------------------
