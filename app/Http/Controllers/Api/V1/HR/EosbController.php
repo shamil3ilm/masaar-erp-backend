@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Employee;
 use App\Models\HR\EosbPolicy;
-use App\Models\HR\EosbProvision;
 use App\Models\HR\EosbSettlement;
 use App\Services\HR\EosbService;
 use Carbon\Carbon;
@@ -25,11 +24,13 @@ class EosbController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $policies = EosbPolicy::query()
-            ->when($request->country_code, fn($q, $v) => $q->where('country_code', $v))
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderBy('country_code')
-            ->paginate($request->integer('per_page', 15));
+        $policies = $this->eosbService->listPolicies(
+            [
+                'country_code' => $request->country_code,
+                'active_only'  => $request->boolean('active_only', false),
+            ],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($policies);
     }
@@ -50,10 +51,7 @@ class EosbController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $policy = EosbPolicy::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-        ]));
+        $policy = $this->eosbService->createPolicy($validated, auth()->user()->organization_id);
 
         return $this->created($policy, 'EOSB policy created successfully.');
     }
@@ -83,9 +81,10 @@ class EosbController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $eosbPolicy->update($validated);
-
-        return $this->success($eosbPolicy->fresh(), 'EOSB policy updated successfully.');
+        return $this->success(
+            $this->eosbService->updatePolicy($eosbPolicy, $validated),
+            'EOSB policy updated successfully.'
+        );
     }
 
     /**
@@ -93,11 +92,11 @@ class EosbController extends Controller
      */
     public function showEmployeeProvisions(Request $request, Employee $employee): JsonResponse
     {
-        $provisions = EosbProvision::forEmployee($employee->id)
-            ->when($request->year, fn($q, $y) => $q->where('period_year', $y))
-            ->orderByDesc('period_year')
-            ->orderByDesc('period_month')
-            ->paginate($request->integer('per_page', 24));
+        $provisions = $this->eosbService->listProvisions(
+            $employee,
+            $request->year,
+            $request->integer('per_page', 24)
+        );
 
         return $this->paginated($provisions);
     }
@@ -146,11 +145,10 @@ class EosbController extends Controller
      */
     public function settlements(Request $request): JsonResponse
     {
-        $settlements = EosbSettlement::with('employee')
-            ->when($request->employee_id, fn($q, $v) => $q->where('employee_id', $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
+        $settlements = $this->eosbService->listSettlements(
+            ['employee_id' => $request->employee_id, 'status' => $request->status],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($settlements);
     }

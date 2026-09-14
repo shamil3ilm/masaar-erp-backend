@@ -8,7 +8,6 @@ use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\EmployeeResource;
 use App\Models\HR\Employee;
-use App\Models\HR\SalaryStructure;
 use App\Services\HR\EmployeeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,25 +26,19 @@ class EmployeeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Employee::with(['department', 'designation', 'branch'])
-            ->when($request->status, fn($q, $status) => $q->where('employment_status', $status))
-            ->when($request->department_id, fn($q, $id) => $q->inDepartment($id))
-            ->when($request->designation_id, fn($q, $id) => $q->withDesignation($id))
-            ->when($request->employment_type, fn($q, $type) => $q->where('employment_type', $type))
-            ->when($request->active === 'true', fn($q) => $q->active())
-            ->when($request->on_probation === 'true', fn($q) => $q->onProbation())
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('employee_number', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['first_name', 'last_name', 'email', 'joining_date', 'employment_status', 'created_at', 'updated_at'], 'first_name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
+        $query = $this->employeeService->listQuery(
+            [
+                'status'          => $request->status,
+                'department_id'   => $request->department_id,
+                'designation_id'  => $request->designation_id,
+                'employment_type' => $request->employment_type,
+                'active'          => $request->active,
+                'on_probation'    => $request->on_probation,
+                'search'          => $request->search,
+            ],
+            $this->safeSortBy($request->sort_by, ['first_name', 'last_name', 'email', 'joining_date', 'employment_status', 'created_at', 'updated_at'], 'first_name'),
+            $this->safeSortOrder($request->sort_order, 'asc')
+        );
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -212,7 +205,7 @@ class EmployeeController extends Controller
             'reason' => 'nullable|string|max:500',
         ]);
 
-        $structure = SalaryStructure::findOrFail($validated['salary_structure_id']);
+        $structure = $this->employeeService->findSalaryStructure((int) $validated['salary_structure_id']);
 
         $salary = $this->employeeService->assignSalary(
             $employee,
