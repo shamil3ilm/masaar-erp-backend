@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\ValidationException as ErpValidationException;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\CreditNote;
 use App\Models\Sales\Invoice;
@@ -58,26 +59,12 @@ class CreditNoteController extends Controller
         }
 
         try {
-            // Validate that total doesn't exceed invoice amount
-            if (!empty($data['invoice_id'])) {
-                $invoice = Invoice::find($data['invoice_id']);
-                if ($invoice) {
-                    $total = 0;
-                    foreach ($data['items'] as $item) {
-                        $subtotal = (float) bcmul((string) $item['quantity'], (string) $item['unit_price'], 2);
-                        $taxAmount = (float) bcmul((string) $subtotal, bcdiv((string) ($item['tax_rate'] ?? 0), '100', 4), 2);
-                        $total = (float) bcadd((string) $total, (string) bcadd((string) $subtotal, (string) $taxAmount, 2), 2);
-                    }
-                    if ($total > (float) $invoice->total) {
-                        return $this->error('Credit note total exceeds invoice total.', 'VALIDATION_ERROR', 422);
-                    }
-                }
-            }
-
             $creditNote = $this->creditNoteService->create(
                 array_merge($data, ['organization_id' => $request->user()->organization_id]),
                 $request->user()->id
             );
+        } catch (ErpValidationException $e) {
+            return $this->error($e->getMessage(), $e->getErrorCode(), $e->getHttpStatus());
         } catch (\App\Exceptions\ApiException $e) {
             return $this->error($e->getMessage(), $e->getErrorCode(), $e->getStatusCode());
         } catch (\Exception $e) {
