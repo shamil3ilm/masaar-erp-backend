@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\AssessmentCycle;
+use App\Models\Core\Organization;
+use App\Services\Accounting\AssessmentCycleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use InvalidArgumentException;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -287,5 +290,70 @@ class AssessmentCycleTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/controlling/assessment-cycles')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Response shape, tenant isolation and concurrent transitions
+    // -------------------------------------------------------------------------
+
+    public function test_index_includes_the_executor_and_paginates_by_20(): void
+    {
+        $this->makeCycle();
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/controlling/assessment-cycles')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.per_page', 20)
+            ->assertJsonStructure(['data' => [['executed_by']]]);
+    }
+
+    public function test_store_sets_the_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/controlling/assessment-cycles', [
+                'name'        => 'Stored Cycle',
+                'fiscal_year' => 2026,
+                'period_from' => 2,
+                'period_to'   => 4,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Assessment cycle created.')
+            ->assertJsonPath('data.organization_id', $this->organization->id)
+            ->assertJsonPath('data.period_to', 4);
+    }
+
+    public function test_postings_paginates_and_404s_for_other_organization(): void
+    {
+        $cycle = $this->makeCycle();
+        $other = $this->makeCycle(['organization_id' => Organization::factory()->create()->id]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/controlling/assessment-cycles/' . $cycle->uuid . '/postings?period=2&per_page=10')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.per_page', 10);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/controlling/assessment-cycles/' . $other->uuid . '/postings')
+            ->assertStatus(404);
+    }
+
+    public function test_execute_rechecks_the_status_on_the_current_row(): void
+    {
+        $stale = $this->makeCycle();
+        AssessmentCycle::whereKey($stale->id)->update(['status' => AssessmentCycle::STATUS_EXECUTED]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        app(AssessmentCycleService::class)->execute($stale, 1);
+    }
+
+    public function test_reverse_rechecks_the_status_on_the_current_row(): void
+    {
+        $stale = $this->makeCycle(['status' => AssessmentCycle::STATUS_EXECUTED]);
+        AssessmentCycle::whereKey($stale->id)->update(['status' => AssessmentCycle::STATUS_REVERSED]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        app(AssessmentCycleService::class)->reverse($stale, 1);
     }
 }
