@@ -8,6 +8,7 @@ use App\Models\Ecommerce\EcommerceChannel;
 use App\Models\Ecommerce\EcommerceOrder;
 use App\Models\Ecommerce\EcommerceOrderItem;
 use App\Models\Ecommerce\EcommerceSyncLog;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class EcommerceOrderService
@@ -123,24 +124,35 @@ class EcommerceOrderService
 
     /**
      * Import or update a single order from external data during sync.
+     *
+     * An order is unique per channel and external id, and that unique index is
+     * what keeps it from being imported twice. Two overlapping syncs can both
+     * look for an order before either has imported it; the one whose import
+     * then hits the index, and so rolls back, updates the order the other
+     * imported instead of failing.
      */
     protected function syncSingleOrder(EcommerceChannel $channel, array $externalOrder): EcommerceOrder
     {
-        return DB::transaction(function () use ($channel, $externalOrder) {
-            $externalOrderId = $externalOrder['external_order_id'];
-            $items = $externalOrder['items'] ?? [];
-            $orderData = collect($externalOrder)->except('items')->toArray();
+        $orderData = collect($externalOrder)->except('items')->toArray();
+        $existing = $this->findImported($channel, $externalOrder['external_order_id']);
 
-            $existing = EcommerceOrder::where('channel_id', $channel->id)
-                ->where('external_order_id', $externalOrderId)
-                ->first();
-
-            if ($existing) {
-                return $this->updateExistingOrder($existing, $orderData);
+        if ($existing === null) {
+            try {
+                return $this->importOrder($channel, $orderData, $externalOrder['items'] ?? []);
+            } catch (UniqueConstraintViolationException) {
+                $existing = $this->findImported($channel, $externalOrder['external_order_id'])
+                    ?? throw new \RuntimeException("Order {$externalOrder['external_order_id']} clashed with an import that cannot be found.");
             }
+        }
 
-            return $this->importOrder($channel, $orderData, $items);
-        });
+        return $this->updateExistingOrder($existing, $orderData);
+    }
+
+    private function findImported(EcommerceChannel $channel, string $externalOrderId): ?EcommerceOrder
+    {
+        return EcommerceOrder::where('channel_id', $channel->id)
+            ->where('external_order_id', $externalOrderId)
+            ->first();
     }
 
     /**
