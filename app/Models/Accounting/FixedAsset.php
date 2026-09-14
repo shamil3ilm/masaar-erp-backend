@@ -151,7 +151,7 @@ class FixedAsset extends Model
         // Determine remaining life in years from last depreciation date
         $elapsedMonths = 0;
         if ($this->last_depreciation_date !== null) {
-            $elapsedMonths = (int) $this->last_depreciation_date->diffInMonths($this->acquisition_date);
+            $elapsedMonths = (int) $this->acquisition_date->diffInMonths($this->last_depreciation_date);
         }
 
         $remainingMonths = $totalLifeMonths - $elapsedMonths;

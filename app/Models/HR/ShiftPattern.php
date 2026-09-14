@@ -46,7 +46,7 @@ class ShiftPattern extends Model
         $minutes = $start->diffInMinutes($end);
 
         if ($this->crosses_midnight) {
-            $minutes = 1440 - $start->diffInMinutes($end, false);
+            $minutes = 1440 - $end->diffInMinutes($start);
         }
 
         return (int) $minutes - $this->break_minutes;

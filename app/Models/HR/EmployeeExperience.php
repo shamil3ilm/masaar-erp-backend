@@ -35,7 +35,7 @@ class EmployeeExperience extends Model
     public function getDurationInMonths(): int
     {
         $endDate = $this->to_date ?? now();
-        return $this->from_date->diffInMonths($endDate);
+        return (int) $this->from_date->diffInMonths($endDate);
     }
 
     public function getDurationInYears(): float

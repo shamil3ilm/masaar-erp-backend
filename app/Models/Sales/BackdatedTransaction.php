@@ -66,7 +66,7 @@ class BackdatedTransaction extends Model
 
     public function getDaysDifference(): int
     {
-        return $this->transaction_date->diffInDays($this->entry_date);
+        return (int) $this->transaction_date->diffInDays($this->entry_date);
     }
 
     // Scopes

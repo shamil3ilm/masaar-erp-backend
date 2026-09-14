@@ -140,7 +140,7 @@ class ProductionSchedulingService
             $ops = $wo->operations->sortBy('sequence')->map(function (WorkOrderOperation $op): array {
                 $start = $op->scheduled_start ? Carbon::parse($op->scheduled_start) : null;
                 $end = $op->scheduled_end ? Carbon::parse($op->scheduled_end) : null;
-                $duration = ($start && $end) ? round($end->diffInMinutes($start) / 60, 2) : null;
+                $duration = ($start && $end) ? round($start->diffInMinutes($end) / 60, 2) : null;
 
                 return [
                     'operation_id' => $op->id,
