@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\Account;
+use App\Models\Accounting\JournalEntryLine;
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -175,6 +176,26 @@ class ArInterestRunTest extends TestCase
         $response->assertStatus(200);
         $this->assertSame(0, $response->json('data.journal_entries_posted'));
         $this->assertNotNull($response->json('data.warning'));
+    }
+
+    public function test_execute_posts_to_a_postable_receivable_rather_than_its_header(): void
+    {
+        $this->makeOverdueInvoice(1000.0, 30);
+        Account::factory()->create([
+            'organization_id' => $this->organization->id,
+            'sub_type'        => Account::SUBTYPE_RECEIVABLE,
+            'is_active'       => true,
+            'is_header'       => true,
+        ]);
+        $receivable = $this->makeArAccount();
+        $this->makeIncomeAccount();
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/ar-interest-runs/execute', ['annual_rate' => 12]);
+
+        $response->assertStatus(200);
+        $this->assertSame(1, $response->json('data.journal_entries_posted'));
+        $this->assertTrue(JournalEntryLine::where('account_id', $receivable->id)->where('debit', '>', 0)->exists());
     }
 
     public function test_execute_posts_journal_entries(): void

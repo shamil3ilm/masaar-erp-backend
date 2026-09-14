@@ -27,6 +27,7 @@ class AssetTransferService
         private readonly JournalService $journalService,
         private readonly NumberGeneratorService $numberGenerator,
         private readonly AssetAccountingService $assetAccounting,
+        private readonly AccountResolver $accountResolver,
     ) {}
 
     // =========================================================================
@@ -215,8 +216,8 @@ class AssetTransferService
         $gainLoss = (float) $transfer->gain_loss_amount;
         if (abs($gainLoss) > 0.00005) {
             $gainAccount = $gainLoss > 0
-                ? $this->fallbackAccount($asset->organization_id, 'other_income')
-                : $this->fallbackAccount($asset->organization_id, 'other_expense');
+                ? $this->accountResolver->bySubType($asset->organization_id, 'other_income')
+                : $this->accountResolver->bySubType($asset->organization_id, 'other_expense');
 
             if ($gainAccount) {
                 $lines[] = [
@@ -230,7 +231,7 @@ class AssetTransferService
         }
 
         // Receivable from receiving org
-        $intercompanyAccount = $this->fallbackAccount($asset->organization_id, 'receivable');
+        $intercompanyAccount = $this->accountResolver->bySubType($asset->organization_id, 'receivable');
         if ($intercompanyAccount) {
             $lines[] = [
                 'account_id'  => $intercompanyAccount->id,
@@ -285,7 +286,7 @@ class AssetTransferService
             return null;
         }
 
-        $icPayable = $this->fallbackAccount($transfer->receiving_organization_id, 'payable');
+        $icPayable = $this->accountResolver->bySubType($transfer->receiving_organization_id, 'payable');
 
         $lines = [
             [
@@ -315,17 +316,6 @@ class AssetTransferService
         $this->journalService->postEntry($je);
 
         return $je;
-    }
-
-    private function fallbackAccount(int $organizationId, string $subType): ?\App\Models\Accounting\Account
-    {
-        return \App\Models\Accounting\Account::withoutGlobalScopes()
-            ->where('organization_id', $organizationId)
-            ->where('sub_type', $subType)
-            ->where('is_active', true)
-            ->where('is_header', false)
-            ->orderBy('id')
-            ->first();
     }
 
     private function generateNumber(int $organizationId): string
