@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Core;
 
+use App\Models\Accounting\Account;
 use App\Models\Accounting\AssetCategory;
 use App\Models\Expense\ExpenseCategory;
+use App\Models\Finance\PettyCashFund;
 use App\Models\HR\Employee;
 use App\Models\Inventory\Warehouse;
 use App\Models\Maintenance\Equipment;
@@ -13,15 +15,18 @@ use App\Models\Manufacturing\CalibrationEquipment;
 use App\Models\Manufacturing\CalibrationPlan;
 use App\Services\Accounting\AssetAccountingService;
 use App\Services\Accounting\DisputeManagementService;
+use App\Services\Accounting\PettyCashService;
 use App\Services\Expense\ExpenseReportService;
 use App\Services\Expense\ExpenseService;
 use App\Services\HR\TravelExpenseService;
 use App\Services\Inventory\WarehouseTransferOrderService;
 use App\Services\Maintenance\MaintenanceService;
 use App\Services\Manufacturing\CalibrationService;
+use App\Services\TM\TransportationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Traits\BuildsLedger;
 use Tests\Traits\TestHelpers;
 
 /**
@@ -32,7 +37,7 @@ use Tests\Traits\TestHelpers;
  */
 class DocumentNumbersTest extends TestCase
 {
-    use RefreshDatabase, TestHelpers;
+    use BuildsLedger, RefreshDatabase, TestHelpers;
 
     private string $year;
 
@@ -211,6 +216,38 @@ class DocumentNumbersTest extends TestCase
             "ER-{$this->year}-000041",
             "ER-{$this->year}-000042",
         );
+    }
+
+    public function test_freight_tenders_and_transportation_orders_are_numbered_in_sequence(): void
+    {
+        $service = app(TransportationService::class);
+
+        $first = $service->createTenderRequest($this->organization->id, ['title' => 'Riyadh to Jeddah lane']);
+        $second = $service->createTenderRequest($this->organization->id, ['title' => 'Jeddah to Dammam lane']);
+        $order = $service->createTransportationOrder($this->organization->id, []);
+
+        $this->assertSame("freight_tender-{$this->year}-00001", $first->tender_number);
+        $this->assertSame("freight_tender-{$this->year}-00002", $second->tender_number);
+        $this->assertSame("transport_order-{$this->year}-00001", $order->order_number);
+    }
+
+    public function test_petty_cash_vouchers_are_numbered_in_sequence(): void
+    {
+        $fund = PettyCashFund::create([
+            'organization_id' => $this->organization->id,
+            'name' => 'Front desk',
+            'custodian_id' => $this->user->id,
+            'account_id' => $this->ledgerAccount('1050', 'Petty Cash', Account::TYPE_ASSET, Account::SUBTYPE_CASH)->id,
+            'opening_balance' => 1000,
+            'current_balance' => 1000,
+            'currency_code' => 'SAR',
+            'is_active' => true,
+        ]);
+        $service = app(PettyCashService::class);
+        $voucher = ['amount' => 25, 'transaction_type' => 'payment', 'description' => 'Postage'];
+
+        $this->assertSame("petty_cash_voucher-{$this->year}-00001", $service->createVoucher($fund, $voucher)->voucher_number);
+        $this->assertSame("petty_cash_voucher-{$this->year}-00002", $service->createVoucher($fund, $voucher)->voucher_number);
     }
 
     /**

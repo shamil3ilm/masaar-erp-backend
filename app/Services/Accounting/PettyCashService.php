@@ -40,8 +40,9 @@ class PettyCashService
         }
 
         $voucherNumber = $this->numberGenerator->generate(
-            $fund->organization_id ?? $data['organization_id'],
-            'petty_cash_voucher'
+            'petty_cash_voucher',
+            null,
+            $fund->organization_id ?? $data['organization_id']
         );
 
         return PettyCashVoucher::create([
