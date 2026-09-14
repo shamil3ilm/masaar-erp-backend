@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\DB;
  * Starts NumberGeneratorService's counters for the current year after the
  * numbers documents already carry.
  *
- * The documents below were numbered from the last number stored for the
- * organization. NumberGeneratorService numbers them from a counter per
- * organization, sequence and year in number_sequences, and a counter starting
- * at zero would issue numbers that exist. For each organization, the counter
+ * The documents below already carry numbers in these formats.
+ * NumberGeneratorService numbers them from a counter per organization,
+ * sequence and year in number_sequences, and a counter starting at zero would
+ * issue numbers that exist. For each organization, the counter
  * is set to the highest number already used this year, unless it is past it.
  */
 return new class extends Migration
