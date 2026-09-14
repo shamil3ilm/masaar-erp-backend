@@ -358,7 +358,6 @@ Full multi-step SAP-parity scenarios. Each test verifies state transitions, GL e
 | Freight tendering | 🟡 Medium | Request → bid → award → transport order |
 | Fixed asset depreciation run | 🟡 Medium | Asset → depreciation run → GL posting |
 | GRC audit lifecycle | 🟢 Low | Audit plan → checklist → findings → CAPA |
-| Loyalty points lifecycle | 🟢 Low | Transaction → earn points → redeem rewards |
 
 ---
 
@@ -415,7 +414,6 @@ php artisan test --parallel
 | Quality Management (QM) | ⬜ | ✅ | ✅ | ✅ |
 | Manufacturing (PP) | ✅ | ✅ | ✅ | ✅ |
 | Plant Maintenance (PM) | ⬜ | ⬜ | ✅ | 🔸 |
-| Project System (PS) | ⬜ | ⬜ | 🔸 | 🔸 |
 | CRM | ⬜ | ⬜ | ⬜ | ⬜ |
 | ZATCA Compliance | ⬜ | ✅ | 🔸 | 🔸 |
 | Real Estate (RE-FX) | ⬜ | ⬜ | ✅ | 🔸 |
@@ -426,6 +424,6 @@ php artisan test --parallel
 | Analytics / Fraud / AML | ⬜ | ⬜ | ⬜ | ⬜ |
 | Transportation (TM) | ⬜ | ⬜ | 🔸 | 🔸 |
 | Real Estate (RE-FX) | ⬜ | ⬜ | ✅ | 🔸 |
-| Loyalty / Messaging | ⬜ | ⬜ | ⬜ | ⬜ |
+| Messaging | ⬜ | ⬜ | ⬜ | ⬜ |
 
 **Legend:** ✅ good coverage · 🔸 partial · ⬜ missing

@@ -65,7 +65,7 @@ Hidden coupling between services leads to silent partial-commit states and makes
 effects nearly impossible. Orchestrators make the dependency graph explicit.
 
 ### Bounded modules
-`Accounting`, `Sales`, `Purchase`, `Inventory`, `HR`, `Manufacturing`, `Projects`, `Compliance`.
+`Accounting`, `Sales`, `Purchase`, `Inventory`, `HR`, `Manufacturing`, `Compliance`.
 
 ### Target pattern
 ```php
