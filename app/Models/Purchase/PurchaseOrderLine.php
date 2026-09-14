@@ -59,6 +59,12 @@ class PurchaseOrderLine extends Model
             'discount_amount' => 'decimal:4',
             'tax_rate' => 'decimal:4',
             'tax_amount' => 'decimal:4',
+            'cgst_rate' => 'decimal:4',
+            'cgst_amount' => 'decimal:4',
+            'sgst_rate' => 'decimal:4',
+            'sgst_amount' => 'decimal:4',
+            'igst_rate' => 'decimal:4',
+            'igst_amount' => 'decimal:4',
             'subtotal' => 'decimal:4',
             'total' => 'decimal:4',
             'line_order' => 'integer',
@@ -93,6 +99,11 @@ class PurchaseOrderLine extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    protected function splitsGst(): bool
+    {
+        return true;
     }
 
     public function getRemainingToReceive(): float
