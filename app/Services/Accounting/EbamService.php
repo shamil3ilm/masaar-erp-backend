@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\BankAccountRequest;
 use App\Models\Accounting\BankSignatory;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -23,6 +24,18 @@ class EbamService
     // -------------------------------------------------------------------------
     // Signatory management
     // -------------------------------------------------------------------------
+
+    /**
+     * A bank account's signatories by name, optionally only the active ones.
+     */
+    public function listSignatories(BankAccount $bankAccount, bool $activeOnly, int $perPage = 50): LengthAwarePaginator
+    {
+        return $bankAccount->signatories()
+            ->with('user:id,name,email')
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
 
     public function addSignatory(BankAccount $bankAccount, array $data, int $userId): BankSignatory
     {
@@ -56,6 +69,23 @@ class EbamService
     // -------------------------------------------------------------------------
     // Bank account request workflow
     // -------------------------------------------------------------------------
+
+    /**
+     * Bank account requests, newest first, with the account and the people
+     * involved. Each filter applies only when its value is non-empty.
+     */
+    public function listRequests(mixed $status, mixed $requestType, int $perPage = 20): LengthAwarePaginator
+    {
+        return BankAccountRequest::with([
+            'bankAccount:id,bank_name,account_name,iban',
+            'requestedBy:id,name',
+            'approvedBy:id,name',
+        ])
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->when($requestType, fn ($q, $t) => $q->where('request_type', $t))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
 
     /**
      * Raise a request to open / close / modify a bank account or manage signatories.

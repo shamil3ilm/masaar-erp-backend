@@ -9,7 +9,9 @@ use App\Models\Accounting\TransferPrice;
 use App\Models\Accounting\TransferPriceCondition;
 use App\Models\Accounting\TransferPriceHistory;
 use App\Models\Accounting\TransferPriceVersion;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -20,6 +22,89 @@ class TransferPricingService
     public function __construct(
         private readonly JournalService $journalService
     ) {}
+
+    /**
+     * Page through transfer prices, latest effective date first.
+     *
+     * A null filter is not applied; the caller passes null for a request
+     * value that was not filled.
+     *
+     * @param  array{active_only?: bool, product_id?: ?int, from_profit_center_id?: ?int, to_profit_center_id?: ?int, method?: mixed}  $filters
+     */
+    public function paginatePrices(array $filters, int $perPage): LengthAwarePaginator
+    {
+        $productId      = $filters['product_id'] ?? null;
+        $fromPcId       = $filters['from_profit_center_id'] ?? null;
+        $toPcId         = $filters['to_profit_center_id'] ?? null;
+        $method         = $filters['method'] ?? null;
+
+        return TransferPrice::with([
+            'fromProfitCenter:id,code,name',
+            'toProfitCenter:id,code,name',
+            'product:id,name,code',
+            'costElement:id,code,name',
+        ])->orderByDesc('effective_from')
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
+            ->when($fromPcId !== null, fn ($q) => $q->where('from_profit_center_id', $fromPcId))
+            ->when($toPcId !== null, fn ($q) => $q->where('to_profit_center_id', $toPcId))
+            ->when($method !== null, fn ($q) => $q->where('transfer_price_method', $method))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Find a transfer price with its profit/cost centres, product, cost
+     * element, conditions and its ten most recent history entries.
+     */
+    public function findPriceWithDetails(int $id): TransferPrice
+    {
+        return TransferPrice::with([
+            'fromProfitCenter:id,code,name',
+            'toProfitCenter:id,code,name',
+            'fromCostCenter:id,code,name',
+            'toCostCenter:id,code,name',
+            'product:id,name,code',
+            'costElement:id,code,name',
+            'conditions',
+            'history' => fn ($q) => $q->orderByDesc('changed_at')->limit(10),
+        ])->findOrFail($id);
+    }
+
+    /**
+     * Find one of the organisation's transfer prices; a missing or foreign id is a 404.
+     */
+    public function findPrice(int $id): TransferPrice
+    {
+        return TransferPrice::findOrFail($id);
+    }
+
+    /**
+     * Soft-delete a transfer price.
+     */
+    public function deletePrice(TransferPrice $tp): void
+    {
+        $tp->delete();
+    }
+
+    /**
+     * Page through versions, newest first. A null filter is not applied.
+     */
+    public function paginateVersions(mixed $status, ?int $fiscalYear, int $perPage): LengthAwarePaginator
+    {
+        return TransferPriceVersion::with('createdBy:id,name')
+            ->orderByDesc('created_at')
+            ->when($status !== null, fn ($q) => $q->where('status', $status))
+            ->when($fiscalYear !== null, fn ($q) => $q->where('fiscal_year', $fiscalYear))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Find one of the organisation's versions; a missing or foreign id is a 404.
+     */
+    public function findVersion(int $id): TransferPriceVersion
+    {
+        return TransferPriceVersion::findOrFail($id);
+    }
 
     /**
      * Find the most specific active transfer price for a given product and
@@ -202,7 +287,8 @@ class TransferPricingService
         return DB::transaction(function () use ($tp, $data): TransferPrice {
             $oldPrice = (float) $tp->base_price;
 
-            $tp->update($data);
+            // change_reason belongs to the history entry, not to the price row.
+            $tp->update(Arr::except($data, ['change_reason']));
             $tp->refresh();
 
             $newPrice = (float) $tp->base_price;

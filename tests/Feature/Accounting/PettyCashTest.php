@@ -199,6 +199,157 @@ class PettyCashTest extends TestCase
         $response->assertStatus(422);
     }
 
+    public function test_store_fund_opens_with_its_opening_balance(): void
+    {
+        $account = $this->makeAccount();
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/petty-cash/funds', [
+                'name'            => 'Branch Float',
+                'custodian_id'    => $this->user->id,
+                'account_id'      => $account->id,
+                'opening_balance' => 500,
+            ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.name', 'Branch Float')
+            ->assertJsonPath('data.custodian.id', $this->user->id)
+            ->assertJsonPath('data.account.id', $account->id);
+
+        $fund = PettyCashFund::sole();
+        $this->assertSame($this->organization->id, $fund->organization_id);
+        $this->assertEquals(500, (float) $fund->current_balance);
+    }
+
+    public function test_index_funds_filters_active_only_within_the_organization(): void
+    {
+        $this->makeFund(['name' => 'B Active']);
+        $this->makeFund(['name' => 'A Inactive', 'is_active' => false]);
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        PettyCashFund::create([
+            'organization_id' => $otherOrg->id,
+            'name'            => 'Foreign',
+            'custodian_id'    => $this->user->id,
+            'account_id'      => $this->makeAccount()->id,
+            'opening_balance' => 1,
+            'current_balance' => 1,
+        ]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/petty-cash/funds');
+        $all->assertStatus(200);
+        $this->assertSame(['A Inactive', 'B Active'], array_column($all->json('data'), 'name'));
+
+        $active = $this->withToken($this->token)->getJson('/api/v1/petty-cash/funds?active_only=1');
+        $this->assertSame(['B Active'], array_column($active->json('data'), 'name'));
+    }
+
+    public function test_index_vouchers_filters_by_status_type_and_date(): void
+    {
+        $fund = $this->makeFund();
+        $this->makeVoucher($fund, ['description' => 'match', 'status' => 'approved', 'transaction_type' => 'payment', 'voucher_date' => '2025-02-10']);
+        $this->makeVoucher($fund, ['description' => 'wrong status', 'status' => 'draft', 'transaction_type' => 'payment', 'voucher_date' => '2025-02-10']);
+        $this->makeVoucher($fund, ['description' => 'wrong type', 'status' => 'approved', 'transaction_type' => 'receipt', 'voucher_date' => '2025-02-10']);
+        $this->makeVoucher($fund, ['description' => 'too early', 'status' => 'approved', 'transaction_type' => 'payment', 'voucher_date' => '2025-01-10']);
+        $this->makeVoucher($this->makeFund(), ['description' => 'other fund', 'status' => 'approved', 'transaction_type' => 'payment', 'voucher_date' => '2025-02-10']);
+
+        $response = $this->withToken($this->token)->getJson(
+            '/api/v1/petty-cash/funds/' . $fund->uuid . '/vouchers?status=approved&type=payment&from_date=2025-02-01&to_date=2025-02-28'
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['match'], array_column($response->json('data'), 'description'));
+        $this->assertCount(4, $this->withToken($this->token)->getJson('/api/v1/petty-cash/funds/' . $fund->uuid . '/vouchers')->json('data'));
+    }
+
+    public function test_index_replenishments_filters_by_status(): void
+    {
+        $fund = $this->makeFund();
+        $this->makeReplenishment($fund, ['notes' => 'requested']);
+        $this->makeReplenishment($fund, ['notes' => 'approved', 'status' => 'approved']);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/petty-cash/funds/' . $fund->uuid . '/replenishments?status=approved');
+
+        $response->assertStatus(200);
+        $this->assertSame(['approved'], array_column($response->json('data'), 'notes'));
+    }
+
+    public function test_another_organizations_vouchers_and_replenishments_cannot_be_acted_on(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $fund = PettyCashFund::create([
+            'organization_id' => $otherOrg->id,
+            'name'            => 'Foreign',
+            'custodian_id'    => $this->user->id,
+            'account_id'      => Account::create([
+                'organization_id' => $otherOrg->id,
+                'code'            => 'PCH-FOREIGN',
+                'name'            => 'Foreign Petty Cash',
+                'account_type'    => 'asset',
+                'sub_type'        => 'cash',
+            ])->id,
+            'opening_balance' => 1000,
+            'current_balance' => 1000,
+            'is_active'       => true,
+        ]);
+        $draft = $this->makeVoucher($fund, ['status' => 'draft']);
+        $approved = $this->makeVoucher($fund, ['status' => 'approved']);
+        $requested = $this->makeReplenishment($fund);
+        $approvedReplenishment = $this->makeReplenishment($fund, ['status' => 'approved']);
+
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/vouchers/' . $draft->uuid . '/approve')->assertStatus(404);
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/vouchers/' . $approved->uuid . '/post')->assertStatus(404);
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/replenishments/' . $requested->uuid . '/approve')->assertStatus(404);
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/replenishments/' . $approvedReplenishment->uuid . '/disburse')->assertStatus(404);
+
+        $this->assertSame('draft', $draft->fresh()->status);
+        $this->assertSame('approved', $approved->fresh()->status);
+        $this->assertSame('requested', $requested->fresh()->status);
+        $this->assertSame('approved', $approvedReplenishment->fresh()->status);
+        $this->assertEquals(1000, (float) PettyCashFund::withoutGlobalScopes()->find($fund->id)->current_balance);
+    }
+
+    public function test_approve_voucher_and_replenishment_within_the_organization(): void
+    {
+        $fund = $this->makeFund();
+        $voucher = $this->makeVoucher($fund, ['status' => 'draft']);
+        $replenishment = $this->makeReplenishment($fund);
+
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/vouchers/' . $voucher->uuid . '/approve')
+            ->assertStatus(200)
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.approved_by.id', $this->user->id);
+        $this->withToken($this->token)->postJson('/api/v1/petty-cash/replenishments/' . $replenishment->uuid . '/approve')
+            ->assertStatus(200)
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.approved_by.id', $this->user->id);
+    }
+
+    private function makeVoucher(PettyCashFund $fund, array $overrides = []): \App\Models\Finance\PettyCashVoucher
+    {
+        return \App\Models\Finance\PettyCashVoucher::create(array_merge([
+            'fund_id'          => $fund->id,
+            'voucher_number'   => 'PCV-' . fake()->unique()->numerify('#####'),
+            'voucher_date'     => now()->toDateString(),
+            'transaction_type' => 'payment',
+            'amount'           => 10,
+            'description'      => 'Stationery',
+            'status'           => 'draft',
+            'created_by'       => $this->user->id,
+        ], $overrides));
+    }
+
+    private function makeReplenishment(PettyCashFund $fund, array $overrides = []): \App\Models\Finance\PettyCashReplenishment
+    {
+        return \App\Models\Finance\PettyCashReplenishment::create(array_merge([
+            'fund_id'            => $fund->id,
+            'replenishment_date' => now()->toDateString(),
+            'amount'             => 50,
+            'requested_by'       => $this->user->id,
+            'status'             => 'requested',
+        ], $overrides));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

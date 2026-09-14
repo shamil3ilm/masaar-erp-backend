@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\OverheadKey;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -195,6 +196,64 @@ class OverheadKeyTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_rates_lists_the_keys_rates(): void
+    {
+        $key = $this->makeKey();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/overhead-keys/' . $key->id . '/rates', [
+                'validity_from' => '2025-01-01',
+                'overhead_rate' => 15.00,
+                'currency_code' => 'SAR',
+            ])
+            ->assertStatus(201);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/overhead-keys/' . $key->id . '/rates')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.overhead_key_id', $key->id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filters and tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_by_type_and_search(): void
+    {
+        $this->makeKey(['code' => 'OH-A', 'name' => 'Alpha', 'overhead_type' => OverheadKey::TYPE_PERCENTAGE]);
+        $this->makeKey(['code' => 'OH-B', 'name' => 'Beta', 'overhead_type' => OverheadKey::TYPE_QUANTITY]);
+
+        $codes = fn (string $query): array => array_column(
+            $this->withToken($this->token)->getJson('/api/v1/overhead-keys' . $query)->assertStatus(200)->json('data'),
+            'code'
+        );
+
+        $this->assertSame(['OH-A', 'OH-B'], $codes(''));
+        $this->assertSame(['OH-B'], $codes('?overhead_type=' . OverheadKey::TYPE_QUANTITY));
+        $this->assertSame(['OH-A'], $codes('?search=Alpha'));
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/overhead-keys?per_page=1')
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_another_organizations_key_is_not_found(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $key      = $this->makeKey(['organization_id' => $otherOrg->id]);
+        $url      = '/api/v1/overhead-keys/' . $key->id;
+
+        $this->withToken($this->token)->getJson($url)->assertStatus(404);
+        $this->withToken($this->token)->putJson($url, ['name' => 'Taken'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($url)->assertStatus(404);
+        $this->withToken($this->token)->getJson($url . '/rates')->assertStatus(404);
+        $this->withToken($this->token)->postJson($url . '/rates', [])->assertStatus(404);
+
+        $this->assertNotSoftDeleted($key);
     }
 
     // -------------------------------------------------------------------------

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\IntercompanyReconciliationItem;
 use App\Models\Accounting\IntercompanyReconciliationSession;
 use App\Services\Accounting\IntercompanyReconciliationService;
 use Illuminate\Http\JsonResponse;
@@ -18,11 +17,12 @@ class IntercompanyReconciliationController extends Controller
     /** GET /ic-reconciliation */
     public function index(Request $request): JsonResponse
     {
-        $sessions = IntercompanyReconciliationSession::where('organization_id', $request->user()->organization_id)
-            ->when($request->fiscal_year, fn ($q) => $q->where('fiscal_year', $request->fiscal_year))
-            ->when($request->status, fn ($q) => $q->where('status', $request->status))
-            ->orderByDesc('created_at')
-            ->paginate((int) $request->get('per_page', 20));
+        $sessions = $this->service->paginateSessions(
+            $request->user()->organization_id,
+            $request->fiscal_year,
+            $request->status,
+            (int) $request->get('per_page', 20),
+        );
 
         return $this->paginated($sessions);
     }
@@ -94,14 +94,11 @@ class IntercompanyReconciliationController extends Controller
             'notes'              => ['nullable', 'string'],
         ]);
 
-        $receivable = IntercompanyReconciliationItem::findOrFail($data['receivable_item_id']);
-        $payable    = IntercompanyReconciliationItem::findOrFail($data['payable_item_id']);
-
-        $match = $this->service->manualMatch(
-            session:    $icReconciliationSession,
-            receivable: $receivable,
-            payable:    $payable,
-            notes:      $data['notes'] ?? null,
+        $match = $this->service->manualMatchItems(
+            session:          $icReconciliationSession,
+            receivableItemId: (int) $data['receivable_item_id'],
+            payableItemId:    (int) $data['payable_item_id'],
+            notes:            $data['notes'] ?? null,
         );
 
         return $this->success($match, 'Manual match confirmed', 201);

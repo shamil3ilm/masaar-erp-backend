@@ -223,6 +223,37 @@ class EbamTest extends TestCase
         $this->assertEquals('rejected', $req->fresh()->status);
     }
 
+    public function test_requests_filter_by_status_and_request_type(): void
+    {
+        $match = $this->makeRequest(['status' => 'approved', 'request_type' => 'open']);
+        $this->makeRequest(['status' => 'pending', 'request_type' => 'open']);
+        $this->makeRequest(['status' => 'approved', 'request_type' => 'close', 'bank_account_id' => $this->makeBankAccount()->id]);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/bank-account-requests?status=approved&request_type=open');
+
+        $response->assertStatus(200);
+        $this->assertSame([$match->id], array_column($response->json('data'), 'id'));
+        $this->assertCount(3, $this->withToken($this->token)->getJson('/api/v1/bank-account-requests')->json('data'));
+    }
+
+    public function test_signatories_filter_active_only_and_order_by_name(): void
+    {
+        $bankAccount = $this->makeBankAccount();
+        $this->makeSignatory($bankAccount, ['name' => 'Zed']);
+        $this->makeSignatory($bankAccount, ['name' => 'Amy']);
+        $this->makeSignatory($bankAccount, ['name' => 'Revoked', 'is_active' => false]);
+
+        $all = $this->withToken($this->token)
+            ->getJson('/api/v1/bank-accounts/' . $bankAccount->uuid . '/signatories');
+        $this->assertSame(['Amy', 'Revoked', 'Zed'], array_column($all->json('data'), 'name'));
+
+        $active = $this->withToken($this->token)
+            ->getJson('/api/v1/bank-accounts/' . $bankAccount->uuid . '/signatories?active_only=1');
+        $active->assertStatus(200);
+        $this->assertSame(['Amy', 'Zed'], array_column($active->json('data'), 'name'));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

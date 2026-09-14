@@ -6,19 +6,23 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\DocumentType;
+use App\Services\Accounting\DocumentTypeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class DocumentTypeController extends Controller
 {
+    public function __construct(
+        private readonly DocumentTypeService $service
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $query = DocumentType::query()
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('code');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($this->service->list(
+            $request->boolean('active_only'),
+            $request->integer('per_page', 20)
+        ));
     }
 
     public function store(Request $request): JsonResponse
@@ -37,9 +41,7 @@ class DocumentTypeController extends Controller
             'is_active'                   => 'nullable|boolean',
         ]);
 
-        $validated['organization_id'] = $orgId;
-
-        $documentType = DocumentType::create($validated);
+        $documentType = $this->service->create($validated, (int) $orgId);
 
         return $this->created($documentType, 'Document type created.');
     }

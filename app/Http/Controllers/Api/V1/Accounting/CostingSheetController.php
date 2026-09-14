@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CostingSheet;
 use App\Services\Accounting\CostingSheetService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,19 +25,14 @@ class CostingSheetController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CostingSheet::orderBy('code')
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $search = $request->search;
-                $q->where(function ($q) use ($search): void {
-                    $q->where('code', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%");
-                });
-            });
+        $filters = [
+            'active_only' => $request->boolean('active_only'),
+            'search'      => $request->filled('search') ? $request->search : null,
+        ];
 
         $perPage = $request->integer('per_page', 20);
 
-        return $this->paginated($query->paginate($perPage));
+        return $this->paginated($this->service->list($filters, $perPage));
     }
 
     /**
@@ -68,14 +62,7 @@ class CostingSheetController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $sheet = CostingSheet::with([
-            'rows.overheadKey:id,code,name',
-            'rows.baseCostElement:id,code,name',
-            'rows.creditCostCenter:id,code,name',
-            'rows.creditCostElement:id,code,name',
-        ])->findOrFail($id);
-
-        return $this->success($sheet);
+        return $this->success($this->service->findSheetWithRows($id));
     }
 
     /**
@@ -83,7 +70,7 @@ class CostingSheetController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $sheet = CostingSheet::findOrFail($id);
+        $sheet = $this->service->findSheet($id);
 
         $validated = $request->validate([
             'code'                        => ['sometimes', 'required', 'string', 'max:30'],
@@ -93,9 +80,7 @@ class CostingSheetController extends Controller
             'is_active'                   => ['nullable', 'boolean'],
         ]);
 
-        $sheet->update($validated);
-
-        return $this->success($sheet->refresh());
+        return $this->success($this->service->update($sheet, $validated));
     }
 
     /**
@@ -103,8 +88,7 @@ class CostingSheetController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $sheet = CostingSheet::findOrFail($id);
-        $sheet->delete();
+        $this->service->delete($this->service->findSheet($id));
 
         return $this->success(['message' => 'Costing sheet deleted.']);
     }
@@ -118,16 +102,9 @@ class CostingSheetController extends Controller
      */
     public function rows(int $id): JsonResponse
     {
-        $sheet = CostingSheet::findOrFail($id);
+        $sheet = $this->service->findSheet($id);
 
-        $rows = $sheet->rows()->with([
-            'overheadKey:id,code,name,overhead_type',
-            'baseCostElement:id,code,name',
-            'creditCostCenter:id,code,name',
-            'creditCostElement:id,code,name',
-        ])->get();
-
-        return $this->success($rows);
+        return $this->success($this->service->rows($sheet));
     }
 
     /**
@@ -135,7 +112,7 @@ class CostingSheetController extends Controller
      */
     public function addRow(Request $request, int $id): JsonResponse
     {
-        $sheet = CostingSheet::findOrFail($id);
+        $sheet = $this->service->findSheet($id);
 
         $validated = $request->validate([
             'row_type'               => ['required', Rule::in(['base', 'overhead', 'credit'])],
@@ -168,7 +145,7 @@ class CostingSheetController extends Controller
      */
     public function run(Request $request, int $id): JsonResponse
     {
-        $sheet = CostingSheet::findOrFail($id);
+        $sheet = $this->service->findSheet($id);
 
         $validated = $request->validate([
             'reference_type' => ['required', 'string', 'max:50'],

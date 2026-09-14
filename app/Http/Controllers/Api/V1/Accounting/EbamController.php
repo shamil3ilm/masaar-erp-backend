@@ -28,12 +28,13 @@ class EbamController extends Controller
      */
     public function signatories(Request $request, BankAccount $bankAccount): JsonResponse
     {
-        $query = $bankAccount->signatories()
-            ->with('user:id,name,email')
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('name');
+        $signatories = $this->ebamService->listSignatories(
+            $bankAccount,
+            $request->boolean('active_only'),
+            $request->integer('per_page', 50),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 50)));
+        return $this->paginated($signatories);
     }
 
     /**
@@ -85,16 +86,13 @@ class EbamController extends Controller
      */
     public function requests(Request $request): JsonResponse
     {
-        $query = BankAccountRequest::with([
-            'bankAccount:id,bank_name,account_name,iban',
-            'requestedBy:id,name',
-            'approvedBy:id,name',
-        ])
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->request_type, fn ($q, $t) => $q->where('request_type', $t))
-            ->orderByDesc('created_at');
+        $requests = $this->ebamService->listRequests(
+            $request->status,
+            $request->request_type,
+            $request->integer('per_page', 20),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($requests);
     }
 
     /**

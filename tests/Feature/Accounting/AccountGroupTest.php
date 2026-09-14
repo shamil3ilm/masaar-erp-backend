@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\AccountGroup;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -168,5 +169,52 @@ class AccountGroupTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/account-groups')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filters, tenant isolation and response shape
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_by_active_only_and_category(): void
+    {
+        $this->makeGroup(['code' => 'A1']);
+        $this->makeGroup(['code' => 'A2', 'is_active' => false]);
+        $this->makeGroup(['code' => 'A3', 'account_category' => 'profit_loss']);
+        $this->makeGroup(['code' => 'A4', 'organization_id' => Organization::factory()->create()->id]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/account-groups');
+        $all->assertStatus(200)->assertJsonPath('meta.per_page', 20);
+        $this->assertSame(['A1', 'A2', 'A3'], array_column($all->json('data'), 'code'));
+
+        $active = $this->withToken($this->token)->getJson('/api/v1/account-groups?active_only=1');
+        $this->assertSame(['A1', 'A3'], array_column($active->json('data'), 'code'));
+
+        $category = $this->withToken($this->token)
+            ->getJson('/api/v1/account-groups?account_category=profit_loss&per_page=2');
+        $category->assertJsonPath('meta.per_page', 2);
+        $this->assertSame(['A3'], array_column($category->json('data'), 'code'));
+    }
+
+    public function test_store_sets_the_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/account-groups', [
+                'code'             => 'PL01',
+                'name'             => 'P&L Group',
+                'account_category' => 'profit_loss',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Account group created.')
+            ->assertJsonPath('data.code', 'PL01')
+            ->assertJsonPath('data.organization_id', $this->organization->id);
+    }
+
+    public function test_show_returns_404_for_other_organization_group(): void
+    {
+        $other = $this->makeGroup(['organization_id' => Organization::factory()->create()->id]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/account-groups/' . $other->getRouteKey())
+            ->assertStatus(404);
     }
 }

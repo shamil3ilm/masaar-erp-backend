@@ -5,13 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\ConsolidationEntity;
-use App\Models\Accounting\ConsolidationGroup;
-use App\Models\Accounting\ConsolidationPeriod;
-use App\Models\Accounting\EliminationEntry;
 use App\Services\Accounting\ConsolidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ConsolidationController extends Controller
 {
@@ -28,11 +25,10 @@ class ConsolidationController extends Controller
      */
     public function indexGroups(Request $request): JsonResponse
     {
-        $groups = ConsolidationGroup::with(['entities.entityOrganization', 'createdBy:id,name'])
-            ->withCount('periods')
-            ->when($request->active === 'true', fn ($q) => $q->active())
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
+        $groups = $this->consolidationService->paginateGroups(
+            $request->active === 'true',
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($groups, null);
     }
@@ -42,11 +38,7 @@ class ConsolidationController extends Controller
      */
     public function showGroup(int $id): JsonResponse
     {
-        $group = ConsolidationGroup::with([
-            'entities.entityOrganization',
-            'periods',
-            'createdBy:id,name',
-        ])->find($id);
+        $group = $this->consolidationService->findGroupWithDetails($id);
 
         if (!$group) {
             return $this->notFound('Consolidation group not found.');
@@ -86,7 +78,7 @@ class ConsolidationController extends Controller
      */
     public function updateGroup(Request $request, int $id): JsonResponse
     {
-        $group = ConsolidationGroup::find($id);
+        $group = $this->consolidationService->findGroup($id);
 
         if (!$group) {
             return $this->notFound('Consolidation group not found.');
@@ -99,9 +91,9 @@ class ConsolidationController extends Controller
             'is_active'     => 'sometimes|boolean',
         ]);
 
-        $group->update($validated);
+        $group = $this->consolidationService->updateGroup($group, $validated);
 
-        return $this->success($group->fresh(['entities', 'createdBy:id,name']), 'Consolidation group updated.');
+        return $this->success($group, 'Consolidation group updated.');
     }
 
     /**
@@ -109,17 +101,17 @@ class ConsolidationController extends Controller
      */
     public function destroyGroup(int $id): JsonResponse
     {
-        $group = ConsolidationGroup::find($id);
+        $group = $this->consolidationService->findGroup($id);
 
         if (!$group) {
             return $this->notFound('Consolidation group not found.');
         }
 
-        if ($group->periods()->where('status', ConsolidationPeriod::STATUS_COMPLETED)->exists()) {
-            return $this->error('Cannot delete a group that has completed periods.', 'DELETE_BLOCKED', 422);
+        try {
+            $this->consolidationService->deleteGroup($group);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'DELETE_BLOCKED', 422);
         }
-
-        $group->delete();
 
         return $this->success(null, 'Consolidation group deleted.');
     }
@@ -133,7 +125,7 @@ class ConsolidationController extends Controller
      */
     public function addEntity(Request $request, int $groupId): JsonResponse
     {
-        $group = ConsolidationGroup::find($groupId);
+        $group = $this->consolidationService->findGroup($groupId);
 
         if (!$group) {
             return $this->notFound('Consolidation group not found.');
@@ -160,13 +152,13 @@ class ConsolidationController extends Controller
      */
     public function removeEntity(int $entityId): JsonResponse
     {
-        $entity = ConsolidationEntity::find($entityId);
+        $entity = $this->consolidationService->findEntity($entityId);
 
         if (!$entity) {
             return $this->notFound('Consolidation entity not found.');
         }
 
-        $entity->delete();
+        $this->consolidationService->removeEntity($entity);
 
         return $this->success(null, 'Entity removed from consolidation group.');
     }
@@ -180,12 +172,11 @@ class ConsolidationController extends Controller
      */
     public function indexPeriods(Request $request): JsonResponse
     {
-        $periods = ConsolidationPeriod::with(['group:id,name,currency_code', 'createdBy:id,name'])
-            ->withCount(['eliminationEntries', 'consolidatedBalances'])
-            ->when($request->group_id, fn ($q, $id) => $q->where('consolidation_group_id', $id))
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('period_start')
-            ->paginate($request->integer('per_page', 15));
+        $periods = $this->consolidationService->paginatePeriods(
+            $request->group_id,
+            $request->status,
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($periods, null);
     }
@@ -195,13 +186,7 @@ class ConsolidationController extends Controller
      */
     public function showPeriod(int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::with([
-            'group.entities.entityOrganization',
-            'fiscalYear',
-            'createdBy:id,name',
-        ])
-        ->withCount(['eliminationEntries', 'consolidatedBalances'])
-        ->find($id);
+        $period = $this->consolidationService->findPeriodWithDetails($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -212,17 +197,27 @@ class ConsolidationController extends Controller
 
     /**
      * Create a consolidation period.
+     *
+     * The group and fiscal year must belong to the caller's organisation.
      */
     public function storePeriod(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'consolidation_group_id' => 'required|exists:consolidation_groups,id',
-            'fiscal_year_id'         => 'nullable|exists:fiscal_years,id',
+            'consolidation_group_id' => [
+                'required',
+                Rule::exists('consolidation_groups', 'id')->where('organization_id', $organizationId),
+            ],
+            'fiscal_year_id'         => [
+                'nullable',
+                Rule::exists('fiscal_years', 'id')->where('organization_id', $organizationId),
+            ],
             'period_start'           => 'required|date',
             'period_end'             => 'required|date|after_or_equal:period_start',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
 
         $period = $this->consolidationService->createPeriod($validated, auth()->id());
 
@@ -237,7 +232,7 @@ class ConsolidationController extends Controller
      */
     public function collectBalances(Request $request, int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::find($id);
+        $period = $this->consolidationService->findPeriod($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -252,7 +247,7 @@ class ConsolidationController extends Controller
         return $this->success(
             [
                 'period'             => $period->fresh(),
-                'balances_collected' => $period->consolidatedBalances()->count(),
+                'balances_collected' => $this->consolidationService->countCollectedBalances($period),
             ],
             'Entity balances collected successfully.'
         );
@@ -263,7 +258,7 @@ class ConsolidationController extends Controller
      */
     public function completePeriod(Request $request, int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::find($id);
+        $period = $this->consolidationService->findPeriod($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -280,7 +275,7 @@ class ConsolidationController extends Controller
      */
     public function report(int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::find($id);
+        $period = $this->consolidationService->findPeriod($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -300,21 +295,17 @@ class ConsolidationController extends Controller
      */
     public function indexEliminations(Request $request, int $periodId): JsonResponse
     {
-        $period = ConsolidationPeriod::find($periodId);
+        $period = $this->consolidationService->findPeriod($periodId);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
         }
 
-        $entries = EliminationEntry::where('consolidation_period_id', $periodId)
-            ->with([
-                'debitAccount:id,code,name',
-                'creditAccount:id,code,name',
-                'createdBy:id,name',
-            ])
-            ->when($request->entry_type, fn ($q, $t) => $q->where('entry_type', $t))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 20));
+        $entries = $this->consolidationService->paginateEliminations(
+            $period,
+            $request->entry_type,
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($entries, null);
     }
@@ -326,7 +317,7 @@ class ConsolidationController extends Controller
      */
     public function generateEliminations(int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::find($id);
+        $period = $this->consolidationService->findPeriod($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -355,7 +346,7 @@ class ConsolidationController extends Controller
      */
     public function eliminationsAuto(int $id): JsonResponse
     {
-        $period = ConsolidationPeriod::find($id);
+        $period = $this->consolidationService->findPeriod($id);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');
@@ -371,7 +362,7 @@ class ConsolidationController extends Controller
      */
     public function storeElimination(Request $request, int $periodId): JsonResponse
     {
-        $period = ConsolidationPeriod::find($periodId);
+        $period = $this->consolidationService->findPeriod($periodId);
 
         if (!$period) {
             return $this->notFound('Consolidation period not found.');

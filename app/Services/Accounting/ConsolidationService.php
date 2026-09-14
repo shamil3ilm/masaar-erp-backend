@@ -13,6 +13,7 @@ use App\Models\Accounting\CopaLineItem;
 use App\Models\Accounting\EliminationEntry;
 use App\Models\Accounting\ExchangeRate;
 use App\Models\Accounting\InterCompanyTransfer;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +22,144 @@ class ConsolidationService
     public function __construct(
         private AccountBalanceService $accountBalanceService
     ) {}
+
+    // -------------------------------------------------------------------------
+    // Lookups and listings
+    // -------------------------------------------------------------------------
+
+    /**
+     * Page through groups with their entities and period counts, newest first.
+     */
+    public function paginateGroups(bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return ConsolidationGroup::with(['entities.entityOrganization', 'createdBy:id,name'])
+            ->withCount('periods')
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organisation's groups, or null when the id is missing or foreign.
+     */
+    public function findGroup(int $id): ?ConsolidationGroup
+    {
+        return ConsolidationGroup::find($id);
+    }
+
+    /**
+     * One of the organisation's groups with its entities, periods and creator.
+     */
+    public function findGroupWithDetails(int $id): ?ConsolidationGroup
+    {
+        return ConsolidationGroup::with([
+            'entities.entityOrganization',
+            'periods',
+            'createdBy:id,name',
+        ])->find($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateGroup(ConsolidationGroup $group, array $data): ConsolidationGroup
+    {
+        $group->update($data);
+
+        return $group->fresh(['entities', 'createdBy:id,name']);
+    }
+
+    /**
+     * Delete a group. A group with a completed period backs issued
+     * consolidated statements and is kept.
+     */
+    public function deleteGroup(ConsolidationGroup $group): void
+    {
+        if ($group->periods()->where('status', ConsolidationPeriod::STATUS_COMPLETED)->exists()) {
+            throw new \InvalidArgumentException('Cannot delete a group that has completed periods.');
+        }
+
+        $group->delete();
+    }
+
+    /**
+     * An entity of one of the organisation's groups, or null.
+     *
+     * Entities carry no organization_id, so the organisation scope is reached
+     * through the group: an entity of another organisation's group is null.
+     */
+    public function findEntity(int $id): ?ConsolidationEntity
+    {
+        return ConsolidationEntity::whereHas('group')->find($id);
+    }
+
+    public function removeEntity(ConsolidationEntity $entity): void
+    {
+        $entity->delete();
+    }
+
+    /**
+     * Page through periods, latest start first. A group or status filter
+     * applies only when its value is truthy.
+     */
+    public function paginatePeriods(mixed $groupId, mixed $status, int $perPage): LengthAwarePaginator
+    {
+        return ConsolidationPeriod::with(['group:id,name,currency_code', 'createdBy:id,name'])
+            ->withCount(['eliminationEntries', 'consolidatedBalances'])
+            ->when($groupId, fn ($q, $id) => $q->where('consolidation_group_id', $id))
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->orderByDesc('period_start')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organisation's periods, or null when the id is missing or foreign.
+     */
+    public function findPeriod(int $id): ?ConsolidationPeriod
+    {
+        return ConsolidationPeriod::find($id);
+    }
+
+    /**
+     * One of the organisation's periods with its group, entities, fiscal year,
+     * creator and elimination/balance counts.
+     */
+    public function findPeriodWithDetails(int $id): ?ConsolidationPeriod
+    {
+        return ConsolidationPeriod::with([
+            'group.entities.entityOrganization',
+            'fiscalYear',
+            'createdBy:id,name',
+        ])
+            ->withCount(['eliminationEntries', 'consolidatedBalances'])
+            ->find($id);
+    }
+
+    public function countCollectedBalances(ConsolidationPeriod $period): int
+    {
+        return $period->consolidatedBalances()->count();
+    }
+
+    /**
+     * Page through a period's elimination entries, newest first. An entry
+     * type filter applies only when its value is truthy.
+     */
+    public function paginateEliminations(ConsolidationPeriod $period, mixed $entryType, int $perPage): LengthAwarePaginator
+    {
+        return EliminationEntry::where('consolidation_period_id', $period->id)
+            ->with([
+                'debitAccount:id,code,name',
+                'creditAccount:id,code,name',
+                'createdBy:id,name',
+            ])
+            ->when($entryType, fn ($q, $t) => $q->where('entry_type', $t))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    // -------------------------------------------------------------------------
+    // Writes
+    // -------------------------------------------------------------------------
 
     /**
      * Create a consolidation group along with its initial entities.

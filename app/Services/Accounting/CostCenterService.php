@@ -15,6 +15,8 @@ use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntryLine;
 use App\Models\HR\Employee;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -24,6 +26,112 @@ class CostCenterService
     public function __construct(
         private readonly JournalService $journalService
     ) {}
+
+    // ----------------------------------------------------------------
+    // Queries
+    // ----------------------------------------------------------------
+
+    /**
+     * The cost center list: by code, with parent and manager. status and
+     * search apply unless null; parent_id, unless null, keeps one parent's
+     * children, and otherwise roots_only keeps top-level centers. It is
+     * returned unexecuted so an AG Grid request can add its own sort, filter
+     * and row window.
+     *
+     * @param  array{status?: string|null, search?: string|null, parent_id?: int|null, roots_only?: bool}  $filters
+     */
+    public function costCenterQuery(array $filters): Builder
+    {
+        return CostCenter::with(['parent:id,code,name', 'manager:id,first_name,last_name'])
+            ->orderBy('code')
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['search']), function ($q) use ($filters): void {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search): void {
+                    $q->where('code', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->when(
+                isset($filters['parent_id']),
+                fn ($q) => $q->where('parent_id', $filters['parent_id']),
+                fn ($q) => $q->when($filters['roots_only'] ?? false, fn ($q) => $q->whereNull('parent_id'))
+            );
+    }
+
+    /**
+     * @param  array{status?: string|null, search?: string|null, parent_id?: int|null, roots_only?: bool}  $filters
+     */
+    public function listCostCenters(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return $this->costCenterQuery($filters)->paginate($perPage);
+    }
+
+    /**
+     * Allocations, latest period end first, with both cost centers. Each
+     * filter applies unless null.
+     *
+     * @param  array{status?: string|null, from_cost_center_id?: int|null, to_cost_center_id?: int|null}  $filters
+     */
+    public function listAllocations(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CostAllocation::with([
+            'fromCostCenter:id,code,name',
+            'toCostCenter:id,code,name',
+        ])
+            ->orderByDesc('period_end')
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['from_cost_center_id']), fn ($q) => $q->where('from_cost_center_id', $filters['from_cost_center_id']))
+            ->when(isset($filters['to_cost_center_id']), fn ($q) => $q->where('to_cost_center_id', $filters['to_cost_center_id']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * An employee to assign, found through the employee organization scope,
+     * so another organization's employee is not found.
+     */
+    public function findEmployee(int $employeeId): Employee
+    {
+        return Employee::findOrFail($employeeId);
+    }
+
+    /**
+     * The organization's active cost centers as a nested tree (SAP standard
+     * hierarchy), starting from those without a parent, each level ordered by
+     * code. The centers are read in one query and nested in memory; an active
+     * center whose parent is inactive is left out along with that parent.
+     *
+     * @return list<array{id: int, uuid: string, code: string, name: string, manager: mixed, children: array}>
+     */
+    public function hierarchyTree(int $organizationId): array
+    {
+        $childrenByParent = CostCenter::where('organization_id', $organizationId)
+            ->where('status', CostCenter::STATUS_ACTIVE)
+            ->with(['manager:id,first_name,last_name'])
+            ->orderBy('code')
+            ->get()
+            ->groupBy(fn (CostCenter $costCenter): int => (int) ($costCenter->parent_id ?? 0));
+
+        return $this->hierarchyLevel($childrenByParent, 0);
+    }
+
+    /**
+     * @param  Collection<int, Collection<int, CostCenter>>  $childrenByParent  keyed by parent id, 0 for roots
+     */
+    private function hierarchyLevel(Collection $childrenByParent, int $parentId): array
+    {
+        return $childrenByParent->get($parentId, collect())
+            ->map(fn (CostCenter $node): array => [
+                'id'       => $node->id,
+                'uuid'     => $node->uuid,
+                'code'     => $node->code,
+                'name'     => $node->name,
+                'manager'  => $node->manager,
+                'children' => $this->hierarchyLevel($childrenByParent, $node->id),
+            ])
+            ->values()
+            ->all();
+    }
 
     // ----------------------------------------------------------------
     // Cost Center CRUD

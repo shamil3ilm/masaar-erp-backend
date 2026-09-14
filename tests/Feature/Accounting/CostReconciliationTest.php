@@ -6,6 +6,7 @@ namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\AssessmentCycle;
 use App\Models\Accounting\CostReconciliationRun;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -151,6 +152,20 @@ class CostReconciliationTest extends TestCase
             ->postJson('/api/v1/co-reconciliation/reconcile-distribution', []);
 
         $response->assertStatus(422);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tenant isolation
+    // -------------------------------------------------------------------------
+
+    public function test_show_returns_404_for_another_organizations_run(): void
+    {
+        $otherOrg = Organization::factory()->create();
+        $run      = $this->makeRun(['organization_id' => $otherOrg->id]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/co-reconciliation/' . $run->id)
+            ->assertStatus(404);
     }
 
     // -------------------------------------------------------------------------

@@ -28,25 +28,15 @@ class AssetController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = FixedAsset::with([
-            'category:id,name,code',
-            'branch:id,name',
-            'createdBy:id,name',
-        ])->orderByDesc('created_at');
-
-        $query
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->category_id, fn ($q, $v) => $q->where('asset_category_id', $v))
-            ->when($request->branch_id, fn ($q, $v) => $q->where('branch_id', $v))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search): void {
-                    $inner->where('name', 'like', "%{$search}%")
-                        ->orWhere('asset_number', 'like', "%{$search}%")
-                        ->orWhere('serial_number', 'like', "%{$search}%");
-                });
-            });
-
-        $assets = $query->paginate($request->integer('per_page', 20));
+        $assets = $this->assetService->listAssets(
+            [
+                'status'      => $request->status,
+                'category_id' => $request->category_id,
+                'branch_id'   => $request->branch_id,
+                'search'      => $request->search,
+            ],
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($assets);
     }
@@ -196,7 +186,7 @@ class AssetController extends Controller
             'settlement_date'  => ['required', 'date'],
         ]);
 
-        $targetAsset = FixedAsset::findOrFail($validated['target_asset_id']);
+        $targetAsset = $this->assetService->findAsset((int) $validated['target_asset_id']);
 
         try {
             $result = $this->assetService->settleAuC(
@@ -222,25 +212,15 @@ class AssetController extends Controller
      */
     public function categoriesIndex(Request $request): JsonResponse
     {
-        $query = AssetCategory::with([
-            'glAssetAccount:id,code,name',
-            'glDepreciationAccount:id,code,name',
-            'glAccumulatedAccount:id,code,name',
-        ])->orderBy('name');
-
-        $query
-            ->when(
-                $request->filled('active'),
-                fn ($q) => $q->where('is_active', filter_var($request->active, FILTER_VALIDATE_BOOLEAN))
-            )
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search): void {
-                    $inner->where('name', 'like', "%{$search}%")
-                        ->orWhere('code', 'like', "%{$search}%");
-                });
-            });
-
-        $categories = $query->paginate($request->integer('per_page', 50));
+        $categories = $this->assetService->listCategories(
+            [
+                'active' => $request->filled('active')
+                    ? filter_var($request->active, FILTER_VALIDATE_BOOLEAN)
+                    : null,
+                'search' => $request->search,
+            ],
+            $request->integer('per_page', 50)
+        );
 
         return $this->paginated($categories);
     }
@@ -281,19 +261,13 @@ class AssetController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        // Ensure unique code per organization
-        $orgId = $this->organizationId($request);
-        $exists = AssetCategory::where('organization_id', $orgId)
-            ->where('code', $validated['code'])
-            ->exists();
-
-        if ($exists) {
-            return $this->error("Category code '{$validated['code']}' already exists.", 'DUPLICATE_CODE', 422);
+        try {
+            $category = $this->assetService->createCategory(
+                array_merge($validated, ['organization_id' => $this->organizationId($request)])
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'DUPLICATE_CODE', 422);
         }
-
-        $category = $this->assetService->createCategory(
-            array_merge($validated, ['organization_id' => $orgId])
-        );
 
         return $this->created($category, 'Asset category created successfully');
     }
@@ -375,14 +349,13 @@ class AssetController extends Controller
      */
     public function depreciation_runs_index(Request $request): JsonResponse
     {
-        $query = DepreciationRun::with(['fiscalYear:id,name', 'createdBy:id,name', 'postedBy:id,name'])
-            ->orderByDesc('run_date');
-
-        $query
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->fiscal_year_id, fn ($q, $v) => $q->where('fiscal_year_id', $v));
-
-        $runs = $query->paginate($request->integer('per_page', 20));
+        $runs = $this->assetService->listDepreciationRuns(
+            [
+                'status'         => $request->status,
+                'fiscal_year_id' => $request->fiscal_year_id,
+            ],
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($runs);
     }

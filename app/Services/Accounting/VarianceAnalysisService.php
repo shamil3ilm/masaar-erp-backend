@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\VarianceAnalysisItem;
 use App\Models\Accounting\VarianceAnalysisRun;
 use App\Models\Manufacturing\WorkOrder;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -16,6 +17,33 @@ class VarianceAnalysisService
     // ----------------------------------------------------------------
     // Run management
     // ----------------------------------------------------------------
+
+    /**
+     * Runs of the current organization, newest first.
+     *
+     * @param  array{period?: ?int, fiscal_year?: ?int, status?: mixed}  $filters
+     *         A filter applies only when it is set and not null.
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        $query = VarianceAnalysisRun::orderBy('id', 'desc');
+
+        foreach (['period', 'fiscal_year', 'status'] as $column) {
+            if (isset($filters[$column])) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * A run with the user who started it; 404 when it is not visible.
+     */
+    public function findRun(int $id): VarianceAnalysisRun
+    {
+        return VarianceAnalysisRun::with('runBy:id,name')->findOrFail($id);
+    }
 
     /**
      * Trigger a variance analysis run for the given period/year/type.
@@ -69,14 +97,29 @@ class VarianceAnalysisService
     }
 
     /**
-     * Summary grouped by variance_category for the most recent completed run in the period.
+     * Items of a run in the current organization; 404 when the run is not visible.
+     */
+    public function getResultsForRun(int $runId): Collection
+    {
+        VarianceAnalysisRun::findOrFail($runId);
+
+        return $this->getResults($runId);
+    }
+
+    /**
+     * Summary grouped by variance_category for the completed runs of one organization in the period.
+     *
+     * The query builder bypasses the organization global scope, so both the
+     * runs and their items are filtered to the organization here.
      *
      * @return array<string, array{category: string, total_standard: float, total_actual: float, total_variance: float}>
      */
-    public function getSummaryByCategory(int $period, int $year): array
+    public function getSummaryByCategory(int $period, int $year, int $organizationId): array
     {
         $rows = DB::table('variance_analysis_items as vai')
             ->join('variance_analysis_runs as var', 'var.id', '=', 'vai.variance_analysis_run_id')
+            ->where('var.organization_id', $organizationId)
+            ->where('vai.organization_id', $organizationId)
             ->where('var.period', $period)
             ->where('var.fiscal_year', $year)
             ->where('var.status', VarianceAnalysisRun::STATUS_COMPLETED)

@@ -61,6 +61,22 @@ class StatisticalKeyFigureService
         });
     }
 
+    /**
+     * A key figure of the current organization; 404 when it is not visible.
+     */
+    public function find(int $id): StatisticalKeyFigure
+    {
+        return StatisticalKeyFigure::findOrFail($id);
+    }
+
+    /**
+     * A key figure with its posted values; 404 when it is not visible.
+     */
+    public function findWithValues(int $id): StatisticalKeyFigure
+    {
+        return StatisticalKeyFigure::with('values')->findOrFail($id);
+    }
+
     // ----------------------------------------------------------------
     // Values
     // ----------------------------------------------------------------

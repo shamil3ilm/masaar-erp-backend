@@ -227,6 +227,99 @@ class CashFlowTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_update_scenario_to_base_case_demotes_the_other_base_case(): void
+    {
+        $existing = $this->makeScenario(['name' => 'Old Base', 'is_base_case' => true]);
+        $scenario = $this->makeScenario(['name' => 'Candidate']);
+
+        $this->withToken($this->token)
+            ->putJson('/api/v1/cash-flow/scenarios/' . $scenario->uuid, ['is_base_case' => true])
+            ->assertStatus(200)
+            ->assertJsonPath('data.is_base_case', true)
+            ->assertJsonPath('data.creator.id', $this->user->id);
+
+        $this->assertFalse($existing->fresh()->is_base_case);
+    }
+
+    public function test_index_scenarios_lists_base_case_first_then_by_name(): void
+    {
+        $this->makeScenario(['name' => 'Beta']);
+        $this->makeScenario(['name' => 'Alpha']);
+        $this->makeScenario(['name' => 'Zulu', 'is_base_case' => true]);
+
+        $response = $this->withToken($this->token)->getJson('/api/v1/cash-flow/scenarios');
+
+        $this->assertSame(['Zulu', 'Alpha', 'Beta'], array_column($response->json('data'), 'name'));
+    }
+
+    public function test_generate_forecast_links_the_requested_scenario_and_list_filters_by_it(): void
+    {
+        $scenario = $this->makeScenario();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/cash-flow/forecasts/generate', ['horizon_days' => 30, 'scenario_id' => $scenario->id])
+            ->assertStatus(201)
+            ->assertJsonPath('data.forecast.scenario.id', $scenario->id);
+        $this->withToken($this->token)
+            ->postJson('/api/v1/cash-flow/forecasts/generate', ['horizon_days' => 30])
+            ->assertStatus(201);
+
+        $this->assertCount(2, $this->withToken($this->token)->getJson('/api/v1/cash-flow/forecasts')->json('data'));
+
+        $filtered = $this->withToken($this->token)
+            ->getJson('/api/v1/cash-flow/forecasts?scenario_id=' . $scenario->id);
+        $filtered->assertStatus(200)->assertJsonPath('data.0.scenario.id', $scenario->id);
+        $this->assertCount(1, $filtered->json('data'));
+    }
+
+    public function test_generate_forecast_returns_404_for_another_organizations_scenario(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $scenario = $this->makeScenario(['organization_id' => $otherOrg->id]);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/cash-flow/forecasts/generate', ['horizon_days' => 30, 'scenario_id' => $scenario->id])
+            ->assertStatus(404);
+
+        $this->assertSame(0, CashFlowForecast::withoutGlobalScopes()->count());
+    }
+
+    public function test_forecast_lines_filter_by_flow_type_confidence_and_source(): void
+    {
+        $forecast = CashFlowForecast::create([
+            'organization_id'       => $this->organization->id,
+            'forecast_date'         => now()->toDateString(),
+            'horizon_days'          => 30,
+            'currency_code'         => 'SAR',
+            'total_opening_balance' => 0,
+            'total_inflows'         => 0,
+            'total_outflows'        => 0,
+            'closing_balance'       => 0,
+            'generated_at'          => now(),
+        ]);
+        $line = fn (string $description, string $flow, string $confidence, string $source) => \App\Models\Accounting\CashFlowLine::create([
+            'forecast_id'   => $forecast->id,
+            'expected_date' => now()->toDateString(),
+            'flow_type'     => $flow,
+            'source_type'   => $source,
+            'description'   => $description,
+            'amount'        => 10,
+            'confidence'    => $confidence,
+            'is_actual'     => false,
+        ]);
+        $line('match', 'inflow', 'certain', 'manual');
+        $line('outflow', 'outflow', 'certain', 'manual');
+        $line('possible', 'inflow', 'possible', 'manual');
+        $line('invoice', 'inflow', 'certain', 'invoice');
+
+        $response = $this->withToken($this->token)->getJson(
+            '/api/v1/cash-flow/forecasts/' . $forecast->uuid . '/lines?flow_type=inflow&confidence=certain&source_type=manual'
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['match'], array_column($response->json('data'), 'description'));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

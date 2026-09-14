@@ -96,10 +96,12 @@ class CopaController extends Controller
             'fiscal_year_id' => ['nullable', 'integer', 'exists:fiscal_years,id'],
         ]);
 
-        $query = CopaPlanVersion::where('organization_id', $this->organizationId($request))
-            ->when($request->filled('fiscal_year_id'), fn($q) => $q->where('fiscal_year_id', $request->fiscal_year_id));
+        $versions = $this->service->listPlanVersions(
+            $this->organizationId($request),
+            $request->filled('fiscal_year_id') ? $request->integer('fiscal_year_id') : null
+        );
 
-        return $this->success($query->orderByDesc('id')->paginate(25));
+        return $this->success($versions);
     }
 
     /**

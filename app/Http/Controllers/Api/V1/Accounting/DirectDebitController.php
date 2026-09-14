@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\DirectDebitCollection;
-use App\Models\Accounting\DirectDebitMandate;
 use App\Services\Accounting\DirectDebitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,14 +60,12 @@ class DirectDebitController extends Controller
 
     public function showMandate(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::with(['counterparty:id,contact_name', 'bankAccount:id,account_name'])->findOrFail($id);
-
-        return $this->success($mandate);
+        return $this->success($this->service->findMandateWithParties($id));
     }
 
     public function updateMandate(Request $request, string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::findOrFail($id);
+        $mandate = $this->service->findMandate($id);
 
         $validated = $request->validate([
             'iban' => ['nullable', 'string', 'max:34'],
@@ -92,7 +88,7 @@ class DirectDebitController extends Controller
 
     public function activate(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::findOrFail($id);
+        $mandate = $this->service->findMandate($id);
 
         return $this->tryAction(
             fn () => $this->service->activate($mandate),
@@ -103,7 +99,7 @@ class DirectDebitController extends Controller
 
     public function pause(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::findOrFail($id);
+        $mandate = $this->service->findMandate($id);
 
         return $this->tryAction(
             fn () => $this->service->pause($mandate),
@@ -114,7 +110,7 @@ class DirectDebitController extends Controller
 
     public function cancelMandate(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::findOrFail($id);
+        $mandate = $this->service->findMandate($id);
 
         return $this->tryAction(
             fn () => $this->service->cancel($mandate),
@@ -125,13 +121,9 @@ class DirectDebitController extends Controller
 
     public function collections(string $id): JsonResponse
     {
-        $mandate = DirectDebitMandate::findOrFail($id);
+        $mandate = $this->service->findMandate($id);
 
-        $collections = DirectDebitCollection::where('direct_debit_mandate_id', $mandate->id)
-            ->orderByDesc('collection_date')
-            ->paginate(20);
-
-        return $this->paginated($collections);
+        return $this->paginated($this->service->listCollections($mandate));
     }
 
     public function dueCollections(Request $request): JsonResponse
@@ -155,7 +147,7 @@ class DirectDebitController extends Controller
 
     public function processCollection(string $collectionId): JsonResponse
     {
-        $collection = DirectDebitCollection::findOrFail($collectionId);
+        $collection = $this->service->findCollection($collectionId);
 
         return $this->tryAction(
             fn () => $this->service->processCollection($collection),

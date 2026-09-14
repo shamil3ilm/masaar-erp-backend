@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +19,7 @@ class ParkedDocument extends Model
     use HasFactory;
     use HasUuid;
     use SoftDeletes;
+    use LocksForTransition;
 
     protected $guarded = ['id'];
 

@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\AccountingPeriod;
 use App\Services\Accounting\PeriodLockService;
 use Carbon\Carbon;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PeriodLockController extends Controller
 {
@@ -33,14 +34,34 @@ class PeriodLockController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
+        // The period and the user must both belong to this organization: the
+        // response echoes the user's name and email and the period's dates.
+        // Periods have no organization column, so they are matched through
+        // their fiscal year.
         $validated = $request->validate([
-            'period_id' => ['required', 'integer', 'exists:accounting_periods,id'],
-            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'period_id' => [
+                'required',
+                'integer',
+                Rule::exists('accounting_periods', 'id')->where(
+                    fn (Builder $query) => $query->whereIn(
+                        'fiscal_year_id',
+                        fn (Builder $years) => $years->select('id')
+                            ->from('fiscal_years')
+                            ->where('organization_id', $organizationId)
+                    )
+                ),
+            ],
+            'user_id' => [
+                'required',
+                'integer',
+                Rule::exists('users', 'id')->where('organization_id', $organizationId),
+            ],
             'reason' => ['required', 'string', 'max:1000'],
             'valid_until' => ['nullable', 'date', 'after:now'],
         ]);
 
-        $organizationId = $this->organizationId($request);
         $grantedBy = auth()->id();
 
         $override = $this->periodLockService->grantOverride(
@@ -84,13 +105,7 @@ class PeriodLockController extends Controller
 
         $locked = $this->periodLockService->isLockedForUser($organizationId, $date, $userId);
 
-        $period = AccountingPeriod::withoutGlobalScopes()
-            ->whereHas('fiscalYear', function ($q) use ($organizationId) {
-                $q->withoutGlobalScopes()->where('organization_id', $organizationId);
-            })
-            ->whereDate('start_date', '<=', $date)
-            ->whereDate('end_date', '>=', $date)
-            ->first(['id', 'period_number', 'period_type', 'start_date', 'end_date', 'is_closed']);
+        $period = $this->periodLockService->periodSummaryForDate($organizationId, $date);
 
         return $this->success([
             'locked' => $locked,

@@ -9,6 +9,7 @@ use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntryLine;
 use App\Models\Accounting\SpecialLedger;
 use App\Models\Accounting\SpecialLedgerEntry;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -105,16 +106,79 @@ class SpecialLedgerService
     }
 
     /**
+     * List the organisation's ledgers ordered by code, optionally only active ones.
+     */
+    public function listLedgers(bool $activeOnly): Collection
+    {
+        return SpecialLedger::query()
+            ->orderBy('code')
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->get();
+    }
+
+    /**
+     * Find one of the organisation's ledgers; a missing or foreign id is a 404.
+     *
+     * @param  array<int, string>  $relations
+     */
+    public function findLedger(int $id, array $relations = []): SpecialLedger
+    {
+        return SpecialLedger::with($relations)->findOrFail($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateLedger(SpecialLedger $ledger, array $data): SpecialLedger
+    {
+        $ledger->update($data);
+
+        return $ledger;
+    }
+
+    /**
+     * Delete a ledger. The leading ledger carries the statutory books and is kept.
+     */
+    public function deleteLedger(SpecialLedger $ledger): void
+    {
+        if ($ledger->is_leading) {
+            throw new InvalidArgumentException('Cannot delete the leading ledger.');
+        }
+
+        $ledger->delete();
+    }
+
+    /**
+     * Page through a ledger's entries, newest posting first. A fiscal year or
+     * period filter applies only when its value is truthy.
+     */
+    public function paginateEntries(SpecialLedger $ledger, mixed $fiscalYear, mixed $period, int $perPage): LengthAwarePaginator
+    {
+        return $ledger->entries()
+            ->with('account:id,code,name')
+            ->when($fiscalYear, fn ($q, $y) => $q->where('fiscal_year', (int) $y))
+            ->when($period, fn ($q, $p) => $q->where('period', (int) $p))
+            ->orderByDesc('posting_date')
+            ->paginate($perPage);
+    }
+
+    /**
      * Get a trial balance for a ledger at a specific year/period.
+     *
+     * The entry query runs without the organisation scope, so the ledger is
+     * resolved under that scope first: another organisation's ledger is a 404
+     * rather than its balances.
      */
     public function getTrialBalance(int $ledgerId, int $fiscalYear, int $period): Collection
     {
+        $ledger = SpecialLedger::findOrFail($ledgerId);
+
         return SpecialLedgerEntry::withoutGlobalScopes()
             ->select('account_id')
             ->selectRaw('SUM(CASE WHEN debit_credit = ? THEN amount_local ELSE 0 END) as total_debit', ['D'])
             ->selectRaw('SUM(CASE WHEN debit_credit = ? THEN amount_local ELSE 0 END) as total_credit', ['C'])
             ->selectRaw('SUM(CASE WHEN debit_credit = ? THEN amount_local ELSE -amount_local END) as balance', ['D'])
-            ->where('special_ledger_id', $ledgerId)
+            ->where('special_ledger_id', $ledger->id)
             ->where('fiscal_year', $fiscalYear)
             ->where('period', '<=', $period)
             ->groupBy('account_id')

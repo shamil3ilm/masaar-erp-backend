@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\JournalEntry;
+use App\Services\Accounting\JournalEntryQueryService;
 use App\Services\Accounting\JournalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ class JournalEntryController extends Controller
 {
     use SupportsAgGrid;
     public function __construct(
-        private JournalService $journalService
+        private JournalService $journalService,
+        private JournalEntryQueryService $journalEntries,
     ) {}
 
     /**
@@ -24,21 +26,9 @@ class JournalEntryController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = JournalEntry::with(['branch:id,name', 'createdBy:id,name'])
-            ->orderByDesc('entry_date')
-            ->orderByDesc('id')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->has('fiscal_year_id'), fn($q) => $q->where('fiscal_year_id', $request->fiscal_year_id))
-            ->when($request->has('start_date'), fn($q) => $q->whereDate('entry_date', '>=', $request->start_date))
-            ->when($request->has('end_date'), fn($q) => $q->whereDate('entry_date', '<=', $request->end_date))
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->search;
-                $q->where(function ($q) use ($search) {
-                    $q->where('entry_number', 'like', "%{$search}%")
-                        ->orWhere('reference', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%");
-                });
-            });
+        $query = $this->journalEntries->query(
+            $request->only(['status', 'fiscal_year_id', 'start_date', 'end_date', 'search'])
+        );
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -143,11 +133,11 @@ class JournalEntryController extends Controller
      */
     public function destroy(JournalEntry $journalEntry): JsonResponse
     {
-        if ($journalEntry->status !== JournalEntry::STATUS_DRAFT) {
-            return $this->error('Only draft entries can be deleted', 'INVALID_STATUS', 400);
+        try {
+            $this->journalService->deleteDraft($journalEntry);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 400);
         }
-
-        $journalEntry->delete();
 
         return $this->success(null, 'Journal entry deleted successfully');
     }

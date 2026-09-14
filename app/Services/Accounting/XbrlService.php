@@ -9,6 +9,7 @@ use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\XbrlFiling;
 use App\Models\Accounting\XbrlFilingElement;
 use App\Models\Accounting\XbrlTaxonomy;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -27,6 +28,26 @@ class XbrlService
     // -------------------------------------------------------------------------
     // Taxonomy management
     // -------------------------------------------------------------------------
+
+    /**
+     * Page through taxonomies by name, optionally only active ones.
+     */
+    public function paginateTaxonomies(bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return XbrlTaxonomy::when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateTaxonomy(XbrlTaxonomy $taxonomy, array $data): XbrlTaxonomy
+    {
+        $taxonomy->update($data);
+
+        return $taxonomy->fresh();
+    }
 
     public function createTaxonomy(int $organizationId, array $data, int $userId): XbrlTaxonomy
     {
@@ -51,6 +72,40 @@ class XbrlService
     // -------------------------------------------------------------------------
     // Filing creation
     // -------------------------------------------------------------------------
+
+    /**
+     * Page through filings, newest first. A status or fiscal year filter
+     * applies only when its value is truthy.
+     */
+    public function paginateFilings(mixed $status, mixed $fiscalYearId, int $perPage): LengthAwarePaginator
+    {
+        return XbrlFiling::with(['taxonomy:id,name,version', 'fiscalYear:id,name', 'createdBy:id,name'])
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->when($fiscalYearId, fn ($q, $id) => $q->where('fiscal_year_id', $id))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Create a filing from a fiscal year id and a taxonomy id.
+     *
+     * Both are resolved under the organisation scope, so an id belonging to
+     * another organisation is a 404.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createFilingFromIds(
+        int $organizationId,
+        int|string $fiscalYearId,
+        int|string $taxonomyId,
+        array $data,
+        int $userId
+    ): XbrlFiling {
+        $fiscalYear = FiscalYear::findOrFail($fiscalYearId);
+        $taxonomy   = XbrlTaxonomy::findOrFail($taxonomyId);
+
+        return $this->createFiling($organizationId, $fiscalYear, $taxonomy, $data, $userId);
+    }
 
     /**
      * Create a new XBRL filing and auto-populate elements from the trial balance.

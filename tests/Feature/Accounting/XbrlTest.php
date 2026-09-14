@@ -7,6 +7,7 @@ namespace Tests\Feature\Accounting;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\XbrlFiling;
 use App\Models\Accounting\XbrlTaxonomy;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -220,6 +221,95 @@ class XbrlTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_taxonomies_index_filters_active_and_paginates(): void
+    {
+        $this->makeTaxonomy(['name' => 'B Taxonomy']);
+        $this->makeTaxonomy(['name' => 'A Taxonomy']);
+        $this->makeTaxonomy(['name' => 'C Taxonomy', 'is_active' => false]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/xbrl/taxonomies?per_page=2')
+            ->assertStatus(200)
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.name', 'A Taxonomy')
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.total', 3);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/xbrl/taxonomies?active_only=1')
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_taxonomies_update_returns_updated_taxonomy(): void
+    {
+        $taxonomy = $this->makeTaxonomy(['name' => 'Old Name']);
+
+        $this->withToken($this->token)
+            ->putJson('/api/v1/xbrl/taxonomies/' . $taxonomy->uuid, ['name' => 'Renamed', 'is_active' => false])
+            ->assertStatus(200)
+            ->assertJsonPath('message', 'Taxonomy updated.')
+            ->assertJsonPath('data.name', 'Renamed')
+            ->assertJsonPath('data.is_active', false);
+    }
+
+    public function test_filings_index_filters_by_status_and_fiscal_year(): void
+    {
+        $taxonomy   = $this->makeTaxonomy();
+        $fiscalYear = $this->makeFiscalYear();
+        $this->makeFiling($taxonomy, $fiscalYear);
+        $validated  = $this->makeFiling($taxonomy, $fiscalYear, ['status' => XbrlFiling::STATUS_VALIDATED]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/xbrl/filings?status=validated&fiscal_year_id=' . $fiscalYear->id)
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $validated->id)
+            ->assertJsonPath('data.0.taxonomy.name', $taxonomy->name)
+            ->assertJsonPath('data.0.fiscal_year.name', 'FY2025')
+            ->assertJsonPath('data.0.created_by.id', $this->user->id)
+            ->assertJsonPath('meta.per_page', 20);
+    }
+
+    public function test_filings_store_returns_404_for_another_organizations_fiscal_year_or_taxonomy(): void
+    {
+        $otherOrg      = Organization::factory()->create();
+        $taxonomy      = $this->makeTaxonomy();
+        $fiscalYear    = $this->makeFiscalYear();
+        $otherTaxonomy = $this->makeTaxonomy(['organization_id' => $otherOrg->id]);
+        $otherYear     = FiscalYear::create([
+            'organization_id' => $otherOrg->id,
+            'name'            => 'FY2025 other',
+            'start_date'      => '2025-01-01',
+            'end_date'        => '2025-12-31',
+            'is_closed'       => false,
+        ]);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/xbrl/filings', ['fiscal_year_id' => $otherYear->id, 'taxonomy_id' => $taxonomy->id])
+            ->assertStatus(404);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/xbrl/filings', ['fiscal_year_id' => $fiscalYear->id, 'taxonomy_id' => $otherTaxonomy->id])
+            ->assertStatus(404);
+
+        $this->assertSame(0, XbrlFiling::withoutGlobalScopes()->count());
+    }
+
+    public function test_filings_store_returns_created_filing_with_relations(): void
+    {
+        $taxonomy   = $this->makeTaxonomy();
+        $fiscalYear = $this->makeFiscalYear();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/xbrl/filings', ['fiscal_year_id' => $fiscalYear->id, 'taxonomy_id' => $taxonomy->id])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Filing created successfully.')
+            ->assertJsonPath('data.status', XbrlFiling::STATUS_DRAFT)
+            ->assertJsonPath('data.taxonomy.id', $taxonomy->id)
+            ->assertJsonPath('data.fiscal_year.id', $fiscalYear->id)
+            ->assertJsonPath('data.elements', []);
     }
 
     // -------------------------------------------------------------------------

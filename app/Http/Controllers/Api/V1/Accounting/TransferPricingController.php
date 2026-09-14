@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\TransferPrice;
-use App\Models\Accounting\TransferPriceVersion;
 use App\Services\Accounting\TransferPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,21 +26,17 @@ class TransferPricingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = TransferPrice::with([
-            'fromProfitCenter:id,code,name',
-            'toProfitCenter:id,code,name',
-            'product:id,name,code',
-            'costElement:id,code,name',
-        ])->orderByDesc('effective_from')
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->filled('product_id'), fn($q) => $q->where('product_id', $request->integer('product_id')))
-            ->when($request->filled('from_profit_center_id'), fn($q) => $q->where('from_profit_center_id', $request->integer('from_profit_center_id')))
-            ->when($request->filled('to_profit_center_id'), fn($q) => $q->where('to_profit_center_id', $request->integer('to_profit_center_id')))
-            ->when($request->filled('method'), fn($q) => $q->where('transfer_price_method', $request->method));
+        $filters = [
+            'active_only'           => $request->boolean('active_only'),
+            'product_id'            => $request->filled('product_id') ? $request->integer('product_id') : null,
+            'from_profit_center_id' => $request->filled('from_profit_center_id') ? $request->integer('from_profit_center_id') : null,
+            'to_profit_center_id'   => $request->filled('to_profit_center_id') ? $request->integer('to_profit_center_id') : null,
+            'method'                => $request->filled('method') ? $request->method : null,
+        ];
 
         $perPage = $request->integer('per_page', 20);
 
-        return $this->paginated($query->paginate($perPage));
+        return $this->paginated($this->service->paginatePrices($filters, $perPage));
     }
 
     /**
@@ -81,16 +76,7 @@ class TransferPricingController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $tp = TransferPrice::with([
-            'fromProfitCenter:id,code,name',
-            'toProfitCenter:id,code,name',
-            'fromCostCenter:id,code,name',
-            'toCostCenter:id,code,name',
-            'product:id,name,code',
-            'costElement:id,code,name',
-            'conditions',
-            'history' => fn ($q) => $q->orderByDesc('changed_at')->limit(10),
-        ])->findOrFail($id);
+        $tp = $this->service->findPriceWithDetails($id);
 
         return $this->success($tp);
     }
@@ -100,7 +86,7 @@ class TransferPricingController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $tp = TransferPrice::findOrFail($id);
+        $tp = $this->service->findPrice($id);
 
         $validated = $request->validate([
             'from_profit_center_id'  => ['nullable', 'integer', 'exists:profit_centers,id'],
@@ -129,8 +115,7 @@ class TransferPricingController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $tp = TransferPrice::findOrFail($id);
-        $tp->delete();
+        $this->service->deletePrice($this->service->findPrice($id));
 
         return $this->success(['message' => 'Transfer price deleted.']);
     }
@@ -144,14 +129,13 @@ class TransferPricingController extends Controller
      */
     public function versions(Request $request): JsonResponse
     {
-        $query = TransferPriceVersion::with('createdBy:id,name')
-            ->orderByDesc('created_at')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->filled('fiscal_year'), fn($q) => $q->where('fiscal_year', $request->integer('fiscal_year')));
+        $versions = $this->service->paginateVersions(
+            $request->filled('status') ? $request->status : null,
+            $request->filled('fiscal_year') ? $request->integer('fiscal_year') : null,
+            $request->integer('per_page', 20),
+        );
 
-        $perPage = $request->integer('per_page', 20);
-
-        return $this->paginated($query->paginate($perPage));
+        return $this->paginated($versions);
     }
 
     /**
@@ -181,7 +165,7 @@ class TransferPricingController extends Controller
      */
     public function activateVersion(int $id): JsonResponse
     {
-        $version = TransferPriceVersion::findOrFail($id);
+        $version = $this->service->findVersion($id);
 
         $this->service->activateVersion($version);
 

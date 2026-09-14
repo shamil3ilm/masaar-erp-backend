@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\FxForward;
 use App\Models\Accounting\FxHedgeRelation;
 use App\Models\Accounting\FxValuation;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -29,6 +30,30 @@ class FxDerivativeService
     // ----------------------------------------------------------------
     // Forward lifecycle
     // ----------------------------------------------------------------
+
+    /**
+     * An organization's forwards, latest trade date first, with their hedge
+     * relation and latest valuation. Each filter applies only when non-empty.
+     */
+    public function listForwards(int $organizationId, mixed $status, mixed $buyCurrency, int $perPage = 20): LengthAwarePaginator
+    {
+        return FxForward::where('organization_id', $organizationId)
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->when($buyCurrency, fn ($q) => $q->where('buy_currency', $buyCurrency))
+            ->with(['hedgeRelation', 'latestValuation'])
+            ->orderByDesc('trade_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * The forward's hedge relation that is still designated.
+     */
+    public function findDesignatedHedge(FxForward $forward): FxHedgeRelation
+    {
+        return FxHedgeRelation::where('fx_forward_id', $forward->id)
+            ->where('status', 'designated')
+            ->firstOrFail();
+    }
 
     public function bookForward(int $organizationId, array $data, int $createdBy): FxForward
     {
