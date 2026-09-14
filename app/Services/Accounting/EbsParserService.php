@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\BankStatementImport;
 use App\Models\Accounting\BankTransaction;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 /**
@@ -43,6 +45,61 @@ class EbsParserService
         ]);
 
         return count($transactions);
+    }
+
+    /**
+     * Parse the stored file of an MT940 or CAMT.053 import into bank
+     * transactions.
+     *
+     * The import stays locked while its file is parsed and its transactions
+     * are written, so a concurrent request waits and then finds it completed
+     * instead of importing the same transactions again. A file the parser
+     * rejects rolls the transactions back and marks the import failed.
+     *
+     * @throws BusinessRuleException UNSUPPORTED_FORMAT, ALREADY_PARSED, FILE_NOT_FOUND or PARSE_FAILED
+     */
+    public function parseStoredImport(BankStatementImport $import): int
+    {
+        try {
+            return $import->lockForTransition(
+                fn (BankStatementImport $locked): int => $this->parseLockedImport($locked)
+            );
+        } catch (BusinessRuleException $e) {
+            if ($e->getErrorCode() === 'PARSE_FAILED') {
+                $import->update(['status' => BankStatementImport::STATUS_FAILED, 'errors' => [$e->getMessage()]]);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * @throws BusinessRuleException
+     */
+    private function parseLockedImport(BankStatementImport $import): int
+    {
+        if (! in_array($import->file_type, ['mt940', 'camt053'], true)) {
+            throw new BusinessRuleException(
+                "Format '{$import->file_type}' is not supported by the EBS parser. Supported: mt940, camt053.",
+                'UNSUPPORTED_FORMAT',
+                422
+            );
+        }
+
+        if ($import->status === BankStatementImport::STATUS_COMPLETED) {
+            throw new BusinessRuleException('Statement has already been parsed.', 'ALREADY_PARSED', 409);
+        }
+
+        $content = Storage::disk('private')->get($import->file_path);
+        if ($content === null) {
+            throw new BusinessRuleException('Statement file not found in storage.', 'FILE_NOT_FOUND', 404);
+        }
+
+        try {
+            return $this->import($import, $content);
+        } catch (RuntimeException $e) {
+            throw new BusinessRuleException($e->getMessage(), 'PARSE_FAILED', 422);
+        }
     }
 
     // -------------------------------------------------------------------------

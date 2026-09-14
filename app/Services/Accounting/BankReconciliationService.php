@@ -10,11 +10,64 @@ use App\Models\Accounting\BankReconciliation;
 use App\Models\Accounting\BankReconciliationItem;
 use App\Models\Accounting\BankStatementImport;
 use App\Models\Accounting\BankTransaction;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class BankReconciliationService
 {
+    /**
+     * Newest statement date first. Filters are passed as the keys the caller
+     * received, so a filter present with an empty value still applies.
+     *
+     * @param  array{bank_account_id?: mixed, status?: mixed, start_date?: mixed, end_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return BankReconciliation::with(['bankAccount:id,account_name,bank_name', 'createdBy:id,name'])
+            ->orderByDesc('statement_date')
+            ->orderByDesc('id')
+            ->when(array_key_exists('bank_account_id', $filters), fn ($q) => $q->where('bank_account_id', $filters['bank_account_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('start_date', $filters), fn ($q) => $q->whereDate('statement_date', '>=', $filters['start_date']))
+            ->when(array_key_exists('end_date', $filters), fn ($q) => $q->whereDate('statement_date', '<=', $filters['end_date']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Change the statement balance or notes of an in-progress reconciliation,
+     * recalculating the difference when the balance changes. Both writes run
+     * on the locked row, so a reconciliation completed meanwhile is refused.
+     *
+     * @param  array{statement_balance?: mixed, notes?: string|null}  $data
+     *
+     * @throws InvalidArgumentException when the reconciliation is not in progress
+     */
+    public function update(BankReconciliation $reconciliation, array $data): BankReconciliation
+    {
+        return $reconciliation->lockForTransition(function (BankReconciliation $locked) use ($data): BankReconciliation {
+            if ($locked->status !== BankReconciliation::STATUS_IN_PROGRESS) {
+                throw new InvalidArgumentException('Only in-progress reconciliations can be updated');
+            }
+
+            $locked->update($data);
+
+            if (isset($data['statement_balance'])) {
+                $locked->calculateDifference();
+            }
+
+            return $locked->fresh(['bankAccount', 'items']);
+        });
+    }
+
+    /**
+     * A statement import of the organization, or a 404 when it has none by that id.
+     */
+    public function findImport(int $organizationId, int $importId): BankStatementImport
+    {
+        return BankStatementImport::where('organization_id', $organizationId)->findOrFail($importId);
+    }
+
     /**
      * Create a new bank reconciliation session.
      */
