@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\ProfitCenter;
 use App\Models\Accounting\ProfitCenterPlan;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -15,6 +16,33 @@ class ProfitCenterService
     // ----------------------------------------------------------------
     // Profit Center CRUD
     // ----------------------------------------------------------------
+
+    /**
+     * Profit centers by code with parent and manager. status and search apply
+     * unless null; parent_id, unless null, keeps one parent's children, and
+     * otherwise roots_only keeps top-level centers.
+     *
+     * @param  array{status?: string|null, search?: string|null, parent_id?: int|null, roots_only?: bool}  $filters
+     */
+    public function listProfitCenters(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ProfitCenter::with(['parent:id,code,name', 'manager:id,first_name,last_name'])
+            ->orderBy('code')
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['search']), function ($q) use ($filters): void {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search): void {
+                    $q->where('code', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->when(
+                isset($filters['parent_id']),
+                fn ($q) => $q->where('parent_id', $filters['parent_id']),
+                fn ($q) => $q->when($filters['roots_only'] ?? false, fn ($q) => $q->whereNull('parent_id'))
+            )
+            ->paginate($perPage);
+    }
 
     public function createProfitCenter(array $data, int $userId): ProfitCenter
     {
