@@ -7,34 +7,33 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\DepartmentResource;
 use App\Models\HR\Department;
+use App\Services\HR\DepartmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class DepartmentController extends Controller
 {
+    public function __construct(
+        private readonly DepartmentService $service,
+    ) {}
+
     /**
      * List departments with filters and pagination.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Department::with(['parent', 'manager'])
-            ->withCount('activeEmployees')
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('code', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->has('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->boolean('root_only', false), fn ($q) => $q->root())
-            ->when($request->parent_id, fn ($q, $parentId) => $q->where('parent_id', $parentId))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'code', 'created_at', 'updated_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
-
-        $departments = $query->paginate($request->integer('per_page', 15));
+        $departments = $this->service->list(
+            [
+                'search'    => $request->search,
+                'is_active' => $request->has('is_active') ? $request->boolean('is_active') : null,
+                'root_only' => $request->boolean('root_only', false),
+                'parent_id' => $request->parent_id,
+            ],
+            $this->safeSortBy($request->sort_by, ['name', 'code', 'created_at', 'updated_at'], 'name'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($departments, DepartmentResource::class);
     }
@@ -62,18 +61,14 @@ class DepartmentController extends Controller
                     ->where('organization_id', $organizationId),
             ],
             'description' => 'nullable|string|max:500',
-            'parent_id' => 'nullable|integer|exists:departments,id',
-            'manager_id' => 'nullable|integer|exists:users,id',
+            'parent_id' => ['nullable', 'integer', Rule::exists('departments', 'id')->where('organization_id', $organizationId)],
+            // The manager is shown with the department, name and email included.
+            'manager_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('organization_id', $organizationId)],
             'cost_center_id' => 'nullable|integer',
             'is_active' => 'boolean',
         ]);
 
-        $department = Department::create([
-            'organization_id' => $organizationId,
-            ...$validated,
-        ]);
-
-        $department->load(['parent', 'manager']);
+        $department = $this->service->create($validated, $organizationId);
 
         return $this->created(new DepartmentResource($department), 'Department created successfully.');
     }
@@ -117,16 +112,15 @@ class DepartmentController extends Controller
             'parent_id' => [
                 'nullable',
                 'integer',
-                'exists:departments,id',
+                Rule::exists('departments', 'id')->where('organization_id', $organizationId),
                 Rule::notIn([$department->id]),
             ],
-            'manager_id' => 'nullable|integer|exists:users,id',
+            'manager_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('organization_id', $organizationId)],
             'cost_center_id' => 'nullable|integer',
             'is_active' => 'boolean',
         ]);
 
-        $department->update($validated);
-        $department->load(['parent', 'manager']);
+        $department = $this->service->update($department, $validated);
 
         return $this->success(new DepartmentResource($department), 'Department updated successfully.');
     }
@@ -136,23 +130,11 @@ class DepartmentController extends Controller
      */
     public function destroy(Department $department): JsonResponse
     {
-        if ($department->employees()->count() > 0) {
-            return $this->error(
-                'Cannot delete department with assigned employees. Reassign employees first.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->service->delete($department);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
-
-        if ($department->children()->count() > 0) {
-            return $this->error(
-                'Cannot delete department with sub-departments. Remove or reassign sub-departments first.',
-                'VALIDATION_ERROR',
-                422
-            );
-        }
-
-        $department->delete();
 
         return $this->success(null, 'Department deleted successfully.');
     }

@@ -6,31 +6,32 @@ namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
 use App\Models\HR\Leave\PublicHoliday;
+use App\Services\HR\PublicHolidayService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class PublicHolidayController extends Controller
 {
+    public function __construct(
+        private readonly PublicHolidayService $service,
+    ) {}
+
     /**
      * List public holidays.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PublicHoliday::query()
-            ->when($request->year, fn($q, $year) => $q->forYear((int) $year))
-            ->when($request->branch_id, fn($q, $id) => $q->forBranch((int) $id))
-            ->when($request->boolean('mandatory_only'), fn($q) => $q->mandatory())
-            ->orderBy('holiday_date');
+        $perPage = $request->per_page ? (int) $request->per_page : null;
 
-        $holidays = $request->per_page
-            ? $query->paginate((int) $request->per_page)
-            : $query->get();
+        $holidays = $this->service->list([
+            'year'           => $request->year,
+            'branch_id'      => $request->branch_id,
+            'mandatory_only' => $request->boolean('mandatory_only'),
+        ], $perPage);
 
-        if ($request->per_page) {
-            return $this->paginated($holidays);
-        }
-
-        return $this->success($holidays);
+        return $perPage === null ? $this->success($holidays) : $this->paginated($holidays);
     }
 
     /**
@@ -41,7 +42,7 @@ class PublicHolidayController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'holiday_date' => 'required|date',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->branchOf($request)],
             'country_code' => 'nullable|string|max:3',
             'state_code' => 'nullable|string|max:10',
             'is_recurring' => 'nullable|boolean',
@@ -49,11 +50,7 @@ class PublicHolidayController extends Controller
             'year' => 'required|integer|min:2000|max:2100',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
-
-        $holiday = PublicHoliday::create($validated);
-
-        return $this->created($holiday);
+        return $this->created($this->service->create($validated, $this->organizationId($request)));
     }
 
     /**
@@ -72,7 +69,7 @@ class PublicHolidayController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'holiday_date' => 'sometimes|date',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->branchOf($request)],
             'country_code' => 'nullable|string|max:3',
             'state_code' => 'nullable|string|max:10',
             'is_recurring' => 'nullable|boolean',
@@ -80,9 +77,7 @@ class PublicHolidayController extends Controller
             'year' => 'sometimes|integer|min:2000|max:2100',
         ]);
 
-        $publicHoliday->update($validated);
-
-        return $this->success($publicHoliday->fresh());
+        return $this->success($this->service->update($publicHoliday, $validated));
     }
 
     /**
@@ -90,7 +85,7 @@ class PublicHolidayController extends Controller
      */
     public function destroy(PublicHoliday $publicHoliday): JsonResponse
     {
-        $publicHoliday->delete();
+        $this->service->delete($publicHoliday);
 
         return $this->success(null, 'Public holiday deleted successfully.');
     }
@@ -104,7 +99,7 @@ class PublicHolidayController extends Controller
             'holidays' => 'required|array|min:1',
             'holidays.*.name' => 'required|string|max:255',
             'holidays.*.holiday_date' => 'required|date',
-            'holidays.*.branch_id' => 'nullable|exists:branches,id',
+            'holidays.*.branch_id' => ['nullable', $this->branchOf($request)],
             'holidays.*.country_code' => 'nullable|string|max:3',
             'holidays.*.state_code' => 'nullable|string|max:10',
             'holidays.*.is_recurring' => 'nullable|boolean',
@@ -112,14 +107,12 @@ class PublicHolidayController extends Controller
             'holidays.*.year' => 'required|integer|min:2000|max:2100',
         ]);
 
-        $organizationId = $this->organizationId($request);
-        $created = [];
+        return $this->created($this->service->createMany($validated['holidays'], $this->organizationId($request)));
+    }
 
-        foreach ($validated['holidays'] as $holidayData) {
-            $holidayData['organization_id'] = $organizationId;
-            $created[] = PublicHoliday::create($holidayData);
-        }
-
-        return $this->created($created);
+    /** A branch id that must belong to the caller's organization. */
+    private function branchOf(Request $request): Exists
+    {
+        return Rule::exists('branches', 'id')->where('organization_id', $this->organizationId($request));
     }
 }

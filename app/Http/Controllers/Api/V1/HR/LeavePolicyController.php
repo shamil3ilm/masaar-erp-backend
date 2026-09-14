@@ -6,11 +6,11 @@ namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
 use App\Models\HR\Leave\LeavePolicy;
-use App\Models\HR\Leave\LeaveTier;
 use App\Models\HR\LeaveType;
 use App\Services\HR\LeavePolicyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class LeavePolicyController extends Controller
 {
@@ -23,19 +23,11 @@ class LeavePolicyController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = LeavePolicy::query()
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->orderBy('name');
+        $perPage = $request->per_page ? (int) $request->per_page : null;
 
-        $policies = $request->per_page
-            ? $query->paginate((int) $request->per_page)
-            : $query->get();
+        $policies = $this->policyService->list($request->boolean('active_only'), $perPage);
 
-        if ($request->per_page) {
-            return $this->paginated($policies);
-        }
-
-        return $this->success($policies);
+        return $perPage === null ? $this->success($policies) : $this->paginated($policies);
     }
 
     /**
@@ -103,7 +95,7 @@ class LeavePolicyController extends Controller
      */
     public function destroy(LeavePolicy $leavePolicy): JsonResponse
     {
-        $leavePolicy->delete();
+        $this->policyService->delete($leavePolicy);
 
         return $this->success(null, 'Leave policy deleted successfully.');
     }
@@ -113,13 +105,7 @@ class LeavePolicyController extends Controller
      */
     public function leaveTypes(LeavePolicy $leavePolicy): JsonResponse
     {
-        $types = $leavePolicy->leaveTypes()
-            ->with('leaveTiers')
-            ->active()
-            ->ordered()
-            ->get();
-
-        return $this->success($types);
+        return $this->success($this->policyService->activeLeaveTypes($leavePolicy));
     }
 
     /**
@@ -156,12 +142,7 @@ class LeavePolicyController extends Controller
             'count_weekends' => 'nullable|boolean',
         ]);
 
-        // A null left out, so a column with a default keeps it.
-        $validated = array_filter($validated, fn ($v) => $v !== null);
-        $validated['organization_id'] = $this->organizationId($request);
-        $validated['leave_policy_id'] = $leavePolicy->id;
-
-        $leaveType = LeaveType::create($validated);
+        $leaveType = $this->policyService->createLeaveType($leavePolicy, $validated, $this->organizationId($request));
 
         return $this->created($leaveType);
     }
@@ -171,6 +152,8 @@ class LeavePolicyController extends Controller
      */
     public function assignTier(Request $request, LeaveType $leaveType): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -187,8 +170,15 @@ class LeavePolicyController extends Controller
             'encashment_rate' => 'nullable|numeric|min:0|max:100',
             'priority' => 'nullable|integer|min:0',
             'approvers' => 'nullable|array',
-            'approvers.*.user_id' => 'nullable|exists:users,id',
-            'approvers.*.role_id' => 'nullable|exists:roles,id',
+            // An approver decides this organization's leave: its own user, or
+            // one of its roles or a platform-wide one.
+            'approvers.*.user_id' => ['nullable', Rule::exists('users', 'id')->where('organization_id', $organizationId)],
+            'approvers.*.role_id' => [
+                'nullable',
+                Rule::exists('roles', 'id')->where(
+                    fn ($q) => $q->where('organization_id', $organizationId)->orWhereNull('organization_id')
+                ),
+            ],
             'approvers.*.designation' => 'nullable|string',
             'approvers.*.approval_level' => 'nullable|integer|min:1',
             'approvers.*.can_approve' => 'nullable|boolean',
@@ -214,8 +204,10 @@ class LeavePolicyController extends Controller
     /**
      * Update a leave tier.
      */
-    public function updateTier(Request $request, LeaveTier $leaveTier): JsonResponse
+    public function updateTier(Request $request, string $leaveTier): JsonResponse
     {
+        $tier = $this->policyService->findTier($leaveTier);
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
@@ -234,17 +226,15 @@ class LeavePolicyController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $leaveTier->update($validated);
-
-        return $this->success($leaveTier->fresh('approvers'));
+        return $this->success($this->policyService->updateTier($tier, $validated));
     }
 
     /**
      * Delete a leave tier.
      */
-    public function destroyTier(LeaveTier $leaveTier): JsonResponse
+    public function destroyTier(string $leaveTier): JsonResponse
     {
-        $leaveTier->delete();
+        $this->policyService->deleteTier($this->policyService->findTier($leaveTier));
 
         return $this->success(null, 'Leave tier deleted successfully.');
     }

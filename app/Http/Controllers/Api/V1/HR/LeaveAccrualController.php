@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Leave\LeaveAccrual;
-use App\Models\HR\Leave\LeaveAdjustment;
 use App\Models\HR\Leave\LeaveEncashment;
 use App\Services\HR\LeaveAccrualService;
 use Illuminate\Http\JsonResponse;
@@ -60,13 +58,9 @@ class LeaveAccrualController extends Controller
             return $this->notFound('Leave balance not found.');
         }
 
-        $accruals = LeaveAccrual::where('leave_balance_id', $balance->id)
-            ->orderByDesc('accrual_date')
-            ->get();
-
         return $this->success([
             'balance' => $balance,
-            'accruals' => $accruals,
+            'accruals' => $this->accrualService->accrualsFor($balance),
         ]);
     }
 
@@ -99,20 +93,14 @@ class LeaveAccrualController extends Controller
      */
     public function adjustments(Request $request): JsonResponse
     {
-        $query = LeaveAdjustment::with(['employee', 'leaveType', 'creator', 'approver'])
-            ->when($request->employee_id, fn($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->leave_type_id, fn($q, $id) => $q->where('leave_type_id', $id))
-            ->orderByDesc('created_at');
+        $perPage = $request->per_page ? (int) $request->per_page : null;
 
-        $adjustments = $request->per_page
-            ? $query->paginate((int) $request->per_page)
-            : $query->get();
+        $adjustments = $this->accrualService->listAdjustments([
+            'employee_id'   => $request->employee_id,
+            'leave_type_id' => $request->leave_type_id,
+        ], $perPage);
 
-        if ($request->per_page) {
-            return $this->paginated($adjustments);
-        }
-
-        return $this->success($adjustments);
+        return $perPage === null ? $this->success($adjustments) : $this->paginated($adjustments);
     }
 
     /**
@@ -142,20 +130,14 @@ class LeaveAccrualController extends Controller
      */
     public function encashments(Request $request): JsonResponse
     {
-        $query = LeaveEncashment::with(['employee', 'leaveType', 'creator', 'approver'])
-            ->when($request->employee_id, fn($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->orderByDesc('created_at');
+        $perPage = $request->per_page ? (int) $request->per_page : null;
 
-        $encashments = $request->per_page
-            ? $query->paginate((int) $request->per_page)
-            : $query->get();
+        $encashments = $this->accrualService->listEncashments([
+            'employee_id' => $request->employee_id,
+            'status'      => $request->status,
+        ], $perPage);
 
-        if ($request->per_page) {
-            return $this->paginated($encashments);
-        }
-
-        return $this->success($encashments);
+        return $perPage === null ? $this->success($encashments) : $this->paginated($encashments);
     }
 
     /**
