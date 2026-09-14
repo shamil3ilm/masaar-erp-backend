@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Purchase\VendorAdvanceClearingResource;
 use App\Http\Resources\Purchase\VendorAdvanceRequestResource;
-use App\Models\Purchase\Bill;
-use App\Models\Purchase\VendorAdvancePayment;
 use App\Models\Purchase\VendorAdvanceRequest;
+use App\Services\Purchase\BillService;
 use App\Services\Purchase\VendorAdvanceService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class VendorAdvanceController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private VendorAdvanceService $vendorAdvanceService
+        private VendorAdvanceService $vendorAdvanceService,
+        private BillService $billService,
     ) {}
 
     /**
@@ -24,19 +29,14 @@ class VendorAdvanceController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = VendorAdvanceRequest::with(['contact', 'requester', 'approver', 'purchaseOrder'])
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->contact_id, fn ($q, $id) => $q->where('contact_id', $id))
-            ->when($request->purchase_order_id, fn ($q, $id) => $q->where('purchase_order_id', $id))
-            ->when($request->search, function ($q, $search) {
-                $q->where('request_number', 'like', "%{$search}%");
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['request_number', 'requested_amount', 'status', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
+        $requests = $this->vendorAdvanceService->list(
+            $request->only(['status', 'contact_id', 'purchase_order_id', 'search']),
+            $this->safeSortBy($request->sort_by, ['request_number', 'requested_amount', 'status', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 15)), VendorAdvanceRequestResource::class);
+        return $this->paginated($requests, VendorAdvanceRequestResource::class);
     }
 
     /**
@@ -45,15 +45,15 @@ class VendorAdvanceController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id' => 'required|exists:contacts,id',
-            'purchase_order_id' => 'nullable|exists:purchase_orders,id',
+            'contact_id' => ['required', $this->ownedBy('contacts')],
+            'purchase_order_id' => ['nullable', $this->ownedBy('purchase_orders')],
             'request_number' => 'nullable|string|max:30',
             'requested_amount' => 'required|numeric|min:0.01',
             'currency_code' => 'required|string|size:3',
             'exchange_rate' => 'nullable|numeric|min:0',
             'purpose' => 'nullable|string',
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
         ]);
 
         $validated['organization_id'] = auth()->user()->organization_id;
@@ -104,7 +104,7 @@ class VendorAdvanceController extends Controller
             'payment_date' => 'nullable|date',
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|string|max:50',
-            'bank_account_id' => 'nullable|exists:chart_of_accounts,id',
+            'bank_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'reference' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
         ]);
@@ -129,20 +129,19 @@ class VendorAdvanceController extends Controller
     {
         $validated = $request->validate([
             'advance_payment_id' => 'required|exists:vendor_advance_payments,id',
-            'bill_id' => 'required|exists:bills,id',
+            'bill_id' => ['required', $this->ownedBy('bills')],
             'amount' => 'required|numeric|min:0.01',
         ]);
 
-        $payment = VendorAdvancePayment::findOrFail($validated['advance_payment_id']);
-        $bill = Bill::findOrFail($validated['bill_id']);
-
-        if ($payment->advanceRequest->organization_id !== auth()->user()->organization_id) {
+        // Advance payments carry no organization column to scope the rule with;
+        // another organization's payment is not found here instead.
+        try {
+            $payment = $this->vendorAdvanceService->findPayment((int) $validated['advance_payment_id']);
+        } catch (ModelNotFoundException) {
             return $this->error('Advance payment not found.', 'NOT_FOUND', 404);
         }
 
-        if ($bill->organization_id !== auth()->user()->organization_id) {
-            return $this->error('Bill not found.', 'NOT_FOUND', 404);
-        }
+        $bill = $this->billService->find((int) $validated['bill_id']);
 
         try {
             $clearing = $this->vendorAdvanceService->clearAgainstBill($payment, $bill, (float) $validated['amount']);
@@ -154,7 +153,7 @@ class VendorAdvanceController extends Controller
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
-        return $this->created($clearing->toArray(), 'Advance cleared against bill successfully.');
+        return $this->created(new VendorAdvanceClearingResource($clearing), 'Advance cleared against bill successfully.');
     }
 
     /**
@@ -162,11 +161,8 @@ class VendorAdvanceController extends Controller
      */
     public function indexClearings(VendorAdvanceRequest $vendorAdvance): JsonResponse
     {
-        $clearings = $vendorAdvance->payments()
-            ->with(['clearings.bill'])
-            ->get()
-            ->flatMap(fn ($p) => $p->clearings);
-
-        return $this->success($clearings->values()->toArray());
+        return $this->success(
+            VendorAdvanceClearingResource::collection($this->vendorAdvanceService->clearingsFor($vendorAdvance))
+        );
     }
 }
