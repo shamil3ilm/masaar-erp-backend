@@ -51,7 +51,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Accounting/AssessmentCycleController.php' => 2,
         'Api/V1/Accounting/AssetController.php' => 5,
         'Api/V1/Accounting/BankGuaranteeController.php' => 6,
-        'Api/V1/Accounting/BankReconciliationController.php' => 2,
         'Api/V1/Accounting/CashFlowController.php' => 6,
         'Api/V1/Accounting/CheckManagementController.php' => 8,
         'Api/V1/Accounting/ConsolidationController.php' => 16,
