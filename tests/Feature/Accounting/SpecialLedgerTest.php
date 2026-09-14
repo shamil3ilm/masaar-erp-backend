@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Models\Accounting\Account;
 use App\Models\Accounting\SpecialLedger;
+use App\Models\Accounting\SpecialLedgerEntry;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -197,6 +200,133 @@ class SpecialLedgerTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_trial_balance_returns_404_for_another_organizations_ledger(): void
+    {
+        $otherOrg    = Organization::factory()->create();
+        $otherLedger = $this->makeLedger(['organization_id' => $otherOrg->id]);
+        $account     = Account::factory()->create(['organization_id' => $otherOrg->id]);
+
+        SpecialLedgerEntry::create([
+            'organization_id'   => $otherOrg->id,
+            'special_ledger_id' => $otherLedger->id,
+            'account_id'        => $account->id,
+            'posting_date'      => '2025-03-01',
+            'amount'            => 750,
+            'currency_code'     => 'SAR',
+            'exchange_rate'     => 1,
+            'amount_local'      => 750,
+            'debit_credit'      => 'D',
+            'period'            => 3,
+            'fiscal_year'       => 2025,
+        ]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers/' . $otherLedger->id . '/trial-balance?fiscal_year=2025&period=3')
+            ->assertStatus(404);
+    }
+
+    public function test_trial_balance_sums_the_ledgers_entries_by_account(): void
+    {
+        $ledger  = $this->makeLedger();
+        $account = Account::factory()->create(['organization_id' => $this->organization->id]);
+        $this->makeEntry($ledger, $account, 'D', 400, 2);
+        $this->makeEntry($ledger, $account, 'C', 150, 3);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers/' . $ledger->id . '/trial-balance?fiscal_year=2025&period=3');
+
+        $response->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.account_id', $account->id)
+            ->assertJsonPath('data.0.account.id', $account->id);
+        $this->assertEquals(250, (float) $response->json('data.0.balance'));
+    }
+
+    public function test_index_filters_active_ledgers_and_orders_by_code(): void
+    {
+        $this->makeLedger(['code' => 'B-LEDGER']);
+        $this->makeLedger(['code' => 'A-LEDGER']);
+        $this->makeLedger(['code' => 'C-LEDGER', 'is_active' => false]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers')
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('data.0.code', 'A-LEDGER');
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers?active_only=1')
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_show_includes_mapping_rules(): void
+    {
+        $ledger = $this->makeLedger();
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers/' . $ledger->id)
+            ->assertStatus(200)
+            ->assertJsonPath('data.mapping_rules', []);
+    }
+
+    public function test_ledger_endpoints_return_404_for_another_organizations_ledger(): void
+    {
+        $otherOrg    = Organization::factory()->create();
+        $otherLedger = $this->makeLedger(['organization_id' => $otherOrg->id]);
+        $base        = '/api/v1/special-ledgers/' . $otherLedger->id;
+
+        $this->withToken($this->token)->getJson($base)->assertStatus(404);
+        $this->withToken($this->token)->putJson($base, ['name' => 'Taken'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($base)->assertStatus(404);
+        $this->withToken($this->token)->getJson($base . '/entries')->assertStatus(404);
+
+        $this->assertNotNull(SpecialLedger::withoutGlobalScopes()->find($otherLedger->id));
+        $this->assertSame('IFRS Special Ledger', SpecialLedger::withoutGlobalScopes()->find($otherLedger->id)->name);
+    }
+
+    public function test_destroy_leading_ledger_returns_error_code(): void
+    {
+        $ledger = $this->makeLedger(['is_leading' => true]);
+
+        $this->withToken($this->token)
+            ->deleteJson('/api/v1/special-ledgers/' . $ledger->id)
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'LEADING_LEDGER')
+            ->assertJsonPath('error.message', 'Cannot delete the leading ledger.');
+    }
+
+    public function test_entries_filters_by_period_and_paginates(): void
+    {
+        $ledger  = $this->makeLedger();
+        $account = Account::factory()->create(['organization_id' => $this->organization->id]);
+        $this->makeEntry($ledger, $account, 'D', 100, 2);
+        $this->makeEntry($ledger, $account, 'D', 200, 3);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/special-ledgers/' . $ledger->id . '/entries?period=3&per_page=5')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.period', 3)
+            ->assertJsonPath('data.0.account.id', $account->id)
+            ->assertJsonPath('meta.per_page', 5);
+    }
+
+    private function makeEntry(SpecialLedger $ledger, Account $account, string $side, float $amount, int $period): SpecialLedgerEntry
+    {
+        return SpecialLedgerEntry::create([
+            'organization_id'   => $ledger->organization_id,
+            'special_ledger_id' => $ledger->id,
+            'account_id'        => $account->id,
+            'posting_date'      => "2025-0{$period}-10",
+            'amount'            => $amount,
+            'currency_code'     => 'SAR',
+            'exchange_rate'     => 1,
+            'amount_local'      => $amount,
+            'debit_credit'      => $side,
+            'period'            => $period,
+            'fiscal_year'       => 2025,
+        ]);
     }
 
     // -------------------------------------------------------------------------

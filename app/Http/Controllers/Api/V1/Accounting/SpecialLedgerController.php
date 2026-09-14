@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\SpecialLedger;
 use App\Services\Accounting\SpecialLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use InvalidArgumentException;
 
 class SpecialLedgerController extends Controller
 {
@@ -22,10 +22,7 @@ class SpecialLedgerController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = SpecialLedger::query()->orderBy('code')
-            ->when($request->boolean('active_only'), fn($q) => $q->active());
-
-        $ledgers = $query->get();
+        $ledgers = $this->service->listLedgers($request->boolean('active_only'));
 
         return $this->success($ledgers);
     }
@@ -63,7 +60,7 @@ class SpecialLedgerController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $ledger = SpecialLedger::with('mappingRules')->findOrFail($id);
+        $ledger = $this->service->findLedger($id, ['mappingRules']);
 
         return $this->success($ledger);
     }
@@ -73,7 +70,7 @@ class SpecialLedgerController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $ledger = SpecialLedger::findOrFail($id);
+        $ledger = $this->service->findLedger($id);
 
         $validated = $request->validate([
             'name'                 => ['sometimes', 'string', 'max:255'],
@@ -84,7 +81,7 @@ class SpecialLedgerController extends Controller
             'currency_code'        => ['nullable', 'string', 'size:3'],
         ]);
 
-        $ledger->update($validated);
+        $ledger = $this->service->updateLedger($ledger, $validated);
 
         return $this->success($ledger, 'Special ledger updated successfully.');
     }
@@ -94,13 +91,13 @@ class SpecialLedgerController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $ledger = SpecialLedger::findOrFail($id);
+        $ledger = $this->service->findLedger($id);
 
-        if ($ledger->is_leading) {
-            return $this->error('Cannot delete the leading ledger.', 'LEADING_LEDGER', 422);
+        try {
+            $this->service->deleteLedger($ledger);
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'LEADING_LEDGER', 422);
         }
-
-        $ledger->delete();
 
         return $this->success(null, 'Special ledger deleted successfully.');
     }
@@ -129,14 +126,14 @@ class SpecialLedgerController extends Controller
      */
     public function entries(Request $request, int $id): JsonResponse
     {
-        $ledger = SpecialLedger::findOrFail($id);
+        $ledger = $this->service->findLedger($id);
 
-        $entries = $ledger->entries()
-            ->with('account:id,code,name')
-            ->when($request->input('fiscal_year'), fn ($q, $y) => $q->where('fiscal_year', (int) $y))
-            ->when($request->input('period'), fn ($q, $p) => $q->where('period', (int) $p))
-            ->orderByDesc('posting_date')
-            ->paginate($request->integer('per_page', 25));
+        $entries = $this->service->paginateEntries(
+            $ledger,
+            $request->input('fiscal_year'),
+            $request->input('period'),
+            $request->integer('per_page', 25),
+        );
 
         return $this->paginated($entries);
     }
