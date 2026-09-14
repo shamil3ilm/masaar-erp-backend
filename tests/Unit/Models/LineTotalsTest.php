@@ -36,12 +36,17 @@ class LineTotalsTest extends TestCase
         ];
     }
 
-    /** @return array<string, array{class-string<Model>}> */
+    /**
+     * Lines whose table carries the India GST split.
+     *
+     * @return array<string, array{class-string<Model>}>
+     */
     public static function gstLineModels(): array
     {
         return [
             'invoice line' => [InvoiceLine::class],
             'bill line' => [BillLine::class],
+            'purchase order line' => [PurchaseOrderLine::class],
         ];
     }
 
