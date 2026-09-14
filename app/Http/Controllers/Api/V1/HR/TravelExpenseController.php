@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\PerDiemRate;
 use App\Models\HR\TravelExpenseClaim;
 use App\Models\HR\TravelRequest;
 use App\Services\HR\TravelExpenseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TravelExpenseController extends Controller
 {
@@ -45,13 +45,10 @@ class TravelExpenseController extends Controller
 
     private function perDiemIndex(Request $request): JsonResponse
     {
-        $rates = PerDiemRate::active()
-            ->when($request->country, fn ($q, $c) => $q->where('destination_country', $c))
-            ->orderBy('destination_country')
-            ->orderBy('destination_city')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($rates);
+        return $this->paginated($this->service->listPerDiemRates(
+            $request->country,
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function store(Request $request): JsonResponse
@@ -74,20 +71,14 @@ class TravelExpenseController extends Controller
         $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
-            $rate = PerDiemRate::findOrFail($id);
-
-            return $this->success($rate);
+            return $this->success($this->service->findPerDiemRate($id));
         }
 
         if (str_contains($prefix, 'claims')) {
-            $claim = TravelExpenseClaim::with(['employee', 'travelRequest', 'lines', 'approver'])->findOrFail($id);
-
-            return $this->success($claim);
+            return $this->success($this->service->findClaim($id, ['employee', 'travelRequest', 'lines', 'approver']));
         }
 
-        $travelRequest = TravelRequest::with(['employee', 'expenseClaims', 'approver'])->findOrFail($id);
-
-        return $this->success($travelRequest);
+        return $this->success($this->service->findRequest($id, ['employee', 'expenseClaims', 'approver']));
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -106,14 +97,13 @@ class TravelExpenseController extends Controller
         $prefix = $request->route()->uri();
 
         if (str_contains($prefix, 'per-diem-rates')) {
-            $rate = PerDiemRate::findOrFail($id);
-            $rate->delete();
+            $this->service->findPerDiemRate($id)->delete();
 
             return $this->success(null, 'Per diem rate deleted.');
         }
 
         if (str_contains($prefix, 'claims')) {
-            $claim = TravelExpenseClaim::findOrFail($id);
+            $claim = $this->service->findClaim($id);
             if (! $claim->isDraft()) {
                 return $this->error('Only draft claims can be deleted.', 'INVALID_STATE', 422);
             }
@@ -122,7 +112,7 @@ class TravelExpenseController extends Controller
             return $this->success(null, 'Claim deleted.');
         }
 
-        $travelRequest = TravelRequest::findOrFail($id);
+        $travelRequest = $this->service->findRequest($id);
         if (! $travelRequest->isDraft()) {
             return $this->error('Only draft requests can be deleted.', 'INVALID_STATE', 422);
         }
@@ -163,7 +153,7 @@ class TravelExpenseController extends Controller
 
     private function updatePerDiemRate(Request $request, int $id): JsonResponse
     {
-        $rate = PerDiemRate::findOrFail($id);
+        $rate = $this->service->findPerDiemRate($id);
 
         $validated = $request->validate([
             'daily_allowance' => 'sometimes|required|numeric|min:0',
@@ -205,21 +195,20 @@ class TravelExpenseController extends Controller
 
     private function requestsIndex(Request $request): JsonResponse
     {
-        $query = TravelRequest::with(['employee', 'approver'])
-            ->when($request->employee_id, fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->status, fn ($q, $s) => $q->byStatus($s))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['departure_date', 'return_date', 'status', 'created_at'], 'departure_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->service->listRequests(
+            $request->only(['employee_id', 'status']),
+            $this->safeSortBy($request->sort_by, ['departure_date', 'return_date', 'status', 'created_at'], 'departure_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     private function storeRequest(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id' => 'required|integer|exists:employees,id',
+            'employee_id' => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
             'purpose' => 'required|string|max:500',
             'departure_date' => 'required|date',
             'return_date' => 'required|date|after_or_equal:departure_date',
@@ -230,7 +219,7 @@ class TravelExpenseController extends Controller
             'advance_requested' => 'nullable|numeric|min:0',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
         $validated['created_by'] = auth()->id();
 
         try {
@@ -299,27 +288,26 @@ class TravelExpenseController extends Controller
 
     private function claimsIndex(Request $request): JsonResponse
     {
-        $query = TravelExpenseClaim::with(['employee', 'travelRequest', 'approver'])
-            ->when($request->employee_id, fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->status, fn ($q, $s) => $q->byStatus($s))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['claim_date', 'status', 'created_at'], 'claim_date'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->service->listClaims(
+            $request->only(['employee_id', 'status']),
+            $this->safeSortBy($request->sort_by, ['claim_date', 'status', 'created_at'], 'claim_date'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     private function storeClaim(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id' => 'required|integer|exists:employees,id',
-            'travel_request_id' => 'nullable|integer|exists:travel_requests,id',
+            'employee_id' => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
+            'travel_request_id' => ['nullable', 'integer', Rule::exists('travel_requests', 'id')->where('organization_id', $organizationId)],
             'claim_date' => 'nullable|date',
             'advance_paid' => 'nullable|numeric|min:0',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
         $validated['created_by'] = auth()->id();
 
         try {
