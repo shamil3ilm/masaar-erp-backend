@@ -128,7 +128,7 @@ return new class extends Migration
             $table->string('rejection_reason', 500)->nullable();
 
             // Quality
-            $table->boolean('quality_checked')->default(false);
+            $table->boolean('is_quality_checked')->default(false);
             $table->foreignId('quality_checked_by')->nullable()->constrained('users')->nullOnDelete();
             $table->datetime('quality_checked_at')->nullable();
             $table->json('quality_parameters')->nullable();
@@ -151,7 +151,6 @@ return new class extends Migration
             $table->foreign('stock_movement_id', 'prod_log_stock_movement_fk')
                 ->references('id')->on('stock_movements')->nullOnDelete();
 
-            $table->renameColumn('quality_checked', 'is_quality_checked');
         });
 
         Schema::create('production_variances', function (Blueprint $table) {
