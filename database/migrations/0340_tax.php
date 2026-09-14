@@ -126,7 +126,8 @@ return new class extends Migration
             $table->id();
             $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('organization_id');
-            $table->enum('transaction_type', ['sale', 'purchase', 'adjustment']);
+            // credit_note, refund and return reverse a sale and carry negative amounts.
+            $table->enum('transaction_type', ['sale', 'purchase', 'credit_note', 'refund', 'return']);
             $table->string('source_type', 50)->nullable();
             $table->unsignedBigInteger('source_id')->nullable();
             $table->date('tax_period');

@@ -11,6 +11,7 @@ use App\Models\Tax\VatTransaction;
 use App\Services\Tax\VatReturnService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class VatReturnController extends Controller
 {
@@ -154,13 +155,17 @@ class VatReturnController extends Controller
      */
     public function storeTransaction(Request $request): JsonResponse
     {
+        // A credit note, refund or return reverses a sale, so its amounts are
+        // zero or negative; a sale or purchase is zero or positive.
+        $sign = in_array($request->input('transaction_type'), VatTransaction::REVERSAL_TYPES, true) ? 'max:0' : 'min:0';
+
         $validated = $request->validate([
-            'transaction_type' => ['required', 'in:sale,purchase,adjustment'],
+            'transaction_type' => ['required', Rule::in(VatTransaction::TYPES)],
             'source_type'      => ['nullable', 'string', 'max:50'],
             'source_id'        => ['nullable', 'integer'],
             'tax_period'       => ['required', 'date'],
-            'taxable_amount'   => ['required', 'numeric', 'min:0'],
-            'vat_amount'       => ['required', 'numeric', 'min:0'],
+            'taxable_amount'   => ['required', 'numeric', $sign],
+            'vat_amount'       => ['required', 'numeric', $sign],
             'vat_rate'         => ['required', 'numeric', 'min:0'],
             'country_code'     => ['required', 'string', 'size:3'],
             'is_exempt'        => ['boolean'],

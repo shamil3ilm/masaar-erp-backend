@@ -45,16 +45,15 @@ class VatReturnService
      */
     public function buildReturnBoxes(VatReturnPeriod $period): VatReturnPeriod
     {
-        // Include sale types and their reversal types (refund, credit_note, return).
-        // VatTransaction stores taxable_amount and vat_amount as negative values for
-        // reversal types, so they are simply aggregated alongside regular sales.
+        // Credit notes, refunds and returns carry negative amounts, so they net
+        // against the sales they reverse.
         $transactions = VatTransaction::where('organization_id', $period->organization_id)
             ->where('country_code', $period->country_code)
             ->whereBetween('tax_period', [
                 $period->period_start->toDateString(),
                 $period->period_end->toDateString(),
             ])
-            ->whereIn('transaction_type', ['sale', 'purchase', 'refund', 'credit_note', 'return'])
+            ->whereIn('transaction_type', VatTransaction::TYPES)
             ->get();
 
         $outputTaxable = '0';
@@ -65,11 +64,11 @@ class VatReturnService
         $exempt        = '0';
 
         foreach ($transactions as $txn) {
-            if (in_array($txn->transaction_type, ['refund', 'return', 'credit_note'], true) && bccomp((string)$txn->taxable_amount, '0', 4) > 0) {
+            if (in_array($txn->transaction_type, VatTransaction::REVERSAL_TYPES, true) && bccomp((string) $txn->taxable_amount, '0', 4) > 0) {
                 throw new \InvalidArgumentException('Refund/return/credit note amounts must be negative.');
             }
 
-            if (in_array($txn->transaction_type, ['sale', 'refund', 'credit_note', 'return'], true)) {
+            if (in_array($txn->transaction_type, VatTransaction::OUTPUT_TYPES, true)) {
                 if ($txn->is_exempt) {
                     $exempt = bcadd($exempt, (string) $txn->taxable_amount, 4);
                 } elseif ($txn->is_zero_rated) {
@@ -78,7 +77,7 @@ class VatReturnService
                     $outputTaxable = bcadd($outputTaxable, (string) $txn->taxable_amount, 4);
                     $outputVat     = bcadd($outputVat, (string) $txn->vat_amount, 4);
                 }
-            } elseif ($txn->transaction_type === 'purchase') {
+            } elseif ($txn->transaction_type === VatTransaction::TYPE_PURCHASE) {
                 $inputTaxable = bcadd($inputTaxable, (string) $txn->taxable_amount, 4);
                 $inputVat     = bcadd($inputVat, (string) $txn->vat_amount, 4);
             }
@@ -151,8 +150,9 @@ class VatReturnService
             ->whereBetween('tax_period', [$periodStart, $periodEnd])
             ->get();
 
-        $output = $transactions->where('transaction_type', 'sale');
-        $input  = $transactions->where('transaction_type', 'purchase');
+        // Output includes the reversals, as the return boxes do.
+        $output = $transactions->whereIn('transaction_type', VatTransaction::OUTPUT_TYPES);
+        $input  = $transactions->where('transaction_type', VatTransaction::TYPE_PURCHASE);
 
         return [
             'period_start'          => $periodStart,
