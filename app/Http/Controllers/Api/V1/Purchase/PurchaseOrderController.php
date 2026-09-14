@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Purchase;
 
 use App\Http\Concerns\SupportsAgGrid;
-use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\PurchaseOrderResource;
 use App\Models\Purchase\PurchaseOrder;
