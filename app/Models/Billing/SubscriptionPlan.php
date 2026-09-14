@@ -69,11 +69,6 @@ class SubscriptionPlan extends Model
         return $this->hasMany(OrganizationSubscription::class, 'plan_id');
     }
 
-    public function addons(): HasMany
-    {
-        return $this->hasMany(SubscriptionAddon::class, 'plan_id');
-    }
-
     public function meteredPricingTiers(): HasMany
     {
         return $this->hasMany(MeteredPricingTier::class, 'plan_id');

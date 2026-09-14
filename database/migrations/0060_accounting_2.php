@@ -471,8 +471,10 @@ return new class extends Migration
             $table->decimal('balance', 15, 2)->nullable(); // Running balance from bank
             $table->string('status', 20)->default('unmatched'); // unmatched, matched, excluded, reconciled
             $table->string('category')->nullable(); // Auto-categorized
-            $table->foreignId('matched_transaction_id')->nullable(); // Link to internal transaction
-            $table->string('matched_transaction_type')->nullable(); // payment, receipt, journal, etc.
+            // The matched record is a payment, receipt or journal, named by
+            // matched_transaction_type, so the id cannot carry a foreign key.
+            $table->unsignedBigInteger('matched_transaction_id')->nullable();
+            $table->string('matched_transaction_type')->nullable();
             $table->foreignId('matched_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('matched_at')->nullable();
             $table->string('import_source', 50)->nullable(); // manual, csv, ofx, api
@@ -483,9 +485,6 @@ return new class extends Migration
             $table->index(['bank_account_id', 'transaction_date']);
             $table->index(['bank_account_id', 'status']);
             $table->index(['organization_id', 'status']);
-
-            $table->foreign('matched_transaction_id', 'bank_txn_matched_pair_fk')
-                ->references('id')->on('bank_transactions')->nullOnDelete();
         });
 
         Schema::create('bank_reconciliation_items', function (Blueprint $table) {

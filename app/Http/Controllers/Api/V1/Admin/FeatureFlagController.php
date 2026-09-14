@@ -18,7 +18,7 @@ class FeatureFlagController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'code' => 'required|string|max:100|unique:feature_flags,code',
             'is_enabled' => 'sometimes|boolean',
@@ -26,9 +26,12 @@ class FeatureFlagController extends Controller
             'rollout_type' => 'nullable|string|max:30',
             'rollout_percentage' => 'nullable|integer|min:0|max:100',
             'specific_organization_ids' => 'nullable|array',
+            'specific_subscription_plans' => 'nullable|array',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
         ]);
 
-        $flag = FeatureFlag::create($request->all());
+        $flag = FeatureFlag::create($validated);
         return $this->created($flag);
     }
 

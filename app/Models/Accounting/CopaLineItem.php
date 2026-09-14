@@ -15,7 +15,6 @@ class CopaLineItem extends Model
     protected $fillable = [
         'organization_id',
         'fiscal_year_id',
-        'fiscal_year',
         'period',
         'posting_date',
         'source_document_type',

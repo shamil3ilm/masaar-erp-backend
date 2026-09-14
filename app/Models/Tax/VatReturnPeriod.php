@@ -32,11 +32,6 @@ class VatReturnPeriod extends Model
         return $this->hasMany(VatReturnBox::class, 'vat_return_period_id');
     }
 
-    public function transactions(): HasMany
-    {
-        return $this->hasMany(VatTransaction::class, 'vat_return_period_id');
-    }
-
     public function isDraft(): bool
     {
         return $this->status === 'draft';
