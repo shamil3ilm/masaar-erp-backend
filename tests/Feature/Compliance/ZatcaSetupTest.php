@@ -11,8 +11,9 @@ use Tests\TestCase;
 /**
  * zatca:setup subscribes the ERP to Masaar's invoice events.
  *
- * Masaar takes the callback as url, makes the signing secret itself and shows
- * it once, so the command sends url and prints the secret it gets back.
+ * Masaar authenticates a partner by licence key and secret together, takes the
+ * callback as url, makes the signing secret itself and shows it once, so the
+ * command sends both credentials and url and prints the secret it gets back.
  */
 class ZatcaSetupTest extends TestCase
 {
@@ -24,6 +25,7 @@ class ZatcaSetupTest extends TestCase
             'zatca-integration.enabled' => true,
             'zatca-integration.url' => 'https://compliance.test/api/v1',
             'zatca-integration.api_key' => 'test-api-key',
+            'zatca-integration.api_secret' => 'test-api-secret',
             'zatca-integration.webhook_secret' => '',
             'zatca-integration.retry.times' => 1,
         ]);
@@ -34,7 +36,7 @@ class ZatcaSetupTest extends TestCase
         $callback = url('/api/v1/webhooks/zatca');
 
         Http::fake([
-            'compliance.test/api/v1/health' => Http::response(['status' => 'ok']),
+            'compliance.test/api/v1/dashboard/health' => Http::response(['success' => true, 'data' => ['status' => 'healthy']]),
             'compliance.test/api/v1/webhooks/old-id' => Http::response(['success' => true, 'message' => 'Webhook deleted']),
             'compliance.test/api/v1/webhooks' => fn (Request $request) => $request->method() === 'GET'
                 ? Http::response(['success' => true, 'data' => ['webhooks' => [
@@ -50,9 +52,18 @@ class ZatcaSetupTest extends TestCase
         ]);
 
         $this->artisan('zatca:setup')
+            ->expectsTable(['Setting', 'Value'], [
+                ['URL', 'https://compliance.test/api/v1'],
+                ['API Key', 'test-api****'],
+                ['Connectivity', 'OK'],
+                ['Callback URL', $callback],
+                ['Webhook', 'Registered (new-id)'],
+            ])
             ->expectsOutputToContain('ZATCA_INTEGRATION_WEBHOOK_SECRET=masaar-made-secret')
             ->assertSuccessful();
 
+        Http::assertNotSent(fn (Request $r) => !$r->hasHeader('X-API-Key', 'test-api-key')
+            || !$r->hasHeader('X-API-Secret', 'test-api-secret'));
         Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/webhooks/old-id'));
         Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/webhooks/other-id'));
         Http::assertSent(fn (Request $r) => $r->method() === 'POST'
@@ -64,7 +75,7 @@ class ZatcaSetupTest extends TestCase
     public function test_masaars_refusal_is_reported_and_fails_the_command(): void
     {
         Http::fake([
-            'compliance.test/api/v1/health' => Http::response(['status' => 'ok']),
+            'compliance.test/api/v1/dashboard/health' => Http::response(['success' => true]),
             'compliance.test/api/v1/webhooks' => fn (Request $request) => $request->method() === 'GET'
                 ? Http::response(['success' => true, 'data' => ['webhooks' => []]])
                 : Http::response(['success' => false, 'error' => ['message' => 'The url field is required.', 'code' => 'VALIDATION_ERROR']], 422),
@@ -73,6 +84,18 @@ class ZatcaSetupTest extends TestCase
         $this->artisan('zatca:setup')
             ->expectsOutputToContain('The url field is required.')
             ->assertFailed();
+    }
+
+    public function test_it_needs_the_licence_secret(): void
+    {
+        config(['zatca-integration.api_secret' => '']);
+        Http::fake();
+
+        $this->artisan('zatca:setup')
+            ->expectsOutputToContain('ZATCA_INTEGRATION_API_SECRET')
+            ->assertFailed();
+
+        Http::assertNothingSent();
     }
 
     public function test_a_configured_secret_is_not_replaced_without_confirmation(): void

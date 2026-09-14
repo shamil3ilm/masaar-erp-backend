@@ -26,6 +26,7 @@ class MasaarClient
 
     private string $baseUrl;
     private string $apiKey;
+    private string $apiSecret;
     private int $timeout;
     private bool $enabled;
     private int $retryTimes;
@@ -35,6 +36,7 @@ class MasaarClient
     {
         $this->baseUrl        = rtrim((string) config('zatca-integration.url', ''), '/');
         $this->apiKey         = (string) config('zatca-integration.api_key', '');
+        $this->apiSecret      = (string) config('zatca-integration.api_secret', '');
         $this->timeout        = (int) config('zatca-integration.timeout', 30);
         $this->enabled        = (bool) config('zatca-integration.enabled', true);
         $this->retryTimes     = (int) config('zatca-integration.retry.times', 3);
@@ -535,6 +537,15 @@ class MasaarClient
     }
 
     /**
+     * Masaar's dashboard health answers only a valid licence, so a 200 proves
+     * the key and secret as well as the connection. Returns the HTTP status.
+     */
+    public function checkHealth(): int
+    {
+        return $this->client()->retry(1)->get('/dashboard/health')->status();
+    }
+
+    /**
      * Get HTTP client with authentication and exponential-backoff retry logic.
      */
     protected function client(): PendingRequest
@@ -542,6 +553,7 @@ class MasaarClient
         return Http::baseUrl($this->baseUrl)
             ->withHeaders([
                 'X-API-Key' => $this->apiKey,
+                'X-API-Secret' => $this->apiSecret,
                 'Accept' => 'application/json',
                 'Content-Type' => 'application/json',
             ])
