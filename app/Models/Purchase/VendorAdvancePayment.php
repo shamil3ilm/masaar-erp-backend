@@ -7,6 +7,7 @@ namespace App\Models\Purchase;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class VendorAdvancePayment extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LocksForTransition;
 
     protected $guarded = ['id'];
 
