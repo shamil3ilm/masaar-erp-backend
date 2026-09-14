@@ -235,7 +235,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Purchase/VendorAdvanceController.php' => 3,
         'Api/V1/Purchase/VendorConsignmentController.php' => 4,
         'Api/V1/Purchase/VendorContractController.php' => 5,
-        'Api/V1/Purchase/VendorCreditNoteController.php' => 1,
         'Api/V1/Purchase/VendorPricingController.php' => 4,
         'Api/V1/Purchase/VendorSourceListController.php' => 4,
         'Api/V1/RealEstate/VacancyController.php' => 4,
