@@ -16,10 +16,10 @@ class ProductBundleController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $bundles = ProductBundle::where('organization_id', auth()->user()->organization_id)
-            ->with('items.product')
-            ->orderBy('display_order')
-            ->paginate($request->input('per_page', 20));
+        $bundles = $this->offersService->paginateBundles(
+            auth()->user()->organization_id,
+            (int) $request->input('per_page', 20)
+        );
         return $this->paginated($bundles);
     }
 

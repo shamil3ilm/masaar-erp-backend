@@ -13,6 +13,18 @@ use Illuminate\Support\Facades\DB;
 class PricingConditionService
 {
     /**
+     * Condition types of the given organization in their configured order,
+     * narrowed to one condition class when one is given.
+     */
+    public function listConditionTypes(int $organizationId, mixed $conditionClass, int $perPage): LengthAwarePaginator
+    {
+        return PricingConditionType::where('organization_id', $organizationId)
+            ->when($conditionClass, fn ($q, $v) => $q->byClass($v))
+            ->ordered()
+            ->paginate($perPage);
+    }
+
+    /**
      * Resolve the effective price for a line item by applying pricing procedure steps.
      *
      * Returns the calculated net price and a breakdown of each condition that was applied.

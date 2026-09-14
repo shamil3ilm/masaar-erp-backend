@@ -21,15 +21,19 @@ class BackdatedTransactionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = BackdatedTransaction::with(['approver', 'creator'])
-            ->latest()
-            ->when($request->has('transaction_type'), fn($q) => $q->byTransactionType($request->input('transaction_type')))
-            ->when($request->has('status'), fn($q) => $request->input('status') === 'pending' ? $q->pending() : $q->approved())
-            ->when($request->has('from_date'), fn($q) => $q->where('transaction_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('transaction_date', '<=', $request->input('to_date')))
-            ->when($request->has('created_by'), fn($q) => $q->createdBy($request->integer('created_by')));
+        $filters = [];
 
-        $transactions = $query->paginate($request->integer('per_page', 15));
+        foreach (['transaction_type', 'status', 'from_date', 'to_date'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        if ($request->has('created_by')) {
+            $filters['created_by'] = $request->integer('created_by');
+        }
+
+        $transactions = $this->backdatedService->list($filters, $request->integer('per_page', 15));
 
         return $this->paginated($transactions);
     }

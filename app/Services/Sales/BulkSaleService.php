@@ -8,6 +8,7 @@ use App\Models\Sales\BulkSaleBatch;
 use App\Models\Sales\BulkSaleItem;
 use App\Services\Core\NumberGeneratorService;
 use App\Support\TaxMath;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class BulkSaleService
@@ -15,6 +16,23 @@ class BulkSaleService
     public function __construct(
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * Bulk sale batches of the current organization with their branch and
+     * creator, latest sale date first. Each filter applies when its key is present.
+     *
+     * @param  array{status?: mixed, branch_id?: int, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return BulkSaleBatch::with(['branch', 'creator'])
+            ->latest('sale_date')
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->byStatus($filters['status']))
+            ->when(array_key_exists('branch_id', $filters), fn ($q) => $q->byBranch($filters['branch_id']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('sale_date', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('sale_date', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new bulk sale batch.

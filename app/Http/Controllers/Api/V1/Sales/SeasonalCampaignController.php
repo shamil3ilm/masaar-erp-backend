@@ -16,9 +16,10 @@ class SeasonalCampaignController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $campaigns = SeasonalCampaign::where('organization_id', auth()->user()->organization_id)
-            ->orderByDesc('starts_at')
-            ->paginate($request->input('per_page', 20));
+        $campaigns = $this->offersService->paginateCampaigns(
+            auth()->user()->organization_id,
+            (int) $request->input('per_page', 20)
+        );
         return $this->paginated($campaigns);
     }
 

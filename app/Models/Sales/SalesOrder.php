@@ -10,6 +10,7 @@ use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Warehouse;
 use App\Models\User;
 use App\Support\TaxMath;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SalesOrder extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes, HasFactory, DispatchesWebhooks;
+    use BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, HasFactory, DispatchesWebhooks;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_CONFIRMED = 'confirmed';

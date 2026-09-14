@@ -10,6 +10,7 @@ use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Quotation extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes, DispatchesWebhooks;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SENT = 'sent';

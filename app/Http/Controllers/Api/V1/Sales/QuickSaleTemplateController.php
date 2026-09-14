@@ -21,12 +21,17 @@ class QuickSaleTemplateController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = QuickSaleTemplate::with(['defaultCustomer'])
-            ->latest()
-            ->when($request->has('is_active'), fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->has('search'), fn($q) => $q->search($request->input('search')));
+        $filters = [];
 
-        $templates = $query->paginate($request->integer('per_page', 15));
+        if ($request->has('is_active')) {
+            $filters['is_active'] = $request->boolean('is_active');
+        }
+
+        if ($request->has('search')) {
+            $filters['search'] = $request->input('search');
+        }
+
+        $templates = $this->quickSaleService->listTemplates($filters, $request->integer('per_page', 15));
 
         return $this->paginated($templates);
     }
