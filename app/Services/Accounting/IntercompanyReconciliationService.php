@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\IntercompanyReconciliationItem;
 use App\Models\Accounting\IntercompanyReconciliationMatch;
 use App\Models\Accounting\IntercompanyReconciliationSession;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -31,6 +32,19 @@ class IntercompanyReconciliationService
     // ----------------------------------------------------------------
     // Session lifecycle
     // ----------------------------------------------------------------
+
+    /**
+     * Page through an organisation's sessions, newest first. A fiscal year or
+     * status filter applies only when its value is truthy.
+     */
+    public function paginateSessions(int $organizationId, mixed $fiscalYear, mixed $status, int $perPage): LengthAwarePaginator
+    {
+        return IntercompanyReconciliationSession::where('organization_id', $organizationId)
+            ->when($fiscalYear, fn ($q) => $q->where('fiscal_year', $fiscalYear))
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
 
     public function createSession(
         int $organizationId,
@@ -151,6 +165,24 @@ class IntercompanyReconciliationService
             'matched'   => $matched,
             'unmatched' => $session->items()->where('match_status', 'unmatched')->count(),
         ];
+    }
+
+    /**
+     * Manually match two items identified by id.
+     *
+     * Both items are looked up among the session's own items, so an item of
+     * another session, closed or not, or of another organisation is a 404.
+     */
+    public function manualMatchItems(
+        IntercompanyReconciliationSession $session,
+        int $receivableItemId,
+        int $payableItemId,
+        ?string $notes = null,
+    ): IntercompanyReconciliationMatch {
+        $receivable = $session->items()->findOrFail($receivableItemId);
+        $payable    = $session->items()->findOrFail($payableItemId);
+
+        return $this->manualMatch($session, $receivable, $payable, $notes);
     }
 
     /**

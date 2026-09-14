@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Models\Accounting\IntercompanyReconciliationItem;
+use App\Models\Accounting\IntercompanyReconciliationMatch;
 use App\Models\Accounting\IntercompanyReconciliationSession;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -190,6 +193,102 @@ class IntercompanyReconciliationTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('success', true);
+    }
+
+    public function test_index_filters_by_fiscal_year_and_status_within_the_organization(): void
+    {
+        $this->makeSession(['fiscal_year' => '2025', 'status' => 'closed']);
+        $this->makeSession(['fiscal_year' => '2025', 'status' => 'draft']);
+        $this->makeSession(['fiscal_year' => '2024', 'status' => 'closed']);
+
+        $otherOrg = Organization::factory()->create();
+        $this->makeSession(['organization_id' => $otherOrg->id, 'fiscal_year' => '2025', 'status' => 'closed']);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/ic-reconciliation/sessions?fiscal_year=2025&status=closed&per_page=5')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.fiscal_year', '2025')
+            ->assertJsonPath('data.0.status', 'closed')
+            ->assertJsonPath('meta.per_page', 5);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/ic-reconciliation/sessions')
+            ->assertJsonPath('meta.total', 3)
+            ->assertJsonPath('meta.per_page', 20);
+    }
+
+    public function test_manual_match_matches_two_items_of_the_session(): void
+    {
+        $session    = $this->makeSession();
+        $receivable = $this->makeItem($session, 'receivable', 1000);
+        $payable    = $this->makeItem($session, 'payable', 1000);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/ic-reconciliation/sessions/' . $session->uuid . '/manual-match', [
+                'receivable_item_id' => $receivable->id,
+                'payable_item_id'    => $payable->id,
+                'notes'              => 'Agreed with counterparty',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Manual match confirmed')
+            ->assertJsonPath('data.receivable_item_id', $receivable->id)
+            ->assertJsonPath('data.match_type', 'manual');
+
+        $this->assertSame('matched', $receivable->fresh()->match_status);
+        $this->assertSame('matched', $payable->fresh()->match_status);
+    }
+
+    public function test_manual_match_returns_404_for_an_item_of_another_organization(): void
+    {
+        $session      = $this->makeSession();
+        $receivable   = $this->makeItem($session, 'receivable', 1000);
+        $otherOrg     = Organization::factory()->create();
+        $otherSession = $this->makeSession(['organization_id' => $otherOrg->id]);
+        $otherPayable = $this->makeItem($otherSession, 'payable', 1000);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/ic-reconciliation/sessions/' . $session->uuid . '/manual-match', [
+                'receivable_item_id' => $receivable->id,
+                'payable_item_id'    => $otherPayable->id,
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame('unmatched', IntercompanyReconciliationItem::withoutGlobalScopes()->find($otherPayable->id)->match_status);
+    }
+
+    public function test_manual_match_returns_404_for_an_item_of_another_session(): void
+    {
+        $session      = $this->makeSession();
+        $receivable   = $this->makeItem($session, 'receivable', 1000);
+        $closed       = $this->makeSession(['status' => 'closed', 'period' => 2]);
+        $closedItem   = $this->makeItem($closed, 'payable', 1000);
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/ic-reconciliation/sessions/' . $session->uuid . '/manual-match', [
+                'receivable_item_id' => $receivable->id,
+                'payable_item_id'    => $closedItem->id,
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame('unmatched', $closedItem->fresh()->match_status);
+        $this->assertSame(0, IntercompanyReconciliationMatch::count());
+    }
+
+    private function makeItem(IntercompanyReconciliationSession $session, string $type, float $amount): IntercompanyReconciliationItem
+    {
+        return IntercompanyReconciliationItem::create([
+            'session_id'       => $session->id,
+            'organization_id'  => $session->organization_id,
+            'source_type'      => 'invoice',
+            'source_id'        => 1,
+            'reference_number' => 'IC-' . fake()->unique()->numerify('####'),
+            'amount'           => $amount,
+            'currency'         => 'SAR',
+            'transaction_date' => '2025-01-31',
+            'item_type'        => $type,
+            'match_status'     => 'unmatched',
+        ]);
     }
 
     // -------------------------------------------------------------------------
