@@ -6,6 +6,7 @@ namespace App\Models\HR;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PayrollCorrection extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const TYPE_SALARY_CHANGE = 'salary_change';
     public const TYPE_COMPONENT_ADJUSTMENT = 'component_adjustment';
@@ -96,6 +97,11 @@ class PayrollCorrection extends Model
     }
 
     // Helpers
+
+    public function isDraft(): bool
+    {
+        return $this->status === self::STATUS_DRAFT;
+    }
 
     public function isApproved(): bool
     {
