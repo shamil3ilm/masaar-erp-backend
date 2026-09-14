@@ -342,6 +342,11 @@ class NotificationService
 
     /**
      * Send email notification.
+     *
+     * The mail goes out once the surrounding transaction commits and not at
+     * all if it rolls back, so nobody is told about a change that was undone;
+     * outside a transaction it goes out at once. The text reaches the view as
+     * $body because the mailer gives every view its own $message.
      */
     protected function sendEmail(
         User $user,
@@ -356,26 +361,28 @@ class NotificationService
             return;
         }
 
-        try {
-            Mail::send(
-                'emails.notifications.generic',
-                [
-                    'user' => $user,
-                    'title' => $title,
-                    'message' => $message,
-                    'actionUrl' => $actionUrl,
-                    'actionText' => $actionText,
-                    'data' => $data,
-                ],
-                function ($mail) use ($user, $title) {
-                    $mail->to($user->email, $user->name)
-                        ->subject($title);
-                }
-            );
-        } catch (\Throwable $e) {
-            // Log but don't fail
-            \Log::warning("Failed to send notification email: {$e->getMessage()}");
-        }
+        DB::afterCommit(function () use ($user, $title, $message, $actionUrl, $actionText, $data): void {
+            try {
+                Mail::send(
+                    'emails.notifications.generic',
+                    [
+                        'user' => $user,
+                        'title' => $title,
+                        'body' => $message,
+                        'actionUrl' => $actionUrl,
+                        'actionText' => $actionText,
+                        'data' => $data,
+                    ],
+                    function ($mail) use ($user, $title) {
+                        $mail->to($user->email, $user->name)
+                            ->subject($title);
+                    }
+                );
+            } catch (\Throwable $e) {
+                // A notification email is a courtesy; its failure must not undo anything.
+                Log::warning("Failed to send notification email: {$e->getMessage()}");
+            }
+        });
     }
 
     /**

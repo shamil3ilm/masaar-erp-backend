@@ -102,7 +102,7 @@
                 <p class="greeting">Hello {{ $user->name }},</p>
 
                 <div class="message">
-                    {{ $message }}
+                    {{ $body }}
                 </div>
 
                 @if(!empty($data))

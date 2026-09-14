@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Services\Core\RecurringTransactionService;
+use App\Orchestrators\Core\RunRecurringProfilesOrchestrator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,11 +24,11 @@ class ProcessRecurringTransactions implements ShouldQueue
         $this->onQueue('recurring');
     }
 
-    public function handle(RecurringTransactionService $service): void
+    public function handle(RunRecurringProfilesOrchestrator $orchestrator): void
     {
         Log::info('Starting recurring transactions processing');
 
-        $results = $service->processDueProfiles();
+        $results = $orchestrator->runDue();
 
         Log::info('Recurring transactions processing completed', $results);
 
