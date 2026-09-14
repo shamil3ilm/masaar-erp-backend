@@ -60,9 +60,47 @@ class ParallelLedgerService
     }
 
     /**
+     * Create a ledger for the organisation; new ledgers start active.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createLedger(int $organizationId, array $data): SpecialLedger
+    {
+        return SpecialLedger::create([
+            'organization_id' => $organizationId,
+            ...$data,
+            'is_active' => true,
+        ]);
+    }
+
+    /**
+     * Post one journal entry to one ledger, both looked up by id.
+     *
+     * Both lookups run under the organisation scope, so a ledger or entry of
+     * another organisation is a 404.
+     */
+    public function postEntryToLedger(string $ledgerId, string $journalEntryId): void
+    {
+        $ledger       = SpecialLedger::findOrFail($ledgerId);
+        $journalEntry = JournalEntry::with('lines')->findOrFail($journalEntryId);
+
+        $this->postToLedger($journalEntry, $ledger);
+    }
+
+    /**
      * Manually post a journal entry to a specific ledger (e.g. for adjustments).
+     *
+     * One ledger row is written per journal line inside a single transaction,
+     * so a failure on any line leaves the ledger without a partial posting.
      */
     public function postToLedger(JournalEntry $journalEntry, SpecialLedger $ledger): void
+    {
+        DB::transaction(function () use ($journalEntry, $ledger): void {
+            $this->writeLedgerLines($journalEntry, $ledger);
+        });
+    }
+
+    private function writeLedgerLines(JournalEntry $journalEntry, SpecialLedger $ledger): void
     {
         // Idempotency: skip if already posted to this ledger
         $alreadyExists = SpecialLedgerEntry::where('special_ledger_id', $ledger->id)

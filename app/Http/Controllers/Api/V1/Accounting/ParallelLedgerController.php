@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\JournalEntry;
-use App\Models\Accounting\SpecialLedger;
 use App\Services\Accounting\ParallelLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,11 +41,7 @@ class ParallelLedgerController extends Controller
             'currency_code'        => 'required|string|size:3',
         ]);
 
-        $ledger = SpecialLedger::create([
-            'organization_id'      => $request->user()->organization_id,
-            ...$validated,
-            'is_active' => true,
-        ]);
+        $ledger = $this->service->createLedger($request->user()->organization_id, $validated);
 
         return $this->created($ledger);
     }
@@ -71,10 +65,7 @@ class ParallelLedgerController extends Controller
 
     public function postEntry(Request $request, string $id, string $journalEntryId): JsonResponse
     {
-        $ledger       = SpecialLedger::findOrFail($id);
-        $journalEntry = JournalEntry::with('lines')->findOrFail($journalEntryId);
-
-        $this->service->postToLedger($journalEntry, $ledger);
+        $this->service->postEntryToLedger($id, $journalEntryId);
 
         return $this->success(null, 'Journal entry posted to parallel ledger');
     }
