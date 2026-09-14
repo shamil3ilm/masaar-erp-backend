@@ -21,30 +21,10 @@ class InterCompanyTransferController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = InterCompanyTransfer::with([
-                'fromBranch:id,name',
-                'toBranch:id,name',
-                'createdBy:id,name',
-            ])
-            ->orderByDesc('transfer_date')
-            ->orderByDesc('id');
-
-        $query
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->transfer_type, fn ($q, $v) => $q->where('transfer_type', $v))
-            ->when($request->from_branch_id, fn ($q, $v) => $q->where('from_branch_id', $v))
-            ->when($request->to_branch_id, fn ($q, $v) => $q->where('to_branch_id', $v))
-            ->when($request->start_date, fn ($q, $v) => $q->whereDate('transfer_date', '>=', $v))
-            ->when($request->end_date, fn ($q, $v) => $q->whereDate('transfer_date', '<=', $v))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('transfer_number', 'like', "%{$search}%")
-                        ->orWhere('reference', 'like', "%{$search}%")
-                        ->orWhere('purpose', 'like', "%{$search}%");
-                });
-            });
-
-        $transfers = $query->paginate($request->integer('per_page', 20));
+        $transfers = $this->transferService->list(
+            $request->only(['status', 'transfer_type', 'from_branch_id', 'to_branch_id', 'start_date', 'end_date', 'search']),
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($transfers);
     }

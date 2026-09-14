@@ -63,6 +63,31 @@ class InterCompanyTransferTest extends TestCase
         $this->assertCount(2, $response->json('data'));
     }
 
+    public function test_index_applies_non_empty_filters_newest_first(): void
+    {
+        $january = $this->makeTransfer(['transfer_date' => '2025-01-31', 'reference' => 'REF-JAN']);
+        $march = $this->makeTransfer([
+            'transfer_date' => '2025-03-15',
+            'status'        => 'approved',
+            'transfer_type' => 'loan',
+            'purpose'       => 'Working capital',
+        ]);
+
+        $ids = fn (string $query): array => array_column(
+            $this->withToken($this->token)->getJson("/api/v1/loans/inter-company-transfers?{$query}")->json('data'),
+            'id'
+        );
+
+        $this->assertSame([$march->id, $january->id], $ids(''));
+        $this->assertSame([$march->id], $ids('status=approved'));
+        $this->assertSame([$march->id], $ids('transfer_type=loan'));
+        $this->assertSame([$march->id], $ids('start_date=2025-02-01'));
+        $this->assertSame([$january->id], $ids('end_date=2025-02-01'));
+        $this->assertSame([$january->id], $ids('search=REF-JAN'));
+        $this->assertSame([$march->id], $ids('search=capital'));
+        $this->assertSame([$march->id, $january->id], $ids('status='));
+    }
+
     public function test_index_returns_empty_initially(): void
     {
         $response = $this->withToken($this->token)

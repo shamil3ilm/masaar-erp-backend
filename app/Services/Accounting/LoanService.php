@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\Loan;
 use App\Models\Accounting\LoanPayment;
 use App\Models\Accounting\LoanSchedule;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -20,6 +22,61 @@ class LoanService
         private readonly AccountResolver $accountResolver,
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * Newest loan first. Filters are passed as the keys the caller received,
+     * so a filter present with an empty value still applies; search matches
+     * the loan number or the borrower's name.
+     *
+     * @param  array{status?: mixed, loan_type?: mixed, employee_id?: mixed, search?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return Loan::with(['branch:id,name', 'createdBy:id,name'])
+            ->orderByDesc('created_at')
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('loan_type', $filters), fn ($q) => $q->where('loan_type', $filters['loan_type']))
+            ->when(array_key_exists('employee_id', $filters), fn ($q) => $q->where('employee_id', $filters['employee_id']))
+            ->when(array_key_exists('search', $filters), function ($q) use ($filters) {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search) {
+                    $q->where('loan_number', 'like', "%{$search}%")
+                        ->orWhere('borrower_name', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * Approve or reject a loan awaiting approval. An approval also moves the
+     * loan to approved; a rejection leaves its status as it was.
+     *
+     * The approval status is checked on the locked row, so an approval and a
+     * rejection sent together cannot both apply.
+     *
+     * @throws BusinessRuleException when the loan is not pending approval
+     */
+    public function review(Loan $loan, bool $approve, int $userId): Loan
+    {
+        return $loan->lockForTransition(function (Loan $locked) use ($approve, $userId): Loan {
+            if ($locked->approval_status !== Loan::APPROVAL_PENDING) {
+                throw new BusinessRuleException('Loan is not pending approval', 'INVALID_STATUS', 400);
+            }
+
+            if ($approve) {
+                $locked->update([
+                    'approval_status' => Loan::APPROVAL_APPROVED,
+                    'status'          => Loan::STATUS_APPROVED,
+                    'approved_by'     => $userId,
+                    'approved_at'     => now(),
+                ]);
+            } else {
+                $locked->update(['approval_status' => Loan::APPROVAL_REJECTED]);
+            }
+
+            return $locked->fresh();
+        });
+    }
 
     /**
      * Create a new loan.

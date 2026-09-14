@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\Loan;
 use App\Services\Accounting\LoanService;
@@ -12,6 +14,8 @@ use Illuminate\Http\Request;
 
 class LoanController extends Controller
 {
+    use ReportsBusinessRules;
+
     public function __construct(
         private LoanService $loanService
     ) {}
@@ -21,20 +25,10 @@ class LoanController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Loan::with(['branch:id,name', 'createdBy:id,name'])
-            ->orderByDesc('created_at')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->has('loan_type'), fn($q) => $q->where('loan_type', $request->loan_type))
-            ->when($request->has('employee_id'), fn($q) => $q->where('employee_id', $request->employee_id))
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->search;
-                $q->where(function ($q) use ($search) {
-                    $q->where('loan_number', 'like', "%{$search}%")
-                        ->orWhere('borrower_name', 'like', "%{$search}%");
-                });
-            });
-
-        $loans = $query->paginate($request->integer('per_page', 20));
+        $loans = $this->loanService->list(
+            $request->only(['status', 'loan_type', 'employee_id', 'search']),
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($loans);
     }
@@ -145,22 +139,15 @@ class LoanController extends Controller
             'action' => 'required|in:approve,reject',
         ]);
 
-        if ($loan->approval_status !== Loan::APPROVAL_PENDING) {
-            return $this->error('Loan is not pending approval', 'INVALID_STATUS', 400);
+        $approve = $validated['action'] === 'approve';
+
+        try {
+            $loan = $this->loanService->review($loan, $approve, auth()->id());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        if ($validated['action'] === 'approve') {
-            $loan->update([
-                'approval_status' => Loan::APPROVAL_APPROVED,
-                'status'          => Loan::STATUS_APPROVED,
-                'approved_by'     => auth()->id(),
-                'approved_at'     => now(),
-            ]);
-            return $this->success($loan->fresh(), 'Loan approved successfully');
-        }
-
-        $loan->update(['approval_status' => Loan::APPROVAL_REJECTED]);
-        return $this->success($loan->fresh(), 'Loan rejected');
+        return $this->success($loan, $approve ? 'Loan approved successfully' : 'Loan rejected');
     }
 
     /**
