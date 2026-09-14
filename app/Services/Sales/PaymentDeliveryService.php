@@ -11,6 +11,7 @@ use App\Models\Sales\PaymentMode;
 use App\Models\Sales\Shipment;
 use App\Models\Sales\ShipmentTrackingEvent;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class PaymentDeliveryService
@@ -91,10 +92,14 @@ class PaymentDeliveryService
         return $rate ? (float) $rate->rate : 0;
     }
 
+    /**
+     * Create a shipment and its items in one transaction. The items are not a
+     * shipment column, so they are left out of the header.
+     */
     public function createShipment(array $data): Shipment
     {
         return DB::transaction(function () use ($data) {
-            $shipment = Shipment::create($data);
+            $shipment = Shipment::create(Arr::except($data, ['items']));
 
             if (!empty($data['items'])) {
                 foreach ($data['items'] as $item) {

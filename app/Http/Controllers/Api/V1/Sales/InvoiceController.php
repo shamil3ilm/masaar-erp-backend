@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Exceptions\ConcurrencyException;
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\InvoiceResource;
 use App\Models\Sales\Invoice;
@@ -18,7 +19,7 @@ use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
-    use SupportsAgGrid;
+    use SupportsAgGrid, ValidatesOwnedRows;
 
     public function __construct(
         private readonly InvoiceService $invoiceService,
@@ -72,16 +73,16 @@ class InvoiceController extends Controller
             'reference' => 'nullable|string|max:100',
             'lines' => 'required|array|min:1',
             'lines.*.product_id' => ['nullable', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'lines.*.variant_id' => ['nullable', 'integer', $this->ownedThrough('product_variants', 'product_id', 'products')],
             'lines.*.description' => 'required|string|max:500',
             'lines.*.quantity' => 'required|numeric|gt:0',
-            'lines.*.unit_id' => 'nullable|integer|exists:units_of_measure,id',
+            'lines.*.unit_id' => ['nullable', 'integer', $this->ownedBy('units_of_measure')],
             'lines.*.unit_price' => 'required|numeric|min:0',
             'lines.*.discount_type' => 'nullable|in:percentage,fixed',
             'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|integer|exists:tax_categories,id',
-            'lines.*.account_id' => 'nullable|integer|exists:chart_of_accounts,id',
-            'lines.*.warehouse_id' => 'nullable|integer|exists:warehouses,id',
+            'lines.*.tax_category_id' => ['nullable', 'integer', $this->ownedBy('tax_categories')],
+            'lines.*.account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'lines.*.warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
             'lines.*.hsn_code' => 'nullable|string|max:20',
             'lines.*.tax_rate' => 'nullable|numeric|min:0|max:100',
             'lines.*.cgst_rate' => 'nullable|numeric|min:0',
@@ -141,16 +142,16 @@ class InvoiceController extends Controller
             'reference' => 'nullable|string|max:100',
             'lines' => 'nullable|array|min:1',
             'lines.*.product_id' => ['nullable', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'lines.*.variant_id' => ['nullable', 'integer', $this->ownedThrough('product_variants', 'product_id', 'products')],
             'lines.*.description' => 'required|string|max:500',
             'lines.*.quantity' => 'required|numeric|gt:0',
-            'lines.*.unit_id' => 'nullable|integer|exists:units_of_measure,id',
+            'lines.*.unit_id' => ['nullable', 'integer', $this->ownedBy('units_of_measure')],
             'lines.*.unit_price' => 'required|numeric|min:0',
             'lines.*.discount_type' => 'nullable|in:percentage,fixed',
             'lines.*.discount_value' => 'nullable|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|integer|exists:tax_categories,id',
-            'lines.*.account_id' => 'nullable|integer|exists:chart_of_accounts,id',
-            'lines.*.warehouse_id' => 'nullable|integer|exists:warehouses,id',
+            'lines.*.tax_category_id' => ['nullable', 'integer', $this->ownedBy('tax_categories')],
+            'lines.*.account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'lines.*.warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
             'lines.*.hsn_code' => 'nullable|string|max:20',
             'lines.*.tax_rate' => 'nullable|numeric|min:0|max:100',
         ]);
@@ -226,7 +227,7 @@ class InvoiceController extends Controller
             'lines.*.description' => 'required|string|max:500',
             'lines.*.quantity' => 'required|numeric|gt:0',
             'lines.*.unit_price' => 'required|numeric|min:0',
-            'lines.*.tax_category_id' => 'nullable|integer|exists:tax_categories,id',
+            'lines.*.tax_category_id' => ['nullable', 'integer', $this->ownedBy('tax_categories')],
         ]);
 
         try {
