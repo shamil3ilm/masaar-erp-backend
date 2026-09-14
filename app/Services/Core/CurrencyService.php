@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace App\Services\Core;
 
+use App\Contracts\ExchangeRateProvider;
 use App\Models\Accounting\Currency;
 use App\Models\Accounting\ExchangeRate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 class CurrencyService
 {
+    public function __construct(
+        private readonly ExchangeRateProvider $rates,
+    ) {}
+
     /**
      * Supported currencies with their details.
      */
@@ -123,40 +127,20 @@ class CurrencyService
     }
 
     /**
-     * Fetch live exchange rate from API.
+     * The provider's current rate, stored for later lookups, or the built-in
+     * rate when the provider has none.
      */
     protected function fetchLiveRate(string $from, string $to): float
     {
-        $apiKey = config('services.exchange_rate.api_key');
+        $rate = $this->rates->latest($from, $to);
 
-        if (! $apiKey) {
-            // Return default rates for common pairs if no API key
+        if ($rate === null) {
             return $this->getDefaultRate($from, $to);
         }
 
-        try {
-            // ExchangeRate-API v6 with the key as a bearer token, which keeps it
-            // out of the URL and so out of access logs. The keyless v4 endpoint
-            // this used never sent the key it checked for.
-            $response = Http::withToken($apiKey)
-                ->timeout(5)
-                ->get("https://v6.exchangerate-api.com/v6/latest/{$from}");
+        $this->storeRate($from, $to, $rate);
 
-            if ($response->successful() && $response->json('result') === 'success') {
-                $rate = $response->json("conversion_rates.{$to}");
-
-                if ($rate) {
-                    // Store in database for future use
-                    $this->storeRate($from, $to, $rate);
-
-                    return (float) $rate;
-                }
-            }
-        } catch (\Exception $e) {
-            Log::warning("Failed to fetch exchange rate: {$e->getMessage()}");
-        }
-
-        return $this->getDefaultRate($from, $to);
+        return $rate;
     }
 
     /**
