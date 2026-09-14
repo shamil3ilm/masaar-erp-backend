@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Models\Accounting\Account;
+use App\Models\Accounting\AccountingPeriod;
 use App\Models\Accounting\Currency;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -234,6 +237,100 @@ class FiscalYearTest extends TestCase
         $this->assertCreatedResponse($response);
     }
 
+    public function test_create_fiscal_year_with_periods_returns_its_monthly_periods(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.create']);
+
+        $response = $this->apiPost($this->baseUrl, [
+            'name' => 'FY 2026',
+            'start_date' => '2026-01-01',
+            'end_date' => '2026-12-31',
+            'is_current' => true,
+            'create_periods' => true,
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('message', 'Fiscal year created successfully')
+            ->assertJsonPath('data.is_current', true)
+            ->assertJsonCount(12, 'data.periods')
+            ->assertJsonPath('data.periods.11.end_date', '2026-12-31T00:00:00.000000Z');
+    }
+
+    public function test_create_fiscal_year_overlap_returns_overlap_error(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.create']);
+        $this->createFiscalYear();
+
+        $this->apiPost($this->baseUrl, [
+            'name' => 'Overlapping FY',
+            'start_date' => '2025-06-01',
+            'end_date' => '2026-05-31',
+        ])->assertStatus(422)
+            ->assertJsonPath('error.code', 'OVERLAP')
+            ->assertJsonPath('error.message', 'Fiscal year dates overlap with an existing fiscal year');
+    }
+
+    public function test_create_fiscal_year_saves_nothing_when_its_periods_fail(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.create']);
+
+        AccountingPeriod::creating(function (): void {
+            throw new RuntimeException('Period could not be stored.');
+        });
+
+        $this->apiPost($this->baseUrl, [
+            'name' => 'FY Half Built',
+            'start_date' => '2026-01-01',
+            'end_date' => '2026-12-31',
+            'create_periods' => true,
+        ])->assertStatus(500);
+
+        $this->assertDatabaseMissing('fiscal_years', ['name' => 'FY Half Built']);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/fiscal-years/initialize-coa - Default Chart of Accounts
+    // -------------------------------------------------------------------------
+
+    public function test_initialize_chart_of_accounts_creates_the_default_accounts(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.accounts.create']);
+
+        $this->apiPost("{$this->baseUrl}/initialize-coa")
+            ->assertStatus(200)
+            ->assertJsonPath('data', null)
+            ->assertJsonPath('message', 'Chart of accounts initialized successfully');
+
+        $this->assertGreaterThan(0, Account::withoutGlobalScopes()->where('organization_id', $this->organization->id)->count());
+    }
+
+    public function test_initialize_chart_of_accounts_refuses_an_existing_chart(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.accounts.create']);
+        $this->apiPost("{$this->baseUrl}/initialize-coa")->assertStatus(200);
+
+        $this->apiPost("{$this->baseUrl}/initialize-coa")
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'ALREADY_EXISTS')
+            ->assertJsonPath('error.message', 'Chart of accounts already exists');
+    }
+
+    public function test_initialize_chart_of_accounts_saves_no_partial_chart(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.accounts.create']);
+
+        $created = 0;
+        Account::creating(function () use (&$created): void {
+            if (++$created === 3) {
+                throw new RuntimeException('Account could not be stored.');
+            }
+        });
+
+        $this->apiPost("{$this->baseUrl}/initialize-coa")->assertStatus(500);
+
+        $this->assertSame(0, Account::withoutGlobalScopes()->where('organization_id', $this->organization->id)->count());
+    }
+
     // -------------------------------------------------------------------------
     // GET /api/v1/fiscal-years/{fiscalYear} - Show Fiscal Year
     // -------------------------------------------------------------------------
@@ -380,9 +477,91 @@ class FiscalYearTest extends TestCase
         $this->assertErrorResponse($response);
     }
 
+    public function test_set_current_keeps_the_previous_current_year_when_the_change_fails(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.update']);
+
+        $fy2024 = $this->createFiscalYear([
+            'name' => 'FY 2024',
+            'start_date' => '2024-01-01',
+            'end_date' => '2024-12-31',
+            'is_current' => true,
+        ]);
+        $fy2025 = $this->createFiscalYear();
+
+        FiscalYear::updating(function (FiscalYear $year): void {
+            if ($year->is_current) {
+                throw new RuntimeException('Fiscal year could not be updated.');
+            }
+        });
+
+        $this->apiPost("{$this->baseUrl}/{$fy2025->id}/set-current")->assertStatus(500);
+
+        $this->assertDatabaseHas('fiscal_years', ['id' => $fy2024->id, 'is_current' => true]);
+    }
+
+    public function test_cannot_close_fiscal_year_with_draft_journal_entries(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.close']);
+
+        $fy = $this->createFiscalYear();
+        JournalEntry::withoutGlobalScopes()->create([
+            'organization_id' => $this->organization->id,
+            'branch_id' => $this->branch->id,
+            'fiscal_year_id' => $fy->id,
+            'entry_date' => '2025-06-15',
+            'description' => 'Draft entry',
+            'currency_code' => 'SAR',
+            'exchange_rate' => 1.0,
+            'total_debit' => 0,
+            'total_credit' => 0,
+            'status' => JournalEntry::STATUS_DRAFT,
+            'created_by' => $this->user->id,
+        ]);
+
+        $this->apiPost("{$this->baseUrl}/{$fy->id}/close")
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'DRAFT_ENTRIES')
+            ->assertJsonPath('error.message', 'There are still draft journal entries in this fiscal year');
+
+        $this->assertFalse($fy->fresh()->is_closed);
+    }
+
+    public function test_cannot_close_fiscal_year_with_open_periods(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.close']);
+
+        $fy = $this->createFiscalYear();
+        AccountingPeriod::factory()->create(['fiscal_year_id' => $fy->id, 'is_closed' => false]);
+
+        $this->apiPost("{$this->baseUrl}/{$fy->id}/close")
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'OPEN_PERIODS')
+            ->assertJsonPath('error.message', 'All accounting periods must be closed first');
+
+        $this->assertFalse($fy->fresh()->is_closed);
+    }
+
     // -------------------------------------------------------------------------
     // DELETE /api/v1/fiscal-years/{fiscalYear} - Delete Fiscal Year
     // -------------------------------------------------------------------------
+
+    public function test_delete_fiscal_year_keeps_its_periods_when_the_year_cannot_be_deleted(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.fiscal-years.delete']);
+
+        $fy = $this->createFiscalYear();
+        $period = AccountingPeriod::factory()->create(['fiscal_year_id' => $fy->id]);
+
+        FiscalYear::deleting(function (): void {
+            throw new RuntimeException('Fiscal year could not be deleted.');
+        });
+
+        $this->apiDelete("{$this->baseUrl}/{$fy->id}")->assertStatus(500);
+
+        $this->assertDatabaseHas('accounting_periods', ['id' => $period->id]);
+        $this->assertDatabaseHas('fiscal_years', ['id' => $fy->id]);
+    }
 
     public function test_can_delete_open_fiscal_year_with_permission(): void
     {
