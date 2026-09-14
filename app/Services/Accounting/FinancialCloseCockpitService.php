@@ -7,6 +7,8 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\FinancialClosePeriod;
 use App\Models\Accounting\FinancialCloseTask;
 use App\Models\Accounting\FinancialCloseTemplate;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -14,6 +16,87 @@ use RuntimeException;
 
 class FinancialCloseCockpitService
 {
+    /**
+     * List close templates with their tasks, by name, optionally only active ones.
+     */
+    public function listTemplates(bool $activeOnly): Collection
+    {
+        return FinancialCloseTemplate::with('tasks')
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Create a close template and its tasks in one transaction, so a failing
+     * task leaves no half-built template behind. A task without sort_order
+     * takes its position in the list.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createTemplate(int $organizationId, array $data): FinancialCloseTemplate
+    {
+        return DB::transaction(function () use ($organizationId, $data): FinancialCloseTemplate {
+            $template = FinancialCloseTemplate::create([
+                'organization_id' => $organizationId,
+                'name'            => $data['name'],
+                'description'     => $data['description'] ?? null,
+                'close_type'      => $data['close_type'],
+                'is_active'       => $data['is_active'] ?? true,
+            ]);
+
+            foreach ($data['tasks'] ?? [] as $index => $taskData) {
+                $template->tasks()->create([
+                    'task_name'                => $taskData['task_name'],
+                    'description'              => $taskData['description'] ?? null,
+                    'task_type'                => $taskData['task_type'],
+                    'sort_order'               => $taskData['sort_order'] ?? $index,
+                    'estimated_duration_hours' => $taskData['estimated_duration_hours'] ?? null,
+                    'required_role'            => $taskData['required_role'] ?? null,
+                ]);
+            }
+
+            return $template->load('tasks');
+        });
+    }
+
+    /**
+     * Page through close periods, latest year and period first. A fiscal year
+     * or status filter applies only when its value is truthy.
+     */
+    public function paginatePeriods(mixed $fiscalYear, mixed $status, int $perPage): LengthAwarePaginator
+    {
+        return FinancialClosePeriod::query()
+            ->when($fiscalYear, fn ($q, $y) => $q->where('fiscal_year', (int) $y))
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->orderByDesc('fiscal_year')
+            ->orderByDesc('period')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Find one of the organisation's close periods; a missing or foreign id is a 404.
+     *
+     * @param  array<int, string>  $relations
+     */
+    public function findPeriod(int $id, array $relations = []): FinancialClosePeriod
+    {
+        return FinancialClosePeriod::with($relations)->findOrFail($id);
+    }
+
+    /**
+     * Find a close task of one of the organisation's periods.
+     *
+     * Tasks carry no organization_id, so the organisation scope is reached
+     * through the period: a task of another organisation's period is a 404.
+     * A soft-deleted period still owns its tasks.
+     */
+    public function findTask(int $taskId): FinancialCloseTask
+    {
+        return FinancialCloseTask::whereHas('period', fn ($q) => $q->withTrashed())
+            ->findOrFail($taskId);
+    }
+
     /**
      * Create a financial close period and instantiate tasks from the template (if given).
      */
