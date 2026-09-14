@@ -22,9 +22,7 @@ class DocumentSplittingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $rules = DocumentSplittingRule::where('organization_id', $this->organizationId($request))
-            ->ordered()
-            ->paginate(50);
+        $rules = $this->service->listRules((int) $this->organizationId($request));
 
         return $this->success($rules);
     }
@@ -43,9 +41,7 @@ class DocumentSplittingController extends Controller
             'priority'           => ['integer', 'min:1'],
         ]);
 
-        $data['organization_id'] = $this->organizationId($request);
-
-        $rule = DocumentSplittingRule::create($data);
+        $rule = $this->service->createRule($data, (int) $this->organizationId($request));
 
         return $this->success($rule, 'Document splitting rule created.', 201);
     }

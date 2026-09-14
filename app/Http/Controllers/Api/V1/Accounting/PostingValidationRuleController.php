@@ -26,12 +26,12 @@ class PostingValidationRuleController extends Controller
             'trigger_event' => ['nullable', 'string'],
         ]);
 
-        $query = PostingValidationRule::where('organization_id', $this->organizationId($request))
-            ->ordered()
-            ->when($request->filled('rule_type'), fn($q) => $q->where('rule_type', $request->rule_type))
-            ->when($request->filled('trigger_event'), fn($q) => $q->where('trigger_event', $request->trigger_event));
+        $filters = [
+            'rule_type'     => $request->filled('rule_type') ? $request->rule_type : null,
+            'trigger_event' => $request->filled('trigger_event') ? $request->trigger_event : null,
+        ];
 
-        return $this->success($query->paginate(50));
+        return $this->success($this->service->listPostingRules((int) $this->organizationId($request), $filters));
     }
 
     /**
@@ -54,9 +54,7 @@ class PostingValidationRuleController extends Controller
             'error_message' => ['nullable', 'string'],
         ]);
 
-        $data['organization_id'] = $this->organizationId($request);
-
-        $rule = PostingValidationRule::create($data);
+        $rule = $this->service->createPostingRule($data, (int) $this->organizationId($request));
 
         return $this->success($rule, 'Posting validation rule created.', 201);
     }
