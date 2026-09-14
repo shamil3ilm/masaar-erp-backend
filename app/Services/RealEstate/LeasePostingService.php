@@ -206,7 +206,7 @@ class LeasePostingService
         }
 
         try {
-            $this->journalService->createEntry(
+            $this->journalService->createAndPost(
                 entryData: [
                     'organization_id' => $organizationId,
                     'entry_date' => $postingDate,
@@ -215,7 +215,6 @@ class LeasePostingService
                     'reference_number' => $run->run_number,
                     'description' => "Rent posting run {$run->run_number}",
                     'currency_code' => $run->currency_code ?? 'SAR',
-                    'status' => 'posted',
                     'created_by' => Auth::id(),
                 ],
                 lines: [

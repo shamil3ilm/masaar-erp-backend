@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Inventory;
 
 use App\Models\Accounting\Account;
-use App\Models\Accounting\JournalEntry;
 use App\Models\Inventory\PhysicalInventoryDocument;
 use App\Models\Inventory\PhysicalInventoryLine;
 use App\Models\Inventory\StockAdjustment;
@@ -240,14 +239,13 @@ class PhysicalInventoryService
         $amount = (float) ltrim($difference, '-');
         [$debit, $credit] = $sign < 0 ? [$adjustment, $inventory] : [$inventory, $adjustment];
 
-        $this->journalService->createEntry([
+        $this->journalService->createAndPost([
             'organization_id' => $document->organization_id,
             'entry_date' => now()->toDateString(),
             'reference' => $document->document_number,
             'description' => "Physical inventory {$document->document_number}",
             'source_type' => PhysicalInventoryDocument::class,
             'source_id' => $document->id,
-            'status' => JournalEntry::STATUS_POSTED,
         ], [
             ['account_id' => $debit->id, 'description' => "Count difference - {$document->document_number}", 'debit' => $amount, 'credit' => 0],
             ['account_id' => $credit->id, 'description' => "Count difference - {$document->document_number}", 'debit' => 0, 'credit' => $amount],

@@ -8,6 +8,7 @@ use App\Models\Accounting\AccrualDeferral;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\Currency;
 use App\Models\Accounting\FiscalYear;
+use App\Models\Accounting\JournalEntry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -400,6 +401,24 @@ class AccrualDeferralTest extends TestCase
             'status'          => 'posted',
             'reference'       => $entry->reference . '-P1',
         ]);
+    }
+
+    public function test_a_posted_period_journal_records_when_and_by_whom_it_was_posted(): void
+    {
+        $entry = $this->makeEntry(['per_period_amount' => 1000.00]);
+
+        $this->withToken($this->token)
+            ->postJson("{$this->baseUrl}/{$entry->uuid}/post-period", ['period' => 1])
+            ->assertStatus(200);
+
+        $journal = JournalEntry::withoutGlobalScopes()
+            ->where('organization_id', $this->organization->id)
+            ->where('reference', $entry->reference . '-P1')
+            ->sole();
+
+        $this->assertSame(JournalEntry::STATUS_POSTED, $journal->status);
+        $this->assertNotNull($journal->posted_at);
+        $this->assertEquals($this->user->id, $journal->posted_by);
     }
 
     // -------------------------------------------------------------------------

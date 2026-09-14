@@ -273,12 +273,11 @@ class GoodsIssueService
             return null;
         }
 
-        $entry = $this->journalService->createEntry([
+        $entry = $this->journalService->createAndPost([
             'organization_id' => $gi->organization_id,
             'entry_date'      => $gi->gi_date->toDateString(),
             'reference'       => $gi->gi_number,
             'description'     => "Goods Issue {$gi->gi_number} — {$gi->getMovementTypeLabel()}",
-            'status'          => 'posted',
         ], [
             // Debit: COGS / Expense
             [

@@ -152,12 +152,11 @@ class VendorAdvanceService
             return null;
         }
 
-        $entry = $this->journalService->createEntry([
+        $entry = $this->journalService->createAndPost([
             'organization_id' => $orgId,
             'entry_date' => $payment->payment_date->toDateString(),
             'reference' => $request->request_number,
             'description' => "Vendor Advance Payment - {$request->request_number}",
-            'status' => 'posted',
         ], [
             [
                 'account_id' => $advanceAccount->id,
@@ -192,12 +191,11 @@ class VendorAdvanceService
             return null;
         }
 
-        $entry = $this->journalService->createEntry([
+        $entry = $this->journalService->createAndPost([
             'organization_id' => $orgId,
             'entry_date' => now()->toDateString(),
             'reference' => $bill->bill_number ?? (string) $bill->id,
             'description' => "Vendor Advance Clearing - {$request->request_number}",
-            'status' => 'posted',
         ], [
             [
                 'account_id' => $apAccount->id,
