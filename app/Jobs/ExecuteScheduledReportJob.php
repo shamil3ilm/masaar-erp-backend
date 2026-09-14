@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Models\Core\Organization;
 use App\Models\Reports\ReportExecution;
 use App\Models\Reports\SavedReport;
+use App\Models\User;
+use App\Services\Reports\ReportDataService;
 use App\Services\Reports\ReportExportService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -13,7 +16,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -37,7 +39,7 @@ class ExecuteScheduledReportJob implements ShouldQueue, ShouldBeUnique
         protected ?int $userId = null
     ) {}
 
-    public function handle(ReportExportService $exportService): void
+    public function handle(ReportDataService $reportData, ReportExportService $exportService): void
     {
         // Idempotency: skip if a completed execution already exists within this job's timeout window
         // (prevents duplicate reports when the scheduler dispatches the job twice)
@@ -55,196 +57,68 @@ class ExecuteScheduledReportJob implements ShouldQueue, ShouldBeUnique
         }
 
         $execution = ReportExecution::withoutGlobalScopes()->create([
-            'saved_report_id' => $this->report->id,
             'organization_id' => $this->report->organization_id,
-            'executed_by' => $this->userId,
+            'saved_report_id' => $this->report->id,
+            'user_id' => $this->userId ?? $this->report->user_id,
+            'report_type' => $this->report->report_type,
             'parameters' => $this->report->parameters,
             'format' => $this->report->export_format,
-            'status' => ReportExecution::STATUS_PROCESSING,
-            'started_at' => now(),
+            'trigger' => ReportExecution::TRIGGER_SCHEDULED,
+            'status' => ReportExecution::STATUS_PENDING,
         ]);
 
+        // The financial reports read the organisation from the signed-in user,
+        // and a queued job has none, so the report runs as its owner. The user
+        // is forgotten afterwards so the next job on this worker starts clean.
+        auth()->setUser(User::findOrFail($this->report->user_id));
+
         try {
-            Log::info("Executing scheduled report: {$this->report->name}", [
-                'report_id' => $this->report->id,
-                'execution_id' => $execution->id,
-            ]);
+            $organization = Organization::find($this->report->organization_id);
 
-            // Generate the report data
-            $reportData = $this->generateReportData();
-
-            if (empty($reportData)) {
-                $execution->markAsFailed('No data returned from report');
-                return;
-            }
-
-            // Export to file
-            $result = $exportService->export(
+            $data = $reportData->generate(
                 $this->report->report_type,
-                $reportData,
-                $this->report->export_format,
-                $this->report->organization
+                $this->report->parameters ?? [],
+                $this->report->organization_id,
             );
 
-            // Store the file
-            $filename = $this->generateFilename();
-            $path = "reports/{$this->report->organization_id}/{$filename}";
+            $exportService->setContext($this->report->organization_id, $organization?->toArray() ?? []);
+            $path = $exportService->export($this->report->report_type, $data, $this->report->export_format, $execution);
 
-            Storage::disk('local')->put($path, $result['content']);
+            $this->report->update([
+                'last_run_at' => now(),
+                'next_run_at' => $this->report->calculateNextRunAt(),
+            ]);
 
-            DB::transaction(function () use ($execution, $path, $reportData) {
-                $execution->markAsCompleted(
-                    $path,
-                    Storage::disk('local')->size($path),
-                    $reportData['row_count'] ?? count($reportData['data'] ?? [])
-                );
-
-                // Update report's last run time
-                $this->report->update([
-                    'last_run_at' => now(),
-                    'next_run_at' => $this->calculateNextRun(),
-                ]);
-            });
-
-            // Send email notifications if configured
-            $this->sendNotifications($execution, $path);
+            $this->sendNotifications($execution, $organization, $path);
 
             Log::info("Report executed successfully: {$this->report->name}", [
                 'execution_id' => $execution->id,
                 'file_path' => $path,
             ]);
-
         } catch (\Throwable $e) {
             Log::error("Report execution failed: {$this->report->name}", [
                 'execution_id' => $execution->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
 
             $execution->markAsFailed($e->getMessage());
 
             throw $e;
+        } finally {
+            auth()->forgetUser();
         }
     }
 
-    protected function generateReportData(): array
+    protected function sendNotifications(ReportExecution $execution, ?Organization $organization, string $filePath): void
     {
-        $service = $this->getReportService();
-
-        if (!$service) {
-            throw new \Exception("No service found for report type: {$this->report->report_type}");
-        }
-
-        $service->setContext(
-            $this->report->organization_id,
-            $this->report->parameters['branch_id'] ?? null
-        );
-
-        $params = $this->report->parameters;
-
-        // Add default date parameters if not set
-        if (!isset($params['start_date'])) {
-            $params['start_date'] = $this->getDefaultStartDate();
-        }
-        if (!isset($params['end_date'])) {
-            $params['end_date'] = now()->toDateString();
-        }
-        if (!isset($params['as_of_date'])) {
-            $params['as_of_date'] = now()->toDateString();
-        }
-
-        return match ($this->report->report_type) {
-            // Financial Reports
-            'balance_sheet' => $service->getBalanceSheet($params['as_of_date']),
-            'income_statement', 'profit_loss' => $service->getProfitAndLoss($params['start_date'], $params['end_date']),
-            'trial_balance' => $service->getTrialBalance($params['as_of_date']),
-            'cash_flow' => $service->getCashFlow($params['start_date'], $params['end_date']),
-            'aged_receivables' => $service->getReceivableAging($params['as_of_date']),
-            'aged_payables' => $service->getPayableAging($params['as_of_date']),
-
-            // Inventory Reports
-            'stock_valuation' => $service->generateStockValuation($params),
-            'stock_movement' => $service->generateStockMovement($params['start_date'], $params['end_date'], $params),
-            'low_stock' => $service->generateLowStockReport($params),
-
-            // Sales Reports
-            'sales_by_customer' => $service->generateSalesByCustomer($params['start_date'], $params['end_date'], $params),
-            'sales_by_product' => $service->generateSalesByProduct($params['start_date'], $params['end_date'], $params),
-            'sales_trend' => $service->generateSalesTrend($params['start_date'], $params['end_date'], $params),
-
-            // HR Reports
-            'hr_headcount' => $service->generateHeadcountReport($params['as_of_date'], $params['department_id'] ?? null),
-            'hr_turnover' => $service->generateTurnoverReport($params['start_date'], $params['end_date']),
-            'hr_attendance' => $service->generateAttendanceReport($params['start_date'], $params['end_date'], $params['department_id'] ?? null),
-            'hr_leave' => $service->generateLeaveReport($params['start_date'], $params['end_date'], $params['department_id'] ?? null),
-            'hr_payroll' => $service->generatePayrollReport($params['start_date'], $params['end_date']),
-
-            default => throw new \Exception("Unknown report type: {$this->report->report_type}"),
-        };
-    }
-
-    protected function getReportService(): mixed
-    {
-        return match (true) {
-            str_starts_with($this->report->report_type, 'hr_') => app(\App\Services\HR\HRReportService::class),
-            in_array($this->report->report_type, ['stock_valuation', 'stock_movement', 'low_stock', 'inventory_turnover', 'expiry_report']) =>
-                app(\App\Services\Reports\InventoryReportService::class),
-            in_array($this->report->report_type, ['sales_by_customer', 'sales_by_product', 'sales_by_salesperson', 'sales_trend']) =>
-                app(\App\Services\Reports\SalesReportService::class),
-            default => app(\App\Services\Reports\FinancialReportService::class),
-        };
-    }
-
-    protected function getDefaultStartDate(): string
-    {
-        return match ($this->report->schedule) {
-            'daily' => now()->subDay()->toDateString(),
-            'weekly' => now()->subWeek()->toDateString(),
-            'monthly' => now()->subMonth()->startOfMonth()->toDateString(),
-            'quarterly' => now()->subQuarter()->startOfQuarter()->toDateString(),
-            'yearly' => now()->subYear()->startOfYear()->toDateString(),
-            default => now()->startOfMonth()->toDateString(),
-        };
-    }
-
-    protected function calculateNextRun(): ?\DateTimeInterface
-    {
-        if (!$this->report->is_scheduled) {
-            return null;
-        }
-
-        $scheduleTime = $this->report->schedule_time ?? '06:00';
-        $timeParts = explode(':', $scheduleTime);
-        $hour = (int) ($timeParts[0] ?? 6);
-        $minute = (int) ($timeParts[1] ?? 0);
-
-        return match ($this->report->schedule) {
-            'daily' => now()->addDay()->setTime($hour, $minute),
-            'weekly' => now()->addWeek()->startOfWeek()->setTime($hour, $minute),
-            'monthly' => now()->addMonth()->startOfMonth()->setTime($hour, $minute),
-            'quarterly' => now()->addQuarter()->startOfQuarter()->setTime($hour, $minute),
-            default => null,
-        };
-    }
-
-    protected function generateFilename(): string
-    {
-        $timestamp = now()->format('Y-m-d_His');
-        $slug = str_replace(' ', '_', strtolower($this->report->name));
-
-        return "{$slug}_{$timestamp}.{$this->report->export_format}";
-    }
-
-    protected function sendNotifications(ReportExecution $execution, string $filePath): void
-    {
-        $recipients = $this->report->email_recipients ?? [];
+        $recipients = $this->report->recipients ?? [];
 
         if (empty($recipients)) {
             return;
         }
 
         try {
-            if (!Storage::disk('local')->exists($filePath)) {
+            if (! Storage::exists($filePath)) {
                 Log::error('Report file missing', ['path' => $filePath]);
                 return;
             }
@@ -255,12 +129,12 @@ class ExecuteScheduledReportJob implements ShouldQueue, ShouldBeUnique
                     [
                         'report' => $this->report,
                         'execution' => $execution,
-                        'organization' => $this->report->organization,
+                        'organization' => $organization,
                     ],
                     function ($message) use ($email, $filePath) {
                         $message->to($email)
                             ->subject("Scheduled Report: {$this->report->name}")
-                            ->attach(Storage::disk('local')->path($filePath));
+                            ->attach(Storage::path($filePath));
                     }
                 );
             }

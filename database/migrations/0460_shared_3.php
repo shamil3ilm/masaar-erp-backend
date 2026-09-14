@@ -188,28 +188,23 @@ return new class extends Migration
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('report_definition_id')->constrained()->cascadeOnDelete();
+            $table->string('report_type', 50); // One of ReportDataService::TYPES
             $table->string('name');
             $table->text('description')->nullable();
 
-            // Custom configuration
-            $table->json('selected_columns')->nullable();
-            $table->json('filters')->nullable();
-            $table->json('groupings')->nullable();
-            $table->json('sorting')->nullable();
-            $table->string('default_format', 10)->nullable();
-            $table->json('chart_config')->nullable();
+            $table->json('parameters')->nullable(); // Date range, warehouse and the like
+            $table->json('columns')->nullable();
+            $table->string('export_format', 10)->default('pdf');
 
             // Scheduling
             $table->boolean('is_scheduled')->default(false);
-            $table->string('schedule_frequency')->nullable(); // daily, weekly, monthly, quarterly, yearly
-            $table->unsignedTinyInteger('schedule_day')->nullable(); // Day of week (1-7) or month (1-31)
+            $table->string('schedule_frequency', 20)->nullable(); // daily, weekly, monthly, quarterly
+            $table->string('schedule_day', 10)->nullable(); // Weekday name when weekly, day of month when monthly
             $table->time('schedule_time')->nullable();
-            $table->json('schedule_recipients')->nullable(); // Email addresses
+            $table->json('recipients')->nullable(); // Email addresses
             $table->timestamp('last_run_at')->nullable();
             $table->timestamp('next_run_at')->nullable();
 
-            $table->boolean('is_favorite')->default(false);
             $table->boolean('is_shared')->default(false); // Shared with organization
             $table->timestamps();
 
@@ -222,7 +217,7 @@ return new class extends Migration
             $table->uuid('uuid')->unique();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
             $table->foreignId('saved_report_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('report_definition_id')->constrained()->cascadeOnDelete();
+            $table->string('report_type', 50);
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
 
             // Execution parameters

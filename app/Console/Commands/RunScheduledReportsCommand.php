@@ -6,7 +6,6 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExecuteScheduledReportJob;
 use App\Models\Reports\SavedReport;
-use App\Services\Reports\ReportExportService;
 use Illuminate\Console\Command;
 
 class RunScheduledReportsCommand extends Command
@@ -23,9 +22,6 @@ class RunScheduledReportsCommand extends Command
     {
         $this->info('Checking for scheduled reports...');
 
-        // saved_reports has no is_active column, and the schedule lives in
-        // schedule_frequency. Both filters named columns that do not exist, so
-        // this found no reports to run and said so cheerfully.
         $query = SavedReport::where('is_scheduled', true);
 
         // Filter by schedule type
@@ -87,9 +83,7 @@ class RunScheduledReportsCommand extends Command
         $this->line("\n  Processing: {$report->name} ({$report->report_type})");
 
         if ($this->option('sync')) {
-            // Run synchronously
-            $job = new ExecuteScheduledReportJob($report);
-            $job->handle(app(ReportExportService::class));
+            app()->call([new ExecuteScheduledReportJob($report), 'handle']);
         } else {
             // Dispatch to queue
             ExecuteScheduledReportJob::dispatch($report);

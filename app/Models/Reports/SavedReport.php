@@ -63,30 +63,30 @@ class SavedReport extends Model
     protected $fillable = [
         'organization_id',
         'user_id',
-        'name',
         'report_type',
+        'name',
+        'description',
         'parameters',
         'columns',
+        'export_format',
+        'is_scheduled',
         'schedule_frequency',
         'schedule_day',
         'schedule_time',
         'recipients',
-        'export_format',
         'is_shared',
         'last_run_at',
         'next_run_at',
-        'is_active',
     ];
 
     protected $casts = [
         'parameters' => 'array',
         'columns' => 'array',
         'recipients' => 'array',
+        'is_scheduled' => 'boolean',
         'is_shared' => 'boolean',
-        'is_active' => 'boolean',
         'last_run_at' => 'datetime',
         'next_run_at' => 'datetime',
-        'schedule_time' => 'datetime:H:i',
     ];
 
     /**
@@ -254,6 +254,9 @@ class SavedReport extends Model
 
     /**
      * Calculate next run date based on schedule.
+     *
+     * schedule_day is a weekday name for a weekly schedule and a day of the
+     * month for a monthly one.
      */
     public function calculateNextRunAt(): ?\DateTime
     {
@@ -267,7 +270,7 @@ class SavedReport extends Model
         return match ($this->schedule_frequency) {
             self::SCHEDULE_DAILY => $now->copy()->addDay()->setTimeFromTimeString($time),
             self::SCHEDULE_WEEKLY => $now->copy()->next($this->schedule_day ?? 'monday')->setTimeFromTimeString($time),
-            self::SCHEDULE_MONTHLY => $now->copy()->addMonth()->startOfMonth()->addDays(($this->schedule_day ?? 1) - 1)->setTimeFromTimeString($time),
+            self::SCHEDULE_MONTHLY => $now->copy()->addMonth()->startOfMonth()->addDays((int) ($this->schedule_day ?? 1) - 1)->setTimeFromTimeString($time),
             self::SCHEDULE_QUARTERLY => $now->copy()->addQuarter()->startOfQuarter()->setTimeFromTimeString($time),
             default => null,
         };
@@ -278,7 +281,7 @@ class SavedReport extends Model
      */
     public function scopeDueForRun($query)
     {
-        return $query->where('is_active', true)
+        return $query->where('is_scheduled', true)
             ->whereNotNull('schedule_frequency')
             ->where(function ($q) {
                 $q->whereNull('next_run_at')
