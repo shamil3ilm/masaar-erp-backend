@@ -6,6 +6,7 @@ namespace App\Services\Accounting;
 
 use App\Models\Accounting\InterCompanyTransfer;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -16,6 +17,37 @@ class InterCompanyTransferService
         private JournalService $journalService,
         private NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * Newest transfer date first. Each filter applies only when its value is
+     * non-empty; search matches the transfer number, reference or purpose.
+     *
+     * @param  array{status?: mixed, transfer_type?: mixed, from_branch_id?: mixed, to_branch_id?: mixed, start_date?: mixed, end_date?: mixed, search?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return InterCompanyTransfer::with([
+                'fromBranch:id,name',
+                'toBranch:id,name',
+                'createdBy:id,name',
+            ])
+            ->orderByDesc('transfer_date')
+            ->orderByDesc('id')
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['transfer_type'] ?? null, fn ($q, $v) => $q->where('transfer_type', $v))
+            ->when($filters['from_branch_id'] ?? null, fn ($q, $v) => $q->where('from_branch_id', $v))
+            ->when($filters['to_branch_id'] ?? null, fn ($q, $v) => $q->where('to_branch_id', $v))
+            ->when($filters['start_date'] ?? null, fn ($q, $v) => $q->whereDate('transfer_date', '>=', $v))
+            ->when($filters['end_date'] ?? null, fn ($q, $v) => $q->whereDate('transfer_date', '<=', $v))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('transfer_number', 'like', "%{$search}%")
+                        ->orWhere('reference', 'like', "%{$search}%")
+                        ->orWhere('purpose', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new inter-company transfer.
