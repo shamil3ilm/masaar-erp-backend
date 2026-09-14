@@ -225,8 +225,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Sales/IntercompanySalesController.php' => 9,
         'Api/V1/Sales/OutputDeterminationController.php' => 4,
         'Api/V1/Sales/PriceListController.php' => 7,
-        'Api/V1/Sales/PriceOverrideController.php' => 2,
-        'Api/V1/Sales/PromotionController.php' => 3,
         'Api/V1/Sales/SalesOrderCostingController.php' => 4,
         'Api/V1/Sales/ShippingRouteController.php' => 6,
         'Api/V1/Sales/ThirdPartyOrderController.php' => 6,
