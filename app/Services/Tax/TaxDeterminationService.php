@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Tax;
 
 use App\Models\Tax\TaxDeterminationRule;
+use App\Support\TaxMath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class TaxDeterminationService
@@ -123,11 +124,7 @@ class TaxDeterminationService
             && ! $isReverseCharge
             && $taxRatePct > 0
         ) {
-            $taxAmount = (float) bcmul(
-                (string) $amount,
-                bcdiv((string) $taxRatePct, '100', 6),
-                4
-            );
+            $taxAmount = (float) TaxMath::tax((string) $amount, (string) $taxRatePct);
         }
 
         return [

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Purchase;
 
+use App\Models\Concerns\CalculatesLineTotals;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductVariant;
 use App\Models\Inventory\UnitOfMeasure;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PurchaseOrderLine extends Model
 {
-    use HasFactory;
+    use CalculatesLineTotals, HasFactory;
 
     protected $fillable = [
         'purchase_order_id',
@@ -64,13 +65,6 @@ class PurchaseOrderLine extends Model
         ];
     }
 
-    protected static function booted(): void
-    {
-        static::saving(function (PurchaseOrderLine $line) {
-            $line->calculateTotals();
-        });
-    }
-
     public function purchaseOrder(): BelongsTo
     {
         return $this->belongsTo(PurchaseOrder::class);
@@ -99,29 +93,6 @@ class PurchaseOrderLine extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
-    }
-
-    public function calculateTotals(): void
-    {
-        $gross = bcmul((string) $this->quantity, (string) $this->unit_price, 4);
-
-        if ($this->discount_type === 'percentage' && $this->discount_value > 0) {
-            $this->discount_amount = bcmul($gross, bcdiv((string) $this->discount_value, '100', 6), 4);
-        } elseif ($this->discount_type === 'fixed') {
-            $this->discount_amount = $this->discount_value;
-        } else {
-            $this->discount_amount = 0;
-        }
-
-        $this->subtotal = bcsub($gross, (string) $this->discount_amount, 4);
-
-        if ($this->tax_rate > 0) {
-            $this->tax_amount = bcmul((string) $this->subtotal, bcdiv((string) $this->tax_rate, '100', 6), 4);
-        } else {
-            $this->tax_amount = 0;
-        }
-
-        $this->total = bcadd((string) $this->subtotal, (string) $this->tax_amount, 4);
     }
 
     public function getRemainingToReceive(): float
