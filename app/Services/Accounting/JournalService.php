@@ -56,6 +56,9 @@ use InvalidArgumentException;
  */
 class JournalService
 {
+    /** The header fields updateDraft() may change on a draft entry. */
+    private const DRAFT_HEADER_FIELDS = ['entry_date', 'reference', 'description', 'currency_code', 'exchange_rate'];
+
     public function __construct(
         private readonly CacheService $cache,
     ) {}
@@ -221,6 +224,13 @@ class JournalService
     {
         if ($entry->status !== JournalEntry::STATUS_DRAFT) {
             throw new InvalidArgumentException('Only draft entries can be updated.');
+        }
+
+        // Status, posting, fiscal year, source and totals are set by this
+        // service alone, so an update may change only the draft's own details.
+        $refused = array_diff(array_keys($header), self::DRAFT_HEADER_FIELDS);
+        if ($refused !== []) {
+            throw new InvalidArgumentException('A draft entry update cannot change: '.implode(', ', $refused).'.');
         }
 
         $organizationId = (int) $entry->organization_id;
