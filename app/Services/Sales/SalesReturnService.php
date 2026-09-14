@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Models\Sales\Contact;
 use App\Models\Sales\SalesReturn;
 use App\Models\Sales\SalesReturnItem;
 use App\Models\Sales\ReturnPolicy;
@@ -26,6 +27,70 @@ class SalesReturnService
         private NumberGeneratorService $numberGenerator,
         private StockService $stockService,
     ) {}
+
+    /**
+     * A return of the given organization with the reference columns of its
+     * customer and invoice, its items, reason, exchange order, credit note
+     * and refund; 404 when there is none.
+     */
+    public function findWithDetails(int $organizationId, int $id): SalesReturn
+    {
+        return SalesReturn::where('organization_id', $organizationId)
+            ->with([
+                'customer:'.implode(',', Contact::REFERENCE_COLUMNS),
+                'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+                'items.product',
+                'returnReason',
+                'exchangeOrder.items',
+                'creditNote',
+                'refund',
+            ])
+            ->findOrFail($id);
+    }
+
+    /**
+     * A return of the given organization with its items; 404 when there is none.
+     */
+    public function findWithItems(int $organizationId, int $id): SalesReturn
+    {
+        return SalesReturn::where('organization_id', $organizationId)
+            ->with('items')
+            ->findOrFail($id);
+    }
+
+    /**
+     * Every item of a loaded return, received in full with nothing damaged.
+     *
+     * @return list<array{id: int, quantity_received: mixed, quantity_damaged: int}>
+     */
+    public function fullReceipt(SalesReturn $salesReturn): array
+    {
+        return $salesReturn->items->map(fn (SalesReturnItem $item): array => [
+            'id' => $item->id,
+            'quantity_received' => $item->quantity_returned,
+            'quantity_damaged' => 0,
+        ])->toArray();
+    }
+
+    /**
+     * Mark a return that has no items as received.
+     *
+     * The status is checked on the locked row.
+     *
+     * @throws \InvalidArgumentException when the return is neither approved nor received
+     */
+    public function markReceivedWithoutItems(SalesReturn $salesReturn): SalesReturn
+    {
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn): SalesReturn {
+            if (! in_array($salesReturn->status, [SalesReturn::STATUS_APPROVED, SalesReturn::STATUS_RECEIVED], true)) {
+                throw new \InvalidArgumentException('Sales return must be approved before receiving items.');
+            }
+
+            $salesReturn->markReceived();
+
+            return $salesReturn->fresh(['items']);
+        });
+    }
 
     public function create(array $data, int $userId): SalesReturn
     {
@@ -77,39 +142,65 @@ class SalesReturnService
             // The fee the default policy keeps is part of the return's total.
             $this->applyRestockingFee($salesReturn);
 
-            return $salesReturn->fresh(['items', 'customer', 'invoice']);
+            return $salesReturn->fresh([
+                'items',
+                'customer:'.implode(',', Contact::REFERENCE_COLUMNS),
+                'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+            ]);
         });
     }
 
+    /**
+     * Approve a pending return.
+     *
+     * The status is checked on the locked row, so a return rejected by a
+     * concurrent request is not approved.
+     */
     public function approve(SalesReturn $salesReturn, int $userId): SalesReturn
     {
-        if ($salesReturn->status !== SalesReturn::STATUS_PENDING) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($userId): SalesReturn {
+            if ($salesReturn->status !== SalesReturn::STATUS_PENDING) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        $salesReturn->approve($userId);
+            $salesReturn->approve($userId);
 
-        return $salesReturn->fresh();
+            return $salesReturn->fresh();
+        });
     }
 
+    /**
+     * Reject a pending return.
+     *
+     * The status is checked on the locked row, so a return approved by a
+     * concurrent request is not rejected.
+     */
     public function reject(SalesReturn $salesReturn, int $userId, string $reason): SalesReturn
     {
-        if ($salesReturn->status !== SalesReturn::STATUS_PENDING) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($userId, $reason): SalesReturn {
+            if ($salesReturn->status !== SalesReturn::STATUS_PENDING) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        $salesReturn->reject($userId, $reason);
+            $salesReturn->reject($userId, $reason);
 
-        return $salesReturn->fresh();
+            return $salesReturn->fresh();
+        });
     }
 
+    /**
+     * Record the quantities received for a return's items and mark it received.
+     *
+     * The status is checked on the locked row, and the items and the return
+     * change in the same transaction.
+     */
     public function receiveItems(SalesReturn $salesReturn, array $receivedItems): SalesReturn
     {
-        if (! in_array($salesReturn->status, [SalesReturn::STATUS_APPROVED, SalesReturn::STATUS_RECEIVED])) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($receivedItems) {
+            if (! in_array($salesReturn->status, [SalesReturn::STATUS_APPROVED, SalesReturn::STATUS_RECEIVED])) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        return DB::transaction(function () use ($salesReturn, $receivedItems) {
             // Validate that received quantities do not exceed the original invoiced quantities
             if ($salesReturn->invoice_id) {
                 foreach ($receivedItems as $itemData) {
@@ -146,19 +237,27 @@ class SalesReturnService
         });
     }
 
+    /**
+     * Record the inspection of a received return.
+     *
+     * The status is checked on the locked row, so a return inspected by a
+     * concurrent request keeps that inspection.
+     */
     public function inspect(SalesReturn $salesReturn, string $inspectionStatus, ?string $notes = null): SalesReturn
     {
-        if ($salesReturn->status !== SalesReturn::STATUS_RECEIVED) {
-            throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
-        }
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($inspectionStatus, $notes): SalesReturn {
+            if ($salesReturn->status !== SalesReturn::STATUS_RECEIVED) {
+                throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
 
-        $salesReturn->update([
-            'status' => SalesReturn::STATUS_INSPECTED,
-            'inspection_status' => $inspectionStatus,
-            'inspection_notes' => $notes,
-        ]);
+            $salesReturn->update([
+                'status' => SalesReturn::STATUS_INSPECTED,
+                'inspection_status' => $inspectionStatus,
+                'inspection_notes' => $notes,
+            ]);
 
-        return $salesReturn->fresh();
+            return $salesReturn->fresh();
+        });
     }
 
     /**
@@ -167,13 +266,19 @@ class SalesReturnService
      *
      * The status is checked on the locked return, so a double submit resolves
      * it once. The credit note and the restock are part of the resolution: if
-     * either fails, the return stays unresolved.
+     * either fails, the return stays unresolved. A restock choice passed in
+     * $restockItems is recorded with the resolution, so a refused resolution
+     * leaves it unchanged.
      */
-    public function resolve(SalesReturn $salesReturn, string $resolutionType, int $userId): SalesReturn
+    public function resolve(SalesReturn $salesReturn, string $resolutionType, int $userId, ?bool $restockItems = null): SalesReturn
     {
-        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($resolutionType, $userId): SalesReturn {
+        return $salesReturn->lockForTransition(function (SalesReturn $salesReturn) use ($resolutionType, $userId, $restockItems): SalesReturn {
             if (! in_array($salesReturn->status, [SalesReturn::STATUS_INSPECTED, SalesReturn::STATUS_RECEIVED], true)) {
                 throw ApiException::fromError(ErrorCodes::BIZ_INVALID_STATUS_TRANSITION);
+            }
+
+            if ($restockItems !== null) {
+                $salesReturn->update(['restock_items' => $restockItems]);
             }
 
             $salesReturn->update(['resolution_type' => $resolutionType]);
@@ -289,7 +394,11 @@ class SalesReturnService
             $query->whereDate('return_date', '<=', $filters['to_date']);
         }
 
-        return $query->with(['customer', 'invoice', 'items.product'])
+        return $query->with([
+            'customer:'.implode(',', Contact::REFERENCE_COLUMNS),
+            'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+            'items.product',
+        ])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }

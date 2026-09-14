@@ -6,10 +6,10 @@ namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Http\Controllers\Controller;
 use App\Models\Sales\AdvancePayment;
-use App\Models\Sales\Invoice;
 use App\Services\Sales\CustomerAdvanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CustomerAdvanceController extends Controller
 {
@@ -35,19 +35,21 @@ class CustomerAdvanceController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $orgId = $request->user()->organization_id;
+
         $validated = $request->validate([
-            'contact_id' => ['required', 'exists:contacts,id'],
+            'contact_id' => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
             'payment_date' => ['required', 'date'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'currency_code' => ['required', 'string', 'size:3'],
             'payment_method' => ['nullable', 'string', 'max:50'],
             'reference' => ['nullable', 'string', 'max:100'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['nullable', Rule::exists('bank_accounts', 'id')->where('organization_id', $orgId)],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $advance = $this->advanceService->store(array_merge($validated, [
-            'organization_id' => $request->user()->organization_id,
+            'organization_id' => $orgId,
             'received_by' => $request->user()->id,
         ]));
 
@@ -59,9 +61,7 @@ class CustomerAdvanceController extends Controller
      */
     public function show(AdvancePayment $advancePayment): JsonResponse
     {
-        return $this->success(
-            $advancePayment->load(['contact:id,contact_name,company_name', 'applications.appliedTo'])
-        );
+        return $this->success($this->advanceService->loadDetails($advancePayment));
     }
 
     /**
@@ -69,13 +69,11 @@ class CustomerAdvanceController extends Controller
      */
     public function destroy(AdvancePayment $advancePayment): JsonResponse
     {
-        if ($advancePayment->status !== AdvancePayment::STATUS_DRAFT) {
-            return $this->error('Only draft advances can be deleted.', 'INVALID_STATUS', 422);
-        }
-
-        $advancePayment->delete();
-
-        return $this->success(null, 'Advance payment deleted.');
+        return $this->tryAction(
+            fn () => $this->advanceService->delete($advancePayment),
+            'Advance payment deleted.',
+            'INVALID_STATUS'
+        );
     }
 
     /**
@@ -84,19 +82,18 @@ class CustomerAdvanceController extends Controller
     public function applyToInvoice(Request $request, AdvancePayment $advancePayment): JsonResponse
     {
         $validated = $request->validate([
-            'invoice_id' => ['required', 'exists:invoices,id'],
+            'invoice_id' => ['required', Rule::exists('invoices', 'id')->where('organization_id', $request->user()->organization_id)],
             'amount' => ['required', 'numeric', 'min:0.01'],
         ]);
 
-        $invoice = Invoice::findOrFail($validated['invoice_id']);
-        $application = $this->advanceService->applyToInvoice(
+        $application = $this->advanceService->applyToInvoiceId(
             $advancePayment,
-            $invoice,
+            (int) $validated['invoice_id'],
             (float) $validated['amount'],
             $request->user()->id,
         );
 
-        return $this->created($application->load(['advancePayment', 'appliedTo']));
+        return $this->created($application);
     }
 
     /**

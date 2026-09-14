@@ -21,14 +21,19 @@ class BulkSaleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = BulkSaleBatch::with(['branch', 'creator'])
-            ->latest('sale_date')
-            ->when($request->has('status'), fn($q) => $q->byStatus($request->input('status')))
-            ->when($request->has('branch_id'), fn($q) => $q->byBranch($request->integer('branch_id')))
-            ->when($request->has('from_date'), fn($q) => $q->where('sale_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('sale_date', '<=', $request->input('to_date')));
+        $filters = [];
 
-        $batches = $query->paginate($request->integer('per_page', 15));
+        foreach (['status', 'from_date', 'to_date'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        if ($request->has('branch_id')) {
+            $filters['branch_id'] = $request->integer('branch_id');
+        }
+
+        $batches = $this->bulkSaleService->list($filters, $request->integer('per_page', 15));
 
         return $this->paginated($batches);
     }

@@ -31,21 +31,15 @@ class InvoiceController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Invoice::with(['customer', 'salesperson'])
-            ->latest('invoice_date')
-            ->when($request->customer_id, fn ($q, $id) => $q->forCustomer((int) $id))
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->type, fn ($q, $v) => $q->ofType($v))
-            ->when(
-                $request->input('from_date', $request->input('start_date')),
-                fn ($q, $v) => $q->where('invoice_date', '>=', $v)
-            )
-            ->when(
-                $request->input('to_date', $request->input('end_date')),
-                fn ($q, $v) => $q->where('invoice_date', '<=', $v)
-            )
-            ->when($request->boolean('overdue', false), fn ($q) => $q->overdue())
-            ->when($request->boolean('unpaid', false), fn ($q) => $q->unpaid());
+        $query = $this->invoiceService->listQuery([
+            'customer_id' => $request->customer_id,
+            'status' => $request->status,
+            'type' => $request->type,
+            'from_date' => $request->input('from_date', $request->input('start_date')),
+            'to_date' => $request->input('to_date', $request->input('end_date')),
+            'overdue' => $request->boolean('overdue', false),
+            'unpaid' => $request->boolean('unpaid', false),
+        ]);
 
         if ($this->isAgGridRequest($request)) {
             return $this->applyAgGrid($query, $request);
@@ -296,37 +290,19 @@ class InvoiceController extends Controller
      */
     public function destroy(Invoice $invoice): JsonResponse
     {
-        if ($invoice->status !== Invoice::STATUS_DRAFT) {
-            return $this->error('Only draft invoices can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $invoice->delete();
-
-        return $this->success(null, 'Invoice deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->invoiceService->delete($invoice),
+            'Invoice deleted successfully.'
+        );
     }
 
     /**
      * Get invoice summary/stats.
+     *
+     * A date bound applies whenever its key is sent, even with an empty value.
      */
     public function summary(Request $request): JsonResponse
     {
-        $query = Invoice::query()
-            ->when($request->has('from_date'), fn ($q) => $q->where('invoice_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn ($q) => $q->where('invoice_date', '<=', $request->input('to_date')));
-
-        $stats = [
-            'total_invoices' => $query->count(),
-            'total_amount' => $query->sum('total'),
-            'total_paid' => $query->sum('amount_paid'),
-            'total_outstanding' => $query->sum('amount_due'),
-            'by_status' => Invoice::selectRaw('status, COUNT(*) as count, SUM(total) as total')
-                ->groupBy('status')
-                ->get()
-                ->keyBy('status'),
-            'overdue_count' => Invoice::overdue()->count(),
-            'overdue_amount' => Invoice::overdue()->sum('amount_due'),
-        ];
-
-        return $this->success($stats);
+        return $this->success($this->invoiceService->summary($request->only(['from_date', 'to_date'])));
     }
 }

@@ -62,6 +62,17 @@ class CreditManagementService
     }
 
     /**
+     * Whether the contact has a credit hold that has not been released.
+     */
+    public function hasOpenHold(Contact $contact): bool
+    {
+        return CreditHold::where('organization_id', $contact->organization_id)
+            ->where('contact_id', $contact->id)
+            ->whereNull('released_at')
+            ->exists();
+    }
+
+    /**
      * Get the current credit exposure for a contact (live calculation).
      */
     public function getCreditExposure(Contact $contact): array

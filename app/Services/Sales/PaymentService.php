@@ -17,6 +17,8 @@ use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Core\UserEventService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -28,6 +30,140 @@ class PaymentService
         private NumberGeneratorService $numberGenerator,
         private UserEventService $userEventService
     ) {}
+
+    /**
+     * Payments of the current organization with their customer and bank
+     * account, newest first, narrowed by the filters that are set.
+     *
+     * @param  array{customer_id?: mixed, status?: mixed, payment_method?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PaymentReceived::with(['customer', 'bankAccount'])
+            ->latest('payment_date')
+            ->when($filters['customer_id'] ?? null, fn ($q, $v) => $q->forCustomer((int) $v))
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['payment_method'] ?? null, fn ($q, $v) => $q->byMethod($v))
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('payment_date', '>=', $v))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('payment_date', '<=', $v))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Count and total of the current organization's completed payments.
+     *
+     * The count and total are bounded by payment date for each of from_date
+     * and to_date present in $range; the breakdown by method covers every
+     * completed payment.
+     *
+     * @param  array{from_date?: ?string, to_date?: ?string}  $range
+     * @return array<string, mixed>
+     */
+    public function summary(array $range): array
+    {
+        $query = PaymentReceived::completed()
+            ->when(array_key_exists('from_date', $range), fn ($q) => $q->where('payment_date', '>=', $range['from_date']))
+            ->when(array_key_exists('to_date', $range), fn ($q) => $q->where('payment_date', '<=', $range['to_date']));
+
+        return [
+            'total_payments' => $query->count(),
+            'total_amount' => $query->sum('amount'),
+            'by_method' => PaymentReceived::completed()
+                ->selectRaw('payment_method, COUNT(*) as count, SUM(amount) as total')
+                ->groupBy('payment_method')
+                ->get()
+                ->keyBy('payment_method'),
+        ];
+    }
+
+    /**
+     * Refuse a requested allocation larger than its invoice's amount due.
+     *
+     * This is an early answer for the caller; allocate() checks the locked
+     * invoice again when the payment is recorded.
+     *
+     * @param  list<array{invoice_id: int|string, amount: int|float|string}>  $allocations
+     *
+     * @throws \InvalidArgumentException naming the first allocation that is too large
+     */
+    public function assertAllocationsWithinDue(array $allocations): void
+    {
+        if ($allocations === []) {
+            return;
+        }
+
+        $invoices = Invoice::whereIn('id', array_column($allocations, 'invoice_id'))->get()->keyBy('id');
+
+        foreach ($allocations as $allocation) {
+            $invoice = $invoices->get($allocation['invoice_id']);
+
+            if ($invoice && $allocation['amount'] > (float) $invoice->amount_due) {
+                throw new \InvalidArgumentException(
+                    "Allocation amount ({$allocation['amount']}) exceeds invoice amount due ({$invoice->amount_due})."
+                );
+            }
+        }
+    }
+
+    /**
+     * Allocate a payment to several invoices as one change.
+     *
+     * Each allocation locks the payment and its invoice. Running them in one
+     * transaction means an allocation that is refused, for exceeding what is
+     * left unallocated or what its invoice owes, leaves none of the others
+     * recorded.
+     *
+     * @param  list<array{invoice_id: int|string, amount: int|float|string}>  $allocations
+     * @return array{allocations: list<PaymentAllocation>, unallocated_amount: float}
+     *
+     * @throws \InvalidArgumentException when any allocation is refused
+     */
+    public function allocateMany(PaymentReceived $payment, array $allocations): array
+    {
+        return DB::transaction(function () use ($payment, $allocations): array {
+            $results = [];
+
+            foreach ($allocations as $allocation) {
+                $invoice = Invoice::findOrFail($allocation['invoice_id']);
+                $results[] = $this->allocate($payment, $invoice, $allocation['amount']);
+            }
+
+            return [
+                'allocations' => $results,
+                'unallocated_amount' => $payment->fresh()->getUnallocatedAmount(),
+            ];
+        });
+    }
+
+    /**
+     * A customer's sent, partially paid and overdue invoices, oldest first,
+     * with only the columns needed to pick what to clear.
+     *
+     * @return Collection<int, Invoice>
+     */
+    public function openInvoicesFor(int $customerId): Collection
+    {
+        return Invoice::where('customer_id', $customerId)
+            ->whereIn('status', [
+                Invoice::STATUS_SENT,
+                Invoice::STATUS_PARTIAL,
+                Invoice::STATUS_OVERDUE,
+            ])
+            ->orderBy('invoice_date')
+            ->get(['id', 'uuid', 'invoice_number', 'invoice_date', 'due_date', 'total', 'amount_paid', 'amount_due', 'status', 'currency_code']);
+    }
+
+    /**
+     * Clear open items for a customer of the current organization; 404 when
+     * the customer is not visible.
+     *
+     * @param  list<int>  $invoiceIds
+     * @return array{clearing_date: string, cleared: list<int>, partial: list<int>, unmatched: list<int>}
+     */
+    public function clearOpenItemsFor(int $customerId, array $invoiceIds, string $clearingDate): array
+    {
+        return $this->clearOpenItems(Contact::findOrFail($customerId), $invoiceIds, $clearingDate);
+    }
 
     /**
      * Create a new payment.
@@ -431,7 +567,8 @@ class PaymentService
             $payments = PaymentReceived::where('customer_id', $customer->id)
                 ->whereIn('status', [PaymentReceived::STATUS_COMPLETED, PaymentReceived::STATUS_PENDING])
                 ->where(function ($q) {
-                    $q->whereRaw('amount > COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_received_id = payment_received.id), 0)');
+                    // Correlated with the outer payments_received row by its table name.
+                    $q->whereRaw('amount > COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_allocations.payment_received_id = payments_received.id), 0)');
                 })
                 ->orderBy('payment_date')
                 ->lockForUpdate()
