@@ -24,13 +24,11 @@ class PettyCashController extends Controller
 
     public function indexFunds(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $funds = PettyCashFund::where('organization_id', $organizationId)
-            ->with(['custodian', 'branch', 'account'])
-            ->when($request->boolean('active_only', false), fn ($q) => $q->active())
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 15));
+        $funds = $this->pettyCashService->listFunds(
+            $this->organizationId($request),
+            $request->boolean('active_only', false),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($funds, null, 'Petty cash funds retrieved.');
     }
@@ -48,10 +46,7 @@ class PettyCashController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $fund = PettyCashFund::create(array_merge($validated, [
-            'organization_id' => $this->organizationId($request),
-            'current_balance' => $validated['opening_balance'],
-        ]));
+        $fund = $this->pettyCashService->createFund($this->organizationId($request), $validated);
 
         return $this->success($fund->load(['custodian', 'branch', 'account']), 'Petty cash fund created.', 201);
     }
@@ -84,14 +79,11 @@ class PettyCashController extends Controller
 
     public function indexVouchers(Request $request, PettyCashFund $pettyCashFund): JsonResponse
     {
-        $vouchers = PettyCashVoucher::where('fund_id', $pettyCashFund->id)
-            ->with(['account', 'approvedBy', 'creator'])
-            ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
-            ->when($request->input('type'), fn ($q, $v) => $q->where('transaction_type', $v))
-            ->when($request->input('from_date'), fn ($q, $v) => $q->whereDate('voucher_date', '>=', $v))
-            ->when($request->input('to_date'), fn ($q, $v) => $q->whereDate('voucher_date', '<=', $v))
-            ->orderByDesc('voucher_date')
-            ->paginate($request->integer('per_page', 15));
+        $vouchers = $this->pettyCashService->listVouchers(
+            $pettyCashFund,
+            $request->only(['status', 'type', 'from_date', 'to_date']),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($vouchers, null, 'Petty cash vouchers retrieved.');
     }
@@ -134,11 +126,11 @@ class PettyCashController extends Controller
 
     public function indexReplenishments(Request $request, PettyCashFund $pettyCashFund): JsonResponse
     {
-        $replenishments = PettyCashReplenishment::where('fund_id', $pettyCashFund->id)
-            ->with(['requestedBy', 'approvedBy', 'journalEntry'])
-            ->when($request->input('status'), fn ($q, $v) => $q->where('status', $v))
-            ->orderByDesc('replenishment_date')
-            ->paginate($request->integer('per_page', 15));
+        $replenishments = $this->pettyCashService->listReplenishments(
+            $pettyCashFund,
+            $request->input('status'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($replenishments, null, 'Replenishments retrieved.');
     }
