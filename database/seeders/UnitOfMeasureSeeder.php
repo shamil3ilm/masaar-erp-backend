@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Core\Organization;
 use App\Models\Inventory\UnitOfMeasure;
 use Illuminate\Database\Seeder;
 
@@ -66,11 +67,14 @@ class UnitOfMeasureSeeder extends Seeder
             ['name' => 'Month', 'symbol' => 'mo', 'base_unit_id' => null, 'conversion_factor' => 720],
         ];
 
-        foreach ($units as $unit) {
-            UnitOfMeasure::firstOrCreate(
-                ['symbol' => $unit['symbol'], 'organization_id' => null],
-                $unit
-            );
+        // Units belong to an organization, so each one gets the full set.
+        foreach (Organization::withoutGlobalScopes()->pluck('id') as $organizationId) {
+            foreach ($units as $unit) {
+                UnitOfMeasure::firstOrCreate(
+                    ['symbol' => $unit['symbol'], 'organization_id' => $organizationId],
+                    $unit
+                );
+            }
         }
     }
 }

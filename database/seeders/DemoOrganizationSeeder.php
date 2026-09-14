@@ -73,6 +73,10 @@ class DemoOrganizationSeeder extends Seeder
             );
         }
 
+        // Units and tax categories belong to an organization, so they can only
+        // be seeded once this one exists.
+        $this->call([UnitOfMeasureSeeder::class, TaxCategorySeeder::class]);
+
         // Attach the admin account to this organization.
         $user = User::withTrashed()->where('email', 'admin@admin.com')->first();
         if (!$user) {
