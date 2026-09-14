@@ -116,9 +116,12 @@ class CustomerAdvanceTest extends TestCase
         return AdvancePayment::latest('id')->firstOrFail();
     }
 
+    /**
+     * A sent invoice: an advance clears receivables, which a draft does not have yet.
+     */
     private function invoice(float $total): Invoice
     {
-        return Invoice::factory()->create([
+        return Invoice::factory()->sent()->create([
             'organization_id' => $this->organization->id,
             'customer_id' => $this->customer->id,
             'total' => $total,

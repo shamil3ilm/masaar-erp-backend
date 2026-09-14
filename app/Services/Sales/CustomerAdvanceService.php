@@ -115,6 +115,10 @@ class CustomerAdvanceService
 
     /**
      * Apply part or all of an advance to an invoice.
+     *
+     * The advance and then the invoice are locked, so the advance balance and
+     * the invoice's amount due are current and a concurrent application or
+     * payment is neither spent twice nor overwritten.
      */
     public function applyToInvoice(
         AdvancePayment $advance,
@@ -122,7 +126,7 @@ class CustomerAdvanceService
         float $amount,
         int $appliedBy,
     ): AdvancePaymentApplication {
-        return DB::transaction(function () use ($advance, $invoice, $amount, $appliedBy): AdvancePaymentApplication {
+        return $advance->lockForTransition(function (AdvancePayment $advance) use ($invoice, $amount, $appliedBy): AdvancePaymentApplication {
             // Validate advance is open
             if (! in_array($advance->status, [
                 AdvancePayment::STATUS_RECEIVED,
@@ -133,6 +137,8 @@ class CustomerAdvanceService
                     'message' => 'Advance is not open for application.',
                 ]);
             }
+
+            $invoice = $invoice->lockedCopy();
 
             $balance = (float) $advance->available_amount;
             $balanceDue = (float) $invoice->amount_due;
@@ -183,21 +189,9 @@ class CustomerAdvanceService
                 'status' => $newStatus,
             ]);
 
-            // Update invoice payment tracking
-            $newAmountPaid = (float) bcadd((string) $invoice->amount_paid, (string) $amount, 4);
-            $newAmountDue = (float) bcsub((string) $invoice->total, (string) $newAmountPaid, 4);
-
-            $invoiceStatus = match (true) {
-                $newAmountDue <= 0 => Invoice::STATUS_PAID,
-                $newAmountPaid > 0 => Invoice::STATUS_PARTIAL,
-                default => $invoice->status,
-            };
-
-            $invoice->update([
-                'amount_paid' => $newAmountPaid,
-                'amount_due' => max(0, $newAmountDue),
-                'status' => $invoiceStatus,
-            ]);
+            // Adds to the locked invoice's paid amount and moves it to partial
+            // or paid through its state machine.
+            $invoice->recordPayment($amount);
 
             // Create clearing journal entry
             $this->journalService->create([
@@ -242,10 +236,13 @@ class CustomerAdvanceService
 
     /**
      * Refund the remaining balance of an advance.
+     *
+     * The balance is read from the locked advance, so credit applied to an
+     * invoice meanwhile is not paid out a second time.
      */
     public function refund(AdvancePayment $advance): void
     {
-        DB::transaction(function () use ($advance): void {
+        $advance->lockForTransition(function (AdvancePayment $advance): void {
             if (! in_array($advance->status, [
                 AdvancePayment::STATUS_RECEIVED,
                 AdvancePayment::STATUS_PARTIALLY_APPLIED,
