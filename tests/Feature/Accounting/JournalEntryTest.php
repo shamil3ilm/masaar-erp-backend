@@ -434,6 +434,28 @@ class JournalEntryTest extends TestCase
         $response->assertJsonFragment(['description' => 'Updated description']);
     }
 
+    public function test_updating_a_draft_with_unbalanced_lines_is_refused_and_keeps_its_lines(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.journals.update']);
+        $this->setUpAccountingContext();
+
+        $je = $this->createJournalEntry();
+
+        $response = $this->apiPut("{$this->baseUrl}/{$je->id}", [
+            'lines' => [
+                ['account_id' => $this->debitAccount->id, 'debit' => 1000, 'credit' => 0],
+                ['account_id' => $this->creditAccount->id, 'debit' => 0, 'credit' => 400],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        $lines = $je->fresh()->lines;
+        $this->assertCount(2, $lines);
+        $this->assertEquals(1000, (float) $lines->sum('debit'));
+        $this->assertEquals(1000, (float) $lines->sum('credit'));
+    }
+
     public function test_cannot_update_posted_journal_entry(): void
     {
         $this->setUpAuthenticatedUser(['accounting.journals.update']);

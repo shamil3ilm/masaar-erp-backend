@@ -177,18 +177,7 @@ class JournalService
             // Create the entry
             $entry = JournalEntry::create($entryData);
 
-            // Create lines
-            foreach ($lines as $index => $lineData) {
-                $entry->lines()->create([
-                    'account_id' => $lineData['account_id'],
-                    'description' => $lineData['description'] ?? null,
-                    'debit' => $lineData['debit'] ?? 0,
-                    'credit' => $lineData['credit'] ?? 0,
-                    'cost_center_id' => $lineData['cost_center_id'] ?? null,
-                    'contact_id' => $lineData['contact_id'] ?? null,
-                    'line_order' => $lineData['line_order'] ?? $index,
-                ]);
-            }
+            $this->storeLines($entry, $lines);
 
             // Re-validate balance after all lines are persisted to catch any partial-insert anomaly.
             $entry->refresh();
@@ -212,6 +201,43 @@ class JournalService
         return DB::transaction(function () use ($entryData, $lines): JournalEntry {
             $entry = $this->createEntry($entryData, $lines);
             $this->postEntry($entry);
+
+            return $entry->fresh(['lines', 'lines.account']);
+        });
+    }
+
+    /**
+     * Change a draft entry's header and, when lines are given, replace its
+     * lines. The new lines are checked as createEntry() checks them, so a
+     * draft never holds lines that could not be posted; a refused change
+     * leaves the entry as it was.
+     *
+     * @param  array<string, mixed>  $header
+     * @param  list<array<string, mixed>>|null  $lines
+     *
+     * @throws InvalidArgumentException
+     */
+    public function updateDraft(JournalEntry $entry, array $header, ?array $lines = null): JournalEntry
+    {
+        if ($entry->status !== JournalEntry::STATUS_DRAFT) {
+            throw new InvalidArgumentException('Only draft entries can be updated.');
+        }
+
+        $organizationId = (int) $entry->organization_id;
+
+        if ($lines !== null) {
+            $lines = $this->resolveAccountCodes($lines, $organizationId);
+            $this->validateLines($lines, $organizationId);
+        }
+
+        return DB::transaction(function () use ($entry, $header, $lines): JournalEntry {
+            $entry->update($header);
+
+            if ($lines !== null) {
+                $entry->lines()->delete();
+                $this->storeLines($entry, $lines);
+                $entry->recalculateTotals();
+            }
 
             return $entry->fresh(['lines', 'lines.account']);
         });
@@ -467,6 +493,26 @@ class JournalService
 
             return $line;
         }, $lines);
+    }
+
+    /**
+     * Store an entry's lines, in the order given unless a line names its own.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     */
+    private function storeLines(JournalEntry $entry, array $lines): void
+    {
+        foreach ($lines as $index => $lineData) {
+            $entry->lines()->create([
+                'account_id' => $lineData['account_id'],
+                'description' => $lineData['description'] ?? null,
+                'debit' => $lineData['debit'] ?? 0,
+                'credit' => $lineData['credit'] ?? 0,
+                'cost_center_id' => $lineData['cost_center_id'] ?? null,
+                'contact_id' => $lineData['contact_id'] ?? null,
+                'line_order' => $lineData['line_order'] ?? $index,
+            ]);
+        }
     }
 
     protected function validateLines(array $lines, ?int $organizationId): void
