@@ -15,6 +15,10 @@ use Illuminate\Support\Carbon;
 
 class EmployeeImporter implements ImporterInterface
 {
+    public function __construct(
+        private readonly EmployeeService $employeeService,
+    ) {}
+
     public function importRow(array $data, ImportJob $importJob, array $options = []): mixed
     {
         // Check for existing employee
@@ -74,14 +78,10 @@ class EmployeeImporter implements ImporterInterface
             $designationId = $designation->id;
         }
 
-        // Generate employee number if not provided
+        // A new employee without a number is numbered as EmployeeService numbers one.
         $employeeNumber = $data['employee_number'] ?? null;
         if (!$employeeNumber && !$existing) {
-            $lastEmployee = Employee::where('organization_id', $importJob->organization_id)
-                ->orderByDesc('id')
-                ->first();
-            $nextNum = $lastEmployee ? ((int) preg_replace('/\D/', '', $lastEmployee->employee_number)) + 1 : 1;
-            $employeeNumber = 'EMP' . str_pad((string) $nextNum, 5, '0', STR_PAD_LEFT);
+            $employeeNumber = $this->employeeService->nextEmployeeNumber((int) $importJob->organization_id);
         }
 
         $employeeData = [
@@ -125,7 +125,7 @@ class EmployeeImporter implements ImporterInterface
         }
 
         if ($salary !== null) {
-            app(EmployeeService::class)->assignSalary(
+            $this->employeeService->assignSalary(
                 $employee,
                 $salary['structure'],
                 [$salary['code'] => $data['basic_salary']],
