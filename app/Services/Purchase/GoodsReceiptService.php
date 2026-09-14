@@ -16,6 +16,7 @@ use App\Models\Purchase\GoodsReceiptLine;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Purchase\ThreeWayMatchResult;
 use App\Models\Inventory\StockMovement;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\MaterialValuationService;
@@ -29,7 +30,8 @@ class GoodsReceiptService
         private NumberGeneratorService $numberGenerator,
         private StockService $stockService,
         private JournalService $journalService,
-        private MaterialValuationService $materialValuationService
+        private MaterialValuationService $materialValuationService,
+        private AccountResolver $accountResolver,
     ) {}
 
     /**
@@ -628,23 +630,11 @@ class GoodsReceiptService
             return null;
         }
 
-        // Look up Inventory asset account and GRNI liability account by system type
-        $inventoryAccount = \App\Models\Accounting\Account::where('organization_id', $gr->organization_id)
-            ->where('account_type', 'asset')
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Inventory%')
-                    ->orWhere('name', 'like', '%Stock%');
-            })
-            ->first();
-
-        $grniAccount = \App\Models\Accounting\Account::where('organization_id', $gr->organization_id)
-            ->where('account_type', 'liability')
-            ->where(function ($q) {
-                $q->where('name', 'like', '%GRNI%')
-                    ->orWhere('name', 'like', '%Goods Received%')
-                    ->orWhere('name', 'like', '%Accrued%');
-            })
-            ->first();
+        // Inventory is the organization's inventory account. GRNI has no
+        // sub-type, so it is mapped in accounting settings; matching names
+        // chose "Accrued Salaries" for it.
+        $inventoryAccount = $this->accountResolver->bySubType($gr->organization_id, 'inventory');
+        $grniAccount = $this->accountResolver->mapped($gr->organization_id, 'grni_account_id');
 
         if (!$inventoryAccount || !$grniAccount) {
             Log::info('GR journal entry skipped: inventory or GRNI account not configured', [

@@ -9,6 +9,7 @@ use App\Models\Purchase\Bill;
 use App\Models\Purchase\VendorAdvanceClearing;
 use App\Models\Purchase\VendorAdvancePayment;
 use App\Models\Purchase\VendorAdvanceRequest;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,8 @@ class VendorAdvanceService
 {
     public function __construct(
         private NumberGeneratorService $numberGenerator,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private AccountResolver $accountResolver,
     ) {}
 
     /**
@@ -156,24 +158,13 @@ class VendorAdvanceService
         $orgId = $request->organization_id;
         $amount = (float) $payment->amount;
 
-        // Vendor advance prepayment account (asset) and bank/cash account
-        $advanceAccount = Account::where('organization_id', $orgId)
-            ->where('account_type', 'asset')
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Advance%')
-                    ->orWhere('name', 'like', '%Prepayment%');
-            })
-            ->first();
+        // The vendor advance account has no sub-type, so it is mapped in
+        // accounting settings; matching '%Advance%' chose employee advances.
+        $advanceAccount = $this->accountResolver->mapped($orgId, 'vendor_advance_account_id');
 
         $bankAccount = $payment->bank_account_id
-            ? Account::find($payment->bank_account_id)
-            : Account::where('organization_id', $orgId)
-                ->where('account_type', 'asset')
-                ->where(function ($q) {
-                    $q->where('name', 'like', '%Bank%')
-                        ->orWhere('name', 'like', '%Cash%');
-                })
-                ->first();
+            ? Account::withoutGlobalScopes()->where('organization_id', $orgId)->whereKey($payment->bank_account_id)->first()
+            : ($this->accountResolver->bySubType($orgId, 'bank') ?? $this->accountResolver->bySubType($orgId, 'cash'));
 
         if (!$advanceAccount || !$bankAccount) {
             Log::info('Vendor advance payment journal entry skipped: accounts not configured', [
@@ -212,21 +203,8 @@ class VendorAdvanceService
         $request = $payment->advanceRequest;
         $orgId = $request->organization_id;
 
-        $advanceAccount = Account::where('organization_id', $orgId)
-            ->where('account_type', 'asset')
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Advance%')
-                    ->orWhere('name', 'like', '%Prepayment%');
-            })
-            ->first();
-
-        $apAccount = Account::where('organization_id', $orgId)
-            ->where('account_type', 'liability')
-            ->where(function ($q) {
-                $q->where('name', 'like', '%Accounts Payable%')
-                    ->orWhere('name', 'like', '%Creditors%');
-            })
-            ->first();
+        $advanceAccount = $this->accountResolver->mapped($orgId, 'vendor_advance_account_id');
+        $apAccount = $this->accountResolver->bySubType($orgId, 'payable');
 
         if (!$advanceAccount || !$apAccount) {
             Log::info('Vendor advance clearing journal entry skipped: accounts not configured', [
