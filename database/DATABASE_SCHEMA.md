@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 44 migrations.
+978 tables across 45 migrations.
 
 ## Contents
 
@@ -52,6 +52,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0460_shared_3.php`: work_schedule_rules, equipment_counters, counter_based_plans, counter_based_orders, counter_readings, calibration_plans, calibration_orders, calibration_certificates, saved_reports, report_executions
 - `0470_deferred_keys.php`: changes to leads, sales_returns, leave_balances
 - `0480_mysql_indexes.php`: changes to product_attribute_values, failed_jobs_monitor
+- `0490_goods_receipt_inspection_status.php`: changes to goods_receipts
 
 ## 0010_accounting.php
 
@@ -21884,6 +21885,10 @@ Foreign keys:
 - `$table->foreign('branch_id')->references('id')->on('branches')->nullOnDelete()`
 - `$table->foreign('inspection_lot_id')->references('id')->on('inspection_lots')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0490_goods_receipt_inspection_status.php`: `$table->enum('status', ['draft', 'in_inspection', 'posted', 'reversed'])->default('draft')->change()`
+
 ### ers_run_items
 
 | Column | Type | Details |
@@ -25211,3 +25216,7 @@ Changes tables created earlier: `leads`, `sales_returns`, `leave_balances`.
 ## 0480_mysql_indexes.php
 
 Changes tables created earlier: `product_attribute_values`, `failed_jobs_monitor`.
+
+## 0490_goods_receipt_inspection_status.php
+
+Changes tables created earlier: `goods_receipts`.
