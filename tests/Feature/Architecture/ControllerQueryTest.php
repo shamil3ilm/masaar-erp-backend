@@ -80,7 +80,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Accounting/ParallelLedgerController.php' => 3,
         'Api/V1/Accounting/ParkedDocumentController.php' => 2,
         'Api/V1/Accounting/PaymentFileController.php' => 6,
-        'Api/V1/Accounting/PeriodLockController.php' => 1,
         'Api/V1/Accounting/PettyCashController.php' => 4,
         'Api/V1/Accounting/PostingValidationRuleController.php' => 2,
         'Api/V1/Accounting/ProfitCenterController.php' => 1,
