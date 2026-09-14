@@ -39,6 +39,24 @@ class BankGuaranteeService
         return $query->paginate($perPage);
     }
 
+    public function findGuarantee(string $id): BankGuarantee
+    {
+        return BankGuarantee::findOrFail($id);
+    }
+
+    /**
+     * A guarantee with the names of its bank, beneficiary and applicant.
+     */
+    public function findGuaranteeWithParties(string $id): BankGuarantee
+    {
+        return BankGuarantee::with(['bank:id,name', 'beneficiary:id,name', 'applicant:id,name'])->findOrFail($id);
+    }
+
+    public function delete(BankGuarantee $guarantee): void
+    {
+        $guarantee->delete();
+    }
+
     /**
      * Create a new bank guarantee.
      */

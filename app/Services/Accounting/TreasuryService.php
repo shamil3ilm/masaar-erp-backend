@@ -15,6 +15,7 @@ use App\Models\Purchase\PaymentMade;
 use App\Models\Sales\PaymentReceived;
 use App\Services\Core\NumberGeneratorService;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -28,6 +29,23 @@ class TreasuryService
     // -------------------------------------------------------------------------
     // Investments
     // -------------------------------------------------------------------------
+
+    /**
+     * An organization's investments, latest investment date first. A null
+     * filter is not applied; any other value, an empty string included, is.
+     */
+    public function listInvestments(
+        int $organizationId,
+        ?string $status,
+        ?string $instrumentType,
+        int $perPage = 20,
+    ): LengthAwarePaginator {
+        return TreasuryInvestment::where('organization_id', $organizationId)
+            ->orderByDesc('investment_date')
+            ->when($status !== null, fn ($q) => $q->where('status', $status))
+            ->when($instrumentType !== null, fn ($q) => $q->where('instrument_type', $instrumentType))
+            ->paginate($perPage);
+    }
 
     /**
      * Record a new treasury investment and create the opening journal entry.
@@ -309,6 +327,17 @@ class TreasuryService
     // -------------------------------------------------------------------------
     // Liquidity Plans
     // -------------------------------------------------------------------------
+
+    /**
+     * An organization's liquidity plans with their lines, latest plan start first.
+     */
+    public function listLiquidityPlans(int $organizationId, int $perPage = 20): LengthAwarePaginator
+    {
+        return LiquidityPlan::where('organization_id', $organizationId)
+            ->with('lines')
+            ->orderByDesc('plan_from')
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new liquidity plan (header + optional lines).

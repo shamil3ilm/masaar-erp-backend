@@ -23,15 +23,19 @@ class TreasuryController extends Controller
 
     /**
      * GET /treasury/investments
+     *
+     * A filter applies whenever its key is present, even with an empty value.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = TreasuryInvestment::where('organization_id', $request->user()->organization_id)
-            ->orderByDesc('investment_date')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->string('status')))
-            ->when($request->has('instrument_type'), fn($q) => $q->where('instrument_type', $request->string('instrument_type')));
+        $investments = $this->treasuryService->listInvestments(
+            $request->user()->organization_id,
+            $request->has('status') ? (string) $request->string('status') : null,
+            $request->has('instrument_type') ? (string) $request->string('instrument_type') : null,
+            $request->integer('per_page', 20),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($investments);
     }
 
     /**
@@ -141,10 +145,10 @@ class TreasuryController extends Controller
      */
     public function liquidityPlans(Request $request): JsonResponse
     {
-        $plans = LiquidityPlan::where('organization_id', $request->user()->organization_id)
-            ->with('lines')
-            ->orderByDesc('plan_from')
-            ->paginate($request->integer('per_page', 20));
+        $plans = $this->treasuryService->listLiquidityPlans(
+            $request->user()->organization_id,
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($plans);
     }

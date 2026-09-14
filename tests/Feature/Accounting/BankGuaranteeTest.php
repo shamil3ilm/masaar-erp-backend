@@ -254,6 +254,37 @@ class BankGuaranteeTest extends TestCase
         $this->assertCount(1, $response->json('data'));
     }
 
+    public function test_claim_records_a_claim_on_an_active_guarantee(): void
+    {
+        $guarantee = $this->makeGuarantee(['status' => 'active']);
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/bank-guarantees/' . $guarantee->id . '/claim', [
+                'amount' => 1200,
+                'reason' => 'Contractor default',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.status', 'claimed')
+            ->assertJsonPath('data.claim_reason', 'Contractor default');
+    }
+
+    public function test_guarantee_endpoints_return_404_for_another_organization(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $guarantee = $this->makeGuarantee(['organization_id' => $otherOrg->id, 'status' => 'active']);
+        $base = '/api/v1/bank-guarantees/' . $guarantee->id;
+
+        $this->withToken($this->token)->getJson($base)->assertStatus(404);
+        $this->withToken($this->token)->putJson($base, ['notes' => 'x'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson($base)->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/activate')->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/claim', ['amount' => 1, 'reason' => 'x'])->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/return')->assertStatus(404);
+
+        $this->assertDatabaseHas('bank_guarantees', ['id' => $guarantee->id, 'status' => 'active', 'notes' => null, 'deleted_at' => null]);
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------
