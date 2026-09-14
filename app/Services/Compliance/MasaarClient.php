@@ -10,6 +10,7 @@ use App\Services\Compliance\ZatcaInvoiceTransformer;
 use App\Traits\LogsExternalApiCalls;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -480,38 +481,49 @@ class MasaarClient
     }
 
     /**
-     * Register a webhook for receiving ZATCA event callbacks.
+     * Subscribe to Masaar's invoice events at one callback URL.
+     *
+     * Masaar makes the signing secret itself and shows it once, in its reply,
+     * so it is returned for the operator to set as the webhook secret. Earlier
+     * subscriptions to the same URL are removed first: their secrets cannot be
+     * recovered, and a second live subscription would deliver every event twice.
+     *
+     * @param  list<string>  $events
+     * @return array{id: string, secret: string}
+     *
+     * @throws \RuntimeException when Masaar refuses a call
      */
-    public function registerWebhook(string $callbackUrl, array $events, string $secret): ComplianceResult
+    public function registerWebhook(string $callbackUrl, array $events): array
     {
         if (!$this->enabled) {
-            return new ComplianceResult(['status' => 'not_applicable']);
+            throw new \RuntimeException('ZATCA integration is disabled.');
         }
 
+        // throw() on each reply: the client only throws on its own when it is
+        // configured to try more than once, so a refusal would otherwise come
+        // back looking like an empty success.
         try {
-            $response = $this->client()
-                ->post('/webhooks', [
-                    'callback_url' => $callbackUrl,
-                    'events' => $events,
-                    'secret' => $secret,
-                ]);
+            $existing = $this->client()->get('/webhooks')->throw()->json('data.webhooks', []);
 
-            if ($response->failed()) {
-                return new ComplianceResult([
-                    'status' => 'error',
-                    'message' => $response->json('message', 'Webhook registration failed'),
-                    'errors' => $response->json('errors', []),
-                ]);
+            foreach ($existing as $webhook) {
+                if (($webhook['url'] ?? null) === $callbackUrl) {
+                    $this->client()->delete('/webhooks/' . $webhook['id'])->throw();
+                }
             }
 
-            return new ComplianceResult($response->json());
-
-        } catch (\Exception $e) {
-            return new ComplianceResult([
-                'status' => 'error',
-                'message' => $e->getMessage(),
-            ]);
+            $created = $this->client()->post('/webhooks', [
+                'url' => $callbackUrl,
+                'events' => $events,
+            ])->throw()->json('data.webhook', []);
+        } catch (RequestException $e) {
+            throw new \RuntimeException($e->response->json('error.message') ?? $e->getMessage(), 0, $e);
         }
+
+        if (empty($created['id']) || empty($created['secret'])) {
+            throw new \RuntimeException('Masaar accepted the webhook but returned no id or secret.');
+        }
+
+        return ['id' => (string) $created['id'], 'secret' => (string) $created['secret']];
     }
 
     /**
