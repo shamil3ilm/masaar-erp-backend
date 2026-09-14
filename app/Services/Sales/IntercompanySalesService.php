@@ -10,6 +10,7 @@ use App\Models\Sales\IntercompanyPurchaseOrderLink;
 use App\Models\Sales\IntercompanySalesOrder;
 use App\Models\Sales\IntercompanySalesOrderLine;
 use App\Services\Accounting\JournalService;
+use App\Support\TaxMath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -83,13 +84,12 @@ class IntercompanySalesService
                 $quantity = (string) $lineData['quantity'];
                 $transferPrice = (string) $lineData['transfer_price'];
                 $taxRate = (string) ($lineData['tax_rate'] ?? '0');
-                $lineTotal = bcmul($quantity, $transferPrice, 4);
-                $taxAmount = bcmul($lineTotal, bcdiv($taxRate, '100', 6), 4);
+                $amounts = TaxMath::line($quantity, $transferPrice, $taxRate);
 
                 IntercompanySalesOrderLine::create(array_merge($lineData, [
                     'intercompany_sales_order_id' => $order->id,
-                    'line_total' => $lineTotal,
-                    'tax_amount' => $taxAmount,
+                    'line_total' => $amounts['subtotal'],
+                    'tax_amount' => $amounts['tax'],
                 ]));
             }
 

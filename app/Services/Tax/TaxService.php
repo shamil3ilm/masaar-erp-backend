@@ -7,6 +7,7 @@ namespace App\Services\Tax;
 use App\Models\Core\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Sales\Contact;
+use App\Support\TaxMath;
 use Illuminate\Support\Collection;
 
 class TaxService
@@ -39,7 +40,7 @@ class TaxService
      */
     public function calculateTaxOnExclusive(string $amount, string $taxRate, int $decimals = 4): TaxCalculation
     {
-        $taxAmount = bcmul($amount, bcdiv($taxRate, '100', 10), $decimals);
+        $taxAmount = TaxMath::percentOf($amount, $taxRate, $decimals);
         $totalAmount = bcadd($amount, $taxAmount, $decimals);
 
         return new TaxCalculation(

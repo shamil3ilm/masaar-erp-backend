@@ -13,6 +13,7 @@ use App\Models\Sales\CreditNoteApplication;
 use App\Models\Sales\Invoice;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use App\Support\TaxMath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -38,13 +39,12 @@ class CreditNoteService
 
             if (! empty($items)) {
                 foreach ($items as $item) {
-                    $subtotal = (float) bcmul((string) $item['quantity'], (string) $item['unit_price'], 2);
-                    $taxAmount = (float) bcmul((string) $subtotal, bcdiv((string) ($item['tax_rate'] ?? 0), '100', 4), 2);
+                    $amounts = $this->itemAmounts($item);
 
                     $creditNote->items()->create(array_merge($item, [
-                        'subtotal' => $subtotal,
-                        'total' => (float) bcadd((string) $subtotal, (string) $taxAmount, 2),
-                        'tax_amount' => $taxAmount,
+                        'subtotal' => $amounts['subtotal'],
+                        'total' => $amounts['total'],
+                        'tax_amount' => $amounts['tax'],
                     ]));
                 }
 
@@ -238,6 +238,23 @@ class CreditNoteService
         return $query->with(['contact', 'invoice'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+    }
+
+    /**
+     * An item's subtotal, tax and total. Sales credit notes are stored at two
+     * decimals.
+     *
+     * @param  array<string, mixed>  $item
+     * @return array{discount: string, subtotal: string, tax: string, total: string}
+     */
+    private function itemAmounts(array $item): array
+    {
+        return TaxMath::line(
+            (string) $item['quantity'],
+            (string) $item['unit_price'],
+            (string) ($item['tax_rate'] ?? 0),
+            scale: 2,
+        );
     }
 
     private function recalculateTotals(CreditNote $creditNote): void

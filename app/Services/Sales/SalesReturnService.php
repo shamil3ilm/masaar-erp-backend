@@ -15,6 +15,7 @@ use App\Exceptions\ApiException;
 use App\Exceptions\ErrorCodes;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
+use App\Support\TaxMath;
 use Illuminate\Support\Facades\DB;
 
 class SalesReturnService
@@ -53,13 +54,18 @@ class SalesReturnService
                     // Strip non-column fields that may come from the request
                     unset($item['quantity'], $item['reason']);
 
-                    $subtotal = bcmul((string) $item['quantity_returned'], (string) $item['unit_price'], 2);
-                    $taxAmount = bcmul($subtotal, bcdiv((string) ($item['tax_rate'] ?? 0), '100', 4), 2);
+                    // Sales returns are stored at two decimals.
+                    $amounts = TaxMath::line(
+                        (string) $item['quantity_returned'],
+                        (string) $item['unit_price'],
+                        (string) ($item['tax_rate'] ?? 0),
+                        scale: 2,
+                    );
 
                     $salesReturn->items()->create(array_merge($item, [
-                        'subtotal' => $subtotal,
-                        'tax_amount' => $taxAmount,
-                        'total' => bcadd($subtotal, $taxAmount, 2),
+                        'subtotal' => $amounts['subtotal'],
+                        'tax_amount' => $amounts['tax'],
+                        'total' => $amounts['total'],
                         'item_status' => SalesReturnItem::STATUS_PENDING,
                     ]));
                 }
