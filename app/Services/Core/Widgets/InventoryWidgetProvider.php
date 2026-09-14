@@ -58,7 +58,7 @@ class InventoryWidgetProvider extends WidgetProvider
                 'sku' => $b->product->sku ?? '',
                 'batch' => $b->batch_number,
                 'expiry_date' => $b->expiry_date->format('Y-m-d'),
-                'days_until_expiry' => $b->expiry_date->diffInDays(Carbon::now()),
+                'days_until_expiry' => (int) Carbon::now()->diffInDays($b->expiry_date),
                 'quantity' => (float) $b->quantity,
             ])->toArray(),
             'total_count' => InventoryBatch::where('organization_id', $this->organizationId)

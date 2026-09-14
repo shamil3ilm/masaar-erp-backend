@@ -78,7 +78,7 @@ class TrainingCertification extends Model
 
         $expiry = Carbon::parse($this->expiry_date);
 
-        return !$expiry->isPast() && $expiry->diffInDays(now()) <= $days;
+        return !$expiry->isPast() && now()->diffInDays($expiry) <= $days;
     }
 
     public function getDaysUntilExpiry(): ?int

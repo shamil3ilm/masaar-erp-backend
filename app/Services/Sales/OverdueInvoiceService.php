@@ -57,9 +57,7 @@ class OverdueInvoiceService
             return;
         }
 
-        $daysOverdue = (int) now()->startOfDay()->diffInDays(
-            Carbon::parse($invoice->due_date)->startOfDay()
-        );
+        $daysOverdue = (int) Carbon::parse($invoice->due_date)->startOfDay()->diffInDays(now()->startOfDay());
 
         try {
             $customer->notify(new InvoiceOverdueNotification($invoice, $daysOverdue));

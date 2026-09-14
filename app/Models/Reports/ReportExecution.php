@@ -83,7 +83,7 @@ class ReportExecution extends Model
     public function markAsCompleted(string $filePath, string $format, int $fileSize, int $rowCount): void
     {
         $executionTime = $this->started_at
-            ? now()->diffInMilliseconds($this->started_at)
+            ? (int) $this->started_at->diffInMilliseconds(now())
             : null;
 
         $this->update([
