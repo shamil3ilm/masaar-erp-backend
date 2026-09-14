@@ -371,7 +371,7 @@ class LoanTest extends TestCase
         $this->assertCreatedResponse($response);
         $loanNumber = $response->json('data.loan_number');
         $this->assertNotNull($loanNumber);
-        $this->assertStringStartsWith('LN-', $loanNumber);
+        $this->assertMatchesRegularExpression('/^LN-' . now()->format('Y') . '-\d{6}$/', $loanNumber);
     }
 
     // -------------------------------------------------------------------------
