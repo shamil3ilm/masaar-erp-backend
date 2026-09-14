@@ -6,6 +6,7 @@ namespace App\Models\Ecommerce;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -14,13 +15,26 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 class OnlinePayment extends Model
 {
     use HasFactory;
-    use BelongsToOrganization, HasUuid;
+    use BelongsToOrganization, HasUuid, LocksForTransition;
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_AUTHORIZED = 'authorized';
     public const STATUS_CAPTURED = 'captured';
     public const STATUS_FAILED = 'failed';
     public const STATUS_REFUNDED = 'refunded';
+
+    /**
+     * The statuses a payment may move to from each status. A payment only
+     * moves forward: gateways retry callbacks and deliver them out of order,
+     * so a late "authorized" or "failed" must not undo a capture.
+     */
+    private const FORWARD_MOVES = [
+        self::STATUS_PENDING => [self::STATUS_AUTHORIZED, self::STATUS_CAPTURED, self::STATUS_FAILED],
+        self::STATUS_AUTHORIZED => [self::STATUS_CAPTURED, self::STATUS_FAILED],
+        self::STATUS_CAPTURED => [self::STATUS_REFUNDED],
+        self::STATUS_FAILED => [],
+        self::STATUS_REFUNDED => [],
+    ];
 
     public const METHOD_CARD = 'card';
     public const METHOD_MADA = 'mada';
@@ -91,6 +105,12 @@ class OnlinePayment extends Model
     public function canBeRefunded(): bool
     {
         return $this->status === self::STATUS_CAPTURED;
+    }
+
+    /** Whether $status is a forward move from this payment's current status. */
+    public function canMoveTo(string $status): bool
+    {
+        return in_array($status, self::FORWARD_MOVES[$this->status] ?? [], true);
     }
 
     // Scopes

@@ -7,6 +7,7 @@ namespace App\Services\Ecommerce;
 use App\Models\Ecommerce\OnlinePayment;
 use App\Models\Ecommerce\PaymentGateway;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OnlinePaymentService
 {
@@ -38,15 +39,28 @@ class OnlinePaymentService
 
     /**
      * Process a payment callback from the gateway.
+     *
+     * Runs on the locked payment and only moves it forward. Gateways retry
+     * callbacks and deliver them out of order, so a callback repeating the
+     * current status, or naming one the payment has already passed, leaves the
+     * payment as it is rather than failing or undoing a capture.
      */
     public function processCallback(OnlinePayment $payment, array $callbackData): OnlinePayment
     {
-        if (!$payment->isPending() && $payment->status !== OnlinePayment::STATUS_AUTHORIZED) {
-            throw new \InvalidArgumentException('Payment is not in a processable state.');
-        }
+        $status = $this->mapGatewayStatus($callbackData['status'] ?? 'failed');
 
-        return DB::transaction(function () use ($payment, $callbackData) {
-            $status = $this->mapGatewayStatus($callbackData['status'] ?? 'failed');
+        return $payment->lockForTransition(function (OnlinePayment $payment) use ($status, $callbackData): OnlinePayment {
+            if (! $payment->canMoveTo($status)) {
+                if ($payment->status !== $status) {
+                    Log::info('Online payment callback ignored: it does not move the payment forward.', [
+                        'payment_id'      => $payment->id,
+                        'status'          => $payment->status,
+                        'callback_status' => $status,
+                    ]);
+                }
+
+                return $payment;
+            }
 
             $updateData = [
                 'status' => $status,
@@ -82,21 +96,21 @@ class OnlinePaymentService
     }
 
     /**
-     * Refund an online payment.
+     * Refund an online payment, once, on the locked payment.
      */
     public function refund(OnlinePayment $payment, ?float $amount = null, ?string $reason = null): OnlinePayment
     {
-        if (!$payment->canBeRefunded()) {
-            throw new \InvalidArgumentException('Payment cannot be refunded in its current state.');
-        }
+        return $payment->lockForTransition(function (OnlinePayment $payment) use ($amount, $reason): OnlinePayment {
+            if (! $payment->canBeRefunded()) {
+                throw new \InvalidArgumentException('Payment cannot be refunded in its current state.');
+            }
 
-        $refundAmount = $amount ?? (float) $payment->amount;
+            $refundAmount = $amount ?? (float) $payment->amount;
 
-        if ($refundAmount > (float) $payment->amount) {
-            throw new \InvalidArgumentException('Refund amount cannot exceed payment amount.');
-        }
+            if ($refundAmount > (float) $payment->amount) {
+                throw new \InvalidArgumentException('Refund amount cannot exceed payment amount.');
+            }
 
-        return DB::transaction(function () use ($payment, $refundAmount, $reason) {
             // Gateway-specific refund logic would be called here
             $payment->update([
                 'status' => OnlinePayment::STATUS_REFUNDED,
