@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services;
 
+use App\Contracts\ExchangeRateProvider;
 use App\Services\Core\CurrencyService;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -22,7 +23,13 @@ class CurrencyServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new CurrencyService;
+        $this->service = new CurrencyService(new class implements ExchangeRateProvider
+        {
+            public function latest(string $from, string $to): ?float
+            {
+                return null;
+            }
+        });
     }
 
     public function test_it_reads_a_known_rate(): void

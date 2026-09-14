@@ -9,6 +9,7 @@ use App\Jobs\TriggerEventCampaignsJob;
 use App\Models\Campaign\Campaign;
 use App\Models\Campaign\CampaignSend;
 use App\Models\User;
+use App\Services\Core\SmsService;
 use Illuminate\Support\Facades\Log;
 
 class CampaignService
@@ -16,6 +17,7 @@ class CampaignService
     public function __construct(
         private readonly ConditionEvaluator $evaluator,
         private readonly SegmentService $segmentService,
+        private readonly SmsService $sms,
     ) {
     }
 
@@ -154,9 +156,7 @@ class CampaignService
             return;
         }
 
-        /** @var \App\Services\Core\SmsService $smsService */
-        $smsService = app(\App\Services\Core\SmsService::class);
-        $smsService->send($user->phone, $message);
+        $this->sms->send($user->phone, $message);
     }
 
     private function executeDatabaseAction(array $action, User $user): void

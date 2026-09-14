@@ -20,7 +20,24 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(\App\Contracts\ExternalApiClient::class, \App\Services\Compliance\ZatcaClientV1::class);
+        $this->app->bind(\App\Contracts\SmsGateway::class, fn (): \App\Contracts\SmsGateway => match ((string) config('sms.driver', 'log')) {
+            'log'    => new \App\Services\Core\Sms\LogSmsGateway(),
+            'vonage' => new \App\Services\Core\Sms\VonageSmsGateway(
+                apiKey:    (string) config('sms.vonage.api_key'),
+                apiSecret: (string) config('sms.vonage.api_secret'),
+                from:      (string) config('sms.vonage.from'),
+            ),
+            'twilio' => new \App\Services\Core\Sms\TwilioSmsGateway(
+                sid:   (string) config('sms.twilio.sid'),
+                token: (string) config('sms.twilio.token'),
+                from:  (string) config('sms.twilio.from'),
+            ),
+            default  => throw new \InvalidArgumentException('Unsupported SMS driver: [' . config('sms.driver') . ']'),
+        });
+
+        $this->app->bind(\App\Contracts\ExchangeRateProvider::class, fn (): \App\Contracts\ExchangeRateProvider => new \App\Services\Core\ExchangeRateApiProvider(
+            apiKey: (string) config('services.exchange_rate.api_key'),
+        ));
 
         $this->app->singleton(\App\Services\Tax\VatRuleResolver::class);
 
