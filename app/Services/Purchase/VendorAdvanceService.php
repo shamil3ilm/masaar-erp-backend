@@ -12,7 +12,6 @@ use App\Models\Purchase\VendorAdvanceRequest;
 use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class VendorAdvanceService
@@ -58,29 +57,23 @@ class VendorAdvanceService
 
     /**
      * Record an actual payment against an approved advance request.
+     *
+     * The journal entry (Debit Vendor Advance / Credit Bank) is part of the
+     * payment: when it cannot be posted, no payment is recorded and the request
+     * stays approved.
      */
     public function recordPayment(VendorAdvanceRequest $request, array $paymentData): VendorAdvancePayment
     {
-        if (!$request->canBePaid()) {
-            throw new \InvalidArgumentException('Advance request must be approved before recording a payment.');
-        }
+        return $request->lockForTransition(function (VendorAdvanceRequest $request) use ($paymentData): VendorAdvancePayment {
+            if (! $request->canBePaid()) {
+                throw new \InvalidArgumentException('Advance request must be approved before recording a payment.');
+            }
 
-        return DB::transaction(function () use ($request, $paymentData) {
             $paymentData['advance_request_id'] = $request->id;
             $paymentData['payment_date'] = $paymentData['payment_date'] ?? now()->toDateString();
 
             $payment = VendorAdvancePayment::create($paymentData);
-
-            // Generate GL entry: Debit Vendor Advance / Credit Bank
-            try {
-                $journalEntryId = $this->createPaymentJournalEntry($request, $payment);
-                $payment->update(['journal_entry_id' => $journalEntryId]);
-            } catch (\Throwable $e) {
-                Log::warning('Vendor advance payment journal entry failed', [
-                    'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $payment->update(['journal_entry_id' => $this->createPaymentJournalEntry($request, $payment)]);
 
             $request->update(['status' => VendorAdvanceRequest::STATUS_PAID]);
 
@@ -90,35 +83,32 @@ class VendorAdvanceService
 
     /**
      * Clear an advance payment against a supplier bill.
+     *
+     * The advance payment row is locked, so the uncleared balance cannot be
+     * spent twice; the clearing journal entry (Debit AP / Credit Vendor
+     * Advance) is part of the clearing and a failure to post it rolls back.
      */
     public function clearAgainstBill(VendorAdvancePayment $payment, Bill $bill, float $amount): VendorAdvanceClearing
     {
-        if ($payment->isFullyCleared()) {
-            throw new \InvalidArgumentException('Advance payment is already fully cleared.');
-        }
+        return $payment->lockForTransition(function (VendorAdvancePayment $payment) use ($bill, $amount): VendorAdvanceClearing {
+            $request = $payment->advanceRequest;
 
-        // Ensure the advance and the bill belong to the same organization
-        $advanceOrgId = $payment->advanceRequest->organization_id ?? $payment->organization_id ?? null;
-        if ($advanceOrgId !== null && $advanceOrgId !== $bill->organization_id) {
-            throw new \InvalidArgumentException('Advance and bill must belong to the same organization.');
-        }
+            if ((int) $request->organization_id !== (int) $bill->organization_id) {
+                throw new \InvalidArgumentException('Advance and bill must belong to the same organization.');
+            }
 
-        // Ensure the advance and the bill belong to the same supplier to prevent
-        // cross-supplier clearing which would corrupt AP balances.
-        $advanceSupplierContactId = $payment->advanceRequest->contact_id ?? $payment->contact_id ?? null;
-        if ($advanceSupplierContactId !== null && $bill->contact_id !== $advanceSupplierContactId) {
-            throw new \InvalidArgumentException(
-                'Cannot clear advance against a bill from a different supplier.'
-            );
-        }
+            // Clearing against another supplier's bill would move that supplier's AP balance.
+            if ((int) $bill->supplier_id !== (int) $request->contact_id) {
+                throw new \InvalidArgumentException('Cannot clear advance against a bill from a different supplier.');
+            }
 
-        return DB::transaction(function () use ($payment, $bill, $amount) {
-            // Lock the advance payment row to prevent concurrent over-clearing
-            $payment = VendorAdvancePayment::lockForUpdate()->findOrFail($payment->id);
+            $uncleared = (string) $payment->getUnclearedAmount();
 
-            $uncleared = $payment->getUnclearedAmount();
+            if (bccomp($uncleared, '0', 4) <= 0) {
+                throw new \InvalidArgumentException('Advance payment is already fully cleared.');
+            }
 
-            if (bccomp((string) $amount, (string) $uncleared, 4) > 0) {
+            if (bccomp((string) $amount, $uncleared, 4) > 0) {
                 throw new \InvalidArgumentException(
                     "Clearing amount ({$amount}) exceeds available uncleared balance ({$uncleared})."
                 );
@@ -131,22 +121,10 @@ class VendorAdvanceService
                 'clearing_date' => now()->toDateString(),
             ]);
 
-            // Generate GL clearing entry: Debit AP / Credit Vendor Advance
-            try {
-                $journalEntryId = $this->createClearingJournalEntry($payment, $bill, $amount);
-                $clearing->update(['journal_entry_id' => $journalEntryId]);
-            } catch (\Throwable $e) {
-                Log::warning('Vendor advance clearing journal entry failed', [
-                    'clearing_id' => $clearing->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $clearing->update(['journal_entry_id' => $this->createClearingJournalEntry($payment, $bill, $amount)]);
 
-            // If advance request is fully cleared, update its status
-            $advanceRequest = $payment->advanceRequest;
-
-            if ($payment->fresh()->isFullyCleared()) {
-                $advanceRequest->update(['status' => VendorAdvanceRequest::STATUS_CLEARED]);
+            if (bccomp((string) $amount, $uncleared, 4) === 0) {
+                $request->update(['status' => VendorAdvanceRequest::STATUS_CLEARED]);
             }
 
             return $clearing->fresh(['advancePayment', 'bill']);

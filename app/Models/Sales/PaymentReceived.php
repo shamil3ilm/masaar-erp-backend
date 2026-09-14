@@ -11,6 +11,7 @@ use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PaymentReceived extends Model
 {
-    use BelongsToOrganization, DispatchesWebhooks, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, SoftDeletes;
+    use BelongsToOrganization, DispatchesWebhooks, HasAuditTrail, HasFactory, HasStateMachine, HasUuid, LocksForTransition, SoftDeletes;
 
     protected $table = 'payments_received';
 

@@ -11,6 +11,7 @@ use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,7 +22,7 @@ use Illuminate\Support\Facades\DB;
 
 class Invoice extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, SoftDeletes, DispatchesWebhooks;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_STANDARD = 'standard';
     public const TYPE_SIMPLIFIED = 'simplified';
@@ -297,12 +298,48 @@ class Invoice extends Model
             $invoice->amount_due = max(0, (float) $newAmountDue);
             $invoice->save();
 
-            // Update status via state machine based on payment
+            // Update status via state machine based on payment. A further
+            // part-payment leaves a partial invoice partial.
             if (bccomp((string) $invoice->amount_due, '0', 4) <= 0) {
                 $invoice->transitionTo(self::STATUS_PAID);
-            } elseif (bccomp((string) $invoice->amount_paid, '0', 4) > 0) {
+            } elseif (bccomp((string) $invoice->amount_paid, '0', 4) > 0 && $invoice->status !== self::STATUS_PARTIAL) {
                 $invoice->transitionTo(self::STATUS_PARTIAL);
             }
+
+            $this->refresh();
+        });
+    }
+
+    /**
+     * Take back an amount recorded by recordPayment(), for a payment that is
+     * voided, bounced, deleted or deallocated.
+     *
+     * The balance comes from the locked row, not from this instance, so a
+     * payment recorded meanwhile is kept. The status moves backwards (paid to
+     * partial, partial to sent), which getStateTransitions() does not allow
+     * for payments going forward, so it is written here beside those rules.
+     */
+    public function reversePayment(string|float|int $amount): void
+    {
+        DB::transaction(function () use ($amount): void {
+            $invoice = static::lockForUpdate()->findOrFail($this->id);
+
+            $newAmountPaid = bcsub((string) $invoice->amount_paid, (string) $amount, 4);
+
+            if (bccomp($newAmountPaid, '0', 4) < 0) {
+                throw new \InvalidArgumentException(
+                    "Cannot reverse {$amount} on invoice #{$invoice->invoice_number}: only {$invoice->amount_paid} is paid."
+                );
+            }
+
+            $invoice->amount_paid = $newAmountPaid;
+            $invoice->amount_due = bcsub((string) $invoice->total, $newAmountPaid, 4);
+            $invoice->status = match (true) {
+                bccomp($newAmountPaid, '0', 4) > 0 => self::STATUS_PARTIAL,
+                $invoice->due_date !== null && $invoice->due_date->isPast() => self::STATUS_OVERDUE,
+                default => self::STATUS_SENT,
+            };
+            $invoice->save();
 
             $this->refresh();
         });

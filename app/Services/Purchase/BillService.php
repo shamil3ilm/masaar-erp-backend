@@ -334,37 +334,48 @@ class BillService
 
     /**
      * Create bill from purchase order.
+     *
+     * The order is locked and what is left to bill is read from its current
+     * lines, so two requests cannot bill the same received quantity. A
+     * requested quantity above what is left to bill is refused.
      */
     public function createFromPurchaseOrder(PurchaseOrder $order, ?array $lineQuantities = null): Bill
     {
-        if (!$order->canBeBilled()) {
-            throw new \InvalidArgumentException('Purchase order cannot be billed in current status.');
-        }
+        return $order->lockForTransition(function (PurchaseOrder $order) use ($lineQuantities): Bill {
+            if (! $order->canBeBilled()) {
+                throw new \InvalidArgumentException('Purchase order cannot be billed in current status.');
+            }
 
-        $lines = $order->lines
-            ->filter(fn($line) => $line->getRemainingToBill() > 0)
-            ->map(function ($line) use ($lineQuantities) {
-                $quantity = $lineQuantities[$line->id] ?? $line->getRemainingToBill();
+            $lines = $order->lines()->get()
+                ->filter(fn ($line) => $line->getRemainingToBill() > 0)
+                ->map(function ($line) use ($lineQuantities) {
+                    $remaining = $line->getRemainingToBill();
+                    $quantity = $lineQuantities[$line->id] ?? $remaining;
 
-                return [
-                    'product_id' => $line->product_id,
-                    'variant_id' => $line->variant_id,
-                    'description' => $line->description,
-                    'quantity' => $quantity,
-                    'unit_id' => $line->unit_id,
-                    'unit_price' => $line->unit_price,
-                    'discount_type' => $line->discount_type,
-                    'discount_value' => $line->discount_value,
-                    'tax_category_id' => $line->tax_category_id,
-                    'warehouse_id' => $line->warehouse_id,
-                ];
-            })->toArray();
+                    if (bccomp((string) $quantity, (string) $remaining, 4) > 0) {
+                        throw new \InvalidArgumentException(
+                            "Cannot bill {$quantity} on purchase order line {$line->id}: only {$remaining} is left to bill."
+                        );
+                    }
 
-        if (empty($lines)) {
-            throw new \InvalidArgumentException('No items available to bill.');
-        }
+                    return [
+                        'product_id' => $line->product_id,
+                        'variant_id' => $line->variant_id,
+                        'description' => $line->description,
+                        'quantity' => $quantity,
+                        'unit_id' => $line->unit_id,
+                        'unit_price' => $line->unit_price,
+                        'discount_type' => $line->discount_type,
+                        'discount_value' => $line->discount_value,
+                        'tax_category_id' => $line->tax_category_id,
+                        'warehouse_id' => $line->warehouse_id,
+                    ];
+                })->toArray();
 
-        return DB::transaction(function () use ($order, $lines) {
+            if (empty($lines)) {
+                throw new \InvalidArgumentException('No items available to bill.');
+            }
+
             $bill = $this->create([
                 'supplier_id' => $order->supplier_id,
                 'purchase_order_id' => $order->id,
@@ -393,7 +404,7 @@ class BillService
 
             $progress = $order->fresh()->getReceivingProgress();
             if ($progress['billing_percentage'] >= 100) {
-                $order->update(['status' => PurchaseOrder::STATUS_BILLED]);
+                $order->transitionTo(PurchaseOrder::STATUS_BILLED);
             }
 
             return $bill;

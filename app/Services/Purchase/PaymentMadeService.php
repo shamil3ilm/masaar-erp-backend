@@ -13,7 +13,6 @@ use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class PaymentMadeService
 {
@@ -98,31 +97,21 @@ class PaymentMadeService
 
     /**
      * Complete/confirm a payment.
+     *
+     * The journal entry is part of completing: when it cannot be posted, for a
+     * missing account or a closed period, the payment stays pending.
      */
     public function complete(PaymentMade $payment, int $userId): PaymentMade
     {
-        if ($payment->status !== PaymentMade::STATUS_PENDING) {
-            throw new \InvalidArgumentException('Only pending payments can be completed.');
-        }
-
-        return DB::transaction(function () use ($payment, $userId) {
-            $journalId = null;
-
-            try {
-                $journal = $this->createJournalEntry($payment);
-                $journalId = $journal->id;
-            } catch (\Exception $e) {
-                // Do not re-throw — payment completion should not fail due to missing
-                // GL configuration — but log so operators know the journal is absent.
-                Log::error('PaymentMade journal entry creation failed', [
-                    'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
-                ]);
+        return $payment->lockForTransition(function (PaymentMade $payment) use ($userId): PaymentMade {
+            if ($payment->status !== PaymentMade::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Only pending payments can be completed.');
             }
 
-            $payment->update([
-                'status' => PaymentMade::STATUS_COMPLETED,
-                'journal_entry_id' => $journalId,
+            $journal = $this->createJournalEntry($payment);
+
+            $payment->transitionTo(PaymentMade::STATUS_COMPLETED, [
+                'journal_entry_id' => $journal->id,
                 'approved_by' => $userId,
                 'approved_at' => now(),
             ]);
@@ -132,27 +121,24 @@ class PaymentMadeService
     }
 
     /**
-     * Void a payment.
+     * Void a payment: take its allocations off their bills, withdraw its
+     * overpayment credit and void its journal entry.
      */
     public function void(PaymentMade $payment, string $reason = ''): PaymentMade
     {
-        if ($payment->status === PaymentMade::STATUS_VOIDED) {
-            throw new \InvalidArgumentException('Payment is already voided.');
-        }
+        return $payment->lockForTransition(function (PaymentMade $payment) use ($reason): PaymentMade {
+            if ($payment->status === PaymentMade::STATUS_VOIDED) {
+                throw new \InvalidArgumentException('Payment is already voided.');
+            }
 
-        return DB::transaction(function () use ($payment, $reason) {
-            foreach ($payment->allocations as $allocation) {
-                $bill = $allocation->bill;
-                $bill->amount_paid = bcsub((string) $bill->amount_paid, (string) $allocation->amount, 4);
-                $bill->amount_due = bcadd((string) $bill->amount_due, (string) $allocation->amount, 4);
+            if (! $payment->canTransitionTo(PaymentMade::STATUS_VOIDED)) {
+                throw new \InvalidArgumentException("A {$payment->status} payment cannot be voided.");
+            }
 
-                if (bccomp((string) $bill->amount_paid, '0', 4) <= 0) {
-                    $bill->status = Bill::STATUS_APPROVED;
-                } else {
-                    $bill->status = Bill::STATUS_PARTIAL;
-                }
-
-                $bill->save();
+            // Each bill is read and written under its own lock, so a payment
+            // recorded on it meanwhile is kept.
+            foreach ($payment->allocations()->with('bill')->get() as $allocation) {
+                $allocation->bill->reversePayment($allocation->amount);
             }
 
             $payment->allocations()->delete();
@@ -162,11 +148,10 @@ class PaymentMadeService
                 ->update(['is_active' => false, 'remaining_amount' => 0]);
 
             if ($payment->journal_entry_id && ($journalEntry = $payment->journalEntry)) {
-                $this->journalService->void($journalEntry, $reason);
+                $this->journalService->voidSourceEntry($journalEntry, $reason);
             }
 
-            $payment->update([
-                'status' => PaymentMade::STATUS_VOIDED,
+            $payment->transitionTo(PaymentMade::STATUS_VOIDED, [
                 'notes' => $payment->notes."\n\nVoided: ".$reason,
             ]);
 

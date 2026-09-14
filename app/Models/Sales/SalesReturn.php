@@ -7,6 +7,7 @@ namespace App\Models\Sales;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Warehouse;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SalesReturn extends Model
 {
-    use HasFactory, BelongsToOrganization, HasUuid, SoftDeletes;
+    use HasFactory, BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const TYPE_REFUND = 'refund';
     public const TYPE_EXCHANGE = 'exchange';

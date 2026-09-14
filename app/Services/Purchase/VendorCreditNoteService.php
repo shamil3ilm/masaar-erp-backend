@@ -170,46 +170,42 @@ class VendorCreditNoteService
     /**
      * Post a vendor credit note and create the journal entry.
      * DR Accounts Payable / CR Purchase Returns.
+     *
+     * The entry is part of posting: when it cannot be created the note stays a draft.
      */
     public function post(VendorCreditNote $creditNote): VendorCreditNote
     {
-        if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft credit notes can be posted.');
-        }
+        return $creditNote->lockForTransition(function (VendorCreditNote $creditNote): VendorCreditNote {
+            if ($creditNote->status !== VendorCreditNote::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft credit notes can be posted.');
+            }
 
-        return DB::transaction(function () use ($creditNote): VendorCreditNote {
             $payableAccountId = config('erp.default_accounts.payable');
             $purchaseReturnsAccountId = config('erp.default_accounts.purchase_returns', config('erp.default_accounts.payable'));
 
-            try {
-                if ($payableAccountId && $purchaseReturnsAccountId) {
-                    $this->journalService->createEntry([
-                        'organization_id' => $creditNote->organization_id,
-                        'entry_date' => $creditNote->credit_date->toDateString(),
-                        'reference' => $creditNote->credit_note_number,
-                        'description' => "Vendor Credit Note {$creditNote->credit_note_number}",
-                        'source_type' => VendorCreditNote::class,
-                        'source_id' => $creditNote->id,
-                        'currency_code' => 'SAR',
-                    ], [
-                        [
-                            'account_id' => $payableAccountId,
-                            'debit' => (float) $creditNote->total_amount,
-                            'credit' => 0,
-                            'description' => "AP Credit - {$creditNote->credit_note_number}",
-                        ],
-                        [
-                            'account_id' => $purchaseReturnsAccountId,
-                            'debit' => 0,
-                            'credit' => (float) $creditNote->total_amount,
-                            'description' => "Purchase Return - {$creditNote->credit_note_number}",
-                        ],
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning(
-                    'Vendor credit note journal entry creation skipped: ' . $e->getMessage()
-                );
+            if ($payableAccountId && $purchaseReturnsAccountId) {
+                $this->journalService->createEntry([
+                    'organization_id' => $creditNote->organization_id,
+                    'entry_date' => $creditNote->credit_date->toDateString(),
+                    'reference' => $creditNote->credit_note_number,
+                    'description' => "Vendor Credit Note {$creditNote->credit_note_number}",
+                    'source_type' => VendorCreditNote::class,
+                    'source_id' => $creditNote->id,
+                    'currency_code' => 'SAR',
+                ], [
+                    [
+                        'account_id' => $payableAccountId,
+                        'debit' => (float) $creditNote->total_amount,
+                        'credit' => 0,
+                        'description' => "AP Credit - {$creditNote->credit_note_number}",
+                    ],
+                    [
+                        'account_id' => $purchaseReturnsAccountId,
+                        'debit' => 0,
+                        'credit' => (float) $creditNote->total_amount,
+                        'description' => "Purchase Return - {$creditNote->credit_note_number}",
+                    ],
+                ]);
             }
 
             $creditNote->update([
@@ -224,27 +220,31 @@ class VendorCreditNoteService
 
     /**
      * Apply (part of) a credit note to a bill.
+     *
+     * The remaining credit and the bill's amount due are read from the locked
+     * rows, so two applications cannot both spend the same credit.
      */
     public function apply(VendorCreditNote $creditNote, Bill $bill, float $amount): void
     {
-        if ($creditNote->status !== VendorCreditNote::STATUS_POSTED) {
-            throw new InvalidArgumentException('Only posted credit notes can be applied.');
-        }
+        $creditNote->lockForTransition(function (VendorCreditNote $creditNote) use ($bill, $amount): void {
+            if ($creditNote->status !== VendorCreditNote::STATUS_POSTED) {
+                throw new InvalidArgumentException('Only posted credit notes can be applied.');
+            }
 
-        $remaining = $creditNote->getRemainingAmount();
-        if ($amount > $remaining) {
-            throw new InvalidArgumentException(
-                "Cannot apply {$amount}. Only {$remaining} remaining on this credit note."
-            );
-        }
+            $remaining = $creditNote->getRemainingAmount();
+            if ($amount > $remaining) {
+                throw new InvalidArgumentException(
+                    "Cannot apply {$amount}. Only {$remaining} remaining on this credit note."
+                );
+            }
 
-        if ((float) $bill->amount_due <= 0) {
-            throw new InvalidArgumentException("Bill has no outstanding balance.");
-        }
+            $bill = $bill->lockedCopy();
 
-        $applyAmount = min($amount, (float) $bill->amount_due);
+            if ((float) $bill->amount_due <= 0) {
+                throw new InvalidArgumentException('Bill has no outstanding balance.');
+            }
 
-        DB::transaction(function () use ($creditNote, $bill, $applyAmount): void {
+            $applyAmount = min($amount, (float) $bill->amount_due);
             $newApplied = bcadd((string) $creditNote->applied_amount, (string) $applyAmount, 4);
             $isFullyApplied = bccomp($newApplied, (string) $creditNote->total_amount, 4) >= 0;
 

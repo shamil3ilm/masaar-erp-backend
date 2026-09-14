@@ -9,6 +9,7 @@ use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CreditNote extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, SoftDeletes, DispatchesWebhooks;
+    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_SALES = 'sales';
     public const TYPE_PURCHASE = 'purchase';
