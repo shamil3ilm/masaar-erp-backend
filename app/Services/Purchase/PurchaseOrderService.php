@@ -34,6 +34,14 @@ class PurchaseOrderService
     ) {}
 
     /**
+     * A purchase order of the caller's organization; another organization's id is not found.
+     */
+    public function find(int $id): PurchaseOrder
+    {
+        return PurchaseOrder::findOrFail($id);
+    }
+
+    /**
      * Create a new purchase order.
      */
     public function create(array $data, array $lines): PurchaseOrder
