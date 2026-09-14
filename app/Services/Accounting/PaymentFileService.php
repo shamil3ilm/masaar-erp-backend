@@ -7,11 +7,53 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\PaymentFile;
 use App\Models\Accounting\PaymentRun;
 use App\Models\Accounting\PaymentRunItem;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class PaymentFileService
 {
+    /**
+     * Newest file first, with its run. A status or format filter applies only
+     * when its value is non-empty.
+     *
+     * @param  array{status?: mixed, file_format?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PaymentFile::query()
+            ->with('paymentRun:id,uuid')
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->when($filters['file_format'] ?? null, fn ($q, $f) => $q->where('file_format', $f))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's payment files, or a 404.
+     */
+    public function find(int $id): PaymentFile
+    {
+        return PaymentFile::findOrFail($id);
+    }
+
+    /**
+     * One of the organization's payment files with its run, or a 404.
+     */
+    public function findWithRun(int $id): PaymentFile
+    {
+        return PaymentFile::with('paymentRun:id,uuid')->findOrFail($id);
+    }
+
+    /**
+     * Generate a file for one of the organization's payment runs; a run of
+     * another organization is a 404.
+     */
+    public function generateForRun(int $paymentRunId, string $format): PaymentFile
+    {
+        return $this->generateIso20022(PaymentRun::findOrFail($paymentRunId), $format);
+    }
+
     /**
      * Generate a SEPA Credit Transfer XML file for a payment run.
      */
@@ -281,33 +323,42 @@ XML;
     }
 
     /**
-     * Mark a payment file as submitted.
+     * Mark a generated payment file as submitted. The status is checked on the
+     * locked row, so two requests cannot both submit the same file.
+     *
+     * @throws InvalidArgumentException when the file is not generated
      */
     public function markSubmitted(PaymentFile $file): void
     {
-        if ($file->status !== PaymentFile::STATUS_GENERATED) {
-            throw new InvalidArgumentException('Only generated files can be marked as submitted.');
-        }
+        $file->lockForTransition(function (PaymentFile $locked): void {
+            if ($locked->status !== PaymentFile::STATUS_GENERATED) {
+                throw new InvalidArgumentException('Only generated files can be marked as submitted.');
+            }
 
-        $file->update([
-            'status'       => PaymentFile::STATUS_SUBMITTED,
-            'submitted_at' => now(),
-        ]);
+            $locked->update([
+                'status'       => PaymentFile::STATUS_SUBMITTED,
+                'submitted_at' => now(),
+            ]);
+        });
     }
 
     /**
-     * Mark a payment file as acknowledged.
+     * Mark a submitted payment file as acknowledged, checked on the locked row.
+     *
+     * @throws InvalidArgumentException when the file is not submitted
      */
     public function markAcknowledged(PaymentFile $file): void
     {
-        if ($file->status !== PaymentFile::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted files can be acknowledged.');
-        }
+        $file->lockForTransition(function (PaymentFile $locked): void {
+            if ($locked->status !== PaymentFile::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted files can be acknowledged.');
+            }
 
-        $file->update([
-            'status'           => PaymentFile::STATUS_ACKNOWLEDGED,
-            'acknowledged_at'  => now(),
-        ]);
+            $locked->update([
+                'status'           => PaymentFile::STATUS_ACKNOWLEDGED,
+                'acknowledged_at'  => now(),
+            ]);
+        });
     }
 
     private function isoDate(): string

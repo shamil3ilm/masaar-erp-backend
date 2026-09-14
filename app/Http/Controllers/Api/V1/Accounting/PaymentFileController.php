@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\PaymentFile;
-use App\Models\Accounting\PaymentRun;
 use App\Services\Accounting\PaymentFileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,26 +22,20 @@ class PaymentFileController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $files = PaymentFile::query()
-            ->with('paymentRun:id,uuid')
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('file_format'), fn ($q, $f) => $q->where('file_format', $f))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 25));
+        $files = $this->service->list(
+            $request->only(['status', 'file_format']),
+            $request->integer('per_page', 25),
+        );
 
         return $this->paginated($files);
     }
 
     /**
-     * Show a payment file (without the file_content for brevity).
+     * Show a payment file with its run.
      */
     public function show(int $id): JsonResponse
     {
-        $file = PaymentFile::without(['file_content'])
-            ->with('paymentRun:id,uuid')
-            ->findOrFail($id);
-
-        return $this->success($file);
+        return $this->success($this->service->findWithRun($id));
     }
 
     /**
@@ -65,8 +58,7 @@ class PaymentFileController extends Controller
             ],
         ]);
 
-        $run  = PaymentRun::findOrFail($validated['payment_run_id']);
-        $file = $this->service->generateIso20022($run, $validated['file_format']);
+        $file = $this->service->generateForRun((int) $validated['payment_run_id'], $validated['file_format']);
 
         return $this->created($file->makeHidden('file_content'));
     }
@@ -76,7 +68,7 @@ class PaymentFileController extends Controller
      */
     public function download(int $id): JsonResponse
     {
-        $file = PaymentFile::findOrFail($id);
+        $file = $this->service->find($id);
 
         return response()->json([
             'success' => true,
@@ -98,7 +90,7 @@ class PaymentFileController extends Controller
      */
     public function submit(int $id): JsonResponse
     {
-        $file = PaymentFile::findOrFail($id);
+        $file = $this->service->find($id);
         $this->service->markSubmitted($file);
 
         return $this->success($file->fresh(), 'Payment file marked as submitted.');
@@ -109,7 +101,7 @@ class PaymentFileController extends Controller
      */
     public function acknowledge(int $id): JsonResponse
     {
-        $file = PaymentFile::findOrFail($id);
+        $file = $this->service->find($id);
         $this->service->markAcknowledged($file);
 
         return $this->success($file->fresh(), 'Payment file acknowledged.');
