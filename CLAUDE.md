@@ -27,6 +27,11 @@ php artisan db:seed
 php artisan test
 ```
 
+## Schema Reference
+
+`database/DATABASE_SCHEMA.md` is generated from the migrations. After changing a
+migration, run `php artisan schema:doc`; `SchemaDocTest` fails until you do.
+
 ## Project Structure
 
 The codebase is organized into domain modules. `ls app/Http/Controllers/Api/V1/`
