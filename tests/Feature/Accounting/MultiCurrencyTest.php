@@ -662,6 +662,6 @@ class MultiCurrencyTest extends TestCase
         $this->assertCreatedResponse($response);
         $revalNumber = $response->json('data.revaluation_number');
         $this->assertNotNull($revalNumber);
-        $this->assertStringStartsWith('REVAL-', $revalNumber);
+        $this->assertMatchesRegularExpression('/^REVAL-' . now()->format('Y') . '-\d{6}$/', $revalNumber);
     }
 }
