@@ -31,6 +31,34 @@ class DirectDebitService
         return $query->paginate($perPage);
     }
 
+    public function findMandate(string $id): DirectDebitMandate
+    {
+        return DirectDebitMandate::findOrFail($id);
+    }
+
+    /**
+     * A mandate with the names of its counterparty and bank account.
+     */
+    public function findMandateWithParties(string $id): DirectDebitMandate
+    {
+        return DirectDebitMandate::with(['counterparty:id,contact_name', 'bankAccount:id,account_name'])->findOrFail($id);
+    }
+
+    /**
+     * A mandate's collections, latest collection date first.
+     */
+    public function listCollections(DirectDebitMandate $mandate, int $perPage = 20): LengthAwarePaginator
+    {
+        return DirectDebitCollection::where('direct_debit_mandate_id', $mandate->id)
+            ->orderByDesc('collection_date')
+            ->paginate($perPage);
+    }
+
+    public function findCollection(string $id): DirectDebitCollection
+    {
+        return DirectDebitCollection::findOrFail($id);
+    }
+
     /**
      * Create a new mandate.
      */

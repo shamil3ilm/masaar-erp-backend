@@ -41,9 +41,39 @@ class CheckManagementService
         });
     }
 
+    public function findBook(string $id): CheckBook
+    {
+        return CheckBook::findOrFail($id);
+    }
+
+    public function updateBook(CheckBook $book, array $data): CheckBook
+    {
+        $book->update($data);
+
+        return $book->fresh();
+    }
+
+    public function deleteBook(CheckBook $book): void
+    {
+        $book->delete();
+    }
+
     // -------------------------------------------------------------------------
     // Check Register Entries
     // -------------------------------------------------------------------------
+
+    public function findCheck(string $id): CheckRegisterEntry
+    {
+        return CheckRegisterEntry::findOrFail($id);
+    }
+
+    /**
+     * A check with its check book and the payee's name.
+     */
+    public function findCheckWithDetails(string $id): CheckRegisterEntry
+    {
+        return CheckRegisterEntry::with(['checkBook', 'payee:id,name'])->findOrFail($id);
+    }
 
     public function listChecks(array $filters = [], int $perPage = 20): LengthAwarePaginator
     {
