@@ -574,6 +574,76 @@ class LoanTest extends TestCase
     // (acts as disburse/activate precursor)
     // -------------------------------------------------------------------------
 
+    public function test_list_loans_applies_each_filter_newest_first(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.loans.view']);
+        $this->setUpLoanContext();
+
+        $older = $this->createLoan(['borrower_name' => 'Fatima Noor', 'created_at' => now()->subDay()]);
+        $newer = $this->createLoan([
+            'loan_number' => 'LN-BANK-0001',
+            'loan_type' => 'bank_loan',
+            'status' => Loan::STATUS_APPROVED,
+        ]);
+
+        $ids = fn (string $query): array => array_column($this->apiGet("{$this->baseUrl}/loans?{$query}")->json('data'), 'id');
+
+        $this->assertSame([$newer->id, $older->id], $ids(''));
+        $this->assertSame([$newer->id], $ids('status='.Loan::STATUS_APPROVED));
+        $this->assertSame([$newer->id], $ids('loan_type=bank_loan'));
+        $this->assertSame([$older->id], $ids('search=Fatima'));
+        $this->assertSame([$newer->id], $ids('search=LN-BANK'));
+
+        $this->apiGet("{$this->baseUrl}/loans?per_page=1")
+            ->assertJsonPath('data.0.branch.id', $this->branch->id)
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_review_approve_approves_the_loan(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.loans.approve']);
+        $this->setUpLoanContext();
+
+        $loan = $this->createLoan();
+
+        $this->apiPost("{$this->baseUrl}/loans/{$loan->id}/review", ['action' => 'approve'])
+            ->assertStatus(200)
+            ->assertJsonPath('message', 'Loan approved successfully')
+            ->assertJsonPath('data.status', Loan::STATUS_APPROVED)
+            ->assertJsonPath('data.approval_status', Loan::APPROVAL_APPROVED)
+            ->assertJsonPath('data.approved_by', $this->user->id);
+    }
+
+    public function test_review_reject_rejects_the_approval_and_keeps_the_loan_pending(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.loans.approve']);
+        $this->setUpLoanContext();
+
+        $loan = $this->createLoan();
+
+        $this->apiPost("{$this->baseUrl}/loans/{$loan->id}/review", ['action' => 'reject'])
+            ->assertStatus(200)
+            ->assertJsonPath('message', 'Loan rejected')
+            ->assertJsonPath('data.status', Loan::STATUS_PENDING)
+            ->assertJsonPath('data.approval_status', Loan::APPROVAL_REJECTED);
+    }
+
+    public function test_review_of_a_reviewed_loan_reports_invalid_status(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.loans.approve']);
+        $this->setUpLoanContext();
+
+        $loan = $this->createLoan(['approval_status' => Loan::APPROVAL_REJECTED]);
+
+        $this->apiPost("{$this->baseUrl}/loans/{$loan->id}/review", ['action' => 'approve'])
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'INVALID_STATUS')
+            ->assertJsonPath('error.message', 'Loan is not pending approval');
+
+        $this->assertSame(Loan::STATUS_PENDING, $loan->fresh()->status);
+    }
+
     public function test_can_approve_pending_loan(): void
     {
         $this->setUpAuthenticatedUser(['accounting.loans.approve']);

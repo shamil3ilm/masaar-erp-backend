@@ -8,6 +8,7 @@ use App\Models\Accounting\DistributionCycle;
 use App\Models\Accounting\DistributionPosting;
 use App\Models\Accounting\DistributionSegment;
 use App\Models\Accounting\StatisticalKeyFigureValue;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -16,10 +17,64 @@ use InvalidArgumentException;
 class DistributionCycleService
 {
     /**
+     * Cycles of one organization, latest fiscal year first, then by name.
+     *
+     * @param  array{fiscal_year?: ?int, status?: mixed}  $filters
+     *         A filter applies only when it is set and not null.
+     */
+    public function list(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        $query = DistributionCycle::with('executedBy:id,name')
+            ->where('organization_id', $organizationId)
+            ->orderByDesc('fiscal_year')
+            ->orderBy('name');
+
+        foreach (['fiscal_year', 'status'] as $column) {
+            if (isset($filters[$column])) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    /**
+     * Create a cycle in open status.
+     *
+     * @param  array<string, mixed>  $data  Validated cycle attributes.
+     */
+    public function create(array $data, int $organizationId): DistributionCycle
+    {
+        return DistributionCycle::create([
+            ...$data,
+            'organization_id' => $organizationId,
+            'status'          => DistributionCycle::STATUS_OPEN,
+        ]);
+    }
+
+    /**
+     * Postings of a cycle by period, with sender and receiver cost centres.
+     */
+    public function postings(DistributionCycle $cycle, ?int $period, int $perPage): LengthAwarePaginator
+    {
+        return $cycle->postings()
+            ->with([
+                'senderCostCenter:id,code,name',
+                'receiverCostCenter:id,code,name',
+            ])
+            ->orderBy('period')
+            ->when($period !== null, fn ($q) => $q->where('period', $period))
+            ->paginate($perPage);
+    }
+
+    /**
      * Execute a distribution cycle for the given period.
      *
      * Unlike assessment cycles, distribution keeps the original primary cost elements
      * and redistributes primary costs directly from sender to receivers.
+     *
+     * Runs on the locked cycle, so two concurrent requests cannot both find it
+     * open and write the postings twice.
      *
      * @throws InvalidArgumentException if the cycle is not open or period is out of range
      *
@@ -27,19 +82,19 @@ class DistributionCycleService
      */
     public function execute(DistributionCycle $cycle, int $period): array
     {
-        if (! $cycle->isOpen()) {
-            throw new InvalidArgumentException(
-                "Distribution cycle [{$cycle->id}] is not open (status: {$cycle->status})."
-            );
-        }
+        $postings = $cycle->lockForTransition(function (DistributionCycle $cycle) use ($period): array {
+            if (! $cycle->isOpen()) {
+                throw new InvalidArgumentException(
+                    "Distribution cycle [{$cycle->id}] is not open (status: {$cycle->status})."
+                );
+            }
 
-        if ($period < $cycle->period_from || $period > $cycle->period_to) {
-            throw new InvalidArgumentException(
-                "Period {$period} is outside cycle range [{$cycle->period_from}-{$cycle->period_to}]."
-            );
-        }
+            if ($period < $cycle->period_from || $period > $cycle->period_to) {
+                throw new InvalidArgumentException(
+                    "Period {$period} is outside cycle range [{$cycle->period_from}-{$cycle->period_to}]."
+                );
+            }
 
-        $postings = DB::transaction(function () use ($cycle, $period): array {
             $created = [];
 
             /** @var Collection<int, DistributionSegment> $segments */
@@ -111,17 +166,20 @@ class DistributionCycleService
     /**
      * Reverse all postings for an executed distribution cycle in a given period.
      *
+     * Runs on the locked cycle, so the status check sees the row as it stands
+     * while other requests to execute or reverse it wait.
+     *
      * @throws InvalidArgumentException if the cycle is not executed
      */
     public function reverse(DistributionCycle $cycle, int $period): void
     {
-        if (! $cycle->isExecuted()) {
-            throw new InvalidArgumentException(
-                "Distribution cycle [{$cycle->id}] is not executed (status: {$cycle->status})."
-            );
-        }
+        $cycle->lockForTransition(function (DistributionCycle $cycle) use ($period): void {
+            if (! $cycle->isExecuted()) {
+                throw new InvalidArgumentException(
+                    "Distribution cycle [{$cycle->id}] is not executed (status: {$cycle->status})."
+                );
+            }
 
-        DB::transaction(function () use ($cycle, $period): void {
             // Delete postings for the period (distribution postings have no reversal_id column,
             // so we simply delete them and reset cycle status to open)
             DistributionPosting::where('distribution_cycle_id', $cycle->id)

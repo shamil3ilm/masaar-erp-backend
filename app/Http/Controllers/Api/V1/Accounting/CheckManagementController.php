@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\CheckBook;
-use App\Models\Accounting\CheckRegisterEntry;
 use App\Services\Accounting\CheckManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,7 +52,7 @@ class CheckManagementController extends Controller
 
     public function updateBook(Request $request, string $id): JsonResponse
     {
-        $book = CheckBook::findOrFail($id);
+        $book = $this->service->findBook($id);
 
         $validated = $request->validate([
             'check_book_number' => ['sometimes', 'string', 'max:50'],
@@ -62,15 +60,12 @@ class CheckManagementController extends Controller
             'issued_date' => ['nullable', 'date'],
         ]);
 
-        $book->update($validated);
-
-        return $this->success($book->fresh(), 'Check book updated.');
+        return $this->success($this->service->updateBook($book, $validated), 'Check book updated.');
     }
 
     public function destroyBook(string $id): JsonResponse
     {
-        $book = CheckBook::findOrFail($id);
-        $book->delete();
+        $this->service->deleteBook($this->service->findBook($id));
 
         return $this->success(null, 'Check book deleted.');
     }
@@ -118,9 +113,7 @@ class CheckManagementController extends Controller
 
     public function showCheck(string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::with(['checkBook', 'payee:id,name'])->findOrFail($id);
-
-        return $this->success($check);
+        return $this->success($this->service->findCheckWithDetails($id));
     }
 
     public function outstanding(Request $request): JsonResponse
@@ -133,7 +126,7 @@ class CheckManagementController extends Controller
 
     public function printCheck(string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::findOrFail($id);
+        $check = $this->service->findCheck($id);
 
         return $this->tryAction(
             fn () => $this->service->print($check),
@@ -144,7 +137,7 @@ class CheckManagementController extends Controller
 
     public function issue(string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::findOrFail($id);
+        $check = $this->service->findCheck($id);
 
         return $this->tryAction(
             fn () => $this->service->issue($check),
@@ -155,7 +148,7 @@ class CheckManagementController extends Controller
 
     public function markCleared(string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::findOrFail($id);
+        $check = $this->service->findCheck($id);
 
         return $this->tryAction(
             fn () => $this->service->markCleared($check),
@@ -166,7 +159,7 @@ class CheckManagementController extends Controller
 
     public function markBounced(Request $request, string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::findOrFail($id);
+        $check = $this->service->findCheck($id);
 
         $validated = $request->validate([
             'reason' => ['required', 'string'],
@@ -181,7 +174,7 @@ class CheckManagementController extends Controller
 
     public function cancel(string $id): JsonResponse
     {
-        $check = CheckRegisterEntry::findOrFail($id);
+        $check = $this->service->findCheck($id);
 
         return $this->tryAction(
             fn () => $this->service->cancel($check),

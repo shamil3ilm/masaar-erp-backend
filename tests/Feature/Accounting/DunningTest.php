@@ -244,6 +244,54 @@ class DunningTest extends TestCase
         $this->assertNotNull($block->fresh()->released_at);
     }
 
+    public function test_index_blocks_filters_active_only(): void
+    {
+        $this->makeBlock($this->makeContact(), ['reason' => 'active']);
+        $this->makeBlock($this->makeContact(), ['reason' => 'released', 'released_at' => now()->subDay()]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/dunning/blocks');
+        $this->assertCount(2, $all->json('data'));
+
+        $active = $this->withToken($this->token)->getJson('/api/v1/dunning/blocks?active_only=1');
+        $active->assertStatus(200);
+        $this->assertSame(['active'], array_column($active->json('data'), 'reason'));
+    }
+
+    public function test_index_levels_and_runs_are_ordered_within_the_organization(): void
+    {
+        $this->makeLevel(['level_number' => 3, 'name' => 'Third']);
+        $this->makeLevel(['level_number' => 1, 'name' => 'First']);
+        $this->makeRun(['run_date' => '2025-01-31']);
+        $this->makeRun(['run_date' => '2025-02-28']);
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $this->makeLevel(['organization_id' => $otherOrg->id, 'level_number' => 2, 'name' => 'Foreign']);
+        $this->makeRun(['organization_id' => $otherOrg->id, 'run_date' => '2025-03-31']);
+
+        $levels = $this->withToken($this->token)->getJson('/api/v1/dunning/levels');
+        $this->assertSame(['First', 'Third'], array_column($levels->json('data'), 'name'));
+
+        $runs = $this->withToken($this->token)->getJson('/api/v1/dunning/runs');
+        $this->assertSame(
+            ['2025-02-28', '2025-01-31'],
+            array_map(fn (array $run) => substr($run['run_date'], 0, 10), $runs->json('data')),
+        );
+    }
+
+    public function test_store_level_is_created_in_the_callers_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/dunning/levels', [
+                'level_number'      => 2,
+                'name'              => 'Reminder',
+                'days_overdue_from' => 15,
+                'organization_id'   => 999999,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.name', 'Reminder');
+
+        $this->assertDatabaseHas('dunning_levels', ['name' => 'Reminder', 'organization_id' => $this->organization->id]);
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

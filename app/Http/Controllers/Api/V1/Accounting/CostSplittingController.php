@@ -47,14 +47,12 @@ class CostSplittingController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $rule = CostSplittingRule::with(['costCenter', 'costElement'])->findOrFail($id);
-
-        return $this->success($rule);
+        return $this->success($this->service->findWithRelations($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $rule = CostSplittingRule::findOrFail($id);
+        $rule = $this->service->find($id);
 
         $validated = $request->validate([
             'cost_element_id'     => ['nullable', 'integer', 'exists:cost_elements,id'],
@@ -73,8 +71,7 @@ class CostSplittingController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $rule = CostSplittingRule::findOrFail($id);
-        $rule->delete();
+        $this->service->delete($this->service->find($id));
 
         return $this->noContent();
     }

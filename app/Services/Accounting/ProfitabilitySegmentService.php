@@ -32,6 +32,22 @@ class ProfitabilitySegmentService
         return $query->paginate($perPage);
     }
 
+    /**
+     * A segment of the current organization; 404 when it is not visible.
+     */
+    public function find(int $id): ProfitabilitySegment
+    {
+        return ProfitabilitySegment::findOrFail($id);
+    }
+
+    /**
+     * A segment with its customer group, product and posted values; 404 when it is not visible.
+     */
+    public function findWithDetails(int $id): ProfitabilitySegment
+    {
+        return ProfitabilitySegment::with(['customerGroup', 'product:id,name,sku', 'values'])->findOrFail($id);
+    }
+
     public function create(array $data): ProfitabilitySegment
     {
         return DB::transaction(fn (): ProfitabilitySegment => ProfitabilitySegment::create($data));
@@ -79,10 +95,13 @@ class ProfitabilitySegmentService
     /**
      * Drill-down report grouped by the requested dimension.
      *
+     * The query builder bypasses the organization global scope, so both the
+     * values and the segments they join are filtered to the organization here.
+     *
      * @param  string[] $dimensions  e.g. ['region', 'sales_channel']
      * @return array<string, array{dimension_value: string, revenue: float, gross_margin: float, net_margin: float}>
      */
-    public function getDrillDown(array $dimensions, int $period, int $year): array
+    public function getDrillDown(array $dimensions, int $period, int $year, int $organizationId): array
     {
         $groupByColumns = [];
         $selectColumns  = [];
@@ -103,6 +122,8 @@ class ProfitabilitySegmentService
 
         $rows = DB::table('profitability_segment_values as psv')
             ->join('profitability_segments as ps', 'ps.id', '=', 'psv.profitability_segment_id')
+            ->where('psv.organization_id', $organizationId)
+            ->where('ps.organization_id', $organizationId)
             ->where('psv.period', $period)
             ->where('psv.fiscal_year', $year)
             ->whereNull('ps.deleted_at')
@@ -139,12 +160,17 @@ class ProfitabilitySegmentService
     /**
      * Full segment report for a period/year — all segments with their values.
      *
+     * The query builder bypasses the organization global scope, so both the
+     * values and the segments they join are filtered to the organization here.
+     *
      * @return array<int, array{segment_id: int, segment_name: string, revenue: float, gross_margin: float, net_margin: float}>
      */
-    public function getSegmentReport(int $period, int $year): array
+    public function getSegmentReport(int $period, int $year, int $organizationId): array
     {
         $rows = DB::table('profitability_segment_values as psv')
             ->join('profitability_segments as ps', 'ps.id', '=', 'psv.profitability_segment_id')
+            ->where('psv.organization_id', $organizationId)
+            ->where('ps.organization_id', $organizationId)
             ->where('psv.period', $period)
             ->where('psv.fiscal_year', $year)
             ->whereNull('ps.deleted_at')

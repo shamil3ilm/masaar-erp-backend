@@ -8,7 +8,6 @@ use App\Http\Concerns\SupportsAgGrid;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CostAllocation;
 use App\Models\Accounting\CostCenter;
-use App\Models\HR\Employee;
 use App\Services\Accounting\CostCenterService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,29 +29,20 @@ class CostCenterController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CostCenter::with(['parent:id,code,name', 'manager:id,first_name,last_name'])
-            ->orderBy('code')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->filled('search'), function ($q) use ($request): void {
-                $search = $request->search;
-                $q->where(function ($q) use ($search): void {
-                    $q->where('code', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%");
-                });
-            })
-            ->when(
-                $request->filled('parent_id'),
-                fn($q) => $q->where('parent_id', $request->integer('parent_id')),
-                fn($q) => $q->when($request->boolean('roots_only'), fn($q) => $q->whereNull('parent_id'))
-            );
+        $filters = [
+            'status'     => $request->filled('status') ? $request->status : null,
+            'search'     => $request->filled('search') ? $request->search : null,
+            'parent_id'  => $request->filled('parent_id') ? $request->integer('parent_id') : null,
+            'roots_only' => $request->boolean('roots_only'),
+        ];
 
         if ($this->isAgGridRequest($request)) {
-            return $this->applyAgGrid($query, $request);
+            return $this->applyAgGrid($this->service->costCenterQuery($filters), $request);
         }
 
         $perPage = $request->integer('per_page', 20);
 
-        return $this->paginated($query->paginate($perPage));
+        return $this->paginated($this->service->listCostCenters($filters, $perPage));
     }
 
     /**
@@ -163,7 +153,7 @@ class CostCenterController extends Controller
             'effective_to'     => ['nullable', 'date', 'after_or_equal:effective_from'],
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->service->findEmployee((int) $validated['employee_id']);
 
         $assignment = $this->service->assignEmployee(
             employee:       $employee,
@@ -313,15 +303,15 @@ class CostCenterController extends Controller
      */
     public function allocations(Request $request): JsonResponse
     {
-        $query = CostAllocation::with([
-            'fromCostCenter:id,code,name',
-            'toCostCenter:id,code,name',
-        ])->orderByDesc('period_end')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->filled('from_cost_center_id'), fn($q) => $q->where('from_cost_center_id', $request->integer('from_cost_center_id')))
-            ->when($request->filled('to_cost_center_id'), fn($q) => $q->where('to_cost_center_id', $request->integer('to_cost_center_id')));
+        $filters = [
+            'status'              => $request->filled('status') ? $request->status : null,
+            'from_cost_center_id' => $request->filled('from_cost_center_id') ? $request->integer('from_cost_center_id') : null,
+            'to_cost_center_id'   => $request->filled('to_cost_center_id') ? $request->integer('to_cost_center_id') : null,
+        ];
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated(
+            $this->service->listAllocations($filters, $request->integer('per_page', 20))
+        );
     }
 
     /**
@@ -391,42 +381,8 @@ class CostCenterController extends Controller
      */
     public function hierarchyTree(Request $request): JsonResponse
     {
-        $orgId = $request->user()->organization_id;
-
-        $roots = CostCenter::where('organization_id', $orgId)
-            ->whereNull('parent_id')
-            ->where('status', CostCenter::STATUS_ACTIVE)
-            ->with(['manager:id,first_name,last_name'])
-            ->orderBy('code')
-            ->get();
-
-        $tree = $this->buildCostCenterTree($roots, $orgId);
+        $tree = $this->service->hierarchyTree($request->user()->organization_id);
 
         return $this->success($tree, 'Cost center standard hierarchy retrieved');
-    }
-
-    private function buildCostCenterTree(\Illuminate\Database\Eloquent\Collection $nodes, int $orgId): array
-    {
-        $result = [];
-
-        foreach ($nodes as $node) {
-            $children = CostCenter::where('organization_id', $orgId)
-                ->where('parent_id', $node->id)
-                ->where('status', CostCenter::STATUS_ACTIVE)
-                ->with(['manager:id,first_name,last_name'])
-                ->orderBy('code')
-                ->get();
-
-            $result[] = [
-                'id'          => $node->id,
-                'uuid'        => $node->uuid,
-                'code'        => $node->code,
-                'name'        => $node->name,
-                'manager'     => $node->manager,
-                'children'    => $this->buildCostCenterTree($children, $orgId),
-            ];
-        }
-
-        return $result;
     }
 }

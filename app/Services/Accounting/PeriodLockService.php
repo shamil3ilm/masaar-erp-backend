@@ -10,6 +10,7 @@ use App\Models\Accounting\AccountingPeriod;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Accounting\PeriodLockOverride;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class PeriodLockService
@@ -117,19 +118,39 @@ class PeriodLockService
             ->get();
     }
 
+    /**
+     * The organization's accounting period containing the date, with the
+     * columns a lock check shows, or null when no period covers it.
+     */
+    public function periodSummaryForDate(int $organizationId, string $date): ?AccountingPeriod
+    {
+        return $this->periodForDateQuery($organizationId, $date)
+            ->first(['id', 'period_number', 'period_type', 'start_date', 'end_date', 'is_closed']);
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
     private function findPeriodForDate(int $organizationId, string $date): ?AccountingPeriod
     {
+        return $this->periodForDateQuery($organizationId, $date)->first();
+    }
+
+    /**
+     * Periods carry no organization column, so they are scoped through the
+     * fiscal year they belong to.
+     *
+     * @return Builder<AccountingPeriod>
+     */
+    private function periodForDateQuery(int $organizationId, string $date): Builder
+    {
         return AccountingPeriod::withoutGlobalScopes()
             ->whereHas('fiscalYear', function ($q) use ($organizationId) {
                 $q->withoutGlobalScopes()->where('organization_id', $organizationId);
             })
             ->whereDate('start_date', '<=', $date)
-            ->whereDate('end_date', '>=', $date)
-            ->first();
+            ->whereDate('end_date', '>=', $date);
     }
 
     private function isPeriodLocked(AccountingPeriod $period): bool

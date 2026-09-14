@@ -213,6 +213,75 @@ class DirectDebitTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_collections_lists_only_the_mandates_collections_newest_first(): void
+    {
+        $mandate = $this->makeMandate(['status' => 'active']);
+        $other = $this->makeMandate(['status' => 'active']);
+        $this->makeCollection($mandate, ['collection_date' => '2025-01-01']);
+        $this->makeCollection($mandate, ['collection_date' => '2025-02-01']);
+        $this->makeCollection($other, ['collection_date' => '2025-03-01']);
+
+        $response = $this->withToken($this->token)
+            ->getJson('/api/v1/direct-debit/mandates/' . $mandate->id . '/collections');
+
+        $response->assertStatus(200);
+        $this->assertCount(2, $response->json('data'));
+        $this->assertSame(
+            ['2025-02-01', '2025-01-01'],
+            array_map(fn (array $row) => substr($row['collection_date'], 0, 10), $response->json('data')),
+        );
+    }
+
+    public function test_process_collection_submits_a_scheduled_collection(): void
+    {
+        $collection = $this->makeCollection($this->makeMandate(['status' => 'active']));
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/direct-debit/collections/' . $collection->id . '/process');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.status', 'submitted');
+    }
+
+    public function test_mandate_and_collection_endpoints_return_404_for_another_organization(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $mandate = DirectDebitMandate::create([
+            'organization_id'   => $otherOrg->id,
+            'mandate_reference' => 'DDM-FOREIGN',
+            'direction'         => 'collection',
+            'counterparty_id'   => Contact::factory()->create(['organization_id' => $otherOrg->id])->id,
+            'currency_code'     => 'SAR',
+            'status'            => 'draft',
+        ]);
+        $collection = $this->makeCollection($mandate, ['organization_id' => $otherOrg->id]);
+        $base = '/api/v1/direct-debit/mandates/' . $mandate->id;
+
+        $this->withToken($this->token)->getJson($base)->assertStatus(404);
+        $this->withToken($this->token)->putJson($base, ['currency_code' => 'USD'])->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/activate')->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/pause')->assertStatus(404);
+        $this->withToken($this->token)->postJson($base . '/cancel')->assertStatus(404);
+        $this->withToken($this->token)->getJson($base . '/collections')->assertStatus(404);
+        $this->withToken($this->token)
+            ->postJson('/api/v1/direct-debit/collections/' . $collection->id . '/process')
+            ->assertStatus(404);
+
+        $this->assertDatabaseHas('direct_debit_mandates', ['id' => $mandate->id, 'status' => 'draft', 'currency_code' => 'SAR']);
+        $this->assertDatabaseHas('direct_debit_collections', ['id' => $collection->id, 'status' => 'scheduled']);
+    }
+
+    private function makeCollection(DirectDebitMandate $mandate, array $overrides = []): DirectDebitCollection
+    {
+        return DirectDebitCollection::create(array_merge([
+            'organization_id'         => $this->organization->id,
+            'direct_debit_mandate_id' => $mandate->id,
+            'collection_date'         => '2025-01-15',
+            'amount'                  => 100,
+            'status'                  => 'scheduled',
+        ], $overrides));
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

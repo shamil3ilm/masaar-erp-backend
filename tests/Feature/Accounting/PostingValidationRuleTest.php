@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Accounting;
 
 use App\Models\Accounting\PostingValidationRule;
+use App\Models\Core\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -197,5 +198,45 @@ class PostingValidationRuleTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/posting-validation-rules')->assertStatus(401);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filters, tenant isolation and response shape
+    // -------------------------------------------------------------------------
+
+    public function test_index_filters_by_rule_type_and_trigger_event(): void
+    {
+        $this->makeRule(['rule_name' => 'Validate Save']);
+        $this->makeRule(['rule_name' => 'Substitute Post', 'rule_type' => 'substitution', 'trigger_event' => 'on_post']);
+        $this->makeRule(['rule_name' => 'Foreign', 'organization_id' => Organization::factory()->create()->id]);
+
+        $all = $this->withToken($this->token)
+            ->getJson('/api/v1/posting-validation-rules?rule_type=&trigger_event=');
+        $all->assertStatus(200)->assertJsonPath('data.per_page', 50);
+        $this->assertCount(2, $all->json('data.data'));
+
+        $byType = $this->withToken($this->token)
+            ->getJson('/api/v1/posting-validation-rules?rule_type=substitution');
+        $this->assertSame(['Substitute Post'], array_column($byType->json('data.data'), 'rule_name'));
+
+        $byEvent = $this->withToken($this->token)
+            ->getJson('/api/v1/posting-validation-rules?trigger_event=on_save');
+        $this->assertSame(['Validate Save'], array_column($byEvent->json('data.data'), 'rule_name'));
+    }
+
+    public function test_store_sets_the_organization(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/posting-validation-rules', [
+                'rule_name'     => 'Amount Check',
+                'rule_type'     => 'validation',
+                'trigger_event' => 'on_save',
+                'conditions'    => [['field' => 'amount', 'operator' => 'gt', 'value' => 0]],
+                'actions'       => [['field' => 'status', 'action_type' => 'set', 'value' => 'ok']],
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('message', 'Posting validation rule created.')
+            ->assertJsonPath('data.rule_name', 'Amount Check')
+            ->assertJsonPath('data.organization_id', $this->organization->id);
     }
 }

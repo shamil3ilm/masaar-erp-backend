@@ -26,23 +26,16 @@ class ProfitCenterController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ProfitCenter::with(['parent:id,code,name', 'manager:id,first_name,last_name'])
-            ->orderBy('code')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->filled('search'), function ($q) use ($request): void {
-                $search = $request->search;
-                $q->where(function ($q) use ($search): void {
-                    $q->where('code', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%");
-                });
-            })
-            ->when(
-                $request->filled('parent_id'),
-                fn($q) => $q->where('parent_id', $request->integer('parent_id')),
-                fn($q) => $q->when($request->boolean('roots_only'), fn($q) => $q->whereNull('parent_id'))
-            );
+        $filters = [
+            'status'     => $request->filled('status') ? $request->status : null,
+            'search'     => $request->filled('search') ? $request->search : null,
+            'parent_id'  => $request->filled('parent_id') ? $request->integer('parent_id') : null,
+            'roots_only' => $request->boolean('roots_only'),
+        ];
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated(
+            $this->service->listProfitCenters($filters, $request->integer('per_page', 20))
+        );
     }
 
     /**

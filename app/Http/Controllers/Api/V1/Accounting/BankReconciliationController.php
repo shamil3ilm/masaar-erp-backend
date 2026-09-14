@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\BankReconciliation;
-use App\Models\Accounting\BankStatementImport;
 use App\Services\Accounting\BankReconciliationService;
 use App\Services\Accounting\EbsParserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class BankReconciliationController extends Controller
 {
+    use ReportsBusinessRules;
+
     public function __construct(
         private BankReconciliationService $reconciliationService,
         private EbsParserService $ebsParser,
@@ -25,15 +27,10 @@ class BankReconciliationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = BankReconciliation::with(['bankAccount:id,account_name,bank_name', 'createdBy:id,name'])
-            ->orderByDesc('statement_date')
-            ->orderByDesc('id')
-            ->when($request->has('bank_account_id'), fn($q) => $q->where('bank_account_id', $request->bank_account_id))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->has('start_date'), fn($q) => $q->whereDate('statement_date', '>=', $request->start_date))
-            ->when($request->has('end_date'), fn($q) => $q->whereDate('statement_date', '<=', $request->end_date));
-
-        $reconciliations = $query->paginate($request->integer('per_page', 20));
+        $reconciliations = $this->reconciliationService->list(
+            $request->only(['bank_account_id', 'status', 'start_date', 'end_date']),
+            $request->integer('per_page', 20),
+        );
 
         return $this->paginated($reconciliations);
     }
@@ -91,16 +88,13 @@ class BankReconciliationController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        $bankReconciliation->update($validated);
-
-        if (isset($validated['statement_balance'])) {
-            $bankReconciliation->calculateDifference();
+        try {
+            $bankReconciliation = $this->reconciliationService->update($bankReconciliation, $validated);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 400);
         }
 
-        return $this->success(
-            $bankReconciliation->fresh(['bankAccount', 'items']),
-            'Bank reconciliation updated successfully'
-        );
+        return $this->success($bankReconciliation, 'Bank reconciliation updated successfully');
     }
 
     /**
@@ -205,37 +199,17 @@ class BankReconciliationController extends Controller
      */
     public function parseStatement(Request $request, int $importId): JsonResponse
     {
-        $import = BankStatementImport::where('organization_id', $this->organizationId($request))
-            ->findOrFail($importId);
-
-        if (!in_array($import->file_type, ['mt940', 'camt053'], true)) {
-            return $this->error(
-                "Format '{$import->file_type}' is not supported by the EBS parser. Supported: mt940, camt053.",
-                'UNSUPPORTED_FORMAT',
-                422
-            );
-        }
-
-        if ($import->status === BankStatementImport::STATUS_COMPLETED) {
-            return $this->error('Statement has already been parsed.', 'ALREADY_PARSED', 409);
-        }
-
-        $content = Storage::disk('private')->get($import->file_path);
-        if ($content === null) {
-            return $this->error('Statement file not found in storage.', 'FILE_NOT_FOUND', 404);
-        }
+        $import = $this->reconciliationService->findImport($this->organizationId($request), $importId);
 
         try {
-            $import->update(['status' => BankStatementImport::STATUS_PROCESSING]);
-            $count = $this->ebsParser->import($import, $content);
-
-            return $this->success(
-                ['transactions_imported' => $count],
-                "Successfully parsed {$count} transaction(s) from the bank statement."
-            );
-        } catch (\RuntimeException $e) {
-            $import->update(['status' => BankStatementImport::STATUS_FAILED, 'errors' => [$e->getMessage()]]);
-            return $this->error($e->getMessage(), 'PARSE_FAILED', 422);
+            $count = $this->ebsParser->parseStoredImport($import);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
+
+        return $this->success(
+            ['transactions_imported' => $count],
+            "Successfully parsed {$count} transaction(s) from the bank statement."
+        );
     }
 }

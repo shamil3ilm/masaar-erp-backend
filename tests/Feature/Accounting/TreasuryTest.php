@@ -282,6 +282,42 @@ class TreasuryTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_investments_index_filters_by_status_and_type_within_the_organization(): void
+    {
+        $this->makeInvestment(['counterparty' => 'Match']);
+        $this->makeInvestment(['counterparty' => 'Matured', 'status' => TreasuryInvestment::STATUS_MATURED]);
+        $this->makeInvestment(['counterparty' => 'Bond', 'instrument_type' => 'bond']);
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $this->makeInvestment(['counterparty' => 'Foreign', 'organization_id' => $otherOrg->id]);
+
+        $all = $this->withToken($this->token)->getJson('/api/v1/treasury/investments');
+        $all->assertStatus(200);
+        $this->assertCount(3, $all->json('data'));
+
+        $filtered = $this->withToken($this->token)
+            ->getJson('/api/v1/treasury/investments?status=active&instrument_type=fixed_deposit');
+        $this->assertSame(['Match'], array_column($filtered->json('data'), 'counterparty'));
+    }
+
+    public function test_liquidity_plans_list_includes_lines_latest_plan_first(): void
+    {
+        $this->makeLiquidityPlan(['plan_name' => 'Q1', 'plan_from' => '2025-01-01']);
+        $q2 = $this->makeLiquidityPlan(['plan_name' => 'Q2', 'plan_from' => '2025-04-01', 'plan_to' => '2025-06-30']);
+        $q2->lines()->create([
+            'period_date'    => '2025-04-01',
+            'category'       => 'Receipts',
+            'flow_type'      => 'inflow',
+            'planned_amount' => 1000,
+        ]);
+
+        $response = $this->withToken($this->token)->getJson('/api/v1/treasury/liquidity-plans');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.0.plan_name', 'Q2')
+            ->assertJsonCount(1, 'data.0.lines')
+            ->assertJsonPath('data.1.plan_name', 'Q1');
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

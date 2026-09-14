@@ -5,9 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\FinancialCloseTask;
-use App\Models\Accounting\FinancialClosePeriod;
-use App\Models\Accounting\FinancialCloseTemplate;
 use App\Services\Accounting\FinancialCloseCockpitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,10 +21,7 @@ class FinancialCloseCockpitController extends Controller
      */
     public function templates(Request $request): JsonResponse
     {
-        $templates = FinancialCloseTemplate::with('tasks')
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('name')
-            ->get();
+        $templates = $this->service->listTemplates($request->boolean('active_only'));
 
         return $this->success($templates);
     }
@@ -51,28 +45,9 @@ class FinancialCloseCockpitController extends Controller
             'tasks.*.required_role'           => ['nullable', 'string', 'max:100'],
         ]);
 
-        $template = FinancialCloseTemplate::create([
-            'organization_id' => auth()->user()->organization_id,
-            'name'            => $validated['name'],
-            'description'     => $validated['description'] ?? null,
-            'close_type'      => $validated['close_type'],
-            'is_active'       => $validated['is_active'] ?? true,
-        ]);
+        $template = $this->service->createTemplate(auth()->user()->organization_id, $validated);
 
-        if (!empty($validated['tasks'])) {
-            foreach ($validated['tasks'] as $index => $taskData) {
-                $template->tasks()->create([
-                    'task_name'               => $taskData['task_name'],
-                    'description'             => $taskData['description'] ?? null,
-                    'task_type'               => $taskData['task_type'],
-                    'sort_order'              => $taskData['sort_order'] ?? $index,
-                    'estimated_duration_hours' => $taskData['estimated_duration_hours'] ?? null,
-                    'required_role'           => $taskData['required_role'] ?? null,
-                ]);
-            }
-        }
-
-        return $this->created($template->load('tasks'));
+        return $this->created($template);
     }
 
     /**
@@ -80,12 +55,11 @@ class FinancialCloseCockpitController extends Controller
      */
     public function periods(Request $request): JsonResponse
     {
-        $periods = FinancialClosePeriod::query()
-            ->when($request->input('fiscal_year'), fn ($q, $y) => $q->where('fiscal_year', (int) $y))
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('fiscal_year')
-            ->orderByDesc('period')
-            ->paginate($request->integer('per_page', 25));
+        $periods = $this->service->paginatePeriods(
+            $request->input('fiscal_year'),
+            $request->input('status'),
+            $request->integer('per_page', 25),
+        );
 
         return $this->paginated($periods);
     }
@@ -115,8 +89,7 @@ class FinancialCloseCockpitController extends Controller
      */
     public function showPeriod(int $id): JsonResponse
     {
-        $period = FinancialClosePeriod::with(['tasks', 'tasks.assignedTo:id,name', 'tasks.completedBy:id,name'])
-            ->findOrFail($id);
+        $period = $this->service->findPeriod($id, ['tasks', 'tasks.assignedTo:id,name', 'tasks.completedBy:id,name']);
 
         return $this->success($period);
     }
@@ -126,7 +99,7 @@ class FinancialCloseCockpitController extends Controller
      */
     public function startTask(Request $request, int $taskId): JsonResponse
     {
-        $task = FinancialCloseTask::findOrFail($taskId);
+        $task = $this->service->findTask($taskId);
         $this->service->startTask($task, auth()->id());
 
         return $this->success($task->fresh(), 'Task started.');
@@ -141,7 +114,7 @@ class FinancialCloseCockpitController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        $task = FinancialCloseTask::findOrFail($taskId);
+        $task = $this->service->findTask($taskId);
         $this->service->completeTask($task, auth()->id(), $validated['notes'] ?? '');
 
         return $this->success($task->fresh(), 'Task completed.');
@@ -152,7 +125,7 @@ class FinancialCloseCockpitController extends Controller
      */
     public function closePeriod(int $id): JsonResponse
     {
-        $period = FinancialClosePeriod::findOrFail($id);
+        $period = $this->service->findPeriod($id);
         $this->service->closePeriod($period, auth()->id());
 
         return $this->success($period->fresh(), 'Period closed successfully.');
@@ -163,7 +136,7 @@ class FinancialCloseCockpitController extends Controller
      */
     public function progress(int $id): JsonResponse
     {
-        $period   = FinancialClosePeriod::findOrFail($id);
+        $period   = $this->service->findPeriod($id);
         $progress = $this->service->getPeriodProgress($period);
 
         return $this->success($progress);
@@ -178,7 +151,7 @@ class FinancialCloseCockpitController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        $task = FinancialCloseTask::findOrFail($taskId);
+        $task = $this->service->findTask($taskId);
 
         return $this->tryAction(
             function () use ($task, $validated) {
@@ -199,7 +172,7 @@ class FinancialCloseCockpitController extends Controller
             'assigned_to' => ['required', 'integer', 'exists:users,id'],
         ]);
 
-        $task = FinancialCloseTask::findOrFail($taskId);
+        $task = $this->service->findTask($taskId);
 
         return $this->tryAction(
             function () use ($task, $validated) {
@@ -220,7 +193,7 @@ class FinancialCloseCockpitController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $period = FinancialClosePeriod::findOrFail($id);
+        $period = $this->service->findPeriod($id);
 
         return $this->tryAction(
             function () use ($period, $validated) {

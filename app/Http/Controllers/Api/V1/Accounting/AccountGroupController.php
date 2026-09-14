@@ -6,20 +6,25 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\AccountGroup;
+use App\Services\Accounting\AccountGroupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class AccountGroupController extends Controller
 {
+    public function __construct(
+        private readonly AccountGroupService $service
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $query = AccountGroup::query()
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->when($request->get('account_category'), fn ($q, $cat) => $q->where('account_category', $cat))
-            ->orderBy('code');
+        $filters = [
+            'active_only'      => $request->boolean('active_only'),
+            'account_category' => $request->get('account_category'),
+        ];
 
-        return $this->paginated($query->paginate($request->integer('per_page', 20)));
+        return $this->paginated($this->service->list($filters, $request->integer('per_page', 20)));
     }
 
     public function store(Request $request): JsonResponse
@@ -37,9 +42,7 @@ class AccountGroupController extends Controller
             'is_active'              => 'nullable|boolean',
         ]);
 
-        $validated['organization_id'] = $orgId;
-
-        $accountGroup = AccountGroup::create($validated);
+        $accountGroup = $this->service->create($validated, (int) $orgId);
 
         return $this->created($accountGroup, 'Account group created.');
     }

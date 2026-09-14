@@ -4,22 +4,30 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\FiscalYear;
-use Database\Seeders\ChartOfAccountsSeeder;
+use App\Services\Accounting\ChartOfAccountsService;
+use App\Services\Accounting\FiscalYearService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class FiscalYearController extends Controller
 {
+    use ReportsBusinessRules;
+
+    public function __construct(
+        private readonly FiscalYearService $fiscalYears,
+        private readonly ChartOfAccountsService $chartOfAccounts,
+    ) {}
+
     /**
      * List fiscal years.
      */
     public function index(): JsonResponse
     {
-        $fiscalYears = FiscalYear::orderByDesc('start_date')->get();
-
-        return $this->success($fiscalYears);
+        return $this->success($this->fiscalYears->list());
     }
 
     /**
@@ -27,7 +35,7 @@ class FiscalYearController extends Controller
      */
     public function current(): JsonResponse
     {
-        $fiscalYear = FiscalYear::current(auth()->user()->organization_id);
+        $fiscalYear = $this->fiscalYears->current(auth()->user()->organization_id);
 
         if (!$fiscalYear) {
             return $this->error('No current fiscal year set', 'NOT_FOUND', 404);
@@ -47,7 +55,7 @@ class FiscalYearController extends Controller
     }
 
     /**
-     * Create new fiscal year.
+     * Create new fiscal year, optionally current and with monthly periods.
      */
     public function store(Request $request): JsonResponse
     {
@@ -56,40 +64,16 @@ class FiscalYearController extends Controller
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after:start_date'],
             'is_current' => ['boolean'],
-            'create_periods' => ['boolean'], // Create monthly periods
+            'create_periods' => ['boolean'],
         ]);
 
-        // Check for overlapping fiscal years
-        $overlap = FiscalYear::where(function ($q) use ($validated) {
-            $q->whereBetween('start_date', [$validated['start_date'], $validated['end_date']])
-                ->orWhereBetween('end_date', [$validated['start_date'], $validated['end_date']])
-                ->orWhere(function ($q2) use ($validated) {
-                    $q2->where('start_date', '<=', $validated['start_date'])
-                        ->where('end_date', '>=', $validated['end_date']);
-                });
-        })->exists();
-
-        if ($overlap) {
-            return $this->error('Fiscal year dates overlap with an existing fiscal year', 'OVERLAP', 422);
+        try {
+            $fiscalYear = $this->fiscalYears->create(auth()->user()->organization_id, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        $fiscalYear = FiscalYear::create([
-            'organization_id' => auth()->user()->organization_id,
-            'name' => $validated['name'],
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'],
-        ]);
-
-        if ($validated['is_current'] ?? false) {
-            $fiscalYear->setAsCurrent();
-        }
-
-        // Create monthly periods if requested
-        if ($validated['create_periods'] ?? false) {
-            $this->createMonthlyPeriods($fiscalYear);
-        }
-
-        return $this->success($fiscalYear->fresh(['periods']), 'Fiscal year created successfully', 201);
+        return $this->success($fiscalYear, 'Fiscal year created successfully', 201);
     }
 
     /**
@@ -97,6 +81,8 @@ class FiscalYearController extends Controller
      */
     public function update(Request $request, FiscalYear $fiscalYear): JsonResponse
     {
+        // A closed year is refused before the payload is validated, so it
+        // reports CLOSED whatever was sent; the service re-checks on the locked row.
         if ($fiscalYear->is_closed) {
             return $this->error('Closed fiscal years cannot be modified', 'CLOSED', 400);
         }
@@ -105,7 +91,11 @@ class FiscalYearController extends Controller
             'name' => ['sometimes', 'string', 'max:50'],
         ]);
 
-        $fiscalYear->update($validated);
+        try {
+            $fiscalYear = $this->fiscalYears->update($fiscalYear, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success($fiscalYear, 'Fiscal year updated successfully');
     }
@@ -115,11 +105,11 @@ class FiscalYearController extends Controller
      */
     public function setCurrent(FiscalYear $fiscalYear): JsonResponse
     {
-        if ($fiscalYear->is_closed) {
-            return $this->error('Closed fiscal years cannot be set as current', 'CLOSED', 400);
+        try {
+            $fiscalYear = $this->fiscalYears->setCurrent($fiscalYear);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $fiscalYear->setAsCurrent();
 
         return $this->success($fiscalYear, 'Fiscal year set as current');
     }
@@ -129,25 +119,13 @@ class FiscalYearController extends Controller
      */
     public function close(FiscalYear $fiscalYear): JsonResponse
     {
-        if ($fiscalYear->is_closed) {
-            return $this->error('Fiscal year is already closed', 'ALREADY_CLOSED', 400);
+        try {
+            $fiscalYear = $this->fiscalYears->close($fiscalYear, auth()->id());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        // Check for unclosed periods
-        $openPeriods = $fiscalYear->periods()->where('is_closed', false)->count();
-        if ($openPeriods > 0) {
-            return $this->error('All accounting periods must be closed first', 'OPEN_PERIODS', 400);
-        }
-
-        // Check for draft journal entries
-        $draftEntries = $fiscalYear->journalEntries()->where('status', 'draft')->count();
-        if ($draftEntries > 0) {
-            return $this->error('There are still draft journal entries in this fiscal year', 'DRAFT_ENTRIES', 400);
-        }
-
-        $fiscalYear->close();
-
-        return $this->success($fiscalYear->fresh(), 'Fiscal year closed successfully');
+        return $this->success($fiscalYear, 'Fiscal year closed successfully');
     }
 
     /**
@@ -155,16 +133,11 @@ class FiscalYearController extends Controller
      */
     public function destroy(FiscalYear $fiscalYear): JsonResponse
     {
-        if ($fiscalYear->is_closed) {
-            return $this->error('Closed fiscal years cannot be deleted', 'CLOSED', 400);
+        try {
+            $this->fiscalYears->delete($fiscalYear);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        if ($fiscalYear->journalEntries()->exists()) {
-            return $this->error('Cannot delete fiscal year with journal entries', 'HAS_ENTRIES', 400);
-        }
-
-        $fiscalYear->periods()->delete();
-        $fiscalYear->delete();
 
         return $this->success(null, 'Fiscal year deleted successfully');
     }
@@ -174,44 +147,12 @@ class FiscalYearController extends Controller
      */
     public function initializeChartOfAccounts(): JsonResponse
     {
-        $organizationId = auth()->user()->organization_id;
-
-        // Check if COA already exists
-        $existing = \App\Models\Accounting\Account::where('organization_id', $organizationId)->count();
-        if ($existing > 0) {
-            return $this->error('Chart of accounts already exists', 'ALREADY_EXISTS', 400);
+        try {
+            $this->chartOfAccounts->initializeDefaults(auth()->user()->organization_id);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $seeder = new ChartOfAccountsSeeder();
-        $seeder->createDefaultAccounts($organizationId);
 
         return $this->success(null, 'Chart of accounts initialized successfully');
-    }
-
-    /**
-     * Create monthly periods for a fiscal year.
-     */
-    protected function createMonthlyPeriods(FiscalYear $fiscalYear): void
-    {
-        $start = $fiscalYear->start_date->copy();
-        $end = $fiscalYear->end_date;
-        $periodNumber = 1;
-
-        while ($start->lte($end)) {
-            $periodEnd = $start->copy()->endOfMonth();
-            if ($periodEnd->gt($end)) {
-                $periodEnd = $end;
-            }
-
-            $fiscalYear->periods()->create([
-                'period_number' => $periodNumber,
-                'period_type' => 'month',
-                'start_date' => $start->toDateString(),
-                'end_date' => $periodEnd->toDateString(),
-            ]);
-
-            $start->addMonth()->startOfMonth();
-            $periodNumber++;
-        }
     }
 }

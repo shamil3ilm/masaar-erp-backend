@@ -45,14 +45,12 @@ class StatisticalKeyFigureController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $skf = StatisticalKeyFigure::with('values')->findOrFail($id);
-
-        return $this->success($skf);
+        return $this->success($this->service->findWithValues($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $skf = StatisticalKeyFigure::findOrFail($id);
+        $skf = $this->service->find($id);
 
         $validated = $request->validate([
             'code'            => ['sometimes', 'string', 'max:20'],
@@ -70,7 +68,7 @@ class StatisticalKeyFigureController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $skf = StatisticalKeyFigure::findOrFail($id);
+        $skf = $this->service->find($id);
         $skf->delete();
 
         return $this->noContent();
@@ -80,7 +78,9 @@ class StatisticalKeyFigureController extends Controller
     {
         $orgId = $this->organizationId($request);
 
-        StatisticalKeyFigure::findOrFail($id);
+        // The key figure must be visible before the payload is validated, so an
+        // unknown or foreign id answers 404 rather than 422.
+        $this->service->find($id);
 
         $validated = $request->validate([
             'cost_center_id'   => ['nullable', 'integer', 'exists:cost_centers,id'],

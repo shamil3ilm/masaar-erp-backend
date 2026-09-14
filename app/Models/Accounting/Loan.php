@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class Loan extends Model
     use BelongsToOrganization;
     use HasFactory;
     use HasUuid;
+    use LocksForTransition;
 
     protected $guarded = ['id'];
 

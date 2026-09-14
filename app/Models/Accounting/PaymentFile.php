@@ -6,6 +6,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,7 @@ class PaymentFile extends Model
     use BelongsToOrganization;
     use HasUuid;
     use SoftDeletes;
+    use LocksForTransition;
 
     public const FORMAT_SEPA_CT    = 'sepa_ct';
     public const FORMAT_SEPA_DD    = 'sepa_dd';

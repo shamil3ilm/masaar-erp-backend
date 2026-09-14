@@ -6,14 +6,17 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\ActivityConfirmation;
+use App\Services\Accounting\ActivityConfirmationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use RuntimeException;
+use InvalidArgumentException;
 
 class ActivityConfirmationController extends Controller
 {
+    public function __construct(
+        private readonly ActivityConfirmationService $service
+    ) {}
+
     /**
      * List activity confirmations with optional filters.
      *
@@ -21,23 +24,19 @@ class ActivityConfirmationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ActivityConfirmation::with([
-            'costCenter:id,code,name',
-            'activityType:id,code,name',
-            'workOrder:id,order_number',
-            'confirmedBy:id,name',
-        ])
-            ->where('organization_id', $this->organizationId($request))
-            ->orderByDesc('confirmation_date');
+        $filters = [
+            'cost_center_id'   => $request->filled('cost_center_id') ? $request->integer('cost_center_id') : null,
+            'activity_type_id' => $request->filled('activity_type_id') ? $request->integer('activity_type_id') : null,
+            'fiscal_year'      => $request->filled('fiscal_year') ? $request->integer('fiscal_year') : null,
+            'period'           => $request->filled('period') ? $request->integer('period') : null,
+            'status'           => $request->filled('status') ? $request->status : null,
+        ];
 
-        $query
-            ->when($request->filled('cost_center_id'), fn($q) => $q->where('cost_center_id', $request->integer('cost_center_id')))
-            ->when($request->filled('activity_type_id'), fn($q) => $q->where('activity_type_id', $request->integer('activity_type_id')))
-            ->when($request->filled('fiscal_year'), fn($q) => $q->where('fiscal_year', $request->integer('fiscal_year')))
-            ->when($request->filled('period'), fn($q) => $q->where('period', $request->integer('period')))
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status));
-
-        return $this->paginated($query->paginate($request->integer('per_page', 25)));
+        return $this->paginated($this->service->list(
+            (int) $this->organizationId($request),
+            $filters,
+            $request->integer('per_page', 25)
+        ));
     }
 
     /**
@@ -64,22 +63,9 @@ class ActivityConfirmationController extends Controller
             'notes'              => ['nullable', 'string'],
         ]);
 
-        $data['organization_id']     = $this->organizationId($request);
-        $data['confirmation_number'] = 'CONF-' . strtoupper(Str::random(8));
-        $data['confirmed_by']        = $request->user()->id;
-        $data['status']              = ActivityConfirmation::STATUS_CONFIRMED;
+        $confirmation = $this->service->record($data, (int) $this->organizationId($request), $request->user()->id);
 
-        // Derive actual_cost = confirmed_quantity * actual_rate
-        if (isset($data['actual_rate'])) {
-            $data['actual_cost'] = round((float) $data['confirmed_quantity'] * (float) $data['actual_rate'], 4);
-        }
-
-        $confirmation = ActivityConfirmation::create($data);
-
-        return $this->created(
-            $confirmation->load(['costCenter:id,code,name', 'activityType:id,code,name']),
-            'Activity confirmation recorded.'
-        );
+        return $this->created($confirmation, 'Activity confirmation recorded.');
     }
 
     /**
@@ -109,48 +95,12 @@ class ActivityConfirmationController extends Controller
      */
     public function reverse(Request $request, ActivityConfirmation $activityConfirmation): JsonResponse
     {
-        if (! $activityConfirmation->isConfirmed()) {
-            return $this->error('Only confirmed records can be reversed.', 'ALREADY_REVERSED', 422);
+        try {
+            $reversal = $this->service->reverse($activityConfirmation, $request->user()->id);
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'ALREADY_REVERSED', 422);
         }
 
-        $reversal = DB::transaction(function () use ($activityConfirmation, $request): ActivityConfirmation {
-            $reversal = ActivityConfirmation::create([
-                'organization_id'     => $activityConfirmation->organization_id,
-                'confirmation_number' => 'REV-' . strtoupper(Str::random(8)),
-                'work_order_id'       => $activityConfirmation->work_order_id,
-                'work_center_id'      => $activityConfirmation->work_center_id,
-                'cost_center_id'      => $activityConfirmation->cost_center_id,
-                'activity_type_id'    => $activityConfirmation->activity_type_id,
-                'confirmed_quantity'  => -$activityConfirmation->confirmed_quantity,
-                'planned_quantity'    => $activityConfirmation->planned_quantity
-                    ? -$activityConfirmation->planned_quantity
-                    : null,
-                'uom'                 => $activityConfirmation->uom,
-                'actual_rate'         => $activityConfirmation->actual_rate,
-                'planned_rate'        => $activityConfirmation->planned_rate,
-                'actual_cost'         => $activityConfirmation->actual_cost
-                    ? -$activityConfirmation->actual_cost
-                    : null,
-                'fiscal_year'         => $activityConfirmation->fiscal_year,
-                'period'              => $activityConfirmation->period,
-                'confirmation_date'   => now()->toDateString(),
-                'confirmed_by'        => $request->user()->id,
-                'status'              => ActivityConfirmation::STATUS_CONFIRMED,
-                'reversal_id'         => $activityConfirmation->id,
-                'notes'               => 'Reversal of ' . $activityConfirmation->confirmation_number,
-            ]);
-
-            $activityConfirmation->update([
-                'status'     => ActivityConfirmation::STATUS_REVERSED,
-                'reversal_id' => $reversal->id,
-            ]);
-
-            return $reversal;
-        });
-
-        return $this->success(
-            $reversal->load(['costCenter:id,code,name', 'activityType:id,code,name']),
-            'Activity confirmation reversed.'
-        );
+        return $this->success($reversal, 'Activity confirmation reversed.');
     }
 }

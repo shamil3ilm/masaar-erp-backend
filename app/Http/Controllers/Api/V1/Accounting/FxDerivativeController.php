@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\FxForward;
-use App\Models\Accounting\FxHedgeRelation;
 use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,12 +18,12 @@ class FxDerivativeController extends Controller
     /** GET /fx-forwards */
     public function index(Request $request): JsonResponse
     {
-        $forwards = FxForward::where('organization_id', $request->user()->organization_id)
-            ->when($request->status, fn ($q) => $q->where('status', $request->status))
-            ->when($request->buy_currency, fn ($q) => $q->where('buy_currency', $request->buy_currency))
-            ->with(['hedgeRelation', 'latestValuation'])
-            ->orderByDesc('trade_date')
-            ->paginate((int) $request->get('per_page', 20));
+        $forwards = $this->service->listForwards(
+            organizationId: $request->user()->organization_id,
+            status:         $request->status,
+            buyCurrency:    $request->buy_currency,
+            perPage:        (int) $request->get('per_page', 20),
+        );
 
         return $this->paginated($forwards);
     }
@@ -85,11 +84,10 @@ class FxDerivativeController extends Controller
             'dedesignation_date' => ['required', 'date'],
         ]);
 
-        $relation = FxHedgeRelation::where('fx_forward_id', $fxForward->id)
-            ->where('status', 'designated')
-            ->firstOrFail();
-
-        $relation = $this->service->dedesignateHedge($relation, $data['dedesignation_date']);
+        $relation = $this->service->dedesignateHedge(
+            $this->service->findDesignatedHedge($fxForward),
+            $data['dedesignation_date'],
+        );
 
         return $this->success($relation, 'Hedge relationship de-designated');
     }

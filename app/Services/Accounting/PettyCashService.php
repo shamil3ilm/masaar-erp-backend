@@ -8,6 +8,7 @@ use App\Models\Finance\PettyCashFund;
 use App\Models\Finance\PettyCashReplenishment;
 use App\Models\Finance\PettyCashVoucher;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
@@ -17,6 +18,59 @@ class PettyCashService
         private readonly NumberGeneratorService $numberGenerator,
         private readonly JournalService $journalService,
     ) {}
+
+    /**
+     * An organization's funds by name, optionally only the active ones.
+     */
+    public function listFunds(int $organizationId, bool $activeOnly, int $perPage = 15): LengthAwarePaginator
+    {
+        return PettyCashFund::where('organization_id', $organizationId)
+            ->with(['custodian', 'branch', 'account'])
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Open a fund whose current balance starts at its opening balance.
+     */
+    public function createFund(int $organizationId, array $data): PettyCashFund
+    {
+        return PettyCashFund::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'current_balance' => $data['opening_balance'],
+        ]));
+    }
+
+    /**
+     * A fund's vouchers, latest voucher date first. Each filter applies only
+     * when its value is non-empty; `type` filters the transaction type.
+     *
+     * @param  array{status?: mixed, type?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function listVouchers(PettyCashFund $fund, array $filters, int $perPage = 15): LengthAwarePaginator
+    {
+        return PettyCashVoucher::where('fund_id', $fund->id)
+            ->with(['account', 'approvedBy', 'creator'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('transaction_type', $v))
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->whereDate('voucher_date', '>=', $v))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->whereDate('voucher_date', '<=', $v))
+            ->orderByDesc('voucher_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A fund's replenishments, latest first, filtered by a non-empty status.
+     */
+    public function listReplenishments(PettyCashFund $fund, mixed $status, int $perPage = 15): LengthAwarePaginator
+    {
+        return PettyCashReplenishment::where('fund_id', $fund->id)
+            ->with(['requestedBy', 'approvedBy', 'journalEntry'])
+            ->when($status, fn ($q, $v) => $q->where('status', $v))
+            ->orderByDesc('replenishment_date')
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new petty cash voucher (draft).
@@ -63,18 +117,35 @@ class PettyCashService
 
     /**
      * Approve a draft voucher.
+     *
+     * Runs on the locked voucher, so two approvals cannot both pass the draft
+     * check. The fund is looked up first because it decides whose voucher this is.
      */
     public function approveVoucher(PettyCashVoucher $voucher): PettyCashVoucher
     {
-        if (!$voucher->isDraft()) {
-            throw new InvalidArgumentException('Only draft vouchers can be approved.');
-        }
+        return $voucher->lockForTransition(function (PettyCashVoucher $voucher): PettyCashVoucher {
+            $this->findFundInScope($voucher->fund_id);
 
-        $voucher->transitionTo(PettyCashVoucher::STATUS_APPROVED, [
-            'approved_by' => auth()->id(),
-        ]);
+            if (! $voucher->isDraft()) {
+                throw new InvalidArgumentException('Only draft vouchers can be approved.');
+            }
 
-        return $voucher->fresh();
+            $voucher->transitionTo(PettyCashVoucher::STATUS_APPROVED, [
+                'approved_by' => auth()->id(),
+            ]);
+
+            return $voucher->fresh();
+        });
+    }
+
+    /**
+     * Vouchers and replenishments carry no organization of their own; they
+     * belong to their fund's. The fund is read under the organization scope,
+     * so a record of another organization's fund is not found (404).
+     */
+    private function findFundInScope(int $fundId): PettyCashFund
+    {
+        return PettyCashFund::findOrFail($fundId);
     }
 
     /**
@@ -177,18 +248,25 @@ class PettyCashService
 
     /**
      * Approve a replenishment request.
+     *
+     * Runs on the locked replenishment, so two approvals cannot both pass the
+     * requested check, and only for a fund of the current organization.
      */
     public function approveReplenishment(PettyCashReplenishment $replenishment): PettyCashReplenishment
     {
-        if (!$replenishment->isRequested()) {
-            throw new InvalidArgumentException('Only requested replenishments can be approved.');
-        }
+        return $replenishment->lockForTransition(function (PettyCashReplenishment $replenishment): PettyCashReplenishment {
+            $this->findFundInScope($replenishment->fund_id);
 
-        $replenishment->transitionTo(PettyCashReplenishment::STATUS_APPROVED, [
-            'approved_by' => auth()->id(),
-        ]);
+            if (! $replenishment->isRequested()) {
+                throw new InvalidArgumentException('Only requested replenishments can be approved.');
+            }
 
-        return $replenishment->fresh();
+            $replenishment->transitionTo(PettyCashReplenishment::STATUS_APPROVED, [
+                'approved_by' => auth()->id(),
+            ]);
+
+            return $replenishment->fresh();
+        });
     }
 
     /**

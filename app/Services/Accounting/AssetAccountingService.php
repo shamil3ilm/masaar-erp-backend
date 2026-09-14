@@ -11,6 +11,7 @@ use App\Models\Accounting\AssetTransaction;
 use App\Models\Accounting\DepreciationRun;
 use App\Models\Accounting\DepreciationRunLine;
 use App\Models\Accounting\FixedAsset;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -20,6 +21,86 @@ class AssetAccountingService
     public function __construct(
         private JournalService $journalService
     ) {}
+
+    // -------------------------------------------------------------------------
+    // Queries
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fixed assets of the current organization, newest first. A filter applies
+     * only when its value is truthy; search matches name, asset number or
+     * serial number.
+     *
+     * @param  array{status?: mixed, category_id?: mixed, branch_id?: mixed, search?: mixed}  $filters
+     */
+    public function listAssets(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return FixedAsset::with([
+            'category:id,name,code',
+            'branch:id,name',
+            'createdBy:id,name',
+        ])
+            ->orderByDesc('created_at')
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['category_id'] ?? null, fn ($q, $v) => $q->where('asset_category_id', $v))
+            ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
+            ->when($filters['search'] ?? null, function ($q, $search): void {
+                $q->where(function ($inner) use ($search): void {
+                    $inner->where('name', 'like', "%{$search}%")
+                        ->orWhere('asset_number', 'like', "%{$search}%")
+                        ->orWhere('serial_number', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * A fixed asset of the current organization; another organization's asset
+     * is not found.
+     */
+    public function findAsset(int $id): FixedAsset
+    {
+        return FixedAsset::findOrFail($id);
+    }
+
+    /**
+     * Asset categories by name with their GL accounts. `active` filters on
+     * is_active unless it is null; search matches name or code when truthy.
+     *
+     * @param  array{active?: bool|null, search?: mixed}  $filters
+     */
+    public function listCategories(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return AssetCategory::with([
+            'glAssetAccount:id,code,name',
+            'glDepreciationAccount:id,code,name',
+            'glAccumulatedAccount:id,code,name',
+        ])
+            ->orderBy('name')
+            ->when(isset($filters['active']), fn ($q) => $q->where('is_active', $filters['active']))
+            ->when($filters['search'] ?? null, function ($q, $search): void {
+                $q->where(function ($inner) use ($search): void {
+                    $inner->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * Depreciation runs, latest run date first. status and fiscal_year_id
+     * apply only when truthy.
+     *
+     * @param  array{status?: mixed, fiscal_year_id?: mixed}  $filters
+     */
+    public function listDepreciationRuns(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return DepreciationRun::with(['fiscalYear:id,name', 'createdBy:id,name', 'postedBy:id,name'])
+            ->orderByDesc('run_date')
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['fiscal_year_id'] ?? null, fn ($q, $v) => $q->where('fiscal_year_id', $v))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new fixed asset and record the acquisition transaction.
@@ -603,8 +684,22 @@ class AssetAccountingService
     // Asset Category helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Create an asset category. Category codes are unique within an
+     * organization.
+     *
+     * @throws InvalidArgumentException when the organization already has a category with this code
+     */
     public function createCategory(array $data): AssetCategory
     {
+        $codeTaken = AssetCategory::where('organization_id', $data['organization_id'])
+            ->where('code', $data['code'])
+            ->exists();
+
+        if ($codeTaken) {
+            throw new InvalidArgumentException("Category code '{$data['code']}' already exists.");
+        }
+
         return AssetCategory::create($data);
     }
 

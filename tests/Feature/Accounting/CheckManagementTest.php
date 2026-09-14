@@ -296,6 +296,59 @@ class CheckManagementTest extends TestCase
         $this->assertEquals('cancelled', $check->fresh()->status);
     }
 
+    public function test_bounce_check_marks_an_issued_check_as_bounced(): void
+    {
+        $check = $this->makeCheck(['status' => 'issued']);
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/checks/' . $check->id . '/bounce', ['reason' => 'Insufficient funds']);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.status', 'bounced')
+            ->assertJsonPath('data.bounce_reason', 'Insufficient funds');
+    }
+
+    public function test_show_check_includes_its_check_book(): void
+    {
+        $book = $this->makeCheckBook();
+        $check = $this->makeCheck(['check_book_id' => $book->id]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/checks/' . $check->id)
+            ->assertStatus(200)
+            ->assertJsonPath('data.check_book.id', $book->id);
+    }
+
+    public function test_book_and_check_endpoints_return_404_for_another_organization(): void
+    {
+        $otherOrg = \App\Models\Core\Organization::factory()->create();
+        $gl = \App\Models\Accounting\Account::factory()->create([
+            'organization_id' => $otherOrg->id,
+            'account_type'    => 'asset',
+            'sub_type'        => 'bank',
+        ]);
+        $bankAccount = BankAccount::factory()->create([
+            'organization_id' => $otherOrg->id,
+            'gl_account_id'   => $gl->id,
+            'account_type'    => 'current',
+        ]);
+        $book = $this->makeCheckBook(['organization_id' => $otherOrg->id, 'bank_account_id' => $bankAccount->id]);
+        $check = $this->makeCheck(['organization_id' => $otherOrg->id, 'status' => 'issued']);
+
+        $this->withToken($this->token)->putJson('/api/v1/check-books/' . $book->id, ['status' => 'cancelled'])->assertStatus(404);
+        $this->withToken($this->token)->deleteJson('/api/v1/check-books/' . $book->id)->assertStatus(404);
+        $this->withToken($this->token)->getJson('/api/v1/checks/' . $check->id)->assertStatus(404);
+        foreach (['print', 'issue', 'clear', 'cancel'] as $action) {
+            $this->withToken($this->token)->postJson('/api/v1/checks/' . $check->id . '/' . $action)->assertStatus(404);
+        }
+        $this->withToken($this->token)
+            ->postJson('/api/v1/checks/' . $check->id . '/bounce', ['reason' => 'x'])
+            ->assertStatus(404);
+
+        $this->assertDatabaseHas('check_books', ['id' => $book->id, 'status' => 'active', 'deleted_at' => null]);
+        $this->assertDatabaseHas('check_register_entries', ['id' => $check->id, 'status' => 'issued']);
+    }
+
     // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------

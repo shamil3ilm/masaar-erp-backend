@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\AccountingPeriod;
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\BankMatchingRule;
 use App\Models\Accounting\BankReconciliation;
 use App\Models\Accounting\BankReconciliationItem;
+use App\Models\Accounting\BankStatementImport;
 use App\Models\Accounting\Currency;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Core\Organization;
+use App\Services\Accounting\EbsParserService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -192,6 +195,194 @@ class BankReconciliationTest extends TestCase
         $bankAccountIds = collect($data)->pluck('bank_account_id')->toArray();
         $this->assertContains($this->bankAccount->id, $bankAccountIds);
         $this->assertNotContains($otherBankAccount->id, $bankAccountIds);
+    }
+
+    public function test_list_reconciliations_applies_filters_newest_first(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.view']);
+        $this->setUpBankAccountContext();
+
+        $may = $this->createReconciliation(['statement_date' => '2025-05-31']);
+        $june = $this->createReconciliation(['statement_date' => '2025-06-30', 'status' => BankReconciliation::STATUS_COMPLETED]);
+
+        $ids = fn (string $query): array => array_column(
+            $this->apiGet("{$this->baseUrl}/bank-reconciliations?{$query}")->json('data'),
+            'id'
+        );
+
+        $this->assertSame([$june->id, $may->id], $ids("bank_account_id={$this->bankAccount->id}"));
+        $this->assertSame([], $ids('bank_account_id=999999'));
+        $this->assertSame([$may->id], $ids('status='.BankReconciliation::STATUS_IN_PROGRESS));
+        $this->assertSame([$june->id], $ids('start_date=2025-06-01'));
+        $this->assertSame([$may->id], $ids('end_date=2025-05-31'));
+
+        $this->apiGet("{$this->baseUrl}/bank-reconciliations?per_page=1")
+            ->assertJsonPath('data.0.bank_account.account_name', 'Main Business Account')
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/v1/bank-reconciliation/bank-reconciliations/{id} - Update
+    // -------------------------------------------------------------------------
+
+    public function test_update_in_progress_reconciliation_recalculates_the_difference(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.update']);
+        $this->setUpBankAccountContext();
+
+        $recon = $this->createReconciliation();
+
+        $this->apiPut("{$this->baseUrl}/bank-reconciliations/{$recon->uuid}", [
+            'statement_balance' => 60000.00,
+            'notes' => 'June statement',
+        ])->assertStatus(200)
+            ->assertJsonPath('message', 'Bank reconciliation updated successfully')
+            ->assertJsonPath('data.notes', 'June statement')
+            ->assertJsonPath('data.bank_account.id', $this->bankAccount->id)
+            ->assertJsonPath('data.items', []);
+
+        $this->assertEqualsWithDelta(11500.0, (float) $recon->fresh()->difference, 0.0001);
+    }
+
+    public function test_update_completed_reconciliation_reports_invalid_status(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.update']);
+        $this->setUpBankAccountContext();
+
+        $recon = $this->createReconciliation(['status' => BankReconciliation::STATUS_COMPLETED]);
+
+        $this->apiPut("{$this->baseUrl}/bank-reconciliations/{$recon->uuid}", ['notes' => 'late'])
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', 'INVALID_STATUS')
+            ->assertJsonPath('error.message', 'Only in-progress reconciliations can be updated');
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/bank-reconciliation/bank-statement-imports/{id}/parse
+    // -------------------------------------------------------------------------
+
+    private function createImport(array $overrides = []): BankStatementImport
+    {
+        return BankStatementImport::withoutGlobalScopes()->create(array_merge([
+            'organization_id' => $this->organization->id,
+            'bank_account_id' => $this->bankAccount->id,
+            'user_id' => $this->user->id,
+            'file_name' => 'statement.sta',
+            'file_path' => 'bank-statements/statement.sta',
+            'file_type' => 'mt940',
+            'status' => BankStatementImport::STATUS_PENDING,
+        ], $overrides));
+    }
+
+    public function test_parse_statement_completes_an_mt940_import(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+        Storage::fake('private');
+        Storage::disk('private')->put('bank-statements/statement.sta', ':20:REF');
+
+        $import = $this->createImport();
+
+        $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(200)
+            ->assertJsonPath('data.transactions_imported', 0)
+            ->assertJsonPath('message', 'Successfully parsed 0 transaction(s) from the bank statement.');
+
+        $this->assertSame(BankStatementImport::STATUS_COMPLETED, $import->fresh()->status);
+    }
+
+    public function test_parse_statement_refuses_an_unsupported_format(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+
+        $import = $this->createImport(['file_type' => 'csv']);
+
+        $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'UNSUPPORTED_FORMAT')
+            ->assertJsonPath('error.message', "Format 'csv' is not supported by the EBS parser. Supported: mt940, camt053.");
+    }
+
+    public function test_parse_statement_refuses_a_parsed_import(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+
+        $import = $this->createImport(['status' => BankStatementImport::STATUS_COMPLETED]);
+
+        $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'ALREADY_PARSED');
+    }
+
+    public function test_parse_statement_reports_a_missing_file(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+        Storage::fake('private');
+
+        $import = $this->createImport();
+
+        $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(404)
+            ->assertJsonPath('error.code', 'FILE_NOT_FOUND');
+
+        $this->assertSame(BankStatementImport::STATUS_PENDING, $import->fresh()->status);
+    }
+
+    public function test_parse_statement_marks_the_import_failed_when_the_content_cannot_be_parsed(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+        Storage::fake('private');
+        Storage::disk('private')->put('bank-statements/statement.xml', 'not xml at all');
+
+        $import = $this->createImport(['file_type' => 'camt053', 'file_path' => 'bank-statements/statement.xml']);
+
+        $response = $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'PARSE_FAILED');
+
+        $import->refresh();
+        $this->assertSame(BankStatementImport::STATUS_FAILED, $import->status);
+        $this->assertSame([$response->json('error.message')], $import->errors);
+    }
+
+    public function test_parse_statement_refuses_an_import_parsed_since_it_was_loaded(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+        $this->actingAs($this->user, 'api');
+        Storage::fake('private');
+        Storage::disk('private')->put('bank-statements/statement.sta', ':20:REF');
+
+        $import = $this->createImport();
+        $stale = BankStatementImport::withoutGlobalScopes()->findOrFail($import->id);
+        $parser = app(EbsParserService::class);
+
+        $parser->parseStoredImport(BankStatementImport::withoutGlobalScopes()->findOrFail($import->id));
+
+        try {
+            $parser->parseStoredImport($stale);
+            $this->fail('An import parsed since it was loaded was parsed again.');
+        } catch (BusinessRuleException $e) {
+            $this->assertSame('ALREADY_PARSED', $e->getErrorCode());
+        }
+    }
+
+    public function test_parse_statement_returns_404_for_another_organizations_import(): void
+    {
+        $this->setUpAuthenticatedUser(['accounting.bank-reconciliation.import']);
+        $this->setUpBankAccountContext();
+
+        $import = $this->createImport(['organization_id' => Organization::factory()->create()->id]);
+
+        $this->apiPost("{$this->baseUrl}/bank-statement-imports/{$import->id}/parse")
+            ->assertStatus(404);
+
+        $this->assertSame(BankStatementImport::STATUS_PENDING, $import->fresh()->status);
     }
 
     // -------------------------------------------------------------------------

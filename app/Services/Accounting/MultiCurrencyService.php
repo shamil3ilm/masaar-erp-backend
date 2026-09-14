@@ -77,6 +77,40 @@ class MultiCurrencyService
     }
 
     /**
+     * Whether the organization already holds the currency as an active one.
+     * A deactivated currency does not count; adding it again reactivates it.
+     */
+    public function hasActiveCurrency(int $organizationId, string $currencyCode): bool
+    {
+        return OrganizationCurrency::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Newest revaluation date first. Filters are passed as the keys the caller
+     * received, so a filter present with an empty value still applies; the
+     * date range applies only when both ends are present.
+     *
+     * @param  array{status?: mixed, currency_code?: mixed, start_date?: mixed, end_date?: mixed}  $filters
+     */
+    public function listRevaluations(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CurrencyRevaluation::with(['createdBy:id,name'])
+            ->orderByDesc('revaluation_date')
+            ->orderByDesc('id')
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->forStatus($filters['status']))
+            ->when(array_key_exists('currency_code', $filters), fn ($q) => $q->forCurrency($filters['currency_code']))
+            ->when(
+                array_key_exists('start_date', $filters) && array_key_exists('end_date', $filters),
+                fn ($q) => $q->forDateRange($filters['start_date'], $filters['end_date'])
+            )
+            ->paginate($perPage);
+    }
+
+    /**
      * Create and calculate a currency revaluation.
      */
     public function revalue(array $data, array $accounts): CurrencyRevaluation

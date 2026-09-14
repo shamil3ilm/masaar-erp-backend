@@ -254,6 +254,23 @@ class JournalService
     }
 
     /**
+     * Delete a draft entry. The status is checked on the locked row, so an
+     * entry posted by a concurrent request is not deleted.
+     *
+     * @throws InvalidArgumentException when the entry is not a draft
+     */
+    public function deleteDraft(JournalEntry $entry): void
+    {
+        $entry->lockForTransition(function (JournalEntry $locked): void {
+            if ($locked->status !== JournalEntry::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft entries can be deleted');
+            }
+
+            $locked->delete();
+        });
+    }
+
+    /**
      * Create a journal entry from a source document (invoice, bill, payment).
      */
     public function createFromSource(
