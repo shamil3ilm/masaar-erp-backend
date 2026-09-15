@@ -9,6 +9,9 @@ use App\Models\Manufacturing\BomTemplate;
 use App\Models\Manufacturing\MrpPlannedOrder;
 use App\Models\Manufacturing\MrpRun;
 use App\Models\Manufacturing\WorkOrder;
+use App\Models\Purchase\PurchaseOrder;
+use App\Models\Purchase\VendorSourceList;
+use App\Models\Sales\Contact;
 use App\Services\Manufacturing\MrpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -105,6 +108,77 @@ class MrpPlanningFlowTest extends TestCase
         $this->assertSame(MrpPlannedOrder::STATUS_PLANNED, $theirs->fresh()->status);
     }
 
+    public function test_a_purchase_planned_order_converts_to_a_purchase_order_from_the_products_source_list(): void
+    {
+        $vendor = $this->sourceListVendor();
+        $order = $this->plannedOrder($this->organization->id, $this->product->id, MrpPlannedOrder::TYPE_PURCHASE);
+
+        $response = $this->apiPost("/manufacturing/mrp/planned-orders/{$order->id}/convert")->assertOk();
+
+        $purchaseOrder = PurchaseOrder::with('lines')->findOrFail($response->json('data.converted_to.id'));
+        $this->assertSame($vendor->id, $purchaseOrder->supplier_id);
+        $this->assertNotEmpty($purchaseOrder->order_number);
+        $this->assertCount(1, $purchaseOrder->lines);
+        $this->assertSame($this->product->id, $purchaseOrder->lines->first()->product_id);
+        $this->assertEqualsWithDelta(5.0, (float) $purchaseOrder->lines->first()->quantity, 0.0001);
+        $this->assertSame(MrpPlannedOrder::STATUS_CONVERTED, $order->fresh()->status);
+        $this->assertSame(PurchaseOrder::class, $order->fresh()->converted_to_type);
+    }
+
+    public function test_a_purchase_planned_order_without_a_supplier_is_refused(): void
+    {
+        $order = $this->plannedOrder($this->organization->id, $this->product->id, MrpPlannedOrder::TYPE_PURCHASE);
+
+        $this->apiPost("/manufacturing/mrp/planned-orders/{$order->id}/convert")
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR');
+
+        $this->assertSame(0, PurchaseOrder::withoutGlobalScopes()->count());
+        $this->assertSame(MrpPlannedOrder::STATUS_PLANNED, $order->fresh()->status);
+    }
+
+    public function test_a_stale_copy_cannot_convert_a_purchase_planned_order_twice(): void
+    {
+        $this->sourceListVendor();
+        $this->actingAs($this->user);
+        $order = $this->plannedOrder($this->organization->id, $this->product->id, MrpPlannedOrder::TYPE_PURCHASE);
+        $stale = MrpPlannedOrder::findOrFail($order->id);
+        $service = app(MrpService::class);
+
+        $service->convertToOrder(MrpPlannedOrder::findOrFail($order->id), $this->user->id);
+
+        try {
+            $service->convertToOrder($stale, $this->user->id);
+            $this->fail('A converted purchase planned order was converted again.');
+        } catch (\InvalidArgumentException) {
+            // Refused on the locked row, as expected.
+        }
+
+        $this->assertSame(1, PurchaseOrder::withoutGlobalScopes()->count());
+    }
+
+    /**
+     * A vendor on the product's source list. The product gets a low purchase
+     * price so the planned quantity stays under the purchase order approval
+     * threshold, whose routing is not what these tests cover.
+     */
+    private function sourceListVendor(): Contact
+    {
+        $this->product->update(['purchase_price' => 10]);
+
+        $vendor = Contact::factory()->create(['organization_id' => $this->organization->id]);
+
+        VendorSourceList::create([
+            'organization_id' => $this->organization->id,
+            'product_id' => $this->product->id,
+            'vendor_id' => $vendor->id,
+            'is_blocked' => false,
+            'priority' => 1,
+        ]);
+
+        return $vendor;
+    }
+
     private function activeBom(): BomTemplate
     {
         return BomTemplate::factory()->active()->create([
@@ -113,7 +187,7 @@ class MrpPlanningFlowTest extends TestCase
         ]);
     }
 
-    private function plannedOrder(int $organizationId, int $productId): MrpPlannedOrder
+    private function plannedOrder(int $organizationId, int $productId, string $type = MrpPlannedOrder::TYPE_PRODUCTION): MrpPlannedOrder
     {
         $run = MrpRun::factory()->create([
             'organization_id' => $organizationId,
@@ -124,7 +198,7 @@ class MrpPlanningFlowTest extends TestCase
             'organization_id' => $organizationId,
             'mrp_run_id' => $run->id,
             'product_id' => $productId,
-            'order_type' => MrpPlannedOrder::TYPE_PRODUCTION,
+            'order_type' => $type,
             'planned_quantity' => 5,
             'planned_start_date' => now()->toDateString(),
             'planned_end_date' => now()->addWeek()->toDateString(),

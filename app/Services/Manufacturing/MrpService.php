@@ -12,8 +12,11 @@ use App\Models\Manufacturing\MrpRun;
 use App\Models\Manufacturing\PlannedIndependentRequirement;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\StockLevel;
+use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\SalesOrder;
 use App\Models\Sales\SalesOrderLine;
+use App\Services\Purchase\PurchaseOrderService;
+use App\Services\Purchase\SourceListService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -27,6 +30,8 @@ class MrpService
     public function __construct(
         private readonly BomService $bomService,
         private readonly WorkOrderService $workOrderService,
+        private readonly PurchaseOrderService $purchaseOrderService,
+        private readonly SourceListService $sourceListService,
     ) {}
 
     /**
@@ -119,11 +124,53 @@ class MrpService
             }
 
             return match ($order->order_type) {
-                MrpPlannedOrder::TYPE_PURCHASE   => $order->convertToPurchaseOrder($userId),
+                MrpPlannedOrder::TYPE_PURCHASE   => $this->convertToPurchaseOrder($order, $userId),
                 MrpPlannedOrder::TYPE_PRODUCTION => $this->convertToWorkOrder($order, $userId),
                 default                          => throw new \InvalidArgumentException("Cannot convert order of type '{$order->order_type}'."),
             };
         });
+    }
+
+    /**
+     * Create the purchase order for a purchase planned order, from the
+     * product's preferred vendor, with one line for the planned quantity.
+     *
+     * The vendor comes from the product's preferred vendor price or its
+     * highest-priority active source list entry, both within the organization.
+     * A purchase order cannot exist without a supplier, so a product with
+     * neither is refused and the planned order stays unconverted.
+     */
+    private function convertToPurchaseOrder(MrpPlannedOrder $order, int $userId): PurchaseOrder
+    {
+        $supplier = $this->sourceListService->getPreferredVendor($order->product_id)
+            ?? throw new \InvalidArgumentException(
+                'No supplier could be determined for the product. Give it a preferred vendor price or an active source list entry.'
+            );
+
+        $product = $order->product()->firstOrFail();
+
+        $purchaseOrder = $this->purchaseOrderService->create([
+            'organization_id'        => $order->organization_id,
+            'supplier_id'            => $supplier->id,
+            'order_date'             => now()->toDateString(),
+            'expected_delivery_date' => $order->planned_end_date->toDateString(),
+            'notes'                  => "Auto-generated from MRP planned order #{$order->uuid}",
+            'created_by'             => $userId,
+        ], [[
+            'product_id'  => $product->id,
+            'description' => $product->name,
+            'quantity'    => (float) $order->planned_quantity,
+            'unit_price'  => (float) ($product->purchase_price ?? 0),
+        ]]);
+
+        $order->update([
+            'status'            => MrpPlannedOrder::STATUS_CONVERTED,
+            'converted_at'      => now(),
+            'converted_to_type' => PurchaseOrder::class,
+            'converted_to_id'   => $purchaseOrder->id,
+        ]);
+
+        return $purchaseOrder;
     }
 
     /**
