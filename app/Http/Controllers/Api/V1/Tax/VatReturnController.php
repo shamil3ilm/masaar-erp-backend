@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Tax;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\Organization;
 use App\Models\Tax\VatReturnPeriod;
 use App\Models\Tax\VatTransaction;
 use App\Services\Tax\VatReturnService;
@@ -24,14 +23,11 @@ class VatReturnController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = VatReturnPeriod::where('organization_id', auth()->user()->organization_id)
-            ->orderByDesc('period_start')
-            ->when($request->filled('country_code'), fn($q) => $q->where('country_code', $request->input('country_code')))
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')));
-
-        $periods = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($periods);
+        return $this->paginated($this->vatReturnService->paginatePeriods(
+            auth()->user()->organization_id,
+            $this->filledFilters($request, ['country_code', 'status']),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -45,10 +41,8 @@ class VatReturnController extends Controller
             'period_end'   => ['required', 'date', 'after:period_start'],
         ]);
 
-        $organization = Organization::findOrFail(auth()->user()->organization_id);
-
-        $period = $this->vatReturnService->preparePeriod(
-            $organization,
+        $period = $this->vatReturnService->preparePeriodFor(
+            auth()->user()->organization_id,
             strtoupper($validated['country_code']),
             $validated['period_start'],
             $validated['period_end']
@@ -136,18 +130,11 @@ class VatReturnController extends Controller
      */
     public function indexTransactions(Request $request): JsonResponse
     {
-        $query = VatTransaction::where('organization_id', auth()->user()->organization_id)
-            ->orderByDesc('tax_period')
-            ->when($request->filled('country_code'), fn($q) => $q->where('country_code', $request->input('country_code')))
-            ->when($request->filled('transaction_type'), fn($q) => $q->where('transaction_type', $request->input('transaction_type')))
-            ->when(
-                $request->filled('period_start') && $request->filled('period_end'),
-                fn($q) => $q->whereBetween('tax_period', [$request->input('period_start'), $request->input('period_end')])
-            );
-
-        $transactions = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($transactions);
+        return $this->paginated($this->vatReturnService->paginateTransactions(
+            auth()->user()->organization_id,
+            $this->filledFilters($request, ['country_code', 'transaction_type', 'period_start', 'period_end']),
+            $request->integer('per_page', 25),
+        ));
     }
 
     /**
@@ -177,6 +164,25 @@ class VatReturnController extends Controller
         );
 
         return $this->success($transaction, 'VAT transaction recorded', 201);
+    }
+
+    /**
+     * The given query parameters the request fills, by name.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    private function filledFilters(Request $request, array $keys): array
+    {
+        $filters = [];
+
+        foreach ($keys as $key) {
+            if ($request->filled($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        return $filters;
     }
 
     /**
