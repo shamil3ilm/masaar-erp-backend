@@ -11,16 +11,104 @@ use App\Models\Manufacturing\SubcontractReceipt;
 use App\Models\Manufacturing\SubcontractReceiptLine;
 use App\Models\Manufacturing\SubcontractTransfer;
 use App\Models\Manufacturing\SubcontractTransferLine;
+use App\Models\Sales\Contact;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Subcontract orders: material transfers to the vendor and receipts back.
+ *
+ * Every status change runs on the locked order and re-checks the status there,
+ * with its components or lines locked, so two requests cannot both transfer
+ * the same components or receive against an order closed meanwhile. Transfers,
+ * receipts, components and lines carry no organization column; they are
+ * reached only through an order of the caller's organization. The vendor is
+ * embedded by its reference columns.
+ */
 class SubcontractingService
 {
+    /** Columns an order list may be sorted by. */
+    public const SORT_COLUMNS = ['order_number', 'status', 'issued_date', 'created_at'];
+
     public function __construct(
         private NumberGeneratorService $numberGenerator,
         private StockService $stockService,
     ) {}
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginate(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return SubcontractOrder::with([$this->vendorReference(), 'branch'])
+            ->withCount(['lines', 'components', 'transfers', 'receipts'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['contact_id'] ?? null, fn ($q, $id) => $q->forVendor($id))
+            ->when($filters['branch_id'] ?? null, fn ($q, $id) => $q->where('branch_id', $id))
+            ->when($filters['search'] ?? null, fn ($q, $s) => $q->where('order_number', 'like', "%{$s}%"))
+            ->when($filters['from_date'] ?? null, fn ($q, $d) => $q->whereDate('issued_date', '>=', $d))
+            ->when($filters['to_date'] ?? null, fn ($q, $d) => $q->whereDate('issued_date', '<=', $d))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * The order with its vendor, lines and components for display.
+     */
+    public function withDetails(SubcontractOrder $order): SubcontractOrder
+    {
+        return $order->loadMissing([
+            $this->vendorReference(),
+            'branch',
+            'lines.product',
+            'lines.variant',
+            'lines.unit',
+            'components.product',
+            'components.variant',
+            'components.unit',
+            'components.warehouse',
+            'createdBy',
+        ]);
+    }
+
+    public function paginateTransfers(SubcontractOrder $order, ?string $transferType, int $perPage): LengthAwarePaginator
+    {
+        return SubcontractTransfer::where('order_id', $order->id)
+            ->with(['warehouse', 'lines.product', 'createdBy'])
+            ->when($transferType, fn ($q, $t) => $q->where('transfer_type', $t))
+            ->orderBy('transfer_date', 'desc')
+            ->paginate($perPage);
+    }
+
+    public function paginateReceipts(SubcontractOrder $order, int $perPage): LengthAwarePaginator
+    {
+        return SubcontractReceipt::where('order_id', $order->id)
+            ->with(['warehouse', 'lines.product', 'createdBy'])
+            ->orderBy('receipt_date', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A transfer of one of the organization's orders, with its lines.
+     */
+    public function transferWithDetails(SubcontractTransfer $transfer): SubcontractTransfer
+    {
+        SubcontractOrder::findOrFail($transfer->order_id);
+
+        return $transfer->loadMissing(['order', 'warehouse', 'lines.product', 'lines.unit', 'createdBy']);
+    }
+
+    /**
+     * A receipt of one of the organization's orders, with its lines.
+     */
+    public function receiptWithDetails(SubcontractReceipt $receipt): SubcontractReceipt
+    {
+        SubcontractOrder::findOrFail($receipt->order_id);
+
+        return $receipt->loadMissing(['order', 'warehouse', 'lines.product', 'lines.unit', 'createdBy']);
+    }
 
     /**
      * Create a new subcontract order with its lines and components.
@@ -78,21 +166,39 @@ class SubcontractingService
     }
 
     /**
+     * Update the header of a draft order.
+     */
+    public function update(SubcontractOrder $order, array $data): SubcontractOrder
+    {
+        return $order->lockForTransition(function (SubcontractOrder $order) use ($data): SubcontractOrder {
+            if (!$order->isDraft()) {
+                throw new \InvalidArgumentException('Only draft orders can be updated.');
+            }
+
+            $order->update($data);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
      * Mark order as sent to vendor (status transition: draft → sent).
      */
     public function sendToVendor(SubcontractOrder $order): SubcontractOrder
     {
-        if (!$order->isDraft()) {
-            throw new \InvalidArgumentException('Only draft orders can be sent to a vendor.');
-        }
+        return $order->lockForTransition(function (SubcontractOrder $order): SubcontractOrder {
+            if (!$order->isDraft()) {
+                throw new \InvalidArgumentException('Only draft orders can be sent to a vendor.');
+            }
 
-        $order->update(['status' => SubcontractOrder::STATUS_SENT]);
+            $order->update(['status' => SubcontractOrder::STATUS_SENT]);
 
-        return $order->fresh();
+            return $order->fresh();
+        });
     }
 
     /**
-     * Transfer raw materials to the vendor and update stock levels.
+     * Transfer raw materials to the vendor and issue them from stock.
      *
      * $items = [
      *   ['component_id' => int, 'quantity' => float, 'batch_number' => ?string],
@@ -101,29 +207,26 @@ class SubcontractingService
      */
     public function transferMaterialsToVendor(SubcontractOrder $order, array $items): SubcontractTransfer
     {
-        if (!in_array($order->status, [
-            SubcontractOrder::STATUS_SENT,
-            SubcontractOrder::STATUS_MATERIAL_TRANSFERRED,
-            SubcontractOrder::STATUS_IN_PROCESS,
-        ], true)) {
-            throw new \InvalidArgumentException(
-                'Materials can only be transferred when the order is in sent, material_transferred, or in_process status.'
-            );
-        }
+        return $order->lockForTransition(function (SubcontractOrder $order) use ($items): SubcontractTransfer {
+            if (!in_array($order->status, [
+                SubcontractOrder::STATUS_SENT,
+                SubcontractOrder::STATUS_MATERIAL_TRANSFERRED,
+                SubcontractOrder::STATUS_IN_PROCESS,
+            ], true)) {
+                throw new \InvalidArgumentException(
+                    'Materials can only be transferred when the order is in sent, material_transferred, or in_process status.'
+                );
+            }
 
-        return DB::transaction(function () use ($order, $items) {
-            // Preload components to avoid N+1
-            $componentIds = array_column($items, 'component_id');
-            $components   = SubcontractComponent::whereIn('id', $componentIds)->get()->keyBy('id');
+            $components = SubcontractComponent::whereIn('id', array_column($items, 'component_id'))
+                ->where('order_id', $order->id)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
-            // Validate requested quantities
             foreach ($items as $item) {
-                $component = $components->get($item['component_id'])
-                    ?? throw new \InvalidArgumentException("Component {$item['component_id']} not found.");
-
-                if ($component->order_id !== $order->id) {
-                    throw new \InvalidArgumentException('Component does not belong to this order.');
-                }
+                $component = $components->get((int) $item['component_id'])
+                    ?? throw new \InvalidArgumentException('Component does not belong to this order.');
 
                 $qty = (float) $item['quantity'];
                 if ($qty <= 0) {
@@ -137,20 +240,17 @@ class SubcontractingService
                 }
             }
 
-            // Use the warehouse from the first component as the source warehouse
-            $firstComponent = $components->first();
-            $warehouseId    = $firstComponent->warehouse_id;
-
+            // The first component's warehouse is recorded as the transfer's source warehouse.
             $transfer = SubcontractTransfer::create([
                 'order_id'      => $order->id,
                 'transfer_date' => now()->toDateString(),
                 'transfer_type' => SubcontractTransfer::TYPE_OUTWARD,
-                'warehouse_id'  => $warehouseId,
+                'warehouse_id'  => $components->first()->warehouse_id,
                 'created_by'    => auth()->id(),
             ]);
 
             foreach ($items as $item) {
-                $component = $components->get($item['component_id']);
+                $component = $components->get((int) $item['component_id']);
                 $qty       = (float) $item['quantity'];
 
                 SubcontractTransferLine::create([
@@ -163,7 +263,6 @@ class SubcontractingService
                     'batch_number'      => $item['batch_number'] ?? null,
                 ]);
 
-                // Deduct from stock
                 $this->stockService->recordMovement(
                     productId: $component->product_id,
                     warehouseId: $component->warehouse_id,
@@ -176,33 +275,27 @@ class SubcontractingService
                     notes: "Subcontract material transfer for order {$order->order_number}",
                 );
 
-                // Update transferred quantity on component
                 $component->update([
-                    'transferred_quantity' => bcadd(
-                        (string) $component->transferred_quantity,
-                        (string) $qty,
-                        4
-                    ),
+                    'transferred_quantity' => bcadd((string) $component->transferred_quantity, (string) $qty, 4),
                 ]);
             }
 
-            // Advance order status
             $allTransferred = $order->components()->get()->every(
-                fn (SubcontractComponent $c) => $c->fresh()->isFullyTransferred()
+                fn (SubcontractComponent $c) => $c->isFullyTransferred()
             );
 
-            $newStatus = $allTransferred
-                ? SubcontractOrder::STATUS_IN_PROCESS
-                : SubcontractOrder::STATUS_MATERIAL_TRANSFERRED;
-
-            $order->update(['status' => $newStatus]);
+            $order->update([
+                'status' => $allTransferred
+                    ? SubcontractOrder::STATUS_IN_PROCESS
+                    : SubcontractOrder::STATUS_MATERIAL_TRANSFERRED,
+            ]);
 
             return $transfer->fresh(['lines']);
         });
     }
 
     /**
-     * Record goods received from the vendor, update stock, and optionally post GL.
+     * Record goods received from the vendor and receive the accepted quantity into stock.
      *
      * $receiptData = [
      *   'warehouse_id' => int,
@@ -217,13 +310,13 @@ class SubcontractingService
      */
     public function receiveFromVendor(SubcontractOrder $order, array $receiptData): SubcontractReceipt
     {
-        if (!$order->canReceive()) {
-            throw new \InvalidArgumentException(
-                'Order must be in material_transferred or in_process status to receive goods.'
-            );
-        }
+        return $order->lockForTransition(function (SubcontractOrder $order) use ($receiptData): SubcontractReceipt {
+            if (!$order->canReceive()) {
+                throw new \InvalidArgumentException(
+                    'Order must be in material_transferred or in_process status to receive goods.'
+                );
+            }
 
-        return DB::transaction(function () use ($order, $receiptData) {
             $receipt = SubcontractReceipt::create([
                 'order_id'     => $order->id,
                 'receipt_date' => $receiptData['receipt_date'] ?? now()->toDateString(),
@@ -233,22 +326,19 @@ class SubcontractingService
                 'created_by'   => auth()->id(),
             ]);
 
-            // Preload order lines
-            $orderLineIds = array_column($receiptData['lines'], 'order_line_id');
-            $orderLines   = SubcontractOrderLine::whereIn('id', $orderLineIds)->get()->keyBy('id');
+            $orderLines = SubcontractOrderLine::whereIn('id', array_column($receiptData['lines'], 'order_line_id'))
+                ->where('order_id', $order->id)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
             foreach ($receiptData['lines'] as $lineData) {
-                $orderLine = $orderLines->get($lineData['order_line_id'])
-                    ?? throw new \InvalidArgumentException("Order line {$lineData['order_line_id']} not found.");
-
-                if ($orderLine->order_id !== $order->id) {
-                    throw new \InvalidArgumentException('Order line does not belong to this subcontract order.');
-                }
+                $orderLine = $orderLines->get((int) $lineData['order_line_id'])
+                    ?? throw new \InvalidArgumentException('Order line does not belong to this subcontract order.');
 
                 $qtyReceived = (float) ($lineData['quantity_received'] ?? 0);
                 $qtyRejected = (float) ($lineData['quantity_rejected'] ?? 0);
                 $unitCost    = (float) ($lineData['unit_cost'] ?? 0);
-                $totalCost   = (float) bcmul((string) $qtyReceived, (string) $unitCost, 4);
 
                 SubcontractReceiptLine::create([
                     'receipt_id'        => $receipt->id,
@@ -258,7 +348,7 @@ class SubcontractingService
                     'quantity_rejected' => $qtyRejected,
                     'unit_id'           => $orderLine->unit_id,
                     'unit_cost'         => $unitCost,
-                    'total_cost'        => $totalCost,
+                    'total_cost'        => (float) bcmul((string) $qtyReceived, (string) $unitCost, 4),
                     'batch_number'      => $lineData['batch_number'] ?? null,
                     'expiry_date'       => $lineData['expiry_date'] ?? null,
                 ]);
@@ -266,10 +356,9 @@ class SubcontractingService
                 $acceptedQty = $qtyReceived - $qtyRejected;
 
                 if ($acceptedQty > 0) {
-                    // Add accepted quantity to warehouse stock
                     $this->stockService->recordMovement(
                         productId: $orderLine->product_id,
-                        warehouseId: $receiptData['warehouse_id'],
+                        warehouseId: (int) $receiptData['warehouse_id'],
                         movementType: 'subcontract_receipt',
                         direction: 'in',
                         quantity: $acceptedQty,
@@ -280,27 +369,16 @@ class SubcontractingService
                     );
                 }
 
-                // Update received quantity on the order line
                 $orderLine->update([
-                    'received_quantity' => bcadd(
-                        (string) $orderLine->received_quantity,
-                        (string) $qtyReceived,
-                        4
-                    ),
-                    'scrap_quantity' => bcadd(
-                        (string) $orderLine->scrap_quantity,
-                        (string) $qtyRejected,
-                        4
-                    ),
+                    'received_quantity' => bcadd((string) $orderLine->received_quantity, (string) $qtyReceived, 4),
+                    'scrap_quantity'    => bcadd((string) $orderLine->scrap_quantity, (string) $qtyRejected, 4),
                 ]);
             }
 
-            // Post the receipt
             $receipt->update(['status' => SubcontractReceipt::STATUS_POSTED]);
 
-            // Advance order status
             $allReceived = $order->lines()->get()->every(
-                fn (SubcontractOrderLine $l) => $l->fresh()->isFullyReceived()
+                fn (SubcontractOrderLine $l) => $l->isFullyReceived()
             );
 
             $order->update([
@@ -314,19 +392,18 @@ class SubcontractingService
     }
 
     /**
-     * Close the subcontract order — settle outstanding quantities and mark closed.
+     * Close the subcontract order: book outstanding line quantities as scrap and mark it closed.
      */
     public function closeOrder(SubcontractOrder $order): SubcontractOrder
     {
-        if (!$order->canClose()) {
-            throw new \InvalidArgumentException(
-                'Order must be in received or in_process status to be closed.'
-            );
-        }
+        return $order->lockForTransition(function (SubcontractOrder $order): SubcontractOrder {
+            if (!$order->canClose()) {
+                throw new \InvalidArgumentException(
+                    'Order must be in received or in_process status to be closed.'
+                );
+            }
 
-        return DB::transaction(function () use ($order) {
-            // Mark any outstanding line quantities as scrap/loss
-            foreach ($order->lines as $line) {
+            foreach ($order->lines()->lockForUpdate()->get() as $line) {
                 $remaining = $line->getRemainingQuantity();
                 if ($remaining > 0) {
                     $line->update([
@@ -347,12 +424,19 @@ class SubcontractingService
      */
     public function cancel(SubcontractOrder $order): SubcontractOrder
     {
-        if (!$order->canBeCancelled()) {
-            throw new \InvalidArgumentException('Only draft or sent orders can be cancelled.');
-        }
+        return $order->lockForTransition(function (SubcontractOrder $order): SubcontractOrder {
+            if (!$order->canBeCancelled()) {
+                throw new \InvalidArgumentException('Only draft or sent orders can be cancelled.');
+            }
 
-        $order->update(['status' => SubcontractOrder::STATUS_CANCELLED]);
+            $order->update(['status' => SubcontractOrder::STATUS_CANCELLED]);
 
-        return $order->fresh();
+            return $order->fresh();
+        });
+    }
+
+    private function vendorReference(): string
+    {
+        return 'vendor:'.implode(',', Contact::REFERENCE_COLUMNS);
     }
 }
