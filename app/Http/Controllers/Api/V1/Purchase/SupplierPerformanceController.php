@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\SupplierDeliveryRecord;
-use App\Models\Purchase\SupplierEvaluationCriteria;
-use App\Models\Purchase\SupplierIncident;
-use App\Models\Purchase\SupplierScorecard;
+use App\Http\Resources\Purchase\SupplierDeliveryRecordResource;
+use App\Http\Resources\Purchase\SupplierIncidentResource;
+use App\Http\Resources\Purchase\SupplierScorecardResource;
 use App\Services\Purchase\SupplierPerformanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SupplierPerformanceController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly SupplierPerformanceService $performanceService
     ) {}
@@ -25,16 +27,12 @@ class SupplierPerformanceController extends Controller
 
     public function indexCriteria(Request $request): JsonResponse
     {
-        $query = SupplierEvaluationCriteria::query()
-            ->when($request->category, fn ($q, $c) => $q->forCategory($c))
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy('category')
-            ->orderBy('name');
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 50)),
-            null
+        $criteria = $this->performanceService->listCriteria(
+            ['category' => $request->category, 'active_only' => $request->boolean('active_only')],
+            $request->integer('per_page', 50),
         );
+
+        return $this->paginated($criteria, null);
     }
 
     public function storeCriteria(Request $request): JsonResponse
@@ -58,7 +56,7 @@ class SupplierPerformanceController extends Controller
 
     public function updateCriteria(Request $request, int $id): JsonResponse
     {
-        $criteria = SupplierEvaluationCriteria::find($id);
+        $criteria = $this->performanceService->findCriteria($id);
 
         if ($criteria === null) {
             return $this->notFound('Criteria not found.');
@@ -79,13 +77,13 @@ class SupplierPerformanceController extends Controller
 
     public function destroyCriteria(int $id): JsonResponse
     {
-        $criteria = SupplierEvaluationCriteria::find($id);
+        $criteria = $this->performanceService->findCriteria($id);
 
         if ($criteria === null) {
             return $this->notFound('Criteria not found.');
         }
 
-        $criteria->delete();
+        $this->performanceService->deleteCriteria($criteria);
 
         return $this->success(null, 'Evaluation criteria deleted.');
     }
@@ -96,28 +94,23 @@ class SupplierPerformanceController extends Controller
 
     public function indexScorecards(Request $request): JsonResponse
     {
-        $query = SupplierScorecard::with(['supplier', 'evaluator'])
-            ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->from, fn ($q, $d) => $q->where('evaluation_period_start', '>=', $d))
-            ->when($request->to, fn ($q, $d) => $q->where('evaluation_period_end', '<=', $d))
-            ->orderBy('evaluation_period_start', 'desc');
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 15)),
-            null
+        $scorecards = $this->performanceService->listScorecards(
+            $request->only(['supplier_id', 'status', 'from', 'to']),
+            $request->integer('per_page', 15),
         );
+
+        return $this->paginated($scorecards, SupplierScorecardResource::class);
     }
 
     public function storeScorecard(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => 'required|integer|exists:contacts,id',
+            'supplier_id' => ['required', 'integer', $this->ownedBy('contacts')],
             'evaluation_period_start' => 'required|date',
             'evaluation_period_end' => 'required|date|after_or_equal:evaluation_period_start',
             'notes' => 'nullable|string',
             'ratings' => 'required|array|min:1',
-            'ratings.*.criterion_id' => 'required|integer|exists:supplier_evaluation_criteria,id',
+            'ratings.*.criterion_id' => ['required', 'integer', $this->ownedBy('supplier_evaluation_criteria')],
             'ratings.*.score' => 'required|numeric|min:0|max:100',
             'ratings.*.comments' => 'nullable|string',
         ]);
@@ -128,63 +121,68 @@ class SupplierPerformanceController extends Controller
             (int) auth()->id()
         );
 
-        return $this->created($scorecard, 'Scorecard created.');
+        return $this->created(new SupplierScorecardResource($scorecard), 'Scorecard created.');
     }
 
     public function showScorecard(int $id): JsonResponse
     {
-        $scorecard = SupplierScorecard::with(['supplier', 'evaluator', 'ratings.criterion'])->find($id);
+        $scorecard = $this->performanceService->findScorecard($id, ['supplier', 'evaluator', 'ratings.criterion']);
 
         if ($scorecard === null) {
             return $this->notFound('Scorecard not found.');
         }
 
-        return $this->success($scorecard);
+        return $this->success(new SupplierScorecardResource($scorecard));
     }
 
     public function updateScorecard(Request $request, int $id): JsonResponse
     {
-        $scorecard = SupplierScorecard::find($id);
+        $scorecard = $this->performanceService->findScorecard($id);
 
         if ($scorecard === null) {
             return $this->notFound('Scorecard not found.');
         }
 
+        // Refused before validation, as before; the service checks again on the locked row.
         if (! $scorecard->isDraft()) {
             return $this->error('Only draft scorecards can be updated.', 'SCORECARD_NOT_EDITABLE', 422);
         }
 
         $validated = $request->validate([
-            'supplier_id' => 'sometimes|integer|exists:contacts,id',
+            'supplier_id' => ['sometimes', 'integer', $this->ownedBy('contacts')],
             'evaluation_period_start' => 'sometimes|date',
             'evaluation_period_end' => 'sometimes|date|after_or_equal:evaluation_period_start',
             'notes' => 'nullable|string',
             'ratings' => 'sometimes|array|min:1',
-            'ratings.*.criterion_id' => 'required_with:ratings|integer|exists:supplier_evaluation_criteria,id',
+            'ratings.*.criterion_id' => ['required_with:ratings', 'integer', $this->ownedBy('supplier_evaluation_criteria')],
             'ratings.*.score' => 'required_with:ratings|numeric|min:0|max:100',
             'ratings.*.comments' => 'nullable|string',
         ]);
 
-        $updated = $this->performanceService->updateScorecard($scorecard, $validated, (int) auth()->id());
-
-        return $this->success($updated, 'Scorecard updated.');
+        return $this->tryAction(
+            fn () => new SupplierScorecardResource(
+                $this->performanceService->updateScorecard($scorecard, $validated, (int) auth()->id())
+            ),
+            'Scorecard updated.',
+            'SCORECARD_NOT_EDITABLE'
+        );
     }
 
     public function finalizeScorecard(int $id): JsonResponse
     {
-        $scorecard = SupplierScorecard::find($id);
+        $scorecard = $this->performanceService->findScorecard($id);
 
         if ($scorecard === null) {
             return $this->notFound('Scorecard not found.');
         }
 
-        if ($scorecard->isFinalized()) {
-            return $this->error('Scorecard is already finalized.', 'SCORECARD_ALREADY_FINALIZED', 422);
-        }
-
-        $finalized = $this->performanceService->finalizeScorecard($scorecard, (int) auth()->id());
-
-        return $this->success($finalized, 'Scorecard finalized.');
+        return $this->tryAction(
+            fn () => new SupplierScorecardResource(
+                $this->performanceService->finalizeScorecard($scorecard, (int) auth()->id())
+            ),
+            'Scorecard finalized.',
+            'SCORECARD_ALREADY_FINALIZED'
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -193,27 +191,19 @@ class SupplierPerformanceController extends Controller
 
     public function indexDeliveryRecords(Request $request): JsonResponse
     {
-        $query = SupplierDeliveryRecord::with(['supplier', 'purchaseOrder'])
-            ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
-            ->when($request->from, fn ($q, $d) => $q->where('promised_date', '>=', $d))
-            ->when($request->to, fn ($q, $d) => $q->where('promised_date', '<=', $d))
-            ->when(
-                $request->has('is_on_time'),
-                fn ($q) => $q->where('is_on_time', filter_var($request->is_on_time, FILTER_VALIDATE_BOOLEAN))
-            )
-            ->orderBy('promised_date', 'desc');
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 15)),
-            null
+        $records = $this->performanceService->listDeliveryRecords(
+            $request->only(['supplier_id', 'from', 'to', 'is_on_time']),
+            $request->integer('per_page', 15),
         );
+
+        return $this->paginated($records, SupplierDeliveryRecordResource::class);
     }
 
     public function storeDeliveryRecord(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'purchase_order_id' => 'required|integer|exists:purchase_orders,id',
-            'supplier_id' => 'required|integer|exists:contacts,id',
+            'purchase_order_id' => ['required', 'integer', $this->ownedBy('purchase_orders')],
+            'supplier_id' => ['required', 'integer', $this->ownedBy('contacts')],
             'promised_date' => 'required|date',
             'actual_date' => 'nullable|date',
             'quantity_ordered' => 'required|numeric|min:0',
@@ -229,7 +219,7 @@ class SupplierPerformanceController extends Controller
             (int) auth()->id()
         );
 
-        return $this->created($record, 'Delivery record created.');
+        return $this->created(new SupplierDeliveryRecordResource($record), 'Delivery record created.');
     }
 
     // -------------------------------------------------------------------------
@@ -238,25 +228,21 @@ class SupplierPerformanceController extends Controller
 
     public function indexIncidents(Request $request): JsonResponse
     {
-        $query = SupplierIncident::with(['supplier', 'createdBy'])
-            ->when($request->supplier_id, fn ($q, $id) => $q->forSupplier($id))
-            ->when($request->severity, fn ($q, $s) => $q->ofSeverity($s))
-            ->when($request->incident_type, fn ($q, $t) => $q->where('incident_type', $t))
-            ->when($request->boolean('open_only'), fn ($q) => $q->open())
-            ->when($request->from, fn ($q, $d) => $q->where('occurred_at', '>=', $d))
-            ->when($request->to, fn ($q, $d) => $q->where('occurred_at', '<=', $d))
-            ->orderBy('occurred_at', 'desc');
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 15)),
-            null
+        $incidents = $this->performanceService->listIncidents(
+            array_merge(
+                $request->only(['supplier_id', 'severity', 'incident_type', 'from', 'to']),
+                ['open_only' => $request->boolean('open_only')],
+            ),
+            $request->integer('per_page', 15),
         );
+
+        return $this->paginated($incidents, SupplierIncidentResource::class);
     }
 
     public function storeIncident(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'supplier_id' => 'required|integer|exists:contacts,id',
+            'supplier_id' => ['required', 'integer', $this->ownedBy('contacts')],
             'incident_type' => 'required|in:late_delivery,quality_issue,pricing_dispute,compliance_breach,communication',
             'severity' => 'required|in:low,medium,high,critical',
             'description' => 'required|string',
@@ -269,17 +255,18 @@ class SupplierPerformanceController extends Controller
             (int) auth()->id()
         );
 
-        return $this->created($incident, 'Incident recorded.');
+        return $this->created(new SupplierIncidentResource($incident), 'Incident recorded.');
     }
 
     public function resolveIncident(Request $request, int $id): JsonResponse
     {
-        $incident = SupplierIncident::find($id);
+        $incident = $this->performanceService->findIncident($id);
 
         if ($incident === null) {
             return $this->notFound('Incident not found.');
         }
 
+        // Refused before validation, as before; the service checks again on the locked row.
         if ($incident->isResolved()) {
             return $this->error('Incident is already resolved.', 'INCIDENT_ALREADY_RESOLVED', 422);
         }
@@ -288,13 +275,13 @@ class SupplierPerformanceController extends Controller
             'resolution_notes' => 'required|string',
         ]);
 
-        $resolved = $this->performanceService->resolveIncident(
-            $incident,
-            $validated['resolution_notes'],
-            (int) auth()->id()
+        return $this->tryAction(
+            fn () => new SupplierIncidentResource(
+                $this->performanceService->resolveIncident($incident, $validated['resolution_notes'], (int) auth()->id())
+            ),
+            'Incident resolved.',
+            'INCIDENT_ALREADY_RESOLVED'
         );
-
-        return $this->success($resolved, 'Incident resolved.');
     }
 
     // -------------------------------------------------------------------------

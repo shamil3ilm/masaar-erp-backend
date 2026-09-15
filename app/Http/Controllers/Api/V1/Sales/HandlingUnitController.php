@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\HandlingUnit;
-use App\Models\Sales\HandlingUnitItem;
 use App\Services\Sales\HandlingUnitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Validator;
 
 class HandlingUnitController extends Controller
 {
+    use ReportsBusinessRules, ValidatesOwnedRows;
+
     public function __construct(
         private HandlingUnitService $handlingUnitService,
     ) {}
@@ -30,9 +33,9 @@ class HandlingUnitController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'shipment_id' => 'nullable|exists:shipments,id',
-            'sales_order_id' => 'nullable|exists:sales_orders,id',
+        $validator = Validator::make($request->all(), array_merge([
+            'shipment_id' => ['nullable', $this->ownedBy('shipments')],
+            'sales_order_id' => ['nullable', $this->ownedBy('sales_orders')],
             'hu_type' => 'nullable|in:box,pallet,container,bag,drum,other',
             'hu_number' => 'nullable|string|max:50',
             'sscc_number' => 'nullable|string|max:30',
@@ -44,12 +47,7 @@ class HandlingUnitController extends Controller
             'height' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:5000',
             'items' => 'nullable|array',
-            'items.*.product_id' => 'nullable|exists:products,id',
-            'items.*.inventory_batch_id' => 'nullable|exists:inventory_batches,id',
-            'items.*.sales_order_line_id' => 'nullable|exists:sales_order_lines,id',
-            'items.*.quantity' => 'required|numeric|min:0.0001',
-            'items.*.weight' => 'nullable|numeric|min:0',
-        ]);
+        ], $this->itemRules('items.*.')));
 
         if ($validator->fails()) {
             return $this->error('Validation failed', 'VALIDATION_ERROR', 422, $validator->errors()->toArray());
@@ -65,14 +63,12 @@ class HandlingUnitController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $hu = HandlingUnit::with(['shipment', 'salesOrder', 'items.product', 'items.inventoryBatch'])->findOrFail($id);
-
-        return $this->success($hu);
+        return $this->success($this->handlingUnitService->unitDetails($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $hu = HandlingUnit::findOrFail($id);
+        $hu = $this->handlingUnitService->unitOf($id);
 
         $validator = Validator::make($request->all(), [
             'hu_type' => 'nullable|in:box,pallet,container,bag,drum,other',
@@ -97,58 +93,52 @@ class HandlingUnitController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        HandlingUnit::findOrFail($id)->delete();
+        $this->handlingUnitService->delete($this->handlingUnitService->unitOf($id));
 
         return $this->noContent();
     }
 
     public function addItem(Request $request, int $id): JsonResponse
     {
-        $hu = HandlingUnit::findOrFail($id);
+        $hu = $this->handlingUnitService->unitOf($id);
 
-        if ($hu->is_sealed) {
-            return $this->error('Cannot add items to a sealed handling unit.', 'SEALED', 422);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'product_id' => 'nullable|exists:products,id',
-            'inventory_batch_id' => 'nullable|exists:inventory_batches,id',
-            'sales_order_line_id' => 'nullable|exists:sales_order_lines,id',
-            'quantity' => 'required|numeric|min:0.0001',
-            'weight' => 'nullable|numeric|min:0',
-        ]);
+        $validator = Validator::make($request->all(), $this->itemRules(''));
 
         if ($validator->fails()) {
             return $this->error('Validation failed', 'VALIDATION_ERROR', 422, $validator->errors()->toArray());
         }
 
-        $item = $this->handlingUnitService->addItem($hu, $validator->validated());
+        try {
+            $item = $this->handlingUnitService->addItem($hu, $validator->validated());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
-        return $this->created($item->load(['product', 'inventoryBatch']));
+        return $this->created($item);
     }
 
     public function removeItem(int $id, int $itemId): JsonResponse
     {
-        $hu = HandlingUnit::findOrFail($id);
+        $hu = $this->handlingUnitService->unitOf($id);
 
-        if ($hu->is_sealed) {
-            return $this->error('Cannot remove items from a sealed handling unit.', 'SEALED', 422);
+        try {
+            $this->handlingUnitService->removeItem($hu, $itemId);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $this->handlingUnitService->removeItem($hu, $itemId);
 
         return $this->noContent();
     }
 
     public function seal(int $id): JsonResponse
     {
-        $hu = HandlingUnit::findOrFail($id);
+        $hu = $this->handlingUnitService->unitOf($id);
 
-        if ($hu->is_sealed) {
-            return $this->error('Handling unit is already sealed.', 'ALREADY_SEALED', 422);
+        try {
+            $sealed = $this->handlingUnitService->seal($hu);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $sealed = $this->handlingUnitService->seal($hu);
 
         return $this->success($sealed, 'Handling unit sealed.');
     }
@@ -158,5 +148,23 @@ class HandlingUnitController extends Controller
         $packingList = $this->handlingUnitService->getPackingList($shipmentId);
 
         return $this->success($packingList);
+    }
+
+    /**
+     * Rules for a handling unit item, under the given key prefix. Products and
+     * batches must belong to the caller's organization, and an order line to
+     * one of its orders.
+     *
+     * @return array<string, mixed>
+     */
+    private function itemRules(string $prefix): array
+    {
+        return [
+            "{$prefix}product_id" => ['nullable', $this->ownedBy('products')],
+            "{$prefix}inventory_batch_id" => ['nullable', $this->ownedBy('inventory_batches')],
+            "{$prefix}sales_order_line_id" => ['nullable', $this->ownedThrough('sales_order_lines', 'sales_order_id', 'sales_orders')],
+            "{$prefix}quantity" => 'required|numeric|min:0.0001',
+            "{$prefix}weight" => 'nullable|numeric|min:0',
+        ];
     }
 }

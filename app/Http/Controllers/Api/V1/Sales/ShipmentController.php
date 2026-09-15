@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\Shipment;
 use App\Services\Sales\PaymentDeliveryService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ShipmentController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private PaymentDeliveryService $service) {}
 
     public function index(Request $request): JsonResponse
@@ -23,10 +26,12 @@ class ShipmentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'delivery_mode_id' => 'required|integer|exists:delivery_modes,id',
-            'contact_id' => 'required|integer|exists:contacts,id',
+            'delivery_mode_id' => ['required', 'integer', $this->ownedBy('delivery_modes')],
+            'contact_id' => ['required', 'integer', $this->ownedBy('contacts')],
             'source_type' => 'required|string|max:100',
             'shipping_address' => 'required|array',
+            'items' => 'nullable|array',
+            'items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
             'ship_date' => 'nullable|date',
             'estimated_delivery' => 'nullable|date',
             'total_weight_kg' => 'nullable|numeric|min:0',

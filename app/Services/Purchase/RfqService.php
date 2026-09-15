@@ -9,6 +9,7 @@ use App\Models\Purchase\RfqHeader;
 use App\Models\Purchase\RfqQuote;
 use App\Models\Purchase\RfqVendor;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class RfqService
@@ -17,6 +18,30 @@ class RfqService
         private NumberGeneratorService $numberGenerator,
         private PurchaseOrderService $purchaseOrderService
     ) {}
+
+    /**
+     * A page of RFQs matching the filters, with creator, vendors and items loaded.
+     *
+     * The sort column and direction are expected already checked against an
+     * allowlist by the caller.
+     *
+     * @param  array<string, mixed>  $filters  status, search, start_date, end_date
+     */
+    public function list(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return RfqHeader::with(['creator', 'vendors', 'items'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('rfq_number', 'like', "%{$search}%")
+                        ->orWhere('title', 'like', "%{$search}%");
+                });
+            })
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('submission_deadline', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('submission_deadline', '<=', $date))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new RFQ with line items.
@@ -46,17 +71,33 @@ class RfqService
     }
 
     /**
+     * Update a draft RFQ, checked on the locked row so an RFQ sent meanwhile is not changed.
+     */
+    public function update(RfqHeader $rfq, array $data): RfqHeader
+    {
+        return $rfq->lockForTransition(function (RfqHeader $rfq) use ($data): RfqHeader {
+            if (! $rfq->isEditable()) {
+                throw new \InvalidArgumentException('Only draft RFQs can be updated.');
+            }
+
+            $rfq->update($data);
+
+            return $rfq->fresh(['items', 'vendors']);
+        });
+    }
+
+    /**
      * Send RFQ to a list of vendor contact IDs.
      *
      * @param  int[]  $vendorContactIds
      */
     public function sendToVendors(RfqHeader $rfq, array $vendorContactIds): RfqHeader
     {
-        if (!$rfq->canBeSent() && $rfq->status !== RfqHeader::STATUS_SENT) {
-            throw new \InvalidArgumentException('RFQ cannot be sent in its current status.');
-        }
+        return $rfq->lockForTransition(function (RfqHeader $rfq) use ($vendorContactIds): RfqHeader {
+            if (! $rfq->canBeSent() && $rfq->status !== RfqHeader::STATUS_SENT) {
+                throw new \InvalidArgumentException('RFQ cannot be sent in its current status.');
+            }
 
-        return DB::transaction(function () use ($rfq, $vendorContactIds) {
             foreach ($vendorContactIds as $contactId) {
                 $rfq->vendors()->firstOrCreate(
                     ['contact_id' => $contactId],
@@ -81,17 +122,26 @@ class RfqService
     }
 
     /**
-     * Record a vendor's quote against an RFQ vendor invitation.
+     * Record a vendor's quote against one of the RFQ's vendor invitations.
+     *
+     * The invitation is looked up through the RFQ: invitations carry no
+     * organization column, so an id found only elsewhere is refused.
      */
-    public function recordQuote(RfqVendor $rfqVendor, array $quoteData): RfqQuote
+    public function recordQuote(RfqHeader $rfq, int $rfqVendorId, array $quoteData): RfqQuote
     {
+        $rfqVendor = $rfq->vendors()->find($rfqVendorId);
+
+        if ($rfqVendor === null) {
+            throw new \InvalidArgumentException('Vendor invitation does not belong to this RFQ.');
+        }
+
         if ($rfqVendor->status === 'declined') {
             throw new \InvalidArgumentException('Cannot record a quote for a vendor who declined.');
         }
 
         return DB::transaction(function () use ($rfqVendor, $quoteData) {
             $lines = $quoteData['lines'] ?? [];
-            unset($quoteData['lines']);
+            unset($quoteData['lines'], $quoteData['rfq_vendor_id']);
 
             $quoteData['rfq_id'] = $rfqVendor->rfq_id;
             $quoteData['rfq_vendor_id'] = $rfqVendor->id;
@@ -120,46 +170,60 @@ class RfqService
     }
 
     /**
-     * Award an RFQ to the winning vendor quote.
+     * Award the RFQ to one of its quotes and reject the others.
+     *
+     * The RFQ is locked and the quote re-read under that lock: two awards of
+     * different quotes at once would otherwise both pass the status check and
+     * leave the RFQ with two winners.
      */
-    public function awardQuote(RfqQuote $quote): RfqQuote
+    public function awardQuote(RfqHeader $rfq, int $quoteId): RfqQuote
     {
-        if (!$quote->canBeAwarded()) {
-            throw new \InvalidArgumentException('Quote cannot be awarded in its current status.');
-        }
+        return $rfq->lockForTransition(function (RfqHeader $rfq) use ($quoteId): RfqQuote {
+            $quote = $this->quoteOf($rfq, $quoteId);
 
-        return DB::transaction(function () use ($quote) {
-            // Reject all other quotes for this RFQ
-            RfqQuote::where('rfq_id', $quote->rfq_id)
+            if (! $quote->canBeAwarded()) {
+                throw new \InvalidArgumentException('Quote cannot be awarded in its current status.');
+            }
+
+            RfqQuote::where('rfq_id', $rfq->id)
                 ->where('id', '!=', $quote->id)
                 ->whereIn('status', ['received', 'evaluated'])
                 ->update(['status' => 'rejected']);
 
-            // Reject all other vendors
-            RfqVendor::where('rfq_id', $quote->rfq_id)
+            RfqVendor::where('rfq_id', $rfq->id)
                 ->where('id', '!=', $quote->rfq_vendor_id)
                 ->whereIn('status', ['invited', 'responded'])
                 ->update(['status' => 'rejected']);
 
             $quote->update(['status' => 'awarded']);
             $quote->rfqVendor()->update(['status' => 'awarded']);
-            $quote->rfq()->update(['status' => RfqHeader::STATUS_AWARDED]);
+            $rfq->update(['status' => RfqHeader::STATUS_AWARDED]);
 
             return $quote->fresh(['rfqVendor', 'rfq']);
         });
     }
 
     /**
-     * Convert an awarded quote to a Purchase Order.
+     * Convert the RFQ's awarded quote to a purchase order and close the RFQ.
+     *
+     * The quote stays awarded after conversion, so the RFQ status is what
+     * stops a second order: it is checked on the locked RFQ, which conversion
+     * moves to closed.
      */
-    public function convertToPurchaseOrder(RfqQuote $quote): PurchaseOrder
+    public function convertToPurchaseOrder(RfqHeader $rfq, int $quoteId): PurchaseOrder
     {
-        if (!$quote->isAwarded()) {
-            throw new \InvalidArgumentException('Only awarded quotes can be converted to a purchase order.');
-        }
+        return $rfq->lockForTransition(function (RfqHeader $rfq) use ($quoteId): PurchaseOrder {
+            $quote = $this->quoteOf($rfq, $quoteId);
 
-        return DB::transaction(function () use ($quote) {
-            $quote->load(['lines.rfqItem', 'rfq']);
+            if (! $quote->isAwarded()) {
+                throw new \InvalidArgumentException('Only awarded quotes can be converted to a purchase order.');
+            }
+
+            if ($rfq->status !== RfqHeader::STATUS_AWARDED) {
+                throw new \InvalidArgumentException('This RFQ has already been converted to a purchase order.');
+            }
+
+            $quote->load(['lines.rfqItem']);
 
             $lines = $quote->lines->map(function ($quoteLine) {
                 $rfqItem = $quoteLine->rfqItem;
@@ -180,17 +244,16 @@ class RfqService
             $poData = [
                 'supplier_id'            => $quote->contact_id,
                 'order_date'             => now()->toDateString(),
-                'expected_delivery_date' => $quote->rfq->delivery_date?->toDateString(),
-                'delivery_address'       => $quote->rfq->delivery_address,
+                'expected_delivery_date' => $rfq->delivery_date?->toDateString(),
+                'delivery_address'       => $rfq->delivery_address,
                 'currency_code'          => $quote->currency_code,
-                'notes'                  => "Created from RFQ {$quote->rfq->rfq_number}. Vendor quote: {$quote->quote_number}",
-                'reference'              => $quote->rfq->rfq_number,
+                'notes'                  => "Created from RFQ {$rfq->rfq_number}. Vendor quote: {$quote->quote_number}",
+                'reference'              => $rfq->rfq_number,
             ];
 
             $purchaseOrder = $this->purchaseOrderService->create($poData, $lines);
 
-            // Mark the RFQ as closed now that it has been converted to a PO.
-            $quote->rfq()->update(['status' => RfqHeader::STATUS_CLOSED]);
+            $rfq->update(['status' => RfqHeader::STATUS_CLOSED]);
 
             return $purchaseOrder;
         });
@@ -259,5 +322,20 @@ class RfqService
         }
 
         return $matrix;
+    }
+
+    /**
+     * One of the RFQ's quotes; quotes carry no organization column, so an id
+     * found only on another RFQ is refused.
+     */
+    private function quoteOf(RfqHeader $rfq, int $quoteId): RfqQuote
+    {
+        $quote = $rfq->quotes()->find($quoteId);
+
+        if ($quote === null) {
+            throw new \InvalidArgumentException('Quote does not belong to this RFQ.');
+        }
+
+        return $quote;
     }
 }

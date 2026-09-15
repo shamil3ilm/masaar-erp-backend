@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\BackorderRecord;
 use App\Services\Sales\BackorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +15,8 @@ use Illuminate\Support\Facades\Validator;
 
 class BackorderController extends Controller
 {
+    use ReportsBusinessRules, ValidatesOwnedRows;
+
     public function __construct(
         private BackorderService $backorderService,
     ) {}
@@ -30,9 +34,9 @@ class BackorderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'sales_order_id' => 'required|exists:sales_orders,id',
-            'sales_order_line_id' => 'nullable|exists:sales_order_lines,id',
-            'product_id' => 'required|exists:products,id',
+            'sales_order_id' => ['required', $this->ownedBy('sales_orders')],
+            'sales_order_line_id' => ['nullable', $this->ownedThrough('sales_order_lines', 'sales_order_id', 'sales_orders')],
+            'product_id' => ['required', $this->ownedBy('products')],
             'original_quantity' => 'required|numeric|min:0.0001',
             'backordered_quantity' => 'required|numeric|min:0.0001',
             'original_delivery_date' => 'nullable|date',
@@ -50,19 +54,17 @@ class BackorderController extends Controller
             ['organization_id' => $request->user()->organization_id]
         ));
 
-        return $this->created($record->load(['salesOrder', 'product']));
+        return $this->created($record);
     }
 
     public function show(int $id): JsonResponse
     {
-        $record = BackorderRecord::with(['salesOrder', 'salesOrderLine', 'product'])->findOrFail($id);
-
-        return $this->success($record);
+        return $this->success($this->backorderService->recordDetails($id));
     }
 
     public function reschedule(Request $request, int $id): JsonResponse
     {
-        $record = BackorderRecord::findOrFail($id);
+        $record = $this->backorderService->recordOf($id);
 
         $validator = Validator::make($request->all(), [
             'rescheduled_delivery_date' => 'required|date',
@@ -84,7 +86,7 @@ class BackorderController extends Controller
 
     public function fulfill(Request $request, int $id): JsonResponse
     {
-        $record = BackorderRecord::findOrFail($id);
+        $record = $this->backorderService->recordOf($id);
 
         $validator = Validator::make($request->all(), [
             'quantity' => 'required|numeric|min:0.0001',
@@ -94,15 +96,18 @@ class BackorderController extends Controller
             return $this->error('Validation failed', 'VALIDATION_ERROR', 422, $validator->errors()->toArray());
         }
 
-        $updated = $this->backorderService->fulfill($record, (float) $request->input('quantity'));
+        try {
+            $updated = $this->backorderService->fulfill($record, (float) $request->input('quantity'));
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success($updated, 'Backorder fulfilled.');
     }
 
     public function cancel(int $id): JsonResponse
     {
-        $record = BackorderRecord::findOrFail($id);
-        $updated = $this->backorderService->cancel($record);
+        $updated = $this->backorderService->cancel($this->backorderService->recordOf($id));
 
         return $this->success($updated, 'Backorder cancelled.');
     }

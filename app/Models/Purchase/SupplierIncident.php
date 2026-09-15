@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SupplierIncident extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition;
 
     public const TYPE_LATE_DELIVERY     = 'late_delivery';
     public const TYPE_QUALITY_ISSUE     = 'quality_issue';

@@ -53,6 +53,11 @@ class PriceList extends Model
         return $this->hasMany(PriceListItem::class);
     }
 
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(PriceListAssignment::class);
+    }
+
     // Scopes
 
     public function scopeActive($query)

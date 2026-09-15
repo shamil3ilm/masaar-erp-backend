@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Sales\HandlingUnit;
 use App\Models\Sales\HandlingUnitItem;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -54,38 +56,93 @@ class HandlingUnitService
         });
     }
 
+    /**
+     * A handling unit of the current organization.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function unitOf(int $id): HandlingUnit
+    {
+        return HandlingUnit::findOrFail($id);
+    }
+
+    /**
+     * @throws ModelNotFoundException
+     */
+    public function unitDetails(int $id): HandlingUnit
+    {
+        return HandlingUnit::with(['shipment', 'salesOrder', 'items.product', 'items.inventoryBatch'])->findOrFail($id);
+    }
+
     public function update(HandlingUnit $hu, array $data): HandlingUnit
     {
         $hu->update($data);
         return $hu->fresh(['shipment', 'salesOrder', 'items.product']);
     }
 
+    public function delete(HandlingUnit $hu): void
+    {
+        $hu->delete();
+    }
+
+    /**
+     * Add an item to an unsealed unit. The seal is checked on the locked row,
+     * so an item cannot slip into a unit sealed by a concurrent request.
+     *
+     * @throws BusinessRuleException when the unit is sealed
+     */
     public function addItem(HandlingUnit $hu, array $data): HandlingUnitItem
     {
-        if ($hu->is_sealed) {
-            throw new \RuntimeException('Cannot add items to a sealed handling unit.');
-        }
+        return DB::transaction(function () use ($hu, $data): HandlingUnitItem {
+            $hu = $this->locked($hu);
 
-        return HandlingUnitItem::create(array_merge($data, [
-            'handling_unit_id' => $hu->id,
-            'organization_id' => $hu->organization_id,
-        ]));
+            if ($hu->is_sealed) {
+                throw new BusinessRuleException('Cannot add items to a sealed handling unit.', 'SEALED');
+            }
+
+            return HandlingUnitItem::create(array_merge($data, [
+                'handling_unit_id' => $hu->id,
+                'organization_id' => $hu->organization_id,
+            ]))->load(['product', 'inventoryBatch']);
+        });
     }
 
+    /**
+     * Remove an item from an unsealed unit, checked on the locked row.
+     *
+     * @throws BusinessRuleException when the unit is sealed
+     */
     public function removeItem(HandlingUnit $hu, int $itemId): void
     {
-        if ($hu->is_sealed) {
-            throw new \RuntimeException('Cannot remove items from a sealed handling unit.');
-        }
+        DB::transaction(function () use ($hu, $itemId): void {
+            $hu = $this->locked($hu);
 
-        HandlingUnitItem::where('handling_unit_id', $hu->id)
-            ->where('id', $itemId)
-            ->delete();
+            if ($hu->is_sealed) {
+                throw new BusinessRuleException('Cannot remove items from a sealed handling unit.', 'SEALED');
+            }
+
+            HandlingUnitItem::where('handling_unit_id', $hu->id)
+                ->where('id', $itemId)
+                ->delete();
+        });
     }
 
+    /**
+     * Seal a unit once, checked on the locked row.
+     *
+     * @throws BusinessRuleException when the unit is already sealed
+     */
     public function seal(HandlingUnit $hu): HandlingUnit
     {
-        return $hu->seal();
+        return DB::transaction(function () use ($hu): HandlingUnit {
+            $hu = $this->locked($hu);
+
+            if ($hu->is_sealed) {
+                throw new BusinessRuleException('Handling unit is already sealed.', 'ALREADY_SEALED');
+            }
+
+            return $hu->seal();
+        });
     }
 
     public function generateHuNumber(): string
@@ -159,5 +216,13 @@ class HandlingUnitService
                 ])->toArray(),
             ])->toArray(),
         ];
+    }
+
+    /**
+     * The unit re-read and locked until the surrounding transaction ends.
+     */
+    private function locked(HandlingUnit $hu): HandlingUnit
+    {
+        return HandlingUnit::query()->lockForUpdate()->findOrFail($hu->id);
     }
 }

@@ -4,13 +4,85 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Sales\CouponCode;
 use App\Models\Sales\Promotion;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class PromotionService
 {
+    /**
+     * Promotions of the organization, newest first, narrowed to active ones
+     * and to a type when those filters are set.
+     */
+    public function list(int $organizationId, bool $activeOnly, ?string $type, int $perPage): LengthAwarePaginator
+    {
+        return Promotion::where('organization_id', $organizationId)
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->when($type, fn ($q, $type) => $q->where('type', $type))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  validated promotion fields
+     */
+    public function create(int $organizationId, int $userId, array $data): Promotion
+    {
+        return Promotion::create(array_merge($data, [
+            'organization_id' => $organizationId,
+            'created_by' => $userId,
+        ]));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  validated promotion fields, never the organization or creator
+     */
+    public function update(Promotion $promotion, array $data): Promotion
+    {
+        $promotion->update($data);
+
+        return $promotion->fresh();
+    }
+
+    /**
+     * The promotion's coupon codes, newest first, only usable ones when asked.
+     */
+    public function listCoupons(Promotion $promotion, bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return CouponCode::where('promotion_id', $promotion->id)
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * The valid promotion a code unlocks for an order of the given amount.
+     *
+     * @throws BusinessRuleException when the code is unknown, expired or used up,
+     *                               or the order is below the promotion's minimum
+     */
+    public function checkCode(int $organizationId, string $code, ?int $customerId, float $orderAmount): Promotion
+    {
+        $promotion = $this->validatePromoCode($organizationId, $code, $customerId);
+
+        if (! $promotion) {
+            throw new BusinessRuleException('Invalid or expired promotion code.', 'INVALID_PROMO_CODE');
+        }
+
+        if ($promotion->min_order_amount && $orderAmount < (float) $promotion->min_order_amount) {
+            throw new BusinessRuleException(
+                "Minimum order amount of {$promotion->min_order_amount} required.",
+                'MIN_ORDER_NOT_MET'
+            );
+        }
+
+        return $promotion;
+    }
+
     /**
      * Get all applicable promotions for a cart/order.
      */
@@ -232,29 +304,37 @@ class PromotionService
     }
 
     /**
-     * Generate unique coupon codes.
+     * Generate unique coupon codes for a promotion, each usable $maxUsesEach
+     * times (without limit when null). They are created in one transaction, so
+     * a failure part way leaves no partial batch.
+     *
+     * @return list<string>
      */
     public function generateCouponCodes(
         int $promotionId,
         int $quantity,
         ?string $prefix = null,
+        ?int $maxUsesEach = null,
         int $length = 8
     ): array {
-        $codes = [];
+        return DB::transaction(function () use ($promotionId, $quantity, $prefix, $maxUsesEach, $length): array {
+            $codes = [];
 
-        for ($i = 0; $i < $quantity; $i++) {
-            $code = $this->generateUniqueCode($prefix, $length);
+            for ($i = 0; $i < $quantity; $i++) {
+                $code = $this->generateUniqueCode($prefix, $length);
 
-            CouponCode::create([
-                'promotion_id' => $promotionId,
-                'code' => $code,
-                'is_active' => true,
-            ]);
+                CouponCode::create([
+                    'promotion_id' => $promotionId,
+                    'code' => $code,
+                    'max_uses' => $maxUsesEach,
+                    'is_active' => true,
+                ]);
 
-            $codes[] = $code;
-        }
+                $codes[] = $code;
+            }
 
-        return $codes;
+            return $codes;
+        });
     }
 
     protected function generateUniqueCode(?string $prefix, int $length): string

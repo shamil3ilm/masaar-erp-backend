@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\VendorSourceList;
+use App\Http\Resources\Purchase\VendorSourceListResource;
+use App\Http\Resources\Sales\ContactResource;
 use App\Services\Purchase\SourceListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class VendorSourceListController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    /** Relations a source list entry is returned with after a change. */
+    private const WITH = ['vendor', 'product:id,name,sku'];
+
     public function __construct(
         private SourceListService $sourceListService
     ) {}
@@ -22,18 +28,12 @@ class VendorSourceListController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $entries = VendorSourceList::with([
-            'vendor:id,name,email',
-            'product:id,name,sku',
-            'pricingRecord:id,uuid,unit_price,currency_code,lead_time_days',
-        ])
-            ->when($request->product_id, fn ($q, $id) => $q->forProduct((int) $id))
-            ->when($request->vendor_id, fn ($q, $id) => $q->where('vendor_id', (int) $id))
-            ->when($request->active_only === 'true', fn ($q) => $q->active())
-            ->byPriority()
-            ->paginate($request->integer('per_page', 20));
+        $entries = $this->sourceListService->listSourceListEntries(
+            $request->only(['product_id', 'vendor_id', 'active_only']),
+            $request->integer('per_page', 20),
+        );
 
-        return $this->paginated($entries, null);
+        return $this->paginated($entries, VendorSourceListResource::class);
     }
 
     /**
@@ -41,12 +41,10 @@ class VendorSourceListController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
         $validated = $request->validate([
-            'product_id'               => ['required', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-            'vendor_id'                => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
-            'vendor_product_pricing_id' => 'nullable|exists:vendor_product_pricing,id',
+            'product_id'               => ['required', $this->ownedBy('products')],
+            'vendor_id'                => ['required', $this->ownedBy('contacts')],
+            'vendor_product_pricing_id' => ['nullable', $this->ownedBy('vendor_product_pricing')],
             'plant_code'               => 'nullable|string|max:50',
             'valid_from'               => 'nullable|date',
             'valid_to'                 => 'nullable|date|after_or_equal:valid_from',
@@ -56,12 +54,12 @@ class VendorSourceListController extends Controller
             'quota_percentage'         => 'nullable|numeric|min:0|max:100',
         ]);
 
-        $validated['organization_id'] = $orgId;
+        $validated['organization_id'] = $this->organizationId($request);
 
         $entry = $this->sourceListService->createSourceListEntry($validated);
 
         return $this->created(
-            $entry->load(['vendor:id,name,email', 'product:id,name,sku']),
+            new VendorSourceListResource($entry->load(self::WITH)),
             'Vendor source list entry created.'
         );
     }
@@ -71,17 +69,13 @@ class VendorSourceListController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $entry = VendorSourceList::with([
-            'vendor:id,name,email',
-            'product:id,name,sku',
-            'pricingRecord',
-        ])->find($id);
+        $entry = $this->sourceListService->findSourceListEntry($id, [...self::WITH, 'pricingRecord']);
 
         if (!$entry) {
             return $this->notFound('Vendor source list entry not found.');
         }
 
-        return $this->success($entry);
+        return $this->success(new VendorSourceListResource($entry));
     }
 
     /**
@@ -89,14 +83,14 @@ class VendorSourceListController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $entry = VendorSourceList::find($id);
+        $entry = $this->sourceListService->findSourceListEntry($id);
 
         if (!$entry) {
             return $this->notFound('Vendor source list entry not found.');
         }
 
         $validated = $request->validate([
-            'vendor_product_pricing_id' => 'nullable|exists:vendor_product_pricing,id',
+            'vendor_product_pricing_id' => ['nullable', $this->ownedBy('vendor_product_pricing')],
             'plant_code'                => 'nullable|string|max:50',
             'valid_from'                => 'nullable|date',
             'valid_to'                  => 'nullable|date|after_or_equal:valid_from',
@@ -109,7 +103,7 @@ class VendorSourceListController extends Controller
         $entry = $this->sourceListService->updateSourceListEntry($entry, $validated);
 
         return $this->success(
-            $entry->load(['vendor:id,name,email', 'product:id,name,sku']),
+            new VendorSourceListResource($entry->load(self::WITH)),
             'Vendor source list entry updated.'
         );
     }
@@ -119,24 +113,25 @@ class VendorSourceListController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $entry = VendorSourceList::find($id);
+        $entry = $this->sourceListService->findSourceListEntry($id);
 
         if (!$entry) {
             return $this->notFound('Vendor source list entry not found.');
         }
 
-        $entry->delete();
+        $this->sourceListService->deleteSourceListEntry($entry);
 
         return $this->success(null, 'Vendor source list entry deleted.');
     }
 
     /**
-     * Return ordered approved vendors (with pricing) for a given product.
+     * Return ordered approved vendors for a given product.
      */
     public function vendorsForProduct(int $productId): JsonResponse
     {
-        $vendors = $this->sourceListService->getVendorsForProduct($productId);
-
-        return $this->success($vendors, 'Approved vendors for product retrieved.');
+        return $this->success(
+            ContactResource::collection($this->sourceListService->getVendorsForProduct($productId)),
+            'Approved vendors for product retrieved.'
+        );
     }
 }

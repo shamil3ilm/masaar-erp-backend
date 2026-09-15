@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,6 +18,7 @@ class VendorConsignmentSettlement extends Model
 {
     use BelongsToOrganization;
     use HasUuid;
+    use LocksForTransition;
     use SoftDeletes;
 
     public const STATUS_DRAFT     = 'draft';
