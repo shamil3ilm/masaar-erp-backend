@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\Account;
 use App\Services\Accounting\AccountBalanceService;
@@ -19,6 +20,7 @@ class AccountController extends Controller
 {
     use ReportsBusinessRules;
     use SupportsAgGrid;
+    use ValidatesOwnedRows;
 
     public function __construct(
         private AccountBalanceService $balanceService,
@@ -85,7 +87,7 @@ class AccountController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'parent_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'parent_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'code' => [
                 'required',
                 'string',

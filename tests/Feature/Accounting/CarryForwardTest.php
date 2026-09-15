@@ -127,7 +127,7 @@ class CarryForwardTest extends TestCase
         $otherOrg = \App\Models\Core\Organization::factory()->create();
 
         $fromFy = $this->makeClosedFiscalYear(2024);
-        // This FY exists in DB but is invisible via global scope → findOrFail → 404
+        // This FY exists, but the validation rule accepts only this organization's years.
         $toFy   = FiscalYear::factory()->create([
             'organization_id' => $otherOrg->id,
             'name'            => 'FY 2025',
@@ -142,7 +142,7 @@ class CarryForwardTest extends TestCase
                 'to_fiscal_year_id'   => $toFy->id,
             ]);
 
-        $response->assertStatus(404);
+        $response->assertStatus(422)->assertJsonValidationErrors('to_fiscal_year_id');
     }
 
     public function test_execute_succeeds_with_closed_source_year(): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\AccountBalanceService;
 use App\Services\Accounting\FiscalYearService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private AccountBalanceService $balanceService,
         private FiscalYearService $fiscalYears,
@@ -23,7 +26,7 @@ class ReportController extends Controller
     public function trialBalance(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id' => ['nullable', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['nullable', $this->ownedBy('fiscal_years')],
             'as_of_date' => ['nullable', 'date'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
@@ -46,7 +49,7 @@ class ReportController extends Controller
     public function balanceSheet(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id' => ['nullable', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['nullable', $this->ownedBy('fiscal_years')],
             'as_of_date' => ['nullable', 'date'],
         ]);
 
@@ -67,7 +70,7 @@ class ReportController extends Controller
     public function incomeStatement(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id' => ['nullable', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['nullable', $this->ownedBy('fiscal_years')],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
         ]);
