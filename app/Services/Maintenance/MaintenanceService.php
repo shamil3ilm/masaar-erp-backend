@@ -4,17 +4,27 @@ declare(strict_types=1);
 
 namespace App\Services\Maintenance;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Inventory\StockLevel;
-use App\Models\Maintenance\Equipment;
+use App\Models\Inventory\StockMovement;
 use App\Models\Maintenance\MaintenanceOrder;
 use App\Models\Maintenance\MaintenanceOrderTask;
 use App\Models\Maintenance\MaintenancePlan;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
-use Illuminate\Support\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
+/**
+ * Creates maintenance orders and moves them through their lifecycle.
+ *
+ * Every change to an existing order runs on the locked order and checks its
+ * status there, so a repeated or concurrent request cannot start, complete or
+ * cancel an order twice. Completion issues the parts the order used from stock
+ * in the same transaction: when a part cannot be issued, the order stays in
+ * progress and nothing is taken from stock.
+ */
 class MaintenanceService
 {
     public function __construct(
@@ -22,61 +32,44 @@ class MaintenanceService
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
-    // -------------------------------------------------------------------------
-    // Equipment
-    // -------------------------------------------------------------------------
-
     /**
-     * Create a new equipment record.
+     * Orders by priority, critical first, then newest first. The ranking gives
+     * a priority outside the known four the first place, as MySQL's FIELD() did.
+     *
+     * @param  array{search?: mixed, status?: mixed, priority?: mixed, order_type?: mixed, equipment_id?: mixed, assigned_to?: mixed}  $filters
      */
-    public function createEquipment(array $data, int $userId): Equipment
+    public function paginateOrders(array $filters, int $perPage): LengthAwarePaginator
     {
-        return DB::transaction(function () use ($data, $userId): Equipment {
-            return Equipment::create(array_merge($data, ['created_by' => $userId]));
-        });
+        return MaintenanceOrder::query()
+            ->with(['equipment', 'assignee', 'plan'])
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('order_number', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%")
+            ))
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($filters['priority'] ?? null, fn ($query, $priority) => $query->where('priority', $priority))
+            ->when($filters['order_type'] ?? null, fn ($query, $type) => $query->where('order_type', $type))
+            ->when($filters['equipment_id'] ?? null, fn ($query, $id) => $query->where('equipment_id', $id))
+            ->when($filters['assigned_to'] ?? null, fn ($query, $id) => $query->where('assigned_to', $id))
+            ->orderByRaw('CASE priority WHEN ? THEN 1 WHEN ? THEN 2 WHEN ? THEN 3 WHEN ? THEN 4 ELSE 0 END', [
+                MaintenanceOrder::PRIORITY_CRITICAL,
+                MaintenanceOrder::PRIORITY_HIGH,
+                MaintenanceOrder::PRIORITY_MEDIUM,
+                MaintenanceOrder::PRIORITY_LOW,
+            ])
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
     }
 
     /**
-     * Update an equipment record.
-     */
-    public function updateEquipment(Equipment $equipment, array $data): Equipment
-    {
-        $equipment->update($data);
-
-        return $equipment->fresh();
-    }
-
-    // -------------------------------------------------------------------------
-    // Maintenance Plans
-    // -------------------------------------------------------------------------
-
-    /**
-     * Create a new maintenance plan.
-     */
-    public function createMaintenancePlan(array $data, int $userId): MaintenancePlan
-    {
-        return DB::transaction(function () use ($data, $userId): MaintenancePlan {
-            return MaintenancePlan::create(array_merge($data, ['created_by' => $userId]));
-        });
-    }
-
-    /**
-     * Update an existing maintenance plan.
-     */
-    public function updateMaintenancePlan(MaintenancePlan $plan, array $data): MaintenancePlan
-    {
-        $plan->update($data);
-
-        return $plan->fresh();
-    }
-
-    /**
-     * Generate a maintenance order from a plan and update tracking timestamps.
+     * Generate a maintenance order from a plan, with the plan's tasks, and
+     * move the equipment's next maintenance date on.
+     *
+     * @throws InvalidArgumentException when the plan is inactive
      */
     public function generateOrderFromPlan(MaintenancePlan $plan, int $userId): MaintenanceOrder
     {
         if (! $plan->is_active) {
-            throw new \InvalidArgumentException('Cannot generate an order from an inactive maintenance plan.');
+            throw new InvalidArgumentException('Cannot generate an order from an inactive maintenance plan.');
         }
 
         return DB::transaction(function () use ($plan, $userId): MaintenanceOrder {
@@ -95,21 +88,16 @@ class MaintenanceService
                 'created_by' => $userId,
             ]);
 
-            // Create tasks from the plan's task list
-            if (! empty($plan->tasks)) {
-                foreach ($plan->tasks as $index => $taskData) {
-                    $order->tasks()->create([
-                        'task_description' => is_array($taskData) ? ($taskData['description'] ?? $taskData) : $taskData,
-                        'is_safety_critical' => is_array($taskData) ? (bool) ($taskData['is_safety_critical'] ?? false) : false,
-                        'sort_order' => $index,
-                    ]);
-                }
+            foreach ($plan->tasks ?? [] as $index => $taskData) {
+                $order->tasks()->create([
+                    'task_description' => is_array($taskData) ? ($taskData['description'] ?? $taskData) : $taskData,
+                    'is_safety_critical' => is_array($taskData) ? (bool) ($taskData['is_safety_critical'] ?? false) : false,
+                    'sort_order' => $index,
+                ]);
             }
 
-            // Update plan tracking
             $plan->update(['last_generated_at' => now()]);
 
-            // Update equipment next maintenance date
             $nextDue = $plan->calculateNextDueDate(new \DateTime(now()->toDateString()));
             $plan->equipment->update(['next_maintenance_date' => $nextDue->format('Y-m-d')]);
 
@@ -117,17 +105,11 @@ class MaintenanceService
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Maintenance Orders
-    // -------------------------------------------------------------------------
-
     /**
      * Create a maintenance order with optional tasks and parts.
      *
-     * @param  array  $tasks  Array of task definition arrays with keys:
-     *                        task_description, is_safety_critical, sort_order, notes
-     * @param  array  $parts  Array of part line arrays with keys:
-     *                        product_id, description, quantity_required, unit_cost
+     * @param  array  $tasks  task definitions: task_description, is_safety_critical, sort_order, notes
+     * @param  array  $parts  part lines: product_id, description, quantity_required, unit_cost
      */
     public function createMaintenanceOrder(
         array $data,
@@ -160,17 +142,49 @@ class MaintenanceService
     }
 
     /**
-     * Start a maintenance order (transition to in_progress).
+     * @throws BusinessRuleException when the order is completed or cancelled
      */
-    public function startOrder(MaintenanceOrder $order, int $userId): MaintenanceOrder
+    public function updateOrder(MaintenanceOrder $order, array $data): MaintenanceOrder
     {
-        return DB::transaction(function () use ($order, $userId): MaintenanceOrder {
-            return $order->start($userId);
+        return $order->lockForTransition(function (MaintenanceOrder $order) use ($data): MaintenanceOrder {
+            if (in_array($order->status, [MaintenanceOrder::STATUS_COMPLETED, MaintenanceOrder::STATUS_CANCELLED], true)) {
+                throw new BusinessRuleException('Cannot update a completed or cancelled order.', 'ORDER_CLOSED');
+            }
+
+            $order->update($data);
+
+            return $order->fresh();
         });
     }
 
     /**
-     * Mark a single task as complete.
+     * @throws BusinessRuleException when the order is neither open nor cancelled
+     */
+    public function deleteOrder(MaintenanceOrder $order): void
+    {
+        $order->lockForTransition(function (MaintenanceOrder $order): void {
+            if (! in_array($order->status, [MaintenanceOrder::STATUS_OPEN, MaintenanceOrder::STATUS_CANCELLED], true)) {
+                throw new BusinessRuleException('Only open or cancelled orders can be deleted.', 'ORDER_NOT_DELETABLE');
+            }
+
+            $order->delete();
+        });
+    }
+
+    /**
+     * Start an open or on-hold order.
+     *
+     * @throws InvalidArgumentException when the order cannot be started from its status
+     */
+    public function startOrder(MaintenanceOrder $order, int $userId): MaintenanceOrder
+    {
+        return $order->lockForTransition(fn (MaintenanceOrder $order): MaintenanceOrder => $order->start($userId));
+    }
+
+    /**
+     * Mark one of the order's tasks complete. A task of another order is not found.
+     *
+     * @throws InvalidArgumentException when the task is already completed
      */
     public function completeTask(
         MaintenanceOrder $order,
@@ -178,125 +192,55 @@ class MaintenanceService
         string $notes,
         int $userId
     ): MaintenanceOrderTask {
-        $task = $order->tasks()->findOrFail($taskId);
+        return $order->lockForTransition(function (MaintenanceOrder $order) use ($taskId, $notes, $userId): MaintenanceOrderTask {
+            $task = $order->tasks()->findOrFail($taskId);
 
-        if ($task->is_completed) {
-            throw new \InvalidArgumentException('Task is already completed.');
-        }
+            if ($task->is_completed) {
+                throw new InvalidArgumentException('Task is already completed.');
+            }
 
-        $task->update([
-            'is_completed' => true,
-            'completed_at' => now(),
-            'completed_by' => $userId,
-            'notes' => $notes,
-        ]);
+            $task->update([
+                'is_completed' => true,
+                'completed_at' => now(),
+                'completed_by' => $userId,
+                'notes' => $notes,
+            ]);
 
-        return $task->fresh();
+            return $task->fresh();
+        });
     }
 
     /**
-     * Complete a maintenance order.
+     * Complete an in-progress order and issue the parts it used from stock.
      *
-     * SAP PM equivalent: order completion triggers movement type 261
-     * (goods issue to maintenance order) for each part with quantity_used > 0.
+     * @throws InvalidArgumentException when the order is not in progress or a used part cannot be issued
      */
     public function completeOrder(MaintenanceOrder $order, array $data, int $userId): MaintenanceOrder
     {
-        $completed = DB::transaction(function () use ($order, $data, $userId): MaintenanceOrder {
-            return $order->complete($data, $userId);
+        return $order->lockForTransition(function (MaintenanceOrder $order) use ($data, $userId): MaintenanceOrder {
+            $completed = $order->complete($data, $userId);
+
+            $this->issueUsedParts($order, $userId);
+
+            return $completed;
         });
-
-        // Post PM goods movements outside the completion transaction so a stock
-        // failure never rolls back the maintenance record itself.
-        $this->issueMaterialsToOrder($completed);
-
-        return $completed;
     }
 
     /**
-     * Issue parts consumed by a completed maintenance order to stock (movement type 261).
-     */
-    private function issueMaterialsToOrder(MaintenanceOrder $order): void
-    {
-        $parts = $order->parts()
-            ->whereNotNull('product_id')
-            ->where('quantity_used', '>', 0)
-            ->get();
-
-        if ($parts->isEmpty()) {
-            return;
-        }
-
-        foreach ($parts as $part) {
-            // Find the warehouse holding the most available stock for this product.
-            $stockLevel = StockLevel::where('organization_id', $order->organization_id)
-                ->where('product_id', $part->product_id)
-                ->where('quantity', '>', 0)
-                ->orderByDesc('quantity')
-                ->first();
-
-            if ($stockLevel === null) {
-                Log::warning('PM goods movement skipped — no stock found', [
-                    'order_id' => $order->id,
-                    'product_id' => $part->product_id,
-                ]);
-
-                continue;
-            }
-
-            try {
-                $this->stockService->recordMovement(
-                    productId: $part->product_id,
-                    warehouseId: $stockLevel->warehouse_id,
-                    movementType: 'maintenance_issue', // movement type 261
-                    direction: 'OUT',
-                    quantity: (float) $part->quantity_used,
-                    unitCost: (float) ($part->unit_cost ?? $stockLevel->average_cost ?? 0),
-                    referenceType: 'maintenance_order',
-                    referenceId: $order->id,
-                );
-            } catch (\Throwable $e) {
-                Log::warning('PM goods movement failed', [
-                    'order_id' => $order->id,
-                    'product_id' => $part->product_id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-    }
-
-    /**
-     * Cancel a maintenance order.
+     * Cancel an order that is neither completed nor cancelled.
+     *
+     * @throws InvalidArgumentException when the order is already completed or cancelled
      */
     public function cancelOrder(MaintenanceOrder $order, int $userId): MaintenanceOrder
     {
-        return DB::transaction(function () use ($order, $userId): MaintenanceOrder {
-            return $order->cancel($userId);
-        });
-    }
-
-    // -------------------------------------------------------------------------
-    // Reporting helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Return equipment whose next maintenance date falls within the next $days days.
-     */
-    public function getDueEquipment(int $orgId, int $days = 7): Collection
-    {
-        return Equipment::forOrganization($orgId)
-            ->whereNotNull('next_maintenance_date')
-            ->whereDate('next_maintenance_date', '<=', now()->addDays($days)->toDateString())
-            ->with(['category', 'functionalLocation'])
-            ->orderBy('next_maintenance_date')
-            ->get();
+        return $order->lockForTransition(fn (MaintenanceOrder $order): MaintenanceOrder => $order->cancel($userId));
     }
 
     /**
-     * Aggregate maintenance statistics for a date range.
+     * Order counts by type and status for orders created in the period, with
+     * the mean time to repair and the downtime of the completed ones.
      *
-     * Returns:
-     *   total_orders, by_type[], by_status[], mttr_hours (mean time to repair), total_downtime_hours
+     * @return array{total_orders: int, by_type: array<string, int>, by_status: array<string, int>, mttr_hours: float, total_downtime_hours: float}
      */
     public function getMaintenanceStats(int $orgId, string $from, string $to): array
     {
@@ -317,7 +261,6 @@ class MaintenanceService
             ->pluck('count', 'status')
             ->toArray();
 
-        // Mean time to repair: average minutes between actual_start and actual_end for completed orders
         $completedOrders = (clone $base)
             ->where('status', MaintenanceOrder::STATUS_COMPLETED)
             ->whereNotNull('actual_start')
@@ -341,5 +284,45 @@ class MaintenanceService
             'mttr_hours' => $mttrHours,
             'total_downtime_hours' => $totalDowntime,
         ];
+    }
+
+    /**
+     * Issue each part the order used, from the organization's warehouse
+     * holding the most of that product. StockService locks the stock level and
+     * refuses a quantity the warehouse does not hold.
+     *
+     * @throws InvalidArgumentException when a used part has no stock or too little
+     */
+    private function issueUsedParts(MaintenanceOrder $order, int $userId): void
+    {
+        $parts = $order->parts()
+            ->whereNotNull('product_id')
+            ->where('quantity_used', '>', 0)
+            ->get();
+
+        foreach ($parts as $part) {
+            $stockLevel = StockLevel::where('organization_id', $order->organization_id)
+                ->where('product_id', $part->product_id)
+                ->where('quantity', '>', 0)
+                ->orderByDesc('quantity')
+                ->first();
+
+            if ($stockLevel === null) {
+                throw new InvalidArgumentException("No stock of part '{$part->description}' is available to issue to the order.");
+            }
+
+            $this->stockService->recordMovement(
+                productId: $part->product_id,
+                warehouseId: $stockLevel->warehouse_id,
+                movementType: StockMovement::TYPE_MATERIAL_ISSUE,
+                direction: StockMovement::DIRECTION_OUT,
+                quantity: (float) $part->quantity_used,
+                unitCost: (float) ($part->unit_cost ?? $stockLevel->average_cost ?? 0),
+                referenceType: 'maintenance_order',
+                referenceId: $order->id,
+                referenceNumber: $order->order_number,
+                createdBy: $userId,
+            );
+        }
     }
 }

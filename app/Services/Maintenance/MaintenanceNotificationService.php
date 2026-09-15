@@ -48,6 +48,8 @@ class MaintenanceNotificationService
     {
         return DB::transaction(function () use ($organizationId, $data, $userId): MaintenanceNotification {
             $notificationNumber = $this->numberGen->generate('MN', null, $organizationId);
+            $items = $data['items'] ?? [];
+            unset($data['items']);
 
             /** @var MaintenanceNotification $notification */
             $notification = MaintenanceNotification::create([
@@ -59,13 +61,11 @@ class MaintenanceNotificationService
                 'created_by'          => $userId,
             ]);
 
-            if (!empty($data['items'])) {
-                foreach ($data['items'] as $i => $item) {
-                    $notification->items()->create([
-                        ...$item,
-                        'item_number' => ($i + 1) * 10,
-                    ]);
-                }
+            foreach (array_values($items) as $i => $item) {
+                $notification->items()->create([
+                    ...$item,
+                    'item_number' => ($i + 1) * 10,
+                ]);
             }
 
             return $notification->load(['items', 'tasks', 'equipment', 'reportedBy']);

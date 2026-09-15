@@ -346,7 +346,7 @@ class JournalService
             if (! $line->cost_center_id || (float) $line->debit <= 0) {
                 continue;
             }
-            if ($line->account && ! in_array($line->account->type, ['expense', 'cost_of_goods'], true)) {
+            if ($line->account && $line->account->account_type !== Account::TYPE_EXPENSE) {
                 continue;
             }
 
