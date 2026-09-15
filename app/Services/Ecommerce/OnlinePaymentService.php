@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ecommerce;
 
+use App\Models\Sales\Invoice;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use App\Models\Ecommerce\OnlinePayment;
 use App\Models\Ecommerce\PaymentGateway;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +38,36 @@ class OnlinePaymentService
 
             return OnlinePayment::create($data);
         });
+    }
+
+    /**
+     * The organization's online payments, newest first, with their gateway.
+     *
+     * @param  array<string, mixed>  $filters  gateway_id, status, from_date and to_date, each applied when present
+     */
+    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return OnlinePayment::with(['gateway'])
+            ->latest()
+            ->when(array_key_exists('gateway_id', $filters), fn ($q) => $q->byGateway($filters['gateway_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->byStatus($filters['status']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('created_at', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('created_at', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * The payment with its gateway and what it pays for; an invoice is shown
+     * by its reference columns.
+     */
+    public function present(OnlinePayment $payment): OnlinePayment
+    {
+        return $payment->load([
+            'gateway',
+            'payable' => fn (MorphTo $morph) => $morph->constrain([
+                Invoice::class => fn ($query) => $query->select(Invoice::REFERENCE_COLUMNS),
+            ]),
+        ]);
     }
 
     /**

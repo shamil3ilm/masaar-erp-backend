@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Ecommerce;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Ecommerce\EcommerceChannel;
 use App\Services\Ecommerce\EcommerceChannelService;
@@ -12,6 +15,9 @@ use Illuminate\Http\Request;
 
 class EcommerceChannelController extends Controller
 {
+    use ReportsBusinessRules;
+    use ValidatesOwnedRows;
+
     public function __construct(
         private EcommerceChannelService $channelService
     ) {}
@@ -21,14 +27,10 @@ class EcommerceChannelController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = EcommerceChannel::with(['defaultWarehouse', 'defaultCustomer'])
-            ->latest()
-            ->when($request->has('platform'), fn($q) => $q->byPlatform($request->input('platform')))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')));
-
-        $channels = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($channels);
+        return $this->paginated($this->channelService->paginate(
+            $request->only(['platform', 'status']),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -43,8 +45,8 @@ class EcommerceChannelController extends Controller
             'store_url' => 'nullable|url|max:500',
             'credentials' => 'nullable|array',
             'settings' => 'nullable|array',
-            'default_warehouse_id' => 'nullable|integer|exists:warehouses,id',
-            'default_customer_id' => 'nullable|integer|exists:contacts,id',
+            'default_warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
+            'default_customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'sync_products' => 'boolean',
             'sync_orders' => 'boolean',
             'sync_inventory' => 'boolean',
@@ -61,9 +63,7 @@ class EcommerceChannelController extends Controller
      */
     public function show(EcommerceChannel $ecommerceChannel): JsonResponse
     {
-        $ecommerceChannel->load(['defaultWarehouse', 'defaultCustomer']);
-
-        return $this->success($ecommerceChannel);
+        return $this->success($this->channelService->present($ecommerceChannel));
     }
 
     /**
@@ -77,8 +77,8 @@ class EcommerceChannelController extends Controller
             'store_url' => 'nullable|url|max:500',
             'credentials' => 'nullable|array',
             'settings' => 'nullable|array',
-            'default_warehouse_id' => 'nullable|integer|exists:warehouses,id',
-            'default_customer_id' => 'nullable|integer|exists:contacts,id',
+            'default_warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
+            'default_customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'sync_products' => 'boolean',
             'sync_orders' => 'boolean',
             'sync_inventory' => 'boolean',
@@ -95,15 +95,11 @@ class EcommerceChannelController extends Controller
      */
     public function destroy(EcommerceChannel $ecommerceChannel): JsonResponse
     {
-        if ($ecommerceChannel->orders()->exists()) {
-            return $this->error(
-                'Cannot delete channel with existing orders.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->channelService->delete($ecommerceChannel);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $ecommerceChannel->delete();
 
         return $this->success(null, 'E-commerce channel deleted successfully.');
     }
