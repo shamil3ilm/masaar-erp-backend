@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\ChangeTransportRequest;
 use App\Services\Core\ChangeTransportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,16 +28,11 @@ class ChangeTransportController extends Controller
             'per_page'           => 'nullable|integer|min:1|max:100',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $query = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->with(['creator', 'objects'])
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->get('status')))
-            ->when($request->filled('target_environment'), fn($q) => $q->where('target_environment', $request->get('target_environment')))
-            ->when($request->filled('category'), fn($q) => $q->where('category', $request->get('category')));
-
-        $results = $query->orderByDesc('created_at')
-            ->paginate($request->get('per_page', 15));
+        $results = $this->service->list(
+            $this->organizationId($request),
+            $request->only(['status', 'target_environment', 'category']),
+            (int) $request->get('per_page', 15),
+        );
 
         return $this->paginated($results);
     }
@@ -68,11 +62,11 @@ class ChangeTransportController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->with(['creator', 'releaser', 'objects', 'assignments.user'])
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization(
+            $this->organizationId($request),
+            $id,
+            ['creator', 'releaser', 'objects', 'assignments.user'],
+        );
 
         return $this->success($transportRequest);
     }
@@ -82,10 +76,7 @@ class ChangeTransportController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
         if (!$transportRequest->isOpen()) {
             return $this->error('Only open requests can be updated.', 'REQUEST_NOT_OPEN', 422);
@@ -97,9 +88,11 @@ class ChangeTransportController extends Controller
             'category'           => 'sometimes|string|in:feature,bugfix,configuration,data_migration',
         ]);
 
-        $transportRequest->update($validated);
-
-        return $this->success($transportRequest->fresh(['creator', 'objects']));
+        try {
+            return $this->success($this->service->updateRequest($transportRequest, $validated));
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 'REQUEST_NOT_OPEN', 422);
+        }
     }
 
     /**
@@ -107,10 +100,7 @@ class ChangeTransportController extends Controller
      */
     public function objects(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id, ['objects']);
 
         return $this->success($transportRequest->objects);
     }
@@ -120,10 +110,7 @@ class ChangeTransportController extends Controller
      */
     public function addObject(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
         $validated = $request->validate([
             'object_type' => 'required|string|in:migration,config,route,permission,setting',
@@ -149,10 +136,7 @@ class ChangeTransportController extends Controller
      */
     public function release(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
         try {
             $this->service->release($transportRequest, $request->user()->id);
@@ -171,10 +155,7 @@ class ChangeTransportController extends Controller
             'environment' => 'required|string|in:quality,production,staging',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
         try {
             $this->service->import($transportRequest, $validated['environment']);
@@ -189,10 +170,7 @@ class ChangeTransportController extends Controller
      */
     public function rollback(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
         try {
             $this->service->rollback($transportRequest);
@@ -207,17 +185,9 @@ class ChangeTransportController extends Controller
      */
     public function history(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
+        $transportRequest = $this->service->findForOrganization($this->organizationId($request), $id);
 
-        $transportRequest = ChangeTransportRequest::where('organization_id', $organizationId)
-            ->findOrFail($id);
-
-        $logs = $transportRequest->logs()
-            ->with('performer')
-            ->orderBy('created_at')
-            ->get();
-
-        return $this->success($logs);
+        return $this->success($this->service->history($transportRequest));
     }
 
     /**
