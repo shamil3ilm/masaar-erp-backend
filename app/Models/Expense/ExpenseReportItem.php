@@ -13,4 +13,14 @@ class ExpenseReportItem extends Model
     use HasFactory;
 
     protected $guarded = ['id'];
+
+    public function report(): BelongsTo
+    {
+        return $this->belongsTo(ExpenseReport::class, 'report_id');
+    }
+
+    public function expense(): BelongsTo
+    {
+        return $this->belongsTo(Expense::class, 'expense_id');
+    }
 }

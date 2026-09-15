@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Expense;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Expense\Expense;
 use App\Models\Expense\ExpenseBudget;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,35 @@ class ExpenseBudgetService
                 'alert_at_100' => $data['alert_at_100'] ?? true,
             ]);
         });
+    }
+
+    /**
+     * The organization's expense budgets, latest period first.
+     *
+     * @param  array<string, mixed>  $filters  year, month, category_id and department_id, each applied when present
+     */
+    public function paginateBudgets(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ExpenseBudget::with(['category:id,name,code'])
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->when(array_key_exists('year', $filters), fn ($q) => $q->where('year', $filters['year']))
+            ->when(array_key_exists('month', $filters), fn ($q) => $q->where('month', $filters['month']))
+            ->when(array_key_exists('category_id', $filters), fn ($q) => $q->where('category_id', $filters['category_id']))
+            ->when(array_key_exists('department_id', $filters), fn ($q) => $q->where('department_id', $filters['department_id']))
+            ->paginate($perPage);
+    }
+
+    public function update(ExpenseBudget $budget, array $data): ExpenseBudget
+    {
+        $budget->update($data);
+
+        return $budget->fresh('category:id,name,code');
+    }
+
+    public function delete(ExpenseBudget $budget): void
+    {
+        $budget->delete();
     }
 
     /**
