@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Reports;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\Invoice;
 use App\Services\Export\ExportService;
@@ -16,6 +17,8 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ExportController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ExportService $exportService,
         private InvoiceExportService $invoiceExportService,
@@ -31,17 +34,10 @@ class ExportController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'status' => 'nullable|string',
-            'customer_id' => 'nullable|exists:contacts,id',
+            'customer_id' => ['nullable', $this->ownedBy('contacts')],
         ]);
 
-        $query = Invoice::with('customer:id,company_name,contact_name')
-            ->when($validated['start_date'] ?? null, fn($q, $date) => $q->where('invoice_date', '>=', $date))
-            ->when($validated['end_date'] ?? null, fn($q, $date) => $q->where('invoice_date', '<=', $date))
-            ->when($validated['status'] ?? null, fn($q, $status) => $q->where('status', $status))
-            ->when($validated['customer_id'] ?? null, fn($q, $id) => $q->where('customer_id', $id))
-            ->orderBy('invoice_date', 'desc');
-
-        $invoices = $query->get();
+        $invoices = $this->invoiceExportService->invoicesForExport($request->user()->organization_id, $validated);
 
         if ($invoices->isEmpty()) {
             return $this->notFound('No invoices found for export.');
