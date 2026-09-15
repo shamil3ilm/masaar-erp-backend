@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
-use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\SerialNumber;
 use App\Services\Inventory\SerialNumberService;

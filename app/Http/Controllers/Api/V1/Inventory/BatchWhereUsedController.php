@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
-use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Inventory\BatchWhereUsedService;
 use App\Services\Inventory\InventoryBatchService;
