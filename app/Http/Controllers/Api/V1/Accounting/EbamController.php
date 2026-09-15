@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\BankAccount;
 use App\Models\Accounting\BankAccountRequest;
@@ -15,6 +16,8 @@ use InvalidArgumentException;
 
 class EbamController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private EbamService $ebamService
     ) {}
@@ -47,7 +50,7 @@ class EbamController extends Controller
             'title'           => ['nullable', 'string', 'max:100'],
             'email'           => ['nullable', 'email', 'max:255'],
             'phone'           => ['nullable', 'string', 'max:30'],
-            'user_id'         => ['nullable', 'exists:users,id'],
+            'user_id'         => ['nullable', $this->ownedBy('users')],
             'authority_level' => ['nullable', 'in:single,joint_any,joint_all'],
             'signing_limit'   => ['nullable', 'numeric', 'min:0'],
             'valid_from'      => ['required', 'date'],
@@ -117,7 +120,7 @@ class EbamController extends Controller
     {
         $validated = $request->validate([
             'request_type'    => ['required', 'in:open,close,modify,add_signatory,remove_signatory'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'bank_name'       => ['nullable', 'string', 'max:255'],
             'account_name'    => ['nullable', 'string', 'max:255'],
             'account_type'    => ['nullable', 'in:current,savings,credit_card,cash'],

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\PaymentToleranceGroup;
 use App\Models\Accounting\PaymentToleranceItem;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class PaymentToleranceController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly PaymentToleranceService $toleranceService,
     ) {}
@@ -43,8 +46,8 @@ class PaymentToleranceController extends Controller
             'items.*.underpay_pct'           => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'items.*.overpay_abs'            => ['sometimes', 'numeric', 'min:0'],
             'items.*.overpay_pct'            => ['sometimes', 'numeric', 'min:0', 'max:100'],
-            'items.*.underpay_gl_account_id' => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
-            'items.*.overpay_gl_account_id'  => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'items.*.underpay_gl_account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'items.*.overpay_gl_account_id'  => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
         ]);
 
         try {
@@ -105,8 +108,8 @@ class PaymentToleranceController extends Controller
             'underpay_pct'           => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'overpay_abs'            => ['sometimes', 'numeric', 'min:0'],
             'overpay_pct'            => ['sometimes', 'numeric', 'min:0', 'max:100'],
-            'underpay_gl_account_id' => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
-            'overpay_gl_account_id'  => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'underpay_gl_account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'overpay_gl_account_id'  => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
         ]);
 
         $item = $this->toleranceService->upsertItem($paymentToleranceGroup, $validated);
