@@ -14,20 +14,6 @@ use Illuminate\Support\Facades\Log;
 class MessageService
 {
     /**
-     * Create a new message template.
-     */
-    public function createTemplate(array $data): MessageTemplate
-    {
-        return DB::transaction(function () use ($data) {
-            $data['is_active'] = $data['is_active'] ?? true;
-            $data['is_system'] = $data['is_system'] ?? false;
-            $data['language'] = $data['language'] ?? 'en';
-
-            return MessageTemplate::create($data);
-        });
-    }
-
-    /**
      * Render a template with given data.
      */
     public function renderTemplate(MessageTemplate $template, array $data): array
@@ -101,7 +87,9 @@ class MessageService
     public function sendMessage(OutboundMessage $message): bool
     {
         try {
-            $message->markAsSending();
+            if (! $this->claim($message)) {
+                return false;
+            }
 
             $channel = $message->channel;
 
@@ -139,6 +127,30 @@ class MessageService
 
             return false;
         }
+    }
+
+    /**
+     * Move the message to sending, but only while it still has the status this
+     * copy was loaded with.
+     *
+     * Two senders can hold the same queued message: a campaign launched twice,
+     * or a launch racing the queue run. Both try this conditional update and
+     * only one changes the row, so the message goes out once.
+     */
+    private function claim(OutboundMessage $message): bool
+    {
+        $claimed = OutboundMessage::query()
+            ->whereKey($message->getKey())
+            ->where('status', $message->status)
+            ->update(['status' => OutboundMessage::STATUS_SENDING]);
+
+        if ($claimed === 0) {
+            return false;
+        }
+
+        $message->forceFill(['status' => OutboundMessage::STATUS_SENDING])->syncOriginalAttribute('status');
+
+        return true;
     }
 
     /**
