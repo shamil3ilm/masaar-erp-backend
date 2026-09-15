@@ -8,6 +8,13 @@ use App\Models\Manufacturing\ScrapReport;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Scrap reports: recording, correction and GL posting.
+ *
+ * A report posted to the GL is final. Update, delete and posting run on the
+ * locked report and check the posted flag there, so a stale copy cannot post
+ * twice or change a report that was posted meanwhile.
+ */
 class ScrapReportingService
 {
     public function list(array $filters = []): Collection
@@ -23,6 +30,16 @@ class ScrapReportingService
             ->get();
     }
 
+    /**
+     * One of the organization's scrap reports.
+     *
+     * @param  list<string>  $with
+     */
+    public function findOrFail(int $id, array $with = []): ScrapReport
+    {
+        return ScrapReport::with($with)->findOrFail($id);
+    }
+
     public function create(array $data): ScrapReport
     {
         return ScrapReport::create($data);
@@ -30,28 +47,46 @@ class ScrapReportingService
 
     public function update(ScrapReport $report, array $data): ScrapReport
     {
-        if ($report->gl_posted) {
-            throw ValidationException::withMessages([
-                'gl_posted' => 'Cannot update a scrap report that has already been posted to GL.',
-            ]);
-        }
+        return $report->lockForTransition(function (ScrapReport $report) use ($data): ScrapReport {
+            if ($report->gl_posted) {
+                throw ValidationException::withMessages([
+                    'gl_posted' => 'Cannot update a scrap report that has already been posted to GL.',
+                ]);
+            }
 
-        $report->update($data);
+            $report->update($data);
 
-        return $report->fresh();
+            return $report->fresh();
+        });
+    }
+
+    /**
+     * Delete a report that has not been posted to the GL.
+     */
+    public function delete(ScrapReport $report): void
+    {
+        $report->lockForTransition(function (ScrapReport $report): void {
+            if ($report->gl_posted) {
+                throw new \InvalidArgumentException('Cannot delete a scrap report that has been posted to GL.');
+            }
+
+            $report->delete();
+        });
     }
 
     public function postToGL(ScrapReport $report): ScrapReport
     {
-        if ($report->gl_posted) {
-            throw ValidationException::withMessages([
-                'gl_posted' => 'This scrap report has already been posted to GL.',
-            ]);
-        }
+        return $report->lockForTransition(function (ScrapReport $report): ScrapReport {
+            if ($report->gl_posted) {
+                throw ValidationException::withMessages([
+                    'gl_posted' => 'This scrap report has already been posted to GL.',
+                ]);
+            }
 
-        $report->markGlPosted();
+            $report->markGlPosted();
 
-        return $report->fresh();
+            return $report->fresh();
+        });
     }
 
     public function getScrapSummary(array $filters): array
