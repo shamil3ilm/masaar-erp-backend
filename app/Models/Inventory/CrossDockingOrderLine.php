@@ -6,12 +6,13 @@ namespace App\Models\Inventory;
 
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CrossDockingOrderLine extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LocksForTransition;
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_TRANSFERRED = 'transferred';

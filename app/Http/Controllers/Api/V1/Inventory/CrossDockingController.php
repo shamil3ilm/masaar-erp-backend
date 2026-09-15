@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\CrossDockingOrder;
-use App\Models\Inventory\CrossDockingOrderLine;
 use App\Services\Inventory\CrossDockingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +13,8 @@ use RuntimeException;
 
 class CrossDockingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CrossDockingService $crossDockingService,
     ) {}
@@ -23,12 +24,11 @@ class CrossDockingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $orders = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->when($request->input('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->with(['lines.product'])
-            ->orderByDesc('planned_date')
-            ->paginate($request->integer('per_page', 20));
+        $orders = $this->crossDockingService->paginateOrders(
+            $request->user()->organization_id,
+            $request->only(['warehouse_id', 'status']),
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($orders);
     }
@@ -39,18 +39,18 @@ class CrossDockingController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'          => 'required|integer',
+            'warehouse_id'          => ['required', 'integer', $this->ownedBy('warehouses')],
             'inbound_source_type'   => 'required|in:purchase_order,transfer_order,return',
             'inbound_source_id'     => 'required|integer',
             'outbound_dest_type'    => 'required|in:sales_order,transfer_order,delivery',
             'outbound_dest_id'      => 'required|integer',
             'planned_date'          => 'required|date',
-            'dock_door_id'          => 'nullable|integer',
+            'dock_door_id'          => ['nullable', 'integer', $this->ownedBy('dock_doors')],
             'notes'                 => 'nullable|string',
             'lines'                 => 'required|array|min:1',
-            'lines.*.product_id'    => 'required|integer',
+            'lines.*.product_id'    => ['required', 'integer', $this->ownedBy('products')],
             'lines.*.quantity'      => 'required|numeric|min:0.0001',
-            'lines.*.unit_id'       => 'nullable|integer',
+            'lines.*.unit_id'       => ['nullable', 'integer', $this->ownedBy('units_of_measure')],
         ]);
 
         $validated['organization_id'] = $request->user()->organization_id;
@@ -66,9 +66,11 @@ class CrossDockingController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $order = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->with(['lines.product', 'warehouse', 'creator'])
-            ->findOrFail($id);
+        $order = $this->crossDockingService->findOrderOrFail(
+            $request->user()->organization_id,
+            $id,
+            ['lines.product', 'warehouse', 'creator']
+        );
 
         return $this->success($order);
     }
@@ -78,18 +80,15 @@ class CrossDockingController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $order = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $order = $this->crossDockingService->findOrderOrFail($request->user()->organization_id, $id);
 
         $validated = $request->validate([
             'planned_date'  => 'sometimes|date',
-            'dock_door_id'  => 'nullable|integer',
+            'dock_door_id'  => ['nullable', 'integer', $this->ownedBy('dock_doors')],
             'notes'         => 'nullable|string',
         ]);
 
-        $order->update($validated);
-
-        return $this->success($order->fresh(), 'Cross-docking order updated.');
+        return $this->success($this->crossDockingService->updateOrder($order, $validated), 'Cross-docking order updated.');
     }
 
     /**
@@ -97,14 +96,13 @@ class CrossDockingController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $order = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $order = $this->crossDockingService->findOrderOrFail($request->user()->organization_id, $id);
 
-        if ($order->isCompleted()) {
-            return $this->success(null, 'Completed orders cannot be deleted.', 422);
+        try {
+            $this->crossDockingService->deleteOrder($order);
+        } catch (RuntimeException $e) {
+            return $this->success(null, $e->getMessage(), 422);
         }
-
-        $order->delete();
 
         return $this->success(null, 'Cross-docking order deleted.');
     }
@@ -114,8 +112,7 @@ class CrossDockingController extends Controller
      */
     public function start(Request $request, int $id): JsonResponse
     {
-        $order = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $order = $this->crossDockingService->findOrderOrFail($request->user()->organization_id, $id);
 
         try {
             $this->crossDockingService->startTransfer($order);
@@ -131,8 +128,7 @@ class CrossDockingController extends Controller
      */
     public function complete(Request $request, int $id): JsonResponse
     {
-        $order = CrossDockingOrder::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $order = $this->crossDockingService->findOrderOrFail($request->user()->organization_id, $id);
 
         try {
             $this->crossDockingService->complete($order);
@@ -152,10 +148,7 @@ class CrossDockingController extends Controller
             'quantity' => 'required|numeric|min:0.0001',
         ]);
 
-        $line = CrossDockingOrderLine::whereHas(
-            'crossDockingOrder',
-            fn ($q) => $q->where('organization_id', $request->user()->organization_id)
-        )->findOrFail($lineId);
+        $line = $this->crossDockingService->findLineOrFail($request->user()->organization_id, $lineId);
 
         try {
             $this->crossDockingService->transferLine($line, (float) $validated['quantity']);
@@ -172,7 +165,7 @@ class CrossDockingController extends Controller
     public function opportunities(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|integer',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $opportunities = $this->crossDockingService->identifyOpportunities(
