@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\PriceCheckLog;
 use App\Models\Inventory\PriceCheckStation;
 use App\Services\Inventory\PriceCheckService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class PriceCheckController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PriceCheckService $priceCheckService
     ) {}
@@ -26,9 +27,9 @@ class PriceCheckController extends Controller
         $validated = $request->validate([
             'scan_value' => 'required|string|max:255',
             'scan_type' => 'required|string|in:barcode,qr,rfid,nfc,manual,sku',
-            'branch_id' => 'required|integer|exists:branches,id',
-            'station_id' => 'nullable|integer|exists:price_check_stations,id',
-            'contact_id' => 'nullable|integer|exists:contacts,id',
+            'branch_id' => ['required', 'integer', $this->ownedBy('branches')],
+            'station_id' => ['nullable', 'integer', $this->ownedBy('price_check_stations')],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
         ]);
 
         $result = $this->priceCheckService->checkPrice(
@@ -55,9 +56,9 @@ class PriceCheckController extends Controller
         $validated = $request->validate([
             'barcode_value' => 'required|string|max:255',
             'scan_type' => 'nullable|string|in:barcode,qr,rfid,nfc,manual,sku',
-            'branch_id' => 'nullable|integer|exists:branches,id',
-            'station_id' => 'nullable|integer|exists:price_check_stations,id',
-            'contact_id' => 'nullable|integer|exists:contacts,id',
+            'branch_id' => ['nullable', 'integer', $this->ownedBy('branches')],
+            'station_id' => ['nullable', 'integer', $this->ownedBy('price_check_stations')],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
         ]);
 
         $branchId = $validated['branch_id']
@@ -94,15 +95,14 @@ class PriceCheckController extends Controller
      */
     public function stationIndex(Request $request): JsonResponse
     {
-        $query = PriceCheckStation::with(['branch'])
-            ->latest()
-            ->when($request->has('branch_id'), fn($q) => $q->byBranch($request->integer('branch_id')))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->boolean('online_only'), fn($q) => $q->online());
+        $filters = $request->only(['status']);
+        $filters['online_only'] = $request->boolean('online_only');
 
-        $stations = $query->get();
+        if ($request->has('branch_id')) {
+            $filters['branch_id'] = $request->integer('branch_id');
+        }
 
-        return $this->success($stations);
+        return $this->success($this->priceCheckService->listStations($filters));
     }
 
     /**
@@ -111,7 +111,7 @@ class PriceCheckController extends Controller
     public function stationStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'required|integer|exists:branches,id',
+            'branch_id' => ['required', 'integer', $this->ownedBy('branches')],
             'name' => 'required|string|max:255',
             'station_code' => 'required|string|max:30',
             'location_description' => 'nullable|string|max:255',
@@ -131,15 +131,11 @@ class PriceCheckController extends Controller
             'show_product_image' => 'boolean',
             'show_description' => 'boolean',
             'show_location' => 'boolean',
-            'price_list_id' => 'nullable|integer|exists:price_lists,id',
+            'price_list_id' => ['nullable', 'integer', $this->ownedBy('price_lists')],
             'use_customer_price' => 'boolean',
         ]);
 
-        $validated['organization_id'] = auth()->user()->organization_id;
-        $validated['api_token'] = Str::random(64);
-        $validated['status'] = PriceCheckStation::STATUS_ACTIVE;
-
-        $station = PriceCheckStation::create($validated);
+        $station = $this->priceCheckService->createStation(auth()->user()->organization_id, $validated);
 
         return $this->created($station, 'Price check station created successfully.');
     }
@@ -178,7 +174,7 @@ class PriceCheckController extends Controller
             'show_product_image' => 'boolean',
             'show_description' => 'boolean',
             'show_location' => 'boolean',
-            'price_list_id' => 'nullable|integer|exists:price_lists,id',
+            'price_list_id' => ['nullable', 'integer', $this->ownedBy('price_lists')],
             'use_customer_price' => 'boolean',
             'status' => 'nullable|string|in:active,inactive,maintenance',
         ]);
@@ -219,19 +215,19 @@ class PriceCheckController extends Controller
      */
     public function logs(Request $request): JsonResponse
     {
-        $query = PriceCheckLog::with(['station', 'product'])
-            ->latest('scanned_at')
-            ->when($request->has('station_id'), fn($q) => $q->byStation($request->integer('station_id')))
-            ->when($request->has('branch_id'), fn($q) => $q->byBranch($request->integer('branch_id')))
-            ->when($request->has('product_id'), fn($q) => $q->byProduct($request->integer('product_id')))
-            ->when($request->has('scan_successful'), fn($q) => $request->boolean('scan_successful') ? $q->successful() : $q->failed())
-            ->when($request->has('error_type'), fn($q) => $q->byErrorType($request->input('error_type')))
-            ->when($request->has('from_date'), fn($q) => $q->where('scanned_at', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('scanned_at', '<=', $request->input('to_date')));
+        $filters = $request->only(['error_type', 'from_date', 'to_date']);
 
-        $logs = $query->paginate($request->integer('per_page', 15));
+        foreach (['station_id', 'branch_id', 'product_id'] as $id) {
+            if ($request->has($id)) {
+                $filters[$id] = $request->integer($id);
+            }
+        }
 
-        return $this->paginated($logs);
+        if ($request->has('scan_successful')) {
+            $filters['scan_successful'] = $request->boolean('scan_successful');
+        }
+
+        return $this->paginated($this->priceCheckService->listLogs($filters, $request->integer('per_page', 15)));
     }
 
     /**
