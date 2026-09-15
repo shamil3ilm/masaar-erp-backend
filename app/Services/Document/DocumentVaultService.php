@@ -19,6 +19,28 @@ use Illuminate\Support\Str;
 class DocumentVaultService
 {
     /**
+     * The organization's folders by name: the root folders, or the children
+     * of a parent folder.
+     *
+     * @param  mixed  $parentId  a folder id, or null or 'null' for the root
+     */
+    public function paginateFolders(int $organizationId, mixed $parentId, ?string $search, int $perPage): LengthAwarePaginator
+    {
+        return DocumentFolder::query()
+            ->with(['children', 'creator'])
+            ->withCount('documents')
+            ->where('organization_id', $organizationId)
+            ->when(
+                $parentId === null || $parentId === 'null',
+                fn ($query) => $query->rootLevel(),
+                fn ($query) => $query->where('parent_id', $parentId)
+            )
+            ->when($search !== null, fn ($query) => $query->where('name', 'like', '%'.$search.'%'))
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    /**
      * Create a new document folder.
      */
     public function createFolder(array $data, int $userId, int $organizationId): DocumentFolder

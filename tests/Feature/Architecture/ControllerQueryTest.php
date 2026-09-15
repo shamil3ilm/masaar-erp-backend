@@ -87,7 +87,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Core/WebhookController.php' => 9,
         'Api/V1/Core/WebhookDlqController.php' => 4,
         'Api/V1/Core/WorkflowEscalationController.php' => 3,
-        'Api/V1/Document/DocumentFolderController.php' => 1,
         'Api/V1/Ecommerce/EcommerceChannelController.php' => 1,
         'Api/V1/Ecommerce/EcommerceOrderController.php' => 2,
         'Api/V1/Ecommerce/OnlinePaymentController.php' => 1,
