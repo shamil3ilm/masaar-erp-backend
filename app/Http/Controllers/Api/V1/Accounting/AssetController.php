@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\AssetCategory;
 use App\Models\Accounting\DepreciationRun;
@@ -15,6 +16,8 @@ use InvalidArgumentException;
 
 class AssetController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private AssetAccountingService $assetService
     ) {}
@@ -62,8 +65,8 @@ class AssetController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'asset_category_id' => ['required', 'exists:asset_categories,id'],
-            'branch_id' => ['nullable', 'exists:branches,id'],
+            'asset_category_id' => ['required', $this->ownedBy('asset_categories')],
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'asset_number' => ['nullable', 'string', 'max:100'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
@@ -99,8 +102,8 @@ class AssetController extends Controller
         }
 
         $validated = $request->validate([
-            'asset_category_id' => ['sometimes', 'exists:asset_categories,id'],
-            'branch_id' => ['nullable', 'exists:branches,id'],
+            'asset_category_id' => ['sometimes', $this->ownedBy('asset_categories')],
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'name' => ['sometimes', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'serial_number' => ['nullable', 'string', 'max:255'],
@@ -181,7 +184,7 @@ class AssetController extends Controller
     public function settleAuC(Request $request, FixedAsset $fixedAsset): JsonResponse
     {
         $validated = $request->validate([
-            'target_asset_id'  => ['required', 'integer', 'exists:fixed_assets,id', 'different:id'],
+            'target_asset_id'  => ['required', 'integer', $this->ownedBy('fixed_assets'), 'different:id'],
             'amount'           => ['required', 'numeric', 'min:0.01'],
             'settlement_date'  => ['required', 'date'],
         ]);
@@ -255,9 +258,9 @@ class AssetController extends Controller
                 'in:' . implode(',', AssetCategory::DEPRECIATION_METHODS),
             ],
             'default_salvage_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'gl_asset_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'gl_depreciation_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'gl_accumulated_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'gl_asset_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'gl_depreciation_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'gl_accumulated_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -287,9 +290,9 @@ class AssetController extends Controller
                 'in:' . implode(',', AssetCategory::DEPRECIATION_METHODS),
             ],
             'default_salvage_percent' => ['sometimes', 'numeric', 'min:0', 'max:100'],
-            'gl_asset_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'gl_depreciation_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'gl_accumulated_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'gl_asset_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'gl_depreciation_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'gl_accumulated_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
@@ -326,7 +329,7 @@ class AssetController extends Controller
     public function runDepreciation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id' => ['required', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['required', $this->ownedBy('fiscal_years')],
             'period_start' => ['required', 'date'],
             'period_end' => ['required', 'date', 'after_or_equal:period_start'],
             'notes' => ['nullable', 'string'],

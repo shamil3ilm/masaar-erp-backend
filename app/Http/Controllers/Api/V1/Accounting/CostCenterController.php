@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CostAllocation;
 use App\Models\Accounting\CostCenter;
@@ -16,6 +17,7 @@ use Illuminate\Validation\Rule;
 class CostCenterController extends Controller
 {
     use SupportsAgGrid;
+    use ValidatesOwnedRows;
     public function __construct(
         private readonly CostCenterService $service
     ) {}
@@ -56,13 +58,13 @@ class CostCenterController extends Controller
             'code'            => ['required', 'string', 'max:50'],
             'name'            => ['required', 'string', 'max:255'],
             'description'     => ['nullable', 'string'],
-            'parent_id'       => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'manager_id'      => ['nullable', 'integer', 'exists:employees,id'],
-            'department_id'   => ['nullable', 'integer', 'exists:departments,id'],
+            'parent_id'       => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'manager_id'      => ['nullable', 'integer', $this->ownedBy('employees')],
+            'department_id'   => ['nullable', 'integer', $this->ownedBy('departments')],
             'status'          => ['nullable', Rule::in([CostCenter::STATUS_ACTIVE, CostCenter::STATUS_INACTIVE])],
             'valid_from'      => ['nullable', 'date'],
             'valid_to'        => ['nullable', 'date', 'after_or_equal:valid_from'],
-            'gl_account_id'   => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'   => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'is_statistical'  => ['nullable', 'boolean'],
         ]);
 
@@ -99,13 +101,13 @@ class CostCenterController extends Controller
             'code'            => ['sometimes', 'required', 'string', 'max:50'],
             'name'            => ['sometimes', 'required', 'string', 'max:255'],
             'description'     => ['nullable', 'string'],
-            'parent_id'       => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'manager_id'      => ['nullable', 'integer', 'exists:employees,id'],
-            'department_id'   => ['nullable', 'integer', 'exists:departments,id'],
+            'parent_id'       => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'manager_id'      => ['nullable', 'integer', $this->ownedBy('employees')],
+            'department_id'   => ['nullable', 'integer', $this->ownedBy('departments')],
             'status'          => ['nullable', Rule::in([CostCenter::STATUS_ACTIVE, CostCenter::STATUS_INACTIVE])],
             'valid_from'      => ['nullable', 'date'],
             'valid_to'        => ['nullable', 'date', 'after_or_equal:valid_from'],
-            'gl_account_id'   => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'   => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'is_statistical'  => ['nullable', 'boolean'],
         ]);
 
@@ -146,8 +148,8 @@ class CostCenterController extends Controller
     public function assign(Request $request, CostCenter $costCenter): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'      => ['required', 'integer', 'exists:employees,id'],
-            'profit_center_id' => ['nullable', 'integer', 'exists:profit_centers,id'],
+            'employee_id'      => ['required', 'integer', $this->ownedBy('employees')],
+            'profit_center_id' => ['nullable', 'integer', $this->ownedBy('profit_centers')],
             'split_percent'    => ['nullable', 'numeric', 'min:0.01', 'max:100'],
             'effective_from'   => ['required', 'date'],
             'effective_to'     => ['nullable', 'date', 'after_or_equal:effective_from'],
@@ -260,7 +262,7 @@ class CostCenterController extends Controller
         $validated = $request->validate([
             'fiscal_year'     => ['required', 'integer', 'min:2000', 'max:2100'],
             'period'          => ['required', 'integer', 'min:1', 'max:12'],
-            'cost_element_id' => ['required', 'integer', 'exists:cost_elements,id'],
+            'cost_element_id' => ['required', 'integer', $this->ownedBy('cost_elements')],
             'amount'          => ['required', 'numeric', 'min:0'],
         ]);
 
@@ -324,11 +326,11 @@ class CostCenterController extends Controller
         $orgId = $this->organizationId($request);
 
         $validated = $request->validate([
-            'fiscal_year_id'      => ['nullable', 'integer', 'exists:fiscal_years,id'],
+            'fiscal_year_id'      => ['nullable', 'integer', $this->ownedBy('fiscal_years')],
             'period_start'        => ['required', 'date'],
             'period_end'          => ['required', 'date', 'after_or_equal:period_start'],
-            'from_cost_center_id' => ['required', 'integer', 'exists:cost_centers,id'],
-            'to_cost_center_id'   => ['required', 'integer', 'exists:cost_centers,id', 'different:from_cost_center_id'],
+            'from_cost_center_id' => ['required', 'integer', $this->ownedBy('cost_centers')],
+            'to_cost_center_id'   => ['required', 'integer', $this->ownedBy('cost_centers'), 'different:from_cost_center_id'],
             'allocation_method'   => ['nullable', Rule::in([CostAllocation::METHOD_FIXED, CostAllocation::METHOD_PERCENTAGE, CostAllocation::METHOD_ACTIVITY])],
             'allocation_percent'  => ['nullable', 'numeric', 'min:0.01', 'max:100'],
             'allocation_amount'   => ['nullable', 'numeric', 'min:0.0001'],

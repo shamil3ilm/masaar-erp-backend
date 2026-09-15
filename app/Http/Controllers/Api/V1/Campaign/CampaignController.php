@@ -4,24 +4,23 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Campaign;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Campaign\Campaign;
+use App\Services\Campaign\CampaignManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class CampaignController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly CampaignManagementService $campaigns) {}
+
     public function index(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $campaigns = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->withCount('sends')
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($campaigns);
+        return $this->paginated(
+            $this->campaigns->paginate($this->organizationId($request), $request->integer('per_page', 15))
+        );
     }
 
     public function store(Request $request): JsonResponse
@@ -31,7 +30,7 @@ class CampaignController extends Controller
             'description'        => 'nullable|string|max:2000',
             'trigger_event'      => 'nullable|string|max:100',
             'conditions'         => 'nullable|array',
-            'target_segment_id'  => 'nullable|integer|exists:user_segments,id',
+            'target_segment_id'  => ['nullable', 'integer', $this->ownedBy('user_segments')],
             'actions'            => 'required|array|min:1',
             'actions.*.type'     => 'required|string|in:notification,sms,database',
             'schedule_type'      => 'nullable|string|in:immediate,delayed,scheduled',
@@ -42,57 +41,26 @@ class CampaignController extends Controller
             'max_sends_per_user' => 'nullable|integer|min:1',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $campaign = Campaign::create([
-            'organization_id'    => $organizationId,
-            'name'               => $validated['name'],
-            'description'        => $validated['description'] ?? null,
-            'trigger_event'      => $validated['trigger_event'] ?? null,
-            'conditions'         => $validated['conditions'] ?? null,
-            'target_segment_id'  => $validated['target_segment_id'] ?? null,
-            'actions'            => $validated['actions'],
-            'status'             => Campaign::STATUS_DRAFT,
-            'schedule_type'      => $validated['schedule_type'] ?? 'immediate',
-            'delay_minutes'      => $validated['delay_minutes'] ?? null,
-            'scheduled_at'       => $validated['scheduled_at'] ?? null,
-            'start_date'         => $validated['start_date'] ?? null,
-            'end_date'           => $validated['end_date'] ?? null,
-            'max_sends_per_user' => $validated['max_sends_per_user'] ?? 1,
-            'created_by'         => auth()->id(),
-        ]);
+        $campaign = $this->campaigns->create($this->organizationId($request), $request->user()->id, $validated);
 
         return $this->created($campaign, 'Campaign created successfully.');
     }
 
     public function show(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $campaign = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->withCount('sends')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        return $this->success($campaign);
+        return $this->success($this->campaigns->find($this->organizationId($request), $id, withSendCount: true));
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $campaign = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
+        $campaign = $this->campaigns->find($this->organizationId($request), $id);
 
         $validated = $request->validate([
             'name'               => 'sometimes|string|max:255',
             'description'        => 'nullable|string|max:2000',
             'trigger_event'      => 'nullable|string|max:100',
             'conditions'         => 'nullable|array',
-            'target_segment_id'  => 'nullable|integer|exists:user_segments,id',
+            'target_segment_id'  => ['nullable', 'integer', $this->ownedBy('user_segments')],
             'actions'            => 'sometimes|array|min:1',
             'actions.*.type'     => 'required_with:actions|string|in:notification,sms,database',
             'schedule_type'      => 'nullable|string|in:immediate,delayed,scheduled',
@@ -103,50 +71,27 @@ class CampaignController extends Controller
             'max_sends_per_user' => 'nullable|integer|min:1',
         ]);
 
-        $campaign->update($validated);
-
-        return $this->success($campaign->fresh(), 'Campaign updated successfully.');
+        return $this->success($this->campaigns->update($campaign, $validated), 'Campaign updated successfully.');
     }
 
     public function destroy(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $campaign = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $campaign->delete();
+        $this->campaigns->delete($this->campaigns->find($this->organizationId($request), $id));
 
         return $this->success(null, 'Campaign deleted successfully.');
     }
 
     public function activate(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
+        $campaign = $this->campaigns->find($this->organizationId($request), $id);
 
-        $campaign = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $campaign->update(['status' => Campaign::STATUS_ACTIVE]);
-
-        return $this->success($campaign->fresh(), 'Campaign activated successfully.');
+        return $this->success($this->campaigns->activate($campaign), 'Campaign activated successfully.');
     }
 
     public function pause(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
+        $campaign = $this->campaigns->find($this->organizationId($request), $id);
 
-        $campaign = Campaign::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $campaign->update(['status' => Campaign::STATUS_PAUSED]);
-
-        return $this->success($campaign->fresh(), 'Campaign paused successfully.');
+        return $this->success($this->campaigns->pause($campaign), 'Campaign paused successfully.');
     }
 }

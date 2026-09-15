@@ -8,6 +8,7 @@ use App\Models\CRM\Activity;
 use App\Models\CRM\Opportunity;
 use App\Models\CRM\PipelineStage;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class OpportunityService
@@ -15,6 +16,51 @@ class OpportunityService
     public function __construct(
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * The organization's opportunities.
+     *
+     * @param  array{status?: ?string, pipeline_stage_id?: mixed, assigned_to?: mixed, contact_id?: mixed,
+     *     open?: ?string, closing_this_month?: ?string, overdue?: ?string, search?: ?string}  $filters
+     */
+    public function paginate(int $organizationId, array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return Opportunity::with(['contact', 'pipelineStage', 'assignee', 'leadSource'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($filters['pipeline_stage_id'] ?? null, fn ($query, $id) => $query->inStage($id))
+            ->when($filters['assigned_to'] ?? null, fn ($query, $id) => $query->assignedTo($id))
+            ->when($filters['contact_id'] ?? null, fn ($query, $id) => $query->forContact($id))
+            ->when(($filters['open'] ?? null) === 'true', fn ($query) => $query->open())
+            ->when(($filters['closing_this_month'] ?? null) === 'true', fn ($query) => $query->closingThisMonth())
+            ->when(($filters['overdue'] ?? null) === 'true', fn ($query) => $query->overdue())
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('opportunity_number', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhere('account_name', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * A pipeline stage of the organization.
+     */
+    public function findStage(int $organizationId, int $stageId): PipelineStage
+    {
+        return PipelineStage::query()->where('organization_id', $organizationId)->findOrFail($stageId);
+    }
+
+    /**
+     * Delete an opportunity together with its activities.
+     */
+    public function delete(Opportunity $opportunity): void
+    {
+        DB::transaction(function () use ($opportunity) {
+            $opportunity->activities()->delete();
+            $opportunity->delete();
+        });
+    }
 
     /**
      * Create a new opportunity.

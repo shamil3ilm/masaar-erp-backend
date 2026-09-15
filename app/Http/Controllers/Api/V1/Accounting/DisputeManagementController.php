@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\DisputeCase;
 use App\Services\Accounting\DisputeManagementService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class DisputeManagementController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private DisputeManagementService $service
     ) {}
@@ -41,7 +44,7 @@ class DisputeManagementController extends Controller
             'disputed_amount' => ['required', 'numeric', 'min:0.0001'],
             'dispute_reason'  => ['nullable', 'in:pricing,quality,quantity,delivery,duplicate,other'],
             'description'     => ['nullable', 'string'],
-            'assigned_to'     => ['nullable', 'exists:users,id'],
+            'assigned_to'     => ['nullable', $this->ownedBy('users')],
             'due_date'        => ['nullable', 'date'],
         ]);
 
@@ -71,7 +74,7 @@ class DisputeManagementController extends Controller
     {
         $validated = $request->validate([
             'status'         => ['nullable', 'in:open,in_review,escalated'],
-            'assigned_to'    => ['nullable', 'exists:users,id'],
+            'assigned_to'    => ['nullable', $this->ownedBy('users')],
             'description'    => ['nullable', 'string'],
             'due_date'       => ['nullable', 'date'],
             'dispute_reason' => ['nullable', 'in:pricing,quality,quantity,delivery,duplicate,other'],
@@ -135,7 +138,7 @@ class DisputeManagementController extends Controller
             'contact_id'          => ['required', 'integer', 'min:1'],
             'promise_to_pay_date' => ['required', 'date', 'after_or_equal:today'],
             'promise_amount'      => ['required', 'numeric', 'min:0.0001'],
-            'assigned_to'         => ['nullable', 'exists:users,id'],
+            'assigned_to'         => ['nullable', $this->ownedBy('users')],
             'notes'               => ['nullable', 'string'],
         ]);
 

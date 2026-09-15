@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\TransferPrice;
 use App\Services\Accounting\TransferPricingService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class TransferPricingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly TransferPricingService $service
     ) {}
@@ -47,12 +50,12 @@ class TransferPricingController extends Controller
         $orgId = $this->organizationId($request);
 
         $validated = $request->validate([
-            'from_profit_center_id'  => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'to_profit_center_id'    => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'from_cost_center_id'    => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'to_cost_center_id'      => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'product_id'             => ['nullable', 'integer', 'exists:products,id'],
-            'cost_element_id'        => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'from_profit_center_id'  => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'to_profit_center_id'    => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'from_cost_center_id'    => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'to_cost_center_id'      => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'product_id'             => ['nullable', 'integer', $this->ownedBy('products')],
+            'cost_element_id'        => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'transfer_price_method'  => ['required', Rule::in(TransferPrice::METHODS)],
             'base_price'             => ['required', 'numeric', 'min:0'],
             'markup_percentage'      => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -89,12 +92,12 @@ class TransferPricingController extends Controller
         $tp = $this->service->findPrice($id);
 
         $validated = $request->validate([
-            'from_profit_center_id'  => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'to_profit_center_id'    => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'from_cost_center_id'    => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'to_cost_center_id'      => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'product_id'             => ['nullable', 'integer', 'exists:products,id'],
-            'cost_element_id'        => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'from_profit_center_id'  => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'to_profit_center_id'    => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'from_cost_center_id'    => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'to_cost_center_id'      => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'product_id'             => ['nullable', 'integer', $this->ownedBy('products')],
+            'cost_element_id'        => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'transfer_price_method'  => ['sometimes', 'required', Rule::in(TransferPrice::METHODS)],
             'base_price'             => ['sometimes', 'required', 'numeric', 'min:0'],
             'markup_percentage'      => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -184,9 +187,9 @@ class TransferPricingController extends Controller
     public function calculate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'              => ['required', 'integer', 'exists:products,id'],
-            'from_profit_center_id'   => ['required', 'integer', 'exists:profit_centers,id'],
-            'to_profit_center_id'     => ['required', 'integer', 'exists:profit_centers,id'],
+            'product_id'              => ['required', 'integer', $this->ownedBy('products')],
+            'from_profit_center_id'   => ['required', 'integer', $this->ownedBy('profit_centers')],
+            'to_profit_center_id'     => ['required', 'integer', $this->ownedBy('profit_centers')],
             'quantity'                => ['required', 'numeric', 'min:0.0001'],
             'date'                    => ['required', 'date'],
         ]);

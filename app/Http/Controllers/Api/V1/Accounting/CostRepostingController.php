@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CostReposting;
 use App\Services\Accounting\CostRepostingService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class CostRepostingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostRepostingService $service
     ) {}
@@ -58,7 +61,7 @@ class CostRepostingController extends Controller
                 CostReposting::FROM_PROFIT_CENTER,
             ])],
             'to_id'           => ['required', 'integer', 'min:1'],
-            'cost_element_id' => ['required', 'integer', 'exists:cost_elements,id'],
+            'cost_element_id' => ['required', 'integer', $this->ownedBy('cost_elements')],
             'amount'          => ['required', 'numeric', 'min:0.0001'],
             'currency_code'   => ['nullable', 'string', 'size:3'],
             'narration'       => ['nullable', 'string', 'max:1000'],

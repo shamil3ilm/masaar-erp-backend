@@ -43,6 +43,14 @@ class MessagingConfiguration extends Model
         'is_active',
     ];
 
+    /**
+     * Provider secrets (API keys, auth tokens, SMTP passwords). The cast decrypts
+     * them for the sender; they never leave in a response.
+     */
+    protected $hidden = [
+        'credentials',
+    ];
+
     protected function casts(): array
     {
         return [

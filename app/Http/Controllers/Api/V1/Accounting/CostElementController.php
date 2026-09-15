@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CostElement;
 use App\Services\Accounting\CostElementService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class CostElementController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostElementService $service
     ) {}
@@ -42,7 +45,7 @@ class CostElementController extends Controller
             'code'                  => ['required', 'string', 'max:20'],
             'name'                  => ['required', 'string', 'max:150'],
             'element_type'          => ['required', Rule::in([CostElement::TYPE_PRIMARY, CostElement::TYPE_SECONDARY])],
-            'gl_account_id'         => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'         => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'cost_element_category' => ['nullable', Rule::in([
                 CostElement::CATEGORY_GENERAL,
                 CostElement::CATEGORY_DEPRECIATION,
@@ -81,7 +84,7 @@ class CostElementController extends Controller
             'code'                  => ['sometimes', 'required', 'string', 'max:20'],
             'name'                  => ['sometimes', 'required', 'string', 'max:150'],
             'element_type'          => ['sometimes', 'required', Rule::in([CostElement::TYPE_PRIMARY, CostElement::TYPE_SECONDARY])],
-            'gl_account_id'         => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'         => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'cost_element_category' => ['nullable', Rule::in([
                 CostElement::CATEGORY_GENERAL,
                 CostElement::CATEGORY_DEPRECIATION,

@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\V1\CRM;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CRM\OpportunityResource;
 use App\Models\CRM\Opportunity;
-use App\Models\CRM\PipelineStage;
 use App\Services\CRM\OpportunityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,27 +24,13 @@ class OpportunityController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Opportunity::with(['contact', 'pipelineStage', 'assignee', 'leadSource'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->pipeline_stage_id, fn($q, $id) => $q->inStage($id))
-            ->when($request->assigned_to, fn($q, $id) => $q->assignedTo($id))
-            ->when($request->contact_id, fn($q, $id) => $q->forContact($id))
-            ->when($request->open === 'true', fn($q) => $q->open())
-            ->when($request->closing_this_month === 'true', fn($q) => $q->closingThisMonth())
-            ->when($request->overdue === 'true', fn($q) => $q->overdue())
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('opportunity_number', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('account_name', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['title', 'status', 'amount', 'expected_close_date', 'created_at', 'updated_at'], 'expected_close_date'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
-
-        $opportunities = $query->paginate($request->integer('per_page', 15));
+        $opportunities = $this->opportunityService->paginate(
+            $request->user()->organization_id,
+            $request->only(['status', 'pipeline_stage_id', 'assigned_to', 'contact_id', 'open', 'closing_this_month', 'overdue', 'search']),
+            $this->safeSortBy($request->sort_by, ['title', 'status', 'amount', 'expected_close_date', 'created_at', 'updated_at'], 'expected_close_date'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($opportunities, OpportunityResource::class);
     }
@@ -125,8 +110,7 @@ class OpportunityController extends Controller
      */
     public function destroy(Opportunity $opportunity): JsonResponse
     {
-        $opportunity->activities()->delete();
-        $opportunity->delete();
+        $this->opportunityService->delete($opportunity);
 
         return $this->success(null, 'Opportunity deleted successfully.');
     }
@@ -141,8 +125,8 @@ class OpportunityController extends Controller
         ]);
 
         return $this->tryAction(
-            function () use ($validated, $opportunity) {
-                $stage = PipelineStage::findOrFail($validated['pipeline_stage_id']);
+            function () use ($request, $validated, $opportunity) {
+                $stage = $this->opportunityService->findStage($request->user()->organization_id, (int) $validated['pipeline_stage_id']);
                 return new OpportunityResource($this->opportunityService->moveToStage($opportunity, $stage, auth()->id()));
             },
             'Opportunity moved to new stage.',

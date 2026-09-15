@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\XbrlFiling;
 use App\Models\Accounting\XbrlTaxonomy;
@@ -15,6 +16,8 @@ use InvalidArgumentException;
 
 class XbrlController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private XbrlService $xbrlService
     ) {}
@@ -93,8 +96,8 @@ class XbrlController extends Controller
     public function filingsStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id'         => ['required', 'exists:fiscal_years,id'],
-            'taxonomy_id'            => ['required', 'exists:xbrl_taxonomies,id'],
+            'fiscal_year_id'         => ['required', $this->ownedBy('fiscal_years')],
+            'taxonomy_id'            => ['required', $this->ownedBy('xbrl_taxonomies')],
             'report_type'            => ['nullable', 'in:annual,semi_annual,quarterly,interim'],
             'period_start'           => ['nullable', 'date'],
             'period_end'             => ['nullable', 'date'],

@@ -7,12 +7,43 @@ namespace App\Services\Admin;
 use App\Models\Admin\PlatformAdmin;
 use App\Models\Admin\PlatformAdminActivity;
 use App\Models\Admin\PlatformAdminSession;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class PlatformAdminService
 {
+    /**
+     * Platform admins, newest first.
+     */
+    public function paginate(mixed $perPage): LengthAwarePaginator
+    {
+        return PlatformAdmin::orderByDesc('created_at')->paginate($perPage);
+    }
+
+    /**
+     * Update an admin's profile. A new password is stored only as a hash.
+     *
+     * @param  array{name?: string, email?: string, phone?: ?string, password?: string, role?: string,
+     *     avatar?: ?string, is_active?: bool, permissions?: ?array}  $data
+     */
+    public function update(PlatformAdmin $admin, array $data): PlatformAdmin
+    {
+        if (isset($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
+        }
+
+        $admin->update($data);
+
+        return $admin->fresh();
+    }
+
+    public function delete(PlatformAdmin $admin): void
+    {
+        $admin->delete();
+    }
+
     /**
      * Create a new platform admin.
      */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\ProfitCenter;
 use App\Services\Accounting\ProfitCenterService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class ProfitCenterController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ProfitCenterService $service
     ) {}
@@ -49,12 +52,12 @@ class ProfitCenterController extends Controller
             'code'           => ['required', 'string', 'max:50'],
             'name'           => ['required', 'string', 'max:255'],
             'description'    => ['nullable', 'string'],
-            'parent_id'      => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'manager_id'     => ['nullable', 'integer', 'exists:employees,id'],
+            'parent_id'      => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'manager_id'     => ['nullable', 'integer', $this->ownedBy('employees')],
             'status'         => ['nullable', Rule::in([ProfitCenter::STATUS_ACTIVE, ProfitCenter::STATUS_INACTIVE])],
             'valid_from'     => ['nullable', 'date'],
             'valid_to'       => ['nullable', 'date', 'after_or_equal:valid_from'],
-            'gl_account_id'  => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'  => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
         ]);
 
         $profitCenter = $this->service->createProfitCenter(
@@ -89,12 +92,12 @@ class ProfitCenterController extends Controller
             'code'           => ['sometimes', 'required', 'string', 'max:50'],
             'name'           => ['sometimes', 'required', 'string', 'max:255'],
             'description'    => ['nullable', 'string'],
-            'parent_id'      => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'manager_id'     => ['nullable', 'integer', 'exists:employees,id'],
+            'parent_id'      => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'manager_id'     => ['nullable', 'integer', $this->ownedBy('employees')],
             'status'         => ['nullable', Rule::in([ProfitCenter::STATUS_ACTIVE, ProfitCenter::STATUS_INACTIVE])],
             'valid_from'     => ['nullable', 'date'],
             'valid_to'       => ['nullable', 'date', 'after_or_equal:valid_from'],
-            'gl_account_id'  => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'gl_account_id'  => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
         ]);
 
         $updated = $this->service->updateProfitCenter($profitCenter, $validated, $request->user()->id);
