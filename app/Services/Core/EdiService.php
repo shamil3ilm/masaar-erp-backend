@@ -7,6 +7,7 @@ namespace App\Services\Core;
 use App\Models\Core\EdiMessage;
 use App\Models\Core\EdiMessageSegment;
 use App\Models\Core\EdiPartner;
+use App\Models\Inventory\Product;
 use App\Models\Purchase\Bill;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\Contact;
@@ -92,18 +93,64 @@ class EdiService
     }
 
     /**
+     * A partner of the current organization; another organization's partner is not found.
+     */
+    public function findPartner(int $id): EdiPartner
+    {
+        return EdiPartner::findOrFail($id);
+    }
+
+    /**
+     * A partner with its contact's id and name.
+     */
+    public function partnerDetails(int $id): EdiPartner
+    {
+        return EdiPartner::with('contact:id,name')->findOrFail($id);
+    }
+
+    public function deletePartner(EdiPartner $partner): void
+    {
+        $partner->delete();
+    }
+
+    /**
+     * A message of the current organization; another organization's message is not found.
+     */
+    public function findMessage(int $id): EdiMessage
+    {
+        return EdiMessage::findOrFail($id);
+    }
+
+    /**
+     * A message with its partner's code and name and its parsed segments.
+     */
+    public function messageDetails(int $id): EdiMessage
+    {
+        return EdiMessage::with(['partner:id,partner_code,partner_name', 'segments'])->findOrFail($id);
+    }
+
+    /**
      * Process a received EDI message: route to the appropriate handler,
      * update status, and populate reference_type / reference_id.
+     *
+     * The message is claimed on the locked row, so two requests cannot both
+     * process it and create its purchase order or bill twice.
      */
     public function processMessage(EdiMessage $message): EdiMessage
     {
-        if (!in_array($message->status, [EdiMessage::STATUS_RECEIVED, EdiMessage::STATUS_FAILED], true)) {
-            throw new RuntimeException(
-                "Message in status '{$message->status}' cannot be processed."
-            );
-        }
+        $message = DB::transaction(function () use ($message): EdiMessage {
+            $locked = EdiMessage::query()->lockForUpdate()->findOrFail($message->id);
 
-        $message->update(['status' => EdiMessage::STATUS_PROCESSING]);
+            if (!in_array($locked->status, [EdiMessage::STATUS_RECEIVED, EdiMessage::STATUS_FAILED], true)) {
+                throw new RuntimeException(
+                    "Message in status '{$locked->status}' cannot be processed."
+                );
+            }
+
+            $locked->update(['status' => EdiMessage::STATUS_PROCESSING]);
+
+            return $locked;
+        });
 
         try {
             $result = $this->routeMessageToHandler($message);
@@ -303,10 +350,48 @@ class EdiService
     private function routeMessageToHandler(EdiMessage $message): array
     {
         return match ($message->message_type) {
-            'ORDERS', 'IDOC_ORDERS01' => $this->handleInboundOrder($message),
-            'INVOIC', 'IDOC_INVOIC01' => $this->handleInboundInvoice($message),
+            'ORDERS', 'IDOC_ORDERS01' => $this->handleInboundOrder($this->assertOwnProducts($message)),
+            'INVOIC', 'IDOC_INVOIC01' => $this->handleInboundInvoice($this->assertOwnProducts($message)),
             default                   => ['reference_type' => null, 'reference_id' => null],
         };
+    }
+
+    /**
+     * Refuses an inbound document whose lines name a product of another
+     * organization. The content comes from a trading partner, so a product id
+     * in it is not trusted to belong to the organization receiving it.
+     *
+     * @throws RuntimeException naming the problem, which marks the message failed
+     */
+    private function assertOwnProducts(EdiMessage $message): EdiMessage
+    {
+        $lines = $message->parsed_content['lines'] ?? [];
+
+        if (! is_array($lines)) {
+            return $message;
+        }
+
+        $productIds = collect($lines)
+            ->map(fn ($line) => is_array($line) ? ($line['product_id'] ?? null) : null)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($productIds->isEmpty()) {
+            return $message;
+        }
+
+        $owned = Product::withoutGlobalScopes()
+            ->where('organization_id', $message->organization_id)
+            ->whereIn('id', $productIds)
+            ->count();
+
+        if ($owned !== $productIds->count()) {
+            throw new RuntimeException('EDI message lines name a product that does not belong to the organization.');
+        }
+
+        return $message;
     }
 
     /**
