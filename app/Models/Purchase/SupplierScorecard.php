@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SupplierScorecard extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition;
 
     public const STATUS_DRAFT     = 'draft';
     public const STATUS_FINALIZED = 'finalized';
