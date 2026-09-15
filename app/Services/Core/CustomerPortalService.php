@@ -26,11 +26,38 @@ class CustomerPortalService
     private const RESET_TOKEN_TTL_MINUTES = 60;
 
     /**
+     * The portal user's contact by its reference columns and email, never the
+     * whole model with its decrypted tax number.
+     */
+    public function profileContact(PortalUser $portalUser): ?Contact
+    {
+        return $portalUser->contact()->select([...Contact::REFERENCE_COLUMNS, 'email'])->first();
+    }
+
+    /**
      * Register a new portal user linked to an existing contact.
+     *
+     * Registration is public, so the email given must be the one the
+     * organization holds for the contact. Without that anyone could open an
+     * account on any customer by id and read its invoices and statements. An
+     * unknown contact, one without an email and a mismatch fail alike, so the
+     * answer does not reveal which contact ids exist.
+     *
+     * This does not prove the caller controls that mailbox; an emailed
+     * confirmation step would.
+     *
+     * @throws RuntimeException when the contact cannot be linked or the email already has an account
      */
     public function register(int $contactId, string $email, string $password): PortalUser
     {
-        $contact = Contact::findOrFail($contactId);
+        $contact = Contact::find($contactId);
+
+        if ($contact === null
+            || ! is_string($contact->email)
+            || strcasecmp(trim($contact->email), trim($email)) !== 0
+        ) {
+            throw new RuntimeException('Registration could not be completed.');
+        }
 
         if (PortalUser::where('organization_id', $contact->organization_id)
             ->where('email', $email)
