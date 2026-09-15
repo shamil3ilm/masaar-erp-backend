@@ -6,8 +6,8 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
-use App\Models\Purchase\PurchaseOrder;
 use App\Models\Purchase\PurchaseRequisition;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 
 class MrpPlannedOrder extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition;
 
     public const TYPE_PURCHASE = 'purchase';
     public const TYPE_PRODUCTION = 'production';
@@ -77,33 +77,6 @@ class MrpPlannedOrder extends Model
         $this->update(['status' => self::STATUS_FIRMED]);
 
         return $this->fresh();
-    }
-
-    /**
-     * Convert planned order to a purchase order.
-     */
-    public function convertToPurchaseOrder(int $userId): PurchaseOrder
-    {
-        return DB::transaction(function () use ($userId) {
-            $purchaseOrder = PurchaseOrder::create([
-                'organization_id'   => $this->organization_id,
-                'supplier_id'       => null, // To be assigned by user after conversion
-                'order_date'        => now()->toDateString(),
-                'expected_delivery' => $this->planned_end_date->toDateString(),
-                'status'            => 'draft',
-                'notes'             => "Auto-generated from MRP planned order #{$this->uuid}",
-                'created_by'        => $userId,
-            ]);
-
-            $this->update([
-                'status'            => self::STATUS_CONVERTED,
-                'converted_at'      => now(),
-                'converted_to_type' => PurchaseOrder::class,
-                'converted_to_id'   => $purchaseOrder->id,
-            ]);
-
-            return $purchaseOrder;
-        });
     }
 
     /**

@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Core\UserSession;
-use App\Models\User;
 use App\Services\Core\ActivityLogService;
+use App\Services\Core\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ActivityLogController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        protected ActivityLogService $activityLogService
+        protected ActivityLogService $activityLogService,
+        private readonly UserService $users,
     ) {}
 
     /**
@@ -23,7 +27,7 @@ class ActivityLogController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'user_id' => 'nullable|integer|exists:users,id',
+            'user_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'action' => 'nullable|string|max:100',
             'entity_type' => 'nullable|string|max:100',
             'from' => 'nullable|date',
@@ -68,8 +72,7 @@ class ActivityLogController extends Controller
      */
     public function getForUser(Request $request, int $userId): JsonResponse
     {
-        $targetUser = User::find($userId);
-        abort_unless($targetUser !== null, 404, 'User not found.');
+        abort_unless($this->users->exists($userId), 404, 'User not found.');
 
         $authUser = $request->user();
         if (! $authUser->is_super_admin && $userId !== $authUser->id) {

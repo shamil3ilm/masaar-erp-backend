@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\SubcontractOrder;
 use App\Models\Manufacturing\SubcontractReceipt;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 
 class SubcontractingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private SubcontractingService $subcontractingService,
     ) {}
@@ -27,20 +30,12 @@ class SubcontractingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = SubcontractOrder::with(['vendor', 'branch'])
-            ->withCount(['lines', 'components', 'transfers', 'receipts'])
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->contact_id, fn ($q, $id) => $q->forVendor($id))
-            ->when($request->branch_id, fn ($q, $id) => $q->where('branch_id', $id))
-            ->when($request->search, fn ($q, $s) => $q->where('order_number', 'like', "%{$s}%"))
-            ->when($request->from_date, fn ($q, $d) => $q->whereDate('issued_date', '>=', $d))
-            ->when($request->to_date, fn ($q, $d) => $q->whereDate('issued_date', '<=', $d))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['order_number', 'status', 'issued_date', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->subcontractingService->paginate(
+            $request->only(['status', 'contact_id', 'branch_id', 'search', 'from_date', 'to_date']),
+            $this->safeSortBy($request->sort_by, SubcontractingService::SORT_COLUMNS, 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -49,26 +44,26 @@ class SubcontractingController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'contact_id'             => 'required|exists:contacts,id',
+            'contact_id'             => ['required', $this->ownedBy('contacts')],
             'issued_date'            => 'nullable|date',
             'expected_receipt_date'  => 'nullable|date|after_or_equal:issued_date',
             'currency_code'          => 'nullable|string|size:3',
             'service_charge'         => 'nullable|numeric|min:0',
             'notes'                  => 'nullable|string',
-            'purchase_order_id'      => 'nullable|exists:purchase_orders,id',
-            'branch_id'              => 'nullable|exists:branches,id',
+            'purchase_order_id'      => ['nullable', $this->ownedBy('purchase_orders')],
+            'branch_id'              => ['nullable', $this->ownedBy('branches')],
             'lines'                  => 'required|array|min:1',
-            'lines.*.product_id'     => 'required|exists:products,id',
-            'lines.*.variant_id'     => 'nullable|exists:product_variants,id',
+            'lines.*.product_id'     => ['required', $this->ownedBy('products')],
+            'lines.*.variant_id'     => ['nullable', $this->ownedVariant()],
             'lines.*.ordered_quantity'    => 'required|numeric|min:0.0001',
-            'lines.*.unit_id'             => 'required|exists:units_of_measure,id',
+            'lines.*.unit_id'             => ['required', $this->ownedBy('units_of_measure')],
             'lines.*.unit_service_charge' => 'nullable|numeric|min:0',
             'components'                  => 'nullable|array',
-            'components.*.product_id'     => 'required|exists:products,id',
-            'components.*.variant_id'     => 'nullable|exists:product_variants,id',
+            'components.*.product_id'     => ['required', $this->ownedBy('products')],
+            'components.*.variant_id'     => ['nullable', $this->ownedVariant()],
             'components.*.required_quantity' => 'required|numeric|min:0.0001',
-            'components.*.unit_id'           => 'required|exists:units_of_measure,id',
-            'components.*.warehouse_id'      => 'required|exists:warehouses,id',
+            'components.*.unit_id'           => ['required', $this->ownedBy('units_of_measure')],
+            'components.*.warehouse_id'      => ['required', $this->ownedBy('warehouses')],
         ]);
 
         $order = $this->subcontractingService->createOrder($data);
@@ -81,20 +76,7 @@ class SubcontractingController extends Controller
      */
     public function show(SubcontractOrder $subcontractOrder): JsonResponse
     {
-        $subcontractOrder->loadMissing([
-            'vendor',
-            'branch',
-            'lines.product',
-            'lines.variant',
-            'lines.unit',
-            'components.product',
-            'components.variant',
-            'components.unit',
-            'components.warehouse',
-            'createdBy',
-        ]);
-
-        return $this->success($subcontractOrder);
+        return $this->success($this->subcontractingService->withDetails($subcontractOrder));
     }
 
     /**
@@ -107,19 +89,23 @@ class SubcontractingController extends Controller
         }
 
         $data = $request->validate([
-            'contact_id'            => 'sometimes|exists:contacts,id',
+            'contact_id'            => ['sometimes', $this->ownedBy('contacts')],
             'issued_date'           => 'nullable|date',
             'expected_receipt_date' => 'nullable|date',
             'currency_code'         => 'nullable|string|size:3',
             'service_charge'        => 'nullable|numeric|min:0',
             'notes'                 => 'nullable|string',
-            'purchase_order_id'     => 'nullable|exists:purchase_orders,id',
-            'branch_id'             => 'nullable|exists:branches,id',
+            'purchase_order_id'     => ['nullable', $this->ownedBy('purchase_orders')],
+            'branch_id'             => ['nullable', $this->ownedBy('branches')],
         ]);
 
-        $subcontractOrder->update($data);
+        try {
+            $order = $this->subcontractingService->update($subcontractOrder, $data);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
+        }
 
-        return $this->success($subcontractOrder->fresh(), 'Order updated.');
+        return $this->success($order, 'Order updated.');
     }
 
     /**
@@ -161,12 +147,11 @@ class SubcontractingController extends Controller
      */
     public function indexTransfers(Request $request, SubcontractOrder $subcontractOrder): JsonResponse
     {
-        $query = SubcontractTransfer::where('order_id', $subcontractOrder->id)
-            ->with(['warehouse', 'lines.product', 'createdBy'])
-            ->when($request->transfer_type, fn ($q, $t) => $q->where('transfer_type', $t))
-            ->orderBy('transfer_date', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->subcontractingService->paginateTransfers(
+            $subcontractOrder,
+            $request->transfer_type,
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -174,9 +159,7 @@ class SubcontractingController extends Controller
      */
     public function showTransfer(SubcontractTransfer $transfer): JsonResponse
     {
-        $transfer->loadMissing(['order', 'warehouse', 'lines.product', 'lines.unit', 'createdBy']);
-
-        return $this->success($transfer);
+        return $this->success($this->subcontractingService->transferWithDetails($transfer));
     }
 
     // -------------------------------------------------------------------------
@@ -189,7 +172,7 @@ class SubcontractingController extends Controller
     public function receiveFromVendor(Request $request, SubcontractOrder $subcontractOrder): JsonResponse
     {
         $data = $request->validate([
-            'warehouse_id'                    => 'required|exists:warehouses,id',
+            'warehouse_id'                    => ['required', $this->ownedBy('warehouses')],
             'receipt_date'                    => 'nullable|date',
             'notes'                           => 'nullable|string',
             'lines'                           => 'required|array|min:1',
@@ -211,11 +194,10 @@ class SubcontractingController extends Controller
      */
     public function indexReceipts(Request $request, SubcontractOrder $subcontractOrder): JsonResponse
     {
-        $query = SubcontractReceipt::where('order_id', $subcontractOrder->id)
-            ->with(['warehouse', 'lines.product', 'createdBy'])
-            ->orderBy('receipt_date', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->subcontractingService->paginateReceipts(
+            $subcontractOrder,
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -223,9 +205,7 @@ class SubcontractingController extends Controller
      */
     public function showReceipt(SubcontractReceipt $receipt): JsonResponse
     {
-        $receipt->loadMissing(['order', 'warehouse', 'lines.product', 'lines.unit', 'createdBy']);
-
-        return $this->success($receipt);
+        return $this->success($this->subcontractingService->receiptWithDetails($receipt));
     }
 
     // -------------------------------------------------------------------------

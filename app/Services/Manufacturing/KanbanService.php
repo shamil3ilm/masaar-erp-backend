@@ -61,13 +61,17 @@ class KanbanService
      */
     public function signalEmpty(KanbanCard $card): void
     {
-        DB::transaction(function () use ($card): void {
+        $card->lockForTransition(function (KanbanCard $card): void {
+            if (! $card->canSignalEmpty()) {
+                throw new \InvalidArgumentException("Card must be in 'full' status to signal empty. Current: {$card->status}.");
+            }
+
             $card->update([
                 'status'     => KanbanCard::STATUS_EMPTY,
                 'emptied_at' => now(),
             ]);
 
-            // Trigger replenishment for every empty card (threshold = 1)
+            // Every empty card triggers replenishment (threshold = 1).
             $this->triggerReplenishment($card);
         });
     }
@@ -105,7 +109,11 @@ class KanbanService
      */
     public function signalFull(KanbanCard $card, float $quantity): void
     {
-        DB::transaction(function () use ($card, $quantity): void {
+        $card->lockForTransition(function (KanbanCard $card) use ($quantity): void {
+            if (! $card->canSignalFull()) {
+                throw new \InvalidArgumentException("Card cannot be signalled full from status '{$card->status}'.");
+            }
+
             $card->update([
                 'status'           => KanbanCard::STATUS_FULL,
                 'filled_at'        => now(),
@@ -272,5 +280,74 @@ class KanbanService
         ]);
 
         return [$transfer->id, 'stock_transfer'];
+    }
+
+    /**
+     * The organization's supply areas, by code.
+     */
+    public function paginateSupplyAreas(?string $search, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return KanbanSupplyArea::with(['warehouse', 'location'])
+            ->when($search, fn ($q, $s) => $q->where(function ($q) use ($s) {
+                $q->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%");
+            }))
+            ->orderBy('code')
+            ->paginate($perPage);
+    }
+
+    public function createSupplyArea(array $data): KanbanSupplyArea
+    {
+        return KanbanSupplyArea::create($data)->load(['warehouse', 'location']);
+    }
+
+    public function updateSupplyArea(KanbanSupplyArea $area, array $data): KanbanSupplyArea
+    {
+        $area->update($data);
+
+        return $area->fresh(['warehouse', 'location']);
+    }
+
+    public function deleteSupplyArea(KanbanSupplyArea $area): void
+    {
+        $area->delete();
+    }
+
+    /**
+     * The organization's control cycles with their card counts.
+     *
+     * @param  array{active_only: bool, product_id?: mixed, supply_area_id?: mixed}  $filters
+     */
+    public function paginateControlCycles(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return KanbanControlCycle::with(['product', 'supplyArea'])
+            ->withCount('cards')
+            ->when($filters['active_only'], fn ($q) => $q->active())
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->where('product_id', $id))
+            ->when($filters['supply_area_id'] ?? null, fn ($q, $id) => $q->where('supply_area_id', $id))
+            ->orderBy('id')
+            ->paginate($perPage);
+    }
+
+    public function updateControlCycle(KanbanControlCycle $cycle, array $data): KanbanControlCycle
+    {
+        $cycle->update($data);
+
+        return $cycle->fresh(['product', 'supplyArea']);
+    }
+
+    public function deleteControlCycle(KanbanControlCycle $cycle): void
+    {
+        $cycle->delete();
+    }
+
+    /**
+     * The card, when its control cycle belongs to the caller's organization.
+     * Cards carry no organization column of their own.
+     */
+    public function cardOfOrganization(KanbanCard $card): KanbanCard
+    {
+        KanbanControlCycle::findOrFail($card->control_cycle_id);
+
+        return $card;
     }
 }

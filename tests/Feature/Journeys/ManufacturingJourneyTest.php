@@ -10,8 +10,8 @@ use App\Models\Inventory\Product;
 use App\Models\Inventory\UnitOfMeasure;
 use App\Models\Manufacturing\BomTemplate;
 use App\Models\Manufacturing\WorkOrder;
+use App\Models\System\Setting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -120,8 +120,7 @@ class ManufacturingJourneyTest extends TestCase
     {
         [$fgAccount, $wipAccount] = $this->seedManufacturingGlAccounts();
 
-        Config::set('erp.default_accounts.fg_inventory', $fgAccount->id);
-        Config::set('erp.default_accounts.wip_inventory', $wipAccount->id);
+        Setting::set('accounting', 'wip_account_id', $wipAccount->id, null, $this->organization->id);
 
         $bom = $this->createActiveBom(['overhead_cost' => 200.00]);
 

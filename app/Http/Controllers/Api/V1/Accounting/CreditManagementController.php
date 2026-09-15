@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CreditHold;
 use App\Models\Accounting\CreditLimit;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 
 class CreditManagementController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CreditManagementService $creditService
     ) {}
@@ -36,7 +39,7 @@ class CreditManagementController extends Controller
     public function storeLimit(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'         => 'required|exists:contacts,id',
+            'contact_id'         => ['required', $this->ownedBy('contacts')],
             'credit_limit'       => 'required|numeric|min:0',
             'currency_code'      => 'nullable|string|size:3',
             'valid_from'         => 'required|date',

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\JobMonitor;
 use App\Services\Core\JobMonitorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,29 +31,13 @@ class JobMonitorController extends Controller
             'per_page'    => 'nullable|integer|min:1|max:100',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $query = JobMonitor::query()->with('triggeredByUser');
-
-        if ($organizationId !== null) {
-            $query->where(function ($q) use ($organizationId) {
-                $q->where('organization_id', $organizationId)
-                    ->orWhereNull('organization_id');
-            });
-        }
-
-        $query
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->get('status')))
-            ->when($request->filled('queue_name'), fn($q) => $q->byQueue($request->get('queue_name')))
-            ->when($request->filled('job_class'), fn($q) => $q->where('job_class', 'like', '%' . $request->get('job_class') . '%'))
-            ->when($request->filled('date_from'), fn($q) => $q->where('queued_at', '>=', $request->get('date_from')))
-            ->when($request->filled('date_to'), fn($q) => $q->where('queued_at', '<=', $request->get('date_to') . ' 23:59:59'));
-
-        $sortBy  = $this->safeSortBy($request->get('sort_by'), ['queued_at', 'status', 'job_name', 'job_class'], 'queued_at');
-        $sortDir = $this->safeSortOrder($request->get('sort_dir'), 'desc');
-
-        $results = $query->orderBy($sortBy, $sortDir)
-            ->paginate($request->get('per_page', 20));
+        $results = $this->service->list(
+            $this->organizationId($request),
+            $request->only(['status', 'queue_name', 'job_class', 'date_from', 'date_to']),
+            $this->safeSortBy($request->get('sort_by'), ['queued_at', 'status', 'job_name', 'job_class'], 'queued_at'),
+            $this->safeSortOrder($request->get('sort_dir'), 'desc'),
+            (int) $request->get('per_page', 20),
+        );
 
         return $this->paginated($results);
     }
@@ -65,9 +48,7 @@ class JobMonitorController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $job = JobMonitor::with(['triggeredByUser', 'logs'])->findOrFail($id);
-
-        return $this->success($job);
+        return $this->success($this->service->details($id));
     }
 
     /**
@@ -116,9 +97,7 @@ class JobMonitorController extends Controller
         try {
             $this->service->retryFailed($id);
 
-            $job = JobMonitor::findOrFail($id);
-
-            return $this->success($job, 'Job queued for retry');
+            return $this->success($this->service->find($id), 'Job queued for retry');
         } catch (RuntimeException $e) {
             return $this->error($e->getMessage(), 'RETRY_FAILED', 422);
         }
@@ -135,12 +114,11 @@ class JobMonitorController extends Controller
             'per_page' => 'nullable|integer|min:1|max:200',
         ]);
 
-        $query = JobMonitor::findOrFail($id)
-            ->logs()
-            ->orderBy('created_at')
-            ->when($request->filled('level'), fn($q) => $q->where('level', $request->get('level')));
-
-        $logs = $query->paginate($request->get('per_page', 50));
+        $logs = $this->service->logs(
+            $id,
+            $request->filled('level') ? (string) $request->get('level') : null,
+            (int) $request->get('per_page', 50),
+        );
 
         return $this->paginated($logs);
     }

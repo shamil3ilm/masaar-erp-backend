@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\Warehouse;
 use App\Models\User;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ScrapReport extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const CAUSE_DEFECT = 'defect';
     public const CAUSE_DAMAGE = 'damage';

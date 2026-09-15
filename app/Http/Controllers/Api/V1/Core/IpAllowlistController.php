@@ -4,23 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\IpAllowlistRule;
 use App\Services\Core\IpAllowlistService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class IpAllowlistController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly IpAllowlistService $service) {}
 
     public function index(Request $request): JsonResponse
     {
-        $rules = IpAllowlistRule::where('organization_id', $request->user()->organization_id)
-            ->orderBy('rule_type')
-            ->paginate(20);
-
-        return $this->paginated($rules);
+        return $this->paginated($this->service->list($request->user()->organization_id));
     }
 
     public function store(Request $request): JsonResponse
@@ -33,7 +31,7 @@ class IpAllowlistController extends Controller
             'cidr_notation'  => 'nullable|string|max:18',
             'rule_type'      => 'required|in:allow,deny',
             'applies_to'     => 'required|in:all,api,admin,specific_role',
-            'role_id'        => 'nullable|integer',
+            'role_id'        => ['nullable', 'integer', $this->ownedBy('roles')],
             'active'         => 'boolean',
         ]);
 
@@ -47,7 +45,7 @@ class IpAllowlistController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $rule = IpAllowlistRule::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $rule = $this->service->findInOrganization($request->user()->organization_id, $id);
         $data = $request->validate([
             'rule_name'  => 'sometimes|string|max:255',
             'rule_type'  => 'sometimes|in:allow,deny',
@@ -55,15 +53,13 @@ class IpAllowlistController extends Controller
             'active'     => 'sometimes|boolean',
         ]);
 
-        $rule->update($data);
-
-        return $this->success($rule);
+        return $this->success($this->service->updateRule($rule, $data));
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $rule = IpAllowlistRule::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $rule->delete();
+        $rule = $this->service->findInOrganization($request->user()->organization_id, $id);
+        $this->service->deleteRule($rule);
 
         return $this->success(null, 'Rule deleted');
     }

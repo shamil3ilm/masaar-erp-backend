@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\BankReconciliation;
 use App\Services\Accounting\BankReconciliationService;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
 class BankReconciliationController extends Controller
 {
     use ReportsBusinessRules;
+    use ValidatesOwnedRows;
 
     public function __construct(
         private BankReconciliationService $reconciliationService,
@@ -41,7 +43,7 @@ class BankReconciliationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'bank_account_id' => ['required', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['required', $this->ownedBy('bank_accounts')],
             'statement_date' => ['required', 'date'],
             'statement_balance' => ['required', 'numeric'],
             'notes' => ['nullable', 'string'],
@@ -115,7 +117,7 @@ class BankReconciliationController extends Controller
     public function manualMatch(Request $request, BankReconciliation $bankReconciliation): JsonResponse
     {
         $validated = $request->validate([
-            'bank_transaction_id' => ['required', 'exists:bank_transactions,id'],
+            'bank_transaction_id' => ['required', $this->ownedBy('bank_transactions')],
             'matched_transaction_id' => ['nullable', 'integer'],
             'matched_transaction_type' => ['nullable', 'string', 'max:50'],
         ]);
@@ -166,7 +168,7 @@ class BankReconciliationController extends Controller
     public function importStatement(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'bank_account_id' => ['required', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['required', $this->ownedBy('bank_accounts')],
             'file' => ['required', 'file'],
             'file_type' => ['required', 'string', 'in:csv,ofx,qfx,mt940,camt053'],
             'statement_start_date' => ['nullable', 'date'],

@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Organization;
 use App\Models\Inventory\InventoryBatch;
 use App\Models\Inventory\Product;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class StabilityStudy extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LocksForTransition;
     use BelongsToOrganization;
     use SoftDeletes;
 

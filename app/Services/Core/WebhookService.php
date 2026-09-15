@@ -11,11 +11,20 @@ use App\Models\Core\WebhookEvent;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class WebhookService
 {
+    /** Host prefixes of loopback, private and link-local addresses a webhook may not target. */
+    private const PRIVATE_HOST_PREFIXES = [
+        'localhost', '127.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.',
+        '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
+        '192.168.', '0.', '::1', '169.254.',
+    ];
+
     /**
      * Dispatch webhooks for an event.
      */
@@ -153,18 +162,81 @@ class WebhookService
     /**
      * Retry a failed delivery.
      */
+    /**
+     * Queues a failed delivery for another attempt. The delivery is re-read
+     * under a lock so two retries of the same failure queue it once, and the
+     * job is dispatched only after the new attempt is committed.
+     */
     public function retryDelivery(WebhookDelivery $delivery): void
     {
-        if (!$delivery->shouldRetry()) {
-            return;
+        DB::transaction(function () use ($delivery): void {
+            $locked = WebhookDelivery::query()->lockForUpdate()->findOrFail($delivery->id);
+
+            if (! $locked->shouldRetry()) {
+                return;
+            }
+
+            $locked->update([
+                'status' => WebhookDelivery::STATUS_PENDING,
+                'attempt' => $locked->attempt + 1,
+            ]);
+
+            DispatchWebhookJob::dispatch($locked->id)->afterCommit();
+        });
+    }
+
+    /**
+     * A webhook of the organization by id; another organization's webhook is not found.
+     */
+    public function findForOrganization(int $organizationId, int $id): Webhook
+    {
+        return Webhook::where('organization_id', $organizationId)->findOrFail($id);
+    }
+
+    /**
+     * Why a webhook may not deliver to this URL, or null when it may. A URL
+     * must use HTTP or HTTPS, HTTPS in production, and must not name a private
+     * or local host, which would let a tenant make the server call internal
+     * services.
+     *
+     * @return array{message: string, code: string}|null
+     */
+    public function urlRefusal(string $url): ?array
+    {
+        $parsedUrl = parse_url($url);
+        $scheme = $parsedUrl['scheme'] ?? '';
+
+        if (! in_array($scheme, ['https', 'http'], true)) {
+            return ['message' => 'Webhook URL must use HTTP or HTTPS scheme.', 'code' => 'INVALID_WEBHOOK_URL'];
         }
 
-        $delivery->update([
-            'status' => WebhookDelivery::STATUS_PENDING,
-            'attempt' => $delivery->attempt + 1,
-        ]);
+        if (App::isProduction() && $scheme !== 'https') {
+            return ['message' => 'Webhook URL must use HTTPS in production.', 'code' => 'INVALID_WEBHOOK_URL'];
+        }
 
-        DispatchWebhookJob::dispatch($delivery->id);
+        $host = $parsedUrl['host'] ?? '';
+
+        foreach (self::PRIVATE_HOST_PREFIXES as $prefix) {
+            if (str_starts_with($host, $prefix) || $host === $prefix) {
+                return ['message' => 'Webhook URL cannot target private/local addresses.', 'code' => 'OPERATION_FAILED'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Switches a webhook on or off, flipping the value stored now rather than
+     * the one the caller loaded.
+     */
+    public function toggle(Webhook $webhook): Webhook
+    {
+        return DB::transaction(function () use ($webhook): Webhook {
+            $locked = Webhook::query()->lockForUpdate()->findOrFail($webhook->id);
+            $locked->update(['is_active' => ! $locked->is_active]);
+
+            return $locked;
+        });
     }
 
     /**

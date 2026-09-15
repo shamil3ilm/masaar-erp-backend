@@ -19,6 +19,70 @@ class ChangeTransportService
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
 
+    /**
+     * Requests of the organization with their creator and objects, latest
+     * first, narrowed by the filters that are set.
+     *
+     * @param  array{status?: ?string, target_environment?: ?string, category?: ?string}  $filters
+     */
+    public function list(int $organizationId, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return ChangeTransportRequest::where('organization_id', $organizationId)
+            ->with(['creator', 'objects'])
+            ->when(!empty($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(!empty($filters['target_environment']), fn ($q) => $q->where('target_environment', $filters['target_environment']))
+            ->when(!empty($filters['category']), fn ($q) => $q->where('category', $filters['category']))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A request of the organization by id with the given relations; another
+     * organization's request is not found.
+     *
+     * @param  list<string>  $with
+     */
+    public function findForOrganization(int $organizationId, int $id, array $with = []): ChangeTransportRequest
+    {
+        return ChangeTransportRequest::where('organization_id', $organizationId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
+    /**
+     * Changes an open request. Whether it is still open is checked on the
+     * locked row, so a request released meanwhile is not changed.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws RuntimeException when the request is no longer open
+     */
+    public function updateRequest(ChangeTransportRequest $request, array $data): ChangeTransportRequest
+    {
+        return DB::transaction(function () use ($request, $data): ChangeTransportRequest {
+            $locked = ChangeTransportRequest::query()->lockForUpdate()->findOrFail($request->id);
+
+            if (!$locked->isOpen()) {
+                throw new RuntimeException('Only open requests can be updated.');
+            }
+
+            $locked->update($data);
+
+            return $locked->fresh(['creator', 'objects']);
+        });
+    }
+
+    /**
+     * A request's log entries with who performed them, oldest first.
+     */
+    public function history(ChangeTransportRequest $request): Collection
+    {
+        return $request->logs()
+            ->with('performer')
+            ->orderBy('created_at')
+            ->get();
+    }
+
     public function createRequest(array $data): ChangeTransportRequest
     {
         return DB::transaction(function () use ($data): ChangeTransportRequest {

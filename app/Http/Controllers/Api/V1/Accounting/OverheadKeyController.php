@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\OverheadKey;
 use App\Services\Accounting\CostingSheetService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class OverheadKeyController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostingSheetService $service
     ) {}
@@ -118,8 +121,8 @@ class OverheadKeyController extends Controller
             'validity_to'      => ['nullable', 'date', 'after_or_equal:validity_from'],
             'overhead_rate'    => ['required', 'numeric', 'min:0'],
             'currency_code'    => ['required', 'string', 'size:3'],
-            'cost_center_id'   => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'activity_type_id' => ['nullable', 'integer', 'exists:activity_types,id'],
+            'cost_center_id'   => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'activity_type_id' => ['nullable', 'integer', $this->ownedBy('activity_types')],
         ]);
 
         $rate = $this->service->addRate($key, $validated);

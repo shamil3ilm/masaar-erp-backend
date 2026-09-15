@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\WithholdingTaxCode;
 use App\Models\Accounting\WithholdingTaxLine;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class WithholdingTaxController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly WithholdingTaxService $whtService,
     ) {}
@@ -46,8 +49,8 @@ class WithholdingTaxController extends Controller
             'tax_type'              => ['nullable', 'string', 'max:50'],
             'threshold_amount'      => ['nullable', 'numeric', 'min:0'],
             'ceiling_amount'        => ['nullable', 'numeric', 'min:0'],
-            'payable_account_id'    => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
-            'receivable_account_id' => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'payable_account_id'    => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'receivable_account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'is_active'             => ['sometimes', 'boolean'],
         ]);
 
@@ -85,8 +88,8 @@ class WithholdingTaxController extends Controller
             'tax_type'              => ['nullable', 'string', 'max:50'],
             'threshold_amount'      => ['nullable', 'numeric', 'min:0'],
             'ceiling_amount'        => ['nullable', 'numeric', 'min:0'],
-            'payable_account_id'    => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
-            'receivable_account_id' => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
+            'payable_account_id'    => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
+            'receivable_account_id' => ['nullable', 'integer', $this->ownedBy('chart_of_accounts')],
             'is_active'             => ['sometimes', 'boolean'],
         ]);
 

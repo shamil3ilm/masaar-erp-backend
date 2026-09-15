@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Core;
 
+use App\Models\Core\Organization;
 use App\Models\System\Setting;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
@@ -47,6 +49,50 @@ class SettingsService
     public function __construct(
         private readonly CacheService $cache,
     ) {}
+
+    /**
+     * Sets every value or none. All values are checked first; when any is
+     * invalid nothing is written and the messages are returned keyed as given.
+     * Otherwise all are written in one transaction.
+     *
+     * @param  array<array-key, mixed>  $settings  values keyed by setting key, or by key within $group
+     * @return array<array-key, string> messages for the invalid values; empty when all were saved
+     */
+    public function setAll(array $settings, int $organizationId, ?string $group = null): array
+    {
+        $qualify = fn (int|string $key): string => $group === null ? (string) $key : "{$group}.{$key}";
+        $errors = [];
+
+        foreach ($settings as $key => $value) {
+            try {
+                $this->validateSetting($qualify($key), $value);
+            } catch (InvalidArgumentException $e) {
+                $errors[$key] = $e->getMessage();
+            }
+        }
+
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        DB::transaction(function () use ($settings, $organizationId, $qualify): void {
+            foreach ($settings as $key => $value) {
+                $this->set($qualify($key), $value, $organizationId);
+            }
+        });
+
+        return [];
+    }
+
+    /**
+     * The organization's country code, or null when none is set.
+     */
+    public function organizationCountryCode(int $organizationId): ?string
+    {
+        $countryCode = Organization::findOrFail($organizationId)->country_code;
+
+        return empty($countryCode) ? null : $countryCode;
+    }
 
     /**
      * Setting definitions with types and defaults.

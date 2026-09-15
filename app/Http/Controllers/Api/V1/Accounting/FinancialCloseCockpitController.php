@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\FinancialCloseCockpitService;
 use Illuminate\Http\JsonResponse;
@@ -12,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class FinancialCloseCockpitController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly FinancialCloseCockpitService $service
     ) {}
@@ -70,7 +73,7 @@ class FinancialCloseCockpitController extends Controller
     public function storePeriod(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'financial_close_template_id' => ['nullable', 'integer', 'exists:financial_close_templates,id'],
+            'financial_close_template_id' => ['nullable', 'integer', $this->ownedBy('financial_close_templates')],
             'fiscal_year'                 => ['required', 'integer'],
             'period'                      => ['required', 'integer', 'min:1', 'max:12'],
             'close_type'                  => ['required', Rule::in(['month_end', 'quarter_end', 'year_end'])],
@@ -169,7 +172,7 @@ class FinancialCloseCockpitController extends Controller
     public function assignTask(Request $request, int $taskId): JsonResponse
     {
         $validated = $request->validate([
-            'assigned_to' => ['required', 'integer', 'exists:users,id'],
+            'assigned_to' => ['required', 'integer', $this->ownedBy('users')],
         ]);
 
         $task = $this->service->findTask($taskId);

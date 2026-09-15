@@ -14,6 +14,9 @@ class ModuleAccessLog extends Model
 {
     use HasFactory, BelongsToOrganization;
 
+    /** The table records when access happened in accessed_at and has no created_at or updated_at. */
+    public $timestamps = false;
+
     protected $fillable = [
         'organization_id', 'user_id', 'module_id', 'action', 'entity_type',
         'entity_id', 'was_allowed', 'denial_reason', 'ip_address', 'accessed_at',

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\CostReconciliationService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,8 @@ use Illuminate\Http\Request;
  */
 class CostReconciliationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostReconciliationService $service,
     ) {}
@@ -41,7 +44,7 @@ class CostReconciliationController extends Controller
     public function reconcileAssessment(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'assessment_cycle_id' => 'required|integer|exists:assessment_cycles,id',
+            'assessment_cycle_id' => ['required', 'integer', $this->ownedBy('assessment_cycles')],
             'fiscal_year'         => 'required|string|size:4',
             'period'              => 'required|string|size:2',
         ]);
@@ -63,7 +66,7 @@ class CostReconciliationController extends Controller
     public function reconcileDistribution(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'distribution_cycle_id' => 'required|integer|exists:distribution_cycles,id',
+            'distribution_cycle_id' => ['required', 'integer', $this->ownedBy('distribution_cycles')],
             'fiscal_year'           => 'required|string|size:4',
             'period'                => 'required|string|size:2',
         ]);

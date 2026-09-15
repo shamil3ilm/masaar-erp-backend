@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\ProfitabilitySegmentService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class ProfitabilitySegmentController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ProfitabilitySegmentService $service
     ) {}
@@ -29,8 +32,8 @@ class ProfitabilitySegmentController extends Controller
 
         $validated = $request->validate([
             'segment_name'      => ['required', 'string', 'max:100'],
-            'customer_group_id' => ['nullable', 'integer', 'exists:customer_groups,id'],
-            'product_id'        => ['nullable', 'integer', 'exists:products,id'],
+            'customer_group_id' => ['nullable', 'integer', $this->ownedBy('customer_groups')],
+            'product_id'        => ['nullable', 'integer', $this->ownedBy('products')],
             'region'            => ['nullable', 'string', 'max:100'],
             'sales_channel'     => ['nullable', 'string', 'max:100'],
             'is_active'         => ['nullable', 'boolean'],
@@ -52,8 +55,8 @@ class ProfitabilitySegmentController extends Controller
 
         $validated = $request->validate([
             'segment_name'      => ['sometimes', 'string', 'max:100'],
-            'customer_group_id' => ['nullable', 'integer', 'exists:customer_groups,id'],
-            'product_id'        => ['nullable', 'integer', 'exists:products,id'],
+            'customer_group_id' => ['nullable', 'integer', $this->ownedBy('customer_groups')],
+            'product_id'        => ['nullable', 'integer', $this->ownedBy('products')],
             'region'            => ['nullable', 'string', 'max:100'],
             'sales_channel'     => ['nullable', 'string', 'max:100'],
             'is_active'         => ['sometimes', 'boolean'],
@@ -77,8 +80,8 @@ class ProfitabilitySegmentController extends Controller
         $orgId = $this->organizationId($request);
 
         $validated = $request->validate([
-            'profitability_segment_id' => ['required', 'integer', 'exists:profitability_segments,id'],
-            'copa_dimension_id'        => ['nullable', 'integer', 'exists:copa_dimensions,id'],
+            'profitability_segment_id' => ['required', 'integer', $this->ownedBy('profitability_segments')],
+            'copa_dimension_id'        => ['nullable', 'integer', $this->ownedBy('copa_dimensions')],
             'period'                   => ['required', 'integer', 'min:1', 'max:12'],
             'fiscal_year'              => ['required', 'integer'],
             'revenue'                  => ['nullable', 'numeric'],

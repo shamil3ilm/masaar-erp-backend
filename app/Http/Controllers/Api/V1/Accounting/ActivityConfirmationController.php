@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\ActivityConfirmation;
 use App\Services\Accounting\ActivityConfirmationService;
@@ -13,6 +14,8 @@ use InvalidArgumentException;
 
 class ActivityConfirmationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ActivityConfirmationService $service
     ) {}
@@ -48,10 +51,10 @@ class ActivityConfirmationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'cost_center_id'     => ['required', 'integer', 'exists:cost_centers,id'],
-            'activity_type_id'   => ['required', 'integer', 'exists:activity_types,id'],
-            'work_order_id'      => ['nullable', 'integer', 'exists:work_orders,id'],
-            'work_center_id'     => ['nullable', 'integer', 'exists:work_centers,id'],
+            'cost_center_id'     => ['required', 'integer', $this->ownedBy('cost_centers')],
+            'activity_type_id'   => ['required', 'integer', $this->ownedBy('activity_types')],
+            'work_order_id'      => ['nullable', 'integer', $this->ownedBy('work_orders')],
+            'work_center_id'     => ['nullable', 'integer', $this->ownedBy('work_centers')],
             'confirmed_quantity' => ['required', 'numeric', 'min:0.0001'],
             'planned_quantity'   => ['nullable', 'numeric', 'min:0'],
             'uom'                => ['nullable', 'string', 'max:20'],

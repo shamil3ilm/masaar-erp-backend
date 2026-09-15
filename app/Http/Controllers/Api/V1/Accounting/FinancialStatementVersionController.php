@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\FinancialStatementVersion;
 use App\Models\Accounting\FinancialStatementVersionNode;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class FinancialStatementVersionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private FinancialStatementVersionService $service
     ) {}
@@ -106,7 +109,7 @@ class FinancialStatementVersionController extends Controller
     public function addNode(Request $request, FinancialStatementVersion $financialStatementVersion): JsonResponse
     {
         $validated = $request->validate([
-            'parent_id' => ['nullable', Rule::exists('financial_statement_version_nodes', 'id')],
+            'parent_id' => ['nullable', $this->ownedBy('financial_statement_version_nodes')],
             'account_id' => [
                 'nullable',
                 Rule::exists('chart_of_accounts', 'id')

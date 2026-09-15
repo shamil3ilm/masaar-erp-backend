@@ -7,13 +7,16 @@ namespace App\Http\Controllers\Api\V1\Core;
 use App\Http\Controllers\Controller;
 use App\Models\Core\ExportJob;
 use App\Services\Core\AsyncExportService;
+use App\Services\Core\ModuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ExportController extends Controller
 {
     public function __construct(
-        protected AsyncExportService $exportService
+        protected AsyncExportService $exportService,
+        private readonly ModuleService $moduleService,
     ) {}
 
     /**
@@ -58,10 +61,11 @@ class ExportController extends Controller
             return $this->error('Invalid entity type.', 'VALIDATION_ERROR', 400);
         }
 
+        $this->validateColumns($request, $types[$entityType]);
+
         // Check module access
-        $moduleService = app(\App\Services\Core\ModuleService::class);
         $module = $types[$entityType]['module'];
-        if (!$moduleService->isModuleEnabled($user->organization_id, $module)) {
+        if (!$this->moduleService->isModuleEnabled($user->organization_id, $module)) {
             return $this->error("Module '{$module}' is not enabled.", 'MODULE_DISABLED', 403);
         }
 
@@ -93,11 +97,7 @@ class ExportController extends Controller
      */
     public function status(Request $request, string $uuid): JsonResponse
     {
-        $user = $request->user();
-
-        $exportJob = ExportJob::where('uuid', $uuid)
-            ->where('organization_id', $user->organization_id)
-            ->firstOrFail();
+        $exportJob = $this->exportService->findForOrganization($request->user()->organization_id, $uuid);
 
         return $this->success($this->exportService->getStatus($exportJob));
     }
@@ -107,11 +107,7 @@ class ExportController extends Controller
      */
     public function download(Request $request, string $uuid): mixed
     {
-        $user = $request->user();
-
-        $exportJob = ExportJob::where('uuid', $uuid)
-            ->where('organization_id', $user->organization_id)
-            ->firstOrFail();
+        $exportJob = $this->exportService->findForOrganization($request->user()->organization_id, $uuid);
 
         if (!$exportJob->isReady()) {
             if ($exportJob->isExpired()) {
@@ -195,6 +191,14 @@ class ExportController extends Controller
             return $this->error('Invalid entity type.', 'VALIDATION_ERROR', 400);
         }
 
+        $this->validateColumns($request, $types[$entityType]);
+
+        // A quick export reads the same records as a regular one, so it needs the module too.
+        $module = $types[$entityType]['module'];
+        if (!$this->moduleService->isModuleEnabled($user->organization_id, $module)) {
+            return $this->error("Module '{$module}' is not enabled.", 'MODULE_DISABLED', 403);
+        }
+
         try {
             $exportJob = $this->exportService->createExport(
                 $entityType,
@@ -224,5 +228,19 @@ class ExportController extends Controller
             report($e);
             return $this->serverError('An unexpected error occurred. Please try again.');
         }
+    }
+
+    /**
+     * Requested columns must be ones the entity type offers. Any other name
+     * would be read straight off the record, such as an employee's decrypted
+     * national id or bank account.
+     *
+     * @param  array{columns: array<string, string>}  $entityType
+     */
+    private function validateColumns(Request $request, array $entityType): void
+    {
+        $request->validate([
+            'columns.*' => ['string', Rule::in(array_keys($entityType['columns']))],
+        ]);
     }
 }

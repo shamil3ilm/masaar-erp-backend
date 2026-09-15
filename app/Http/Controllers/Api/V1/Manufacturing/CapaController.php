@@ -4,23 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\CapaAction;
-use App\Models\Manufacturing\CapaEffectivenessReview;
-use App\Models\Manufacturing\CapaRecord;
+use App\Services\Manufacturing\CapaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class CapaController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly CapaService $service) {}
+
     public function index(Request $request): JsonResponse
     {
-        $capas = CapaRecord::where('organization_id', $request->user()->organization_id)
-            ->with('owner')
-            ->paginate(20);
-
-        return $this->paginated($capas);
+        return $this->paginated($this->service->list($request->user()->organization_id));
     }
 
     public function store(Request $request): JsonResponse
@@ -31,25 +29,18 @@ class CapaController extends Controller
             'problem_statement' => 'required|string',
             'root_cause'        => 'nullable|string',
             'priority'          => 'required|in:critical,high,medium,low',
-            'owner_id'          => 'nullable|integer|exists:users,id',
+            'owner_id'          => ['nullable', 'integer', $this->ownedBy('users')],
             'target_close_date' => 'nullable|date',
             'source_type'       => 'nullable|string',
             'source_id'         => 'nullable|integer',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $capa = CapaRecord::create($data);
-
-        return $this->created($capa);
+        return $this->created($this->service->create($request->user()->organization_id, $data));
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $capa = CapaRecord::where('organization_id', $request->user()->organization_id)
-            ->with(['owner', 'actions', 'effectivenessReviews'])
-            ->findOrFail($id);
+        $capa = $this->service->find($request->user()->organization_id, $id, ['owner', 'actions', 'effectivenessReviews']);
 
         return $this->success($capa);
     }
@@ -59,28 +50,22 @@ class CapaController extends Controller
         $data = $request->validate([
             'action_number'  => 'required|string|max:20',
             'description'    => 'required|string',
-            'assigned_to_id' => 'nullable|integer|exists:users,id',
+            'assigned_to_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'due_date'       => 'required|date',
         ]);
 
-        $capa   = CapaRecord::where('organization_id', $request->user()->organization_id)->findOrFail($capaId);
-        $action = $capa->actions()->create(array_merge($data, ['uuid' => (string) Str::uuid()]));
+        $capa = $this->service->find($request->user()->organization_id, $capaId);
 
-        return $this->created($action);
+        return $this->created($this->service->addAction($capa, $data));
     }
 
     public function completeAction(Request $request, int $capaId, int $actionId): JsonResponse
     {
-        $capa   = CapaRecord::where('organization_id', $request->user()->organization_id)->findOrFail($capaId);
-        $action = CapaAction::where('capa_record_id', $capa->id)->findOrFail($actionId);
+        $capa = $this->service->find($request->user()->organization_id, $capaId);
 
         $data = $request->validate(['completion_notes' => 'nullable|string']);
 
-        $action->update([
-            'status'           => 'completed',
-            'completed_date'   => now()->toDateString(),
-            'completion_notes' => $data['completion_notes'] ?? null,
-        ]);
+        $action = $this->service->completeAction($capa, $actionId, $data['completion_notes'] ?? null);
 
         return $this->success($action, 'Action completed');
     }
@@ -94,17 +79,8 @@ class CapaController extends Controller
             'conclusions'   => 'nullable|string',
         ]);
 
-        $capa   = CapaRecord::where('organization_id', $request->user()->organization_id)->findOrFail($capaId);
-        $review = CapaEffectivenessReview::create(array_merge($data, [
-            'uuid'           => (string) Str::uuid(),
-            'capa_record_id' => $capa->id,
-            'reviewed_by_id' => $request->user()->id,
-        ]));
+        $capa = $this->service->find($request->user()->organization_id, $capaId);
 
-        if ($data['effectiveness'] === 'effective') {
-            $capa->update(['status' => 'closed', 'actual_close_date' => now()->toDateString()]);
-        }
-
-        return $this->created($review);
+        return $this->created($this->service->addEffectivenessReview($capa, $data, $request->user()->id));
     }
 }
