@@ -14,6 +14,18 @@ use Illuminate\Support\Str;
 
 class CustomFieldService
 {
+    /** Model classes that may carry custom field values, by the type name clients send. */
+    public const ENTITY_CLASSES = [
+        'invoice' => \App\Models\Sales\Invoice::class,
+        'customer' => \App\Models\Sales\Contact::class,
+        'contact' => \App\Models\Sales\Contact::class,
+        'product' => \App\Models\Inventory\Product::class,
+        'employee' => \App\Models\HR\Employee::class,
+        'lead' => \App\Models\CRM\Lead::class,
+        'purchase_order' => \App\Models\Purchase\PurchaseOrder::class,
+        'bill' => \App\Models\Purchase\Bill::class,
+    ];
+
     /**
      * Create a new custom field definition.
      */
@@ -134,6 +146,78 @@ class CustomFieldService
             ->active()
             ->ordered()
             ->get();
+    }
+
+    /**
+     * Definitions of the current organization in display order, narrowed to an
+     * entity type when one is given and to active ones when asked.
+     */
+    public function listDefinitions(?string $entityType, bool $activeOnly, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return CustomFieldDefinition::query()->ordered()
+            ->when($entityType !== null, fn ($query) => $query->forEntity($entityType))
+            ->when($activeOnly, fn ($query) => $query->active())
+            ->paginate($perPage);
+    }
+
+    /**
+     * Active groups of the current organization for an entity type, in display order.
+     */
+    public function listGroups(string $entityType): Collection
+    {
+        return CustomFieldGroup::query()
+            ->forEntity($entityType)
+            ->active()
+            ->ordered()
+            ->get();
+    }
+
+    /**
+     * The model class for an entity type, given by its short name or by one of
+     * the supported class names; null for anything else, so a request cannot
+     * attach values to an arbitrary model such as a user.
+     */
+    public function entityClassFor(string $entityType): ?string
+    {
+        if (isset(self::ENTITY_CLASSES[$entityType])) {
+            return self::ENTITY_CLASSES[$entityType];
+        }
+
+        return in_array($entityType, self::ENTITY_CLASSES, true) ? $entityType : null;
+    }
+
+    /**
+     * The organization's record of that class, or null when there is none.
+     *
+     * @param  class-string<Model>  $entityClass  one of ENTITY_CLASSES
+     */
+    public function findEntity(string $entityClass, int $organizationId, int $entityId): ?Model
+    {
+        return $entityClass::where('organization_id', $organizationId)->find($entityId);
+    }
+
+    /**
+     * Active fields of the organization for an entity type, each with its value
+     * for the record or its default when none is set. setValues() stores a
+     * value against the record's model class, so values are matched by that
+     * class as well as by the type name, and read in one query.
+     *
+     * @return Collection<int, array{definition: CustomFieldDefinition, value: mixed}>
+     */
+    public function valuesForEntity(int $organizationId, string $entityType, int $entityId): Collection
+    {
+        $fields = $this->getFieldsForEntity($entityType, $organizationId);
+
+        $values = CustomFieldValue::whereIn('field_definition_id', $fields->pluck('id'))
+            ->whereIn('entity_type', array_filter([$entityType, $this->entityClassFor($entityType)]))
+            ->where('entity_id', $entityId)
+            ->get()
+            ->keyBy('field_definition_id');
+
+        return $fields->map(fn (CustomFieldDefinition $field): array => [
+            'definition' => $field,
+            'value' => $values->has($field->id) ? $values->get($field->id)->getResolvedValue() : $field->default_value,
+        ]);
     }
 
     /**

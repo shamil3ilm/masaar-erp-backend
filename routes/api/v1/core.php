@@ -634,7 +634,10 @@ Route::prefix('events')->group(function () {
 
 // Document Retention Policy routes (Gap 15)
 Route::prefix('retention')->group(function () {
+    // The controller binds {retentionPolicy}; without this the parameter is
+    // {policy}, nothing is bound and every action gets an empty policy.
     Route::apiResource('policies', DocumentRetentionController::class)
+        ->parameters(['policies' => 'retentionPolicy'])
         ->middleware([
             'index' => 'check.permission:core.settings.view',
             'store' => 'check.permission:core.settings.edit',

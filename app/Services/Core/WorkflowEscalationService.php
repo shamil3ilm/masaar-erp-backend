@@ -97,16 +97,11 @@ class WorkflowEscalationService
                     continue;
                 }
 
-                // Check if this rule was already triggered for this request
-                $alreadyLogged = WorkflowEscalationLog::where('approval_request_id', $request->id)
-                    ->where('workflow_escalation_rule_id', $rule->id)
-                    ->exists();
+                $actionTaken = $this->applyEscalation($request, $rule, $orgId);
 
-                if ($alreadyLogged) {
+                if ($actionTaken === null) {
                     continue;
                 }
-
-                $actionTaken = $this->applyEscalation($request, $rule, $orgId);
 
                 $results[] = [
                     'approval_request_id' => $request->id,
@@ -120,39 +115,82 @@ class WorkflowEscalationService
         return $results;
     }
 
-    private function applyEscalation(ApprovalRequest $request, WorkflowEscalationRule $rule, int $orgId): string
+    /**
+     * Applies one rule to one request and logs it, or returns null when there
+     * is nothing to do. The request is locked and re-read first: a rule already
+     * logged for it, or an earlier rule in this run or a concurrent run having
+     * approved or rejected it, leaves it alone, so a request is never both
+     * auto-approved and auto-rejected.
+     */
+    private function applyEscalation(ApprovalRequest $request, WorkflowEscalationRule $rule, int $orgId): ?string
     {
-        $escalatedToUserId = null;
-        $actionTaken = $rule->escalation_type;
+        return DB::transaction(function () use ($request, $rule, $orgId): ?string {
+            $locked = ApprovalRequest::withoutGlobalScopes()->whereKey($request->id)->lockForUpdate()->first();
 
-        if ($rule->escalation_type === 'auto_approve') {
-            $request->update(['status' => ApprovalRequest::STATUS_APPROVED, 'completed_at' => now()]);
-            $actionTaken = 'auto_approved';
-        } elseif ($rule->escalation_type === 'auto_reject') {
-            $request->update(['status' => ApprovalRequest::STATUS_REJECTED, 'completed_at' => now()]);
-            $actionTaken = 'auto_rejected';
-        } elseif ($rule->escalate_to_user_id !== null) {
-            $escalatedToUserId = $rule->escalate_to_user_id;
-            $actionTaken = "escalated_to_user:{$escalatedToUserId}";
-        }
+            if ($locked === null || ! in_array($locked->status, [ApprovalRequest::STATUS_PENDING, ApprovalRequest::STATUS_IN_PROGRESS], true)) {
+                return null;
+            }
 
-        WorkflowEscalationLog::create([
-            'organization_id'             => $orgId,
-            'approval_request_id'         => $request->id,
-            'workflow_escalation_rule_id' => $rule->id,
-            'escalation_type'             => $rule->escalation_type,
-            'triggered_at'                => now(),
-            'escalated_to_user_id'        => $escalatedToUserId,
-            'action_taken'                => $actionTaken,
-        ]);
+            $alreadyLogged = WorkflowEscalationLog::where('approval_request_id', $locked->id)
+                ->where('workflow_escalation_rule_id', $rule->id)
+                ->exists();
 
-        return $actionTaken;
+            if ($alreadyLogged) {
+                return null;
+            }
+
+            $escalatedToUserId = null;
+            $actionTaken = $rule->escalation_type;
+
+            if ($rule->escalation_type === 'auto_approve') {
+                $locked->update(['status' => ApprovalRequest::STATUS_APPROVED, 'completed_at' => now()]);
+                $actionTaken = 'auto_approved';
+            } elseif ($rule->escalation_type === 'auto_reject') {
+                $locked->update(['status' => ApprovalRequest::STATUS_REJECTED, 'completed_at' => now()]);
+                $actionTaken = 'auto_rejected';
+            } elseif ($rule->escalate_to_user_id !== null) {
+                $escalatedToUserId = $rule->escalate_to_user_id;
+                $actionTaken = "escalated_to_user:{$escalatedToUserId}";
+            }
+
+            WorkflowEscalationLog::create([
+                'organization_id'             => $orgId,
+                'approval_request_id'         => $locked->id,
+                'workflow_escalation_rule_id' => $rule->id,
+                'escalation_type'             => $rule->escalation_type,
+                'triggered_at'                => now(),
+                'escalated_to_user_id'        => $escalatedToUserId,
+                'action_taken'                => $actionTaken,
+            ]);
+
+            return $actionTaken;
+        });
+    }
+
+    /**
+     * An escalation rule of the current organization; another organization's rule is not found.
+     */
+    public function findRule(int|string $id): WorkflowEscalationRule
+    {
+        return WorkflowEscalationRule::findOrFail($id);
     }
 
     // -------------------------------------------------------------------------
     // Substitutions
     // -------------------------------------------------------------------------
 
+    /**
+     * A substitution of the current organization; another organization's substitution is not found.
+     */
+    public function findSubstitution(int|string $id): WorkflowSubstitutionRule
+    {
+        return WorkflowSubstitutionRule::findOrFail($id);
+    }
+
+    /**
+     * The active substitute for an approver in the current organization. The
+     * substitute is looked up in the rule's organization only.
+     */
     public function getSubstituteFor(int $approverId): ?User
     {
         $rule = WorkflowSubstitutionRule::active()
@@ -165,7 +203,7 @@ class WorkflowEscalationService
             return null;
         }
 
-        return User::find($rule->substitute_id);
+        return User::where('organization_id', $rule->organization_id)->find($rule->substitute_id);
     }
 
     public function createSubstitution(array $data): WorkflowSubstitutionRule

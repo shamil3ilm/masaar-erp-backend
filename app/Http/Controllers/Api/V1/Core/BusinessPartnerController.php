@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Core\BusinessPartner;
 use App\Services\Core\BusinessPartnerService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class BusinessPartnerController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly BusinessPartnerService $service) {}
 
     /** GET /business-partners */
@@ -46,7 +49,7 @@ class BusinessPartnerController extends Controller
             'state' => ['nullable', 'string', 'max:100'],
             'postal_code' => ['nullable', 'string', 'max:20'],
             'country' => ['nullable', 'string', 'size:2'],
-            'contact_id' => ['nullable', 'integer'],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'supplier_id' => ['nullable', 'integer'],
             'roles' => ['array'],
             'roles.*' => ['string', 'in:FLCU00,FLVN00,BUP001,BUP002'],
@@ -121,7 +124,7 @@ class BusinessPartnerController extends Controller
             'source_id' => ['required', 'integer', 'different:'.$businessPartner->id],
         ]);
 
-        $source = BusinessPartner::findOrFail($data['source_id']);
+        $source = $this->service->find($data['source_id']);
         $merged = $this->service->merge($source, $businessPartner);
 
         return $this->success($merged, 'Business partners merged');

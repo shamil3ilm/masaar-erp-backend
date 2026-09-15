@@ -61,10 +61,7 @@ class WebhookController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         return $this->success([
             'id' => $webhook->id,
@@ -105,21 +102,8 @@ class WebhookController extends Controller
             'timeout_seconds' => 'sometimes|integer|min:5|max:60',
         ]);
 
-        $url = $request->input('url');
-        $parsedUrl = parse_url($url);
-        if (!in_array($parsedUrl['scheme'] ?? '', ['https', 'http'], true)) {
-            return $this->error('Webhook URL must use HTTP or HTTPS scheme.', 'INVALID_WEBHOOK_URL', 422);
-        }
-        if (app()->isProduction() && ($parsedUrl['scheme'] ?? '') !== 'https') {
-            return $this->error('Webhook URL must use HTTPS in production.', 'INVALID_WEBHOOK_URL', 422);
-        }
-
-        $host = $parsedUrl['host'] ?? '';
-        $privatePatterns = ['localhost', '127.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.', '192.168.', '0.', '::1', '169.254.'];
-        foreach ($privatePatterns as $pattern) {
-            if (str_starts_with($host, $pattern) || $host === $pattern) {
-                return $this->error('Webhook URL cannot target private/local addresses.', 'OPERATION_FAILED', 422);
-            }
+        if ($refusal = $this->urlRefusal($request->input('url'))) {
+            return $refusal;
         }
 
         $user = $request->user();
@@ -164,10 +148,13 @@ class WebhookController extends Controller
             'timeout_seconds' => 'sometimes|integer|min:5|max:60',
         ]);
 
-        $user = $request->user();
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        // A changed URL is held to the same rules as a new one, or an update
+        // could point an existing webhook at an internal address.
+        if ($request->has('url') && $refusal = $this->urlRefusal($request->input('url'))) {
+            return $refusal;
+        }
 
         $webhook = $this->webhookService->update($webhook, $request->only([
             'name', 'url', 'events', 'headers', 'is_active', 'retry_count', 'timeout_seconds',
@@ -188,10 +175,7 @@ class WebhookController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         $this->webhookService->delete($webhook);
 
@@ -203,10 +187,7 @@ class WebhookController extends Controller
      */
     public function test(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         $result = $this->webhookService->test($webhook);
 
@@ -221,15 +202,10 @@ class WebhookController extends Controller
      */
     public function regenerateSecret(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
-
-        $newSecret = $webhook->regenerateSecret();
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         return $this->success([
-            'secret' => $newSecret,
+            'secret' => $webhook->regenerateSecret(),
         ], 'Webhook secret regenerated. Please update your integration.');
     }
 
@@ -238,12 +214,9 @@ class WebhookController extends Controller
      */
     public function toggle(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
-
-        $webhook->update(['is_active' => !$webhook->is_active]);
+        $webhook = $this->webhookService->toggle($webhook);
 
         return $this->success([
             'is_active' => $webhook->is_active,
@@ -255,11 +228,9 @@ class WebhookController extends Controller
      */
     public function deliveries(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
         $limit = min((int) $request->get('limit', 50), 100);
 
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         $deliveries = $this->webhookService->getDeliveryHistory($webhook, $limit);
 
@@ -284,10 +255,7 @@ class WebhookController extends Controller
      */
     public function deliveryDetails(Request $request, int $id, int $deliveryId): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         $delivery = $webhook->deliveries()->findOrFail($deliveryId);
 
@@ -313,10 +281,7 @@ class WebhookController extends Controller
      */
     public function retryDelivery(Request $request, int $id, int $deliveryId): JsonResponse
     {
-        $user = $request->user();
-
-        $webhook = Webhook::where('organization_id', $user->organization_id)
-            ->findOrFail($id);
+        $webhook = $this->webhookService->findForOrganization($request->user()->organization_id, $id);
 
         $delivery = $webhook->deliveries()->findOrFail($deliveryId);
 
@@ -351,5 +316,15 @@ class WebhookController extends Controller
             ]),
             'Event history retrieved successfully'
         );
+    }
+
+    /**
+     * The error response for a URL a webhook may not use, or null when it may.
+     */
+    private function urlRefusal(string $url): ?JsonResponse
+    {
+        $refusal = $this->webhookService->urlRefusal($url);
+
+        return $refusal === null ? null : $this->error($refusal['message'], $refusal['code'], 422);
     }
 }

@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\EdiMessage;
-use App\Models\Core\EdiPartner;
 use App\Services\Core\EdiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class EdiController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private EdiService $service
     ) {}
@@ -38,7 +39,7 @@ class EdiController extends Controller
             'partner_type'          => ['required', 'in:vendor,customer,bank,carrier,other'],
             'edi_standard'          => ['required', 'in:edifact,x12,ubl,idoc,custom'],
             'is_active'             => ['sometimes', 'boolean'],
-            'contact_id'            => ['nullable', 'exists:contacts,id'],
+            'contact_id'            => ['nullable', $this->ownedBy('contacts')],
             'interchange_id'        => ['nullable', 'string', 'max:50'],
             'interchange_qualifier' => ['nullable', 'string', 'max:10'],
             'test_mode'             => ['sometimes', 'boolean'],
@@ -55,21 +56,19 @@ class EdiController extends Controller
 
     public function showPartner(int $id): JsonResponse
     {
-        $partner = EdiPartner::with('contact:id,name')->findOrFail($id);
-
-        return $this->success($partner);
+        return $this->success($this->service->partnerDetails($id));
     }
 
     public function updatePartner(Request $request, int $id): JsonResponse
     {
-        $partner = EdiPartner::findOrFail($id);
+        $partner = $this->service->findPartner($id);
 
         $validated = $request->validate([
             'partner_name'          => ['sometimes', 'string', 'max:100'],
             'partner_type'          => ['sometimes', 'in:vendor,customer,bank,carrier,other'],
             'edi_standard'          => ['sometimes', 'in:edifact,x12,ubl,idoc,custom'],
             'is_active'             => ['sometimes', 'boolean'],
-            'contact_id'            => ['nullable', 'exists:contacts,id'],
+            'contact_id'            => ['nullable', $this->ownedBy('contacts')],
             'interchange_id'        => ['nullable', 'string', 'max:50'],
             'interchange_qualifier' => ['nullable', 'string', 'max:10'],
             'test_mode'             => ['sometimes', 'boolean'],
@@ -83,8 +82,7 @@ class EdiController extends Controller
 
     public function destroyPartner(int $id): JsonResponse
     {
-        $partner = EdiPartner::findOrFail($id);
-        $partner->delete();
+        $this->service->deletePartner($this->service->findPartner($id));
 
         return $this->success(null, 'EDI partner deleted successfully.');
     }
@@ -104,10 +102,7 @@ class EdiController extends Controller
 
     public function showMessage(int $id): JsonResponse
     {
-        $message = EdiMessage::with(['partner:id,partner_code,partner_name', 'segments'])
-            ->findOrFail($id);
-
-        return $this->success($message);
+        return $this->success($this->service->messageDetails($id));
     }
 
     /**
@@ -116,7 +111,7 @@ class EdiController extends Controller
     public function receive(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'partner_id'   => ['required', 'exists:edi_partners,id'],
+            'partner_id'   => ['required', $this->ownedBy('edi_partners')],
             'message_type' => ['required', 'string', 'max:50'],
             'raw_content'  => ['required', 'string'],
         ]);
@@ -135,8 +130,7 @@ class EdiController extends Controller
      */
     public function process(int $id): JsonResponse
     {
-        $message = EdiMessage::findOrFail($id);
-        $message = $this->service->processMessage($message);
+        $message = $this->service->processMessage($this->service->findMessage($id));
 
         return $this->success($message, 'EDI message processed successfully.');
     }
@@ -147,7 +141,7 @@ class EdiController extends Controller
     public function send(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'partner_id'     => ['required', 'exists:edi_partners,id'],
+            'partner_id'     => ['required', $this->ownedBy('edi_partners')],
             'message_type'   => ['required', 'string', 'max:50'],
             'data'           => ['required', 'array'],
             'reference_type' => ['nullable', 'string', 'max:50'],
@@ -168,8 +162,7 @@ class EdiController extends Controller
      */
     public function reprocess(int $id): JsonResponse
     {
-        $message = EdiMessage::findOrFail($id);
-        $message = $this->service->reprocess($message);
+        $message = $this->service->reprocess($this->service->findMessage($id));
 
         return $this->success($message, 'EDI message reprocessed successfully.');
     }
@@ -179,7 +172,7 @@ class EdiController extends Controller
      */
     public function history(Request $request, int $partnerId): JsonResponse
     {
-        EdiPartner::findOrFail($partnerId);
+        $this->service->findPartner($partnerId);
 
         $messages = $this->service->getMessageHistory($partnerId, [
             ...$request->only(['direction', 'status', 'message_type', 'per_page']),

@@ -320,7 +320,8 @@ class ModuleService
             array_unshift($validModules, 'core');
         }
 
-        $user->update(['module_access' => $validModules]);
+        // module_access is not mass assignable on User, so update() would drop it.
+        $user->forceFill(['module_access' => $validModules])->save();
     }
 
     /**
@@ -328,7 +329,7 @@ class ModuleService
      */
     public function clearUserModuleAccess(User $user): void
     {
-        $user->update(['module_access' => null]);
+        $user->forceFill(['module_access' => null])->save();
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagTarget;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class FeatureFlagController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
     ) {}
@@ -72,28 +75,30 @@ class FeatureFlagController extends Controller
      */
     public function addTarget(Request $request, string $flagKey): JsonResponse
     {
+        // A user, branch or role target names one of the organization's own.
+        $ownedTarget = match ($request->input('target_type')) {
+            FeatureFlagTarget::TYPE_USER   => [$this->ownedBy('users')],
+            FeatureFlagTarget::TYPE_BRANCH => [$this->ownedBy('branches')],
+            FeatureFlagTarget::TYPE_ROLE   => [$this->ownedBy('roles')],
+            default                        => [],
+        };
+
         $validated = $request->validate([
             'target_type' => 'required|in:user,branch,role,percentage',
-            'target_id'   => 'nullable|integer|min:1|required_unless:target_type,percentage',
+            'target_id'   => ['nullable', 'integer', 'min:1', 'required_unless:target_type,percentage', ...$ownedTarget],
             'percentage'  => 'nullable|integer|min:0|max:100|required_if:target_type,percentage',
             'notes'       => 'nullable|string|max:500',
         ]);
 
-        $organizationId = auth()->user()->organization_id;
-        $actorId        = auth()->id();
-
         $target = $this->featureFlagService->addTarget(
-            organizationId: $organizationId,
+            organizationId: auth()->user()->organization_id,
             flagKey:        $flagKey,
             targetType:     $validated['target_type'],
             targetId:       isset($validated['target_id']) ? (int) $validated['target_id'] : null,
             percentage:     isset($validated['percentage']) ? (int) $validated['percentage'] : null,
-            createdBy:      $actorId,
+            createdBy:      auth()->id(),
+            notes:          $validated['notes'] ?? null,
         );
-
-        if (!empty($validated['notes'])) {
-            $target->update(['notes' => $validated['notes']]);
-        }
 
         return $this->created($target, 'Target added successfully');
     }
@@ -108,12 +113,7 @@ class FeatureFlagController extends Controller
     public function removeTarget(Request $request, string $flagKey, int $targetId): JsonResponse
     {
         // Verify the target belongs to this flag and organization
-        $organizationId = auth()->user()->organization_id;
-
-        $target = FeatureFlagTarget::where('id', $targetId)
-            ->where('organization_id', $organizationId)
-            ->where('flag_key', $flagKey)
-            ->firstOrFail();
+        $target = $this->featureFlagService->findTarget(auth()->user()->organization_id, $flagKey, $targetId);
 
         $this->featureFlagService->removeTarget($target->id);
 

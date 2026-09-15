@@ -23,6 +23,14 @@ use Illuminate\Support\Facades\DB;
  */
 class BusinessPartnerService
 {
+    /**
+     * A business partner of the current organization; another organization's partner is not found.
+     */
+    public function find(int $id): BusinessPartner
+    {
+        return BusinessPartner::findOrFail($id);
+    }
+
     public function list(int $organizationId, array $filters = [], int $perPage = 25): LengthAwarePaginator
     {
         $query = BusinessPartner::where('organization_id', $organizationId)

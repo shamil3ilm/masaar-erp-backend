@@ -25,11 +25,11 @@ class CustomFieldController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CustomFieldDefinition::query()->ordered()
-            ->when($request->has('entity_type'), fn($q) => $q->forEntity($request->input('entity_type')))
-            ->when($request->boolean('active_only'), fn($q) => $q->active());
-
-        $definitions = $query->paginate($request->integer('per_page', 50));
+        $definitions = $this->customFieldService->listDefinitions(
+            $request->has('entity_type') ? (string) $request->input('entity_type') : null,
+            $request->boolean('active_only'),
+            $request->integer('per_page', 50),
+        );
 
         return $this->paginated($definitions);
     }
@@ -137,11 +137,7 @@ class CustomFieldController extends Controller
             'entity_type' => 'required|string|max:50',
         ]);
 
-        $groups = CustomFieldGroup::query()
-            ->forEntity($request->input('entity_type'))
-            ->active()
-            ->ordered()
-            ->get();
+        $groups = $this->customFieldService->listGroups($request->input('entity_type'));
 
         return $this->success($groups);
     }
@@ -208,29 +204,11 @@ class CustomFieldController extends Controller
             'entity_id' => 'required|integer',
         ]);
 
-        $entityType = $request->input('entity_type');
-        $entityId = $request->input('entity_id');
-
-        // Get definitions
-        $fields = $this->customFieldService->getFieldsForEntity($entityType);
-
-        // Get existing values
-        $values = CustomFieldDefinition::where('organization_id', $this->organizationId($request))
-            ->forEntity($entityType)
-            ->active()
-            ->ordered()
-            ->get()
-            ->map(function (CustomFieldDefinition $field) use ($entityType, $entityId) {
-                $value = $field->values()
-                    ->where('entity_type', $entityType)
-                    ->where('entity_id', $entityId)
-                    ->first();
-
-                return [
-                    'definition' => $field,
-                    'value' => $value ? $value->getResolvedValue() : $field->default_value,
-                ];
-            });
+        $values = $this->customFieldService->valuesForEntity(
+            $this->organizationId($request),
+            $request->input('entity_type'),
+            (int) $request->input('entity_id'),
+        );
 
         return $this->success($values);
     }
@@ -246,13 +224,13 @@ class CustomFieldController extends Controller
             'fields' => 'required|array',
         ]);
 
-        $entityClass = $this->resolveEntityClass($request->input('entity_type'));
+        $entityClass = $this->customFieldService->entityClassFor($request->input('entity_type'));
 
         if (!$entityClass) {
             return $this->error('Invalid entity type.', 'INVALID_ENTITY_TYPE', 400);
         }
 
-        $entity = $entityClass::find($request->input('entity_id'));
+        $entity = $this->customFieldService->findEntity($entityClass, $this->organizationId($request), (int) $request->input('entity_id'));
 
         if (!$entity) {
             return $this->error('Entity not found.', 'ENTITY_NOT_FOUND', 404);
@@ -282,29 +260,5 @@ class CustomFieldController extends Controller
         );
 
         return $this->success($grouped);
-    }
-
-    /**
-     * Resolve entity class from entity type string.
-     */
-    protected function resolveEntityClass(string $entityType): ?string
-    {
-        $map = [
-            'invoice' => \App\Models\Sales\Invoice::class,
-            'customer' => \App\Models\Sales\Contact::class,
-            'contact' => \App\Models\Sales\Contact::class,
-            'product' => \App\Models\Inventory\Product::class,
-            'employee' => \App\Models\HR\Employee::class,
-            'lead' => \App\Models\CRM\Lead::class,
-            'purchase_order' => \App\Models\Purchase\PurchaseOrder::class,
-            'bill' => \App\Models\Purchase\Bill::class,
-        ];
-
-        // Accept both short name and full class name
-        if (class_exists($entityType)) {
-            return $entityType;
-        }
-
-        return $map[$entityType] ?? null;
     }
 }
