@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Maintenance\Equipment;
 use App\Models\Maintenance\FunctionalLocation;
 use App\Services\Maintenance\EquipmentHierarchyService;
+use App\Services\Maintenance\EquipmentService;
+use App\Services\Maintenance\FunctionalLocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -17,7 +19,11 @@ use Illuminate\Http\Request;
  */
 class EquipmentHierarchyController extends Controller
 {
-    public function __construct(private readonly EquipmentHierarchyService $service) {}
+    public function __construct(
+        private readonly EquipmentHierarchyService $service,
+        private readonly EquipmentService $equipmentService,
+        private readonly FunctionalLocationService $locationService,
+    ) {}
 
     /**
      * GET /equipment-hierarchy/tree
@@ -44,12 +50,11 @@ class EquipmentHierarchyController extends Controller
             'functional_location_id' => ['required', 'integer'],
         ]);
 
-        $equipment = Equipment::findOrFail($data['equipment_id']);
-        $floc = FunctionalLocation::findOrFail($data['functional_location_id']);
+        $organizationId = $request->user()->organization_id;
+        $equipment = $this->equipmentService->findOrFail($organizationId, (int) $data['equipment_id']);
+        $floc = $this->locationService->findOrFail($organizationId, (int) $data['functional_location_id']);
 
-        $equipment = $this->service->install($equipment, $floc);
-
-        return $this->success($equipment, 'Equipment installed at functional location');
+        return $this->success($this->service->install($equipment, $floc), 'Equipment installed at functional location');
     }
 
     /**
@@ -62,10 +67,9 @@ class EquipmentHierarchyController extends Controller
             'equipment_id' => ['required', 'integer'],
         ]);
 
-        $equipment = Equipment::findOrFail($data['equipment_id']);
-        $equipment = $this->service->deinstall($equipment);
+        $equipment = $this->equipmentService->findOrFail($request->user()->organization_id, (int) $data['equipment_id']);
 
-        return $this->success($equipment, 'Equipment deinstalled');
+        return $this->success($this->service->deinstall($equipment), 'Equipment deinstalled');
     }
 
     /**
@@ -79,12 +83,11 @@ class EquipmentHierarchyController extends Controller
             'functional_location_id' => ['required', 'integer'],
         ]);
 
-        $equipment = Equipment::findOrFail($data['equipment_id']);
-        $floc = FunctionalLocation::findOrFail($data['functional_location_id']);
+        $organizationId = $request->user()->organization_id;
+        $equipment = $this->equipmentService->findOrFail($organizationId, (int) $data['equipment_id']);
+        $floc = $this->locationService->findOrFail($organizationId, (int) $data['functional_location_id']);
 
-        $equipment = $this->service->relocate($equipment, $floc);
-
-        return $this->success($equipment, 'Equipment relocated');
+        return $this->success($this->service->relocate($equipment, $floc), 'Equipment relocated');
     }
 
     /**
@@ -93,9 +96,10 @@ class EquipmentHierarchyController extends Controller
      */
     public function underFloc(FunctionalLocation $functionalLocation): JsonResponse
     {
-        $equipment = $this->service->getEquipmentUnderFloc($functionalLocation);
-
-        return $this->success($equipment, 'Equipment under functional location retrieved');
+        return $this->success(
+            $this->service->getEquipmentUnderFloc($functionalLocation),
+            'Equipment under functional location retrieved'
+        );
     }
 
     /**
@@ -104,9 +108,7 @@ class EquipmentHierarchyController extends Controller
      */
     public function whereUsed(Equipment $equipment): JsonResponse
     {
-        $result = $this->service->whereUsed($equipment);
-
-        return $this->success($result, 'Equipment where-used retrieved');
+        return $this->success($this->service->whereUsed($equipment), 'Equipment where-used retrieved');
     }
 
     /**
@@ -115,8 +117,9 @@ class EquipmentHierarchyController extends Controller
      */
     public function utilisationSummary(Request $request): JsonResponse
     {
-        $summary = $this->service->utilisationSummary($request->user()->organization_id);
-
-        return $this->success($summary, 'Equipment utilisation summary');
+        return $this->success(
+            $this->service->utilisationSummary($request->user()->organization_id),
+            'Equipment utilisation summary'
+        );
     }
 }

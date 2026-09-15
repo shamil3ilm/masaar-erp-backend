@@ -11,11 +11,19 @@ use App\Models\Maintenance\MaintenanceConditionRule;
 use App\Models\Maintenance\MaintenanceMeasurement;
 use App\Models\Maintenance\MaintenanceOrder;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification;
 
+/**
+ * Condition-based maintenance: rules on measurement points, measurements
+ * checked against them, and the spare parts equipment should have in stock.
+ *
+ * Rules and stock are read for the organization the equipment belongs to.
+ * Spare part rows have no organization of their own and are reached through
+ * their equipment.
+ */
 class ConditionBasedMaintenanceService
 {
     public function __construct(
@@ -23,28 +31,64 @@ class ConditionBasedMaintenanceService
     ) {}
 
     /**
-     * Record a measurement reading and evaluate active rules.
+     * Rules in equipment order. is_active filters only when it is given.
+     *
+     * @param  array{equipment_id?: mixed, is_active?: mixed}  $filters
      */
-    public function recordMeasurement(array $data): MaintenanceMeasurement
+    public function paginateRules(array $filters, int $perPage): LengthAwarePaginator
     {
-        return DB::transaction(function () use ($data): MaintenanceMeasurement {
-            $equipmentId       = (int) $data['equipment_id'];
-            $measurementPoint  = $data['measurement_point'];
-            $value             = (float) $data['measurement_value'];
+        $isActive = $filters['is_active'] ?? null;
 
-            // Evaluate rules to find a breach
-            $breachedRule = $this->evaluateRules($equipmentId, $measurementPoint, $value);
+        return MaintenanceConditionRule::query()
+            ->with('equipment')
+            ->when($filters['equipment_id'] ?? null, fn ($query, $id) => $query->forEquipment((int) $id))
+            ->when($isActive !== null, fn ($query) => $query->where('is_active', (bool) $isActive))
+            ->orderBy('equipment_id')
+            ->paginate($perPage);
+    }
+
+    public function createRule(array $data): MaintenanceConditionRule
+    {
+        return MaintenanceConditionRule::create($data);
+    }
+
+    public function updateRule(MaintenanceConditionRule $rule, array $data): MaintenanceConditionRule
+    {
+        $rule->update($data);
+
+        return $rule->fresh();
+    }
+
+    public function deleteRule(MaintenanceConditionRule $rule): void
+    {
+        $rule->delete();
+    }
+
+    /**
+     * Record a measurement on the organization's equipment and act on the
+     * first of the organization's active rules it breaches.
+     *
+     * @param  array{equipment_id: int, measurement_point: string, measurement_value: float|int|string, unit_of_measure?: ?string, measured_at?: ?string}  $data
+     */
+    public function recordMeasurement(int $organizationId, int $userId, array $data): MaintenanceMeasurement
+    {
+        return DB::transaction(function () use ($organizationId, $userId, $data): MaintenanceMeasurement {
+            $equipmentId = (int) $data['equipment_id'];
+            $measurementPoint = $data['measurement_point'];
+            $value = (float) $data['measurement_value'];
+
+            $breachedRule = $this->evaluateRules($organizationId, $equipmentId, $measurementPoint, $value);
 
             $measurement = MaintenanceMeasurement::create([
-                'organization_id'    => $data['organization_id'] ?? auth()->user()?->organization_id,
-                'equipment_id'       => $equipmentId,
-                'measurement_point'  => $measurementPoint,
-                'measurement_value'  => $value,
-                'unit_of_measure'    => $data['unit_of_measure'] ?? null,
-                'measured_at'        => $data['measured_at'] ?? now(),
-                'recorded_by'        => auth()->id(),
+                'organization_id' => $organizationId,
+                'equipment_id' => $equipmentId,
+                'measurement_point' => $measurementPoint,
+                'measurement_value' => $value,
+                'unit_of_measure' => $data['unit_of_measure'] ?? null,
+                'measured_at' => $data['measured_at'] ?? now(),
+                'recorded_by' => $userId,
                 'threshold_breached' => $breachedRule !== null,
-                'triggered_rule_id'  => $breachedRule?->id,
+                'triggered_rule_id' => $breachedRule?->id,
             ]);
 
             if ($breachedRule !== null) {
@@ -56,99 +100,88 @@ class ConditionBasedMaintenanceService
     }
 
     /**
-     * Evaluate all active rules for an equipment+point combination against a value.
-     * Returns the first matching (breached) rule, or null if none breached.
+     * The first of the organization's active rules for the equipment and
+     * measurement point that the value breaches, or null.
      */
-    public function evaluateRules(int $equipmentId, string $measurementPoint, float $value): ?MaintenanceConditionRule
+    public function evaluateRules(int $organizationId, int $equipmentId, string $measurementPoint, float $value): ?MaintenanceConditionRule
     {
-        $rules = MaintenanceConditionRule::withoutGlobalScope('organization')
+        return MaintenanceConditionRule::forOrganization($organizationId)
             ->active()
             ->forEquipment($equipmentId)
             ->forMeasurementPoint($measurementPoint)
+            ->get()
+            ->first(fn (MaintenanceConditionRule $rule): bool => $rule->isBreached($value));
+    }
+
+    public function spareParts(Equipment $equipment): Collection
+    {
+        return EquipmentSparePart::with('product')
+            ->forEquipment($equipment->id)
             ->get();
-
-        foreach ($rules as $rule) {
-            if ($rule->isBreached($value)) {
-                return $rule;
-            }
-        }
-
-        return null;
     }
 
     /**
-     * Add a spare part to an equipment record.
+     * Add a spare part to the equipment, or update the one it has for the
+     * product, with the organization's current stock of the product.
      */
-    public function addSparePart(array $data): EquipmentSparePart
+    public function addSparePart(Equipment $equipment, array $data): EquipmentSparePart
     {
-        $equipmentId = (int) $data['equipment_id'];
-
-        // Refresh current stock from inventory
-        $currentStock = $this->fetchCurrentStock((int) $data['product_id'], $equipmentId);
+        $productId = (int) $data['product_id'];
 
         return EquipmentSparePart::updateOrCreate(
             [
-                'equipment_id' => $equipmentId,
-                'product_id'   => $data['product_id'],
+                'equipment_id' => $equipment->id,
+                'product_id' => $productId,
             ],
             [
                 'recommended_stock_qty' => $data['recommended_stock_qty'] ?? 0,
-                'current_stock_qty'     => $currentStock,
-                'is_critical'           => $data['is_critical'] ?? false,
-                'lead_time_days'        => $data['lead_time_days'] ?? 0,
+                'current_stock_qty' => $this->stockOnHand($equipment->organization_id, $productId),
+                'is_critical' => $data['is_critical'] ?? false,
+                'lead_time_days' => $data['lead_time_days'] ?? 0,
             ]
-        );
+        )->load('product');
     }
 
     /**
-     * Check availability of all spare parts for an equipment.
+     * Refresh each spare part's stock from the organization's stock levels and
+     * report which parts fall short of their recommended quantity.
      *
-     * @return array{equipment_id: int, parts: Collection, critical_shortfall: int, total_parts: int}
+     * @return array{equipment_id: int, total_parts: int, sufficient_count: int, shortfall_count: int, critical_shortfall: int, parts: Collection}
      */
-    public function checkSparePartsAvailability(int $equipmentId): array
+    public function checkSparePartsAvailability(Equipment $equipment): array
     {
-        $parts = EquipmentSparePart::with('product')
-            ->forEquipment($equipmentId)
-            ->get();
+        $parts = $this->spareParts($equipment);
 
-        // Sync current stock from inventory before evaluating
         foreach ($parts as $part) {
-            $current = $this->fetchCurrentStock($part->product_id, $equipmentId);
+            $current = $this->stockOnHand($equipment->organization_id, $part->product_id);
             if ((float) $part->current_stock_qty !== $current) {
                 $part->update(['current_stock_qty' => $current]);
                 $part->current_stock_qty = $current;
             }
         }
 
-        $shortfalls         = $parts->filter(fn($p) => !$p->isStockSufficient());
-        $criticalShortfalls = $shortfalls->filter(fn($p) => $p->is_critical);
+        $shortfalls = $parts->filter(fn ($p) => ! $p->isStockSufficient());
+        $criticalShortfalls = $shortfalls->filter(fn ($p) => $p->is_critical);
 
         return [
-            'equipment_id'         => $equipmentId,
-            'total_parts'          => $parts->count(),
-            'sufficient_count'     => $parts->count() - $shortfalls->count(),
-            'shortfall_count'      => $shortfalls->count(),
-            'critical_shortfall'   => $criticalShortfalls->count(),
-            'parts'                => $parts->map(fn($p) => [
-                'product_id'            => $p->product_id,
-                'product_name'          => $p->product?->name,
+            'equipment_id' => $equipment->id,
+            'total_parts' => $parts->count(),
+            'sufficient_count' => $parts->count() - $shortfalls->count(),
+            'shortfall_count' => $shortfalls->count(),
+            'critical_shortfall' => $criticalShortfalls->count(),
+            'parts' => $parts->map(fn ($p) => [
+                'product_id' => $p->product_id,
+                'product_name' => $p->product?->name,
                 'recommended_stock_qty' => (float) $p->recommended_stock_qty,
-                'current_stock_qty'     => (float) $p->current_stock_qty,
-                'deficit'               => $p->getStockDeficit(),
-                'is_critical'           => $p->is_critical,
-                'lead_time_days'        => (float) $p->lead_time_days,
-                'sufficient'            => $p->isStockSufficient(),
+                'current_stock_qty' => (float) $p->current_stock_qty,
+                'deficit' => $p->getStockDeficit(),
+                'is_critical' => $p->is_critical,
+                'lead_time_days' => (float) $p->lead_time_days,
+                'sufficient' => $p->isStockSufficient(),
             ])->values(),
         ];
     }
 
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Handle a rule breach — create maintenance order and/or notify.
-     */
     private function handleBreach(MaintenanceMeasurement $measurement, MaintenanceConditionRule $rule): void
     {
         if ($rule->shouldCreateOrder()) {
@@ -156,12 +189,13 @@ class ConditionBasedMaintenanceService
         }
 
         if ($rule->shouldNotify()) {
-            $this->sendBreachNotification($measurement, $rule);
+            $this->logBreach($measurement, $rule);
         }
     }
 
     /**
-     * Auto-create a corrective maintenance order on breach.
+     * Open a corrective order for the breach. A failure is logged and the
+     * measurement is still recorded.
      */
     private function createMaintenanceOrder(MaintenanceMeasurement $measurement, MaintenanceConditionRule $rule): void
     {
@@ -170,47 +204,41 @@ class ConditionBasedMaintenanceService
 
             MaintenanceOrder::create([
                 'organization_id' => $orgId,
-                'order_number'    => $this->numberGenerator->generate(MaintenanceOrder::NUMBER_SEQUENCE, MaintenanceOrder::NUMBER_FORMAT, $orgId),
-                'equipment_id'    => $measurement->equipment_id,
-                'order_type'      => MaintenanceOrder::TYPE_CORRECTIVE,
-                'priority'        => MaintenanceOrder::PRIORITY_HIGH,
-                'status'          => MaintenanceOrder::STATUS_OPEN,
-                'description'     => "Auto-generated: rule '{$rule->rule_name}' breached. "
-                    . "Measurement: {$measurement->measurement_value} {$measurement->unit_of_measure} "
-                    . "at {$measurement->measurement_point}.",
+                'order_number' => $this->numberGenerator->generate(MaintenanceOrder::NUMBER_SEQUENCE, MaintenanceOrder::NUMBER_FORMAT, $orgId),
+                'equipment_id' => $measurement->equipment_id,
+                'order_type' => MaintenanceOrder::TYPE_CORRECTIVE,
+                'priority' => MaintenanceOrder::PRIORITY_HIGH,
+                'status' => MaintenanceOrder::STATUS_OPEN,
+                'description' => "Auto-generated: rule '{$rule->rule_name}' breached. "
+                    ."Measurement: {$measurement->measurement_value} {$measurement->unit_of_measure} "
+                    ."at {$measurement->measurement_point}.",
                 'scheduled_start' => now(),
-                'created_by'      => $measurement->recorded_by,
+                'created_by' => $measurement->recorded_by,
             ]);
         } catch (\Throwable $e) {
             Log::error('ConditionBasedMaintenanceService: failed to create maintenance order.', [
-                'rule_id'        => $rule->id,
+                'rule_id' => $rule->id,
                 'measurement_id' => $measurement->id,
-                'error'          => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
 
-    /**
-     * Send a notification about a threshold breach.
-     */
-    private function sendBreachNotification(MaintenanceMeasurement $measurement, MaintenanceConditionRule $rule): void
+    /** No notification channel exists for breaches; the breach is logged. */
+    private function logBreach(MaintenanceMeasurement $measurement, MaintenanceConditionRule $rule): void
     {
         Log::info('ConditionBasedMaintenanceService: threshold breached, notification queued.', [
-            'rule_id'          => $rule->id,
-            'equipment_id'     => $measurement->equipment_id,
+            'rule_id' => $rule->id,
+            'equipment_id' => $measurement->equipment_id,
             'measurement_point' => $measurement->measurement_point,
-            'value'            => $measurement->measurement_value,
+            'value' => $measurement->measurement_value,
         ]);
-        // Notification dispatch can be extended to use a dedicated Notification class.
     }
 
-    /**
-     * Fetch the current aggregate stock for a product across all locations.
-     */
-    private function fetchCurrentStock(int $productId, int $equipmentId): float
+    /** The organization's stock of a product across all of its warehouses. */
+    private function stockOnHand(int $organizationId, int $productId): float
     {
-        // Use organization-scoped total stock quantity for the product
-        return (float) StockLevel::withoutGlobalScope('organization')
+        return (float) StockLevel::forOrganization($organizationId)
             ->where('product_id', $productId)
             ->sum('quantity');
     }
