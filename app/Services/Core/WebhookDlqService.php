@@ -5,10 +5,59 @@ declare(strict_types=1);
 namespace App\Services\Core;
 
 use App\Models\Core\WebhookDlqEntry;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WebhookDlqService
 {
+    /**
+     * Dead-letter entries of the organization, most recently failed first, 20
+     * to a page, narrowed to one status when given.
+     */
+    public function list(int $orgId, ?string $status): LengthAwarePaginator
+    {
+        return WebhookDlqEntry::where('organization_id', $orgId)
+            ->when($status, fn ($query, $status) => $query->where('status', $status))
+            ->orderBy('last_failed_at', 'desc')
+            ->paginate(20);
+    }
+
+    /**
+     * An entry of the organization by id; another organization's entry is not found.
+     */
+    public function findForOrganization(int $orgId, int $id): WebhookDlqEntry
+    {
+        return WebhookDlqEntry::where('organization_id', $orgId)->findOrFail($id);
+    }
+
+    /**
+     * Replays the organization's entries among $ids in one transaction and
+     * returns how many there were; ids of other organizations are ignored.
+     *
+     * @param  list<int>  $ids
+     */
+    public function replayMany(int $orgId, array $ids, int $userId): int
+    {
+        return DB::transaction(function () use ($orgId, $ids, $userId): int {
+            $entries = WebhookDlqEntry::where('organization_id', $orgId)
+                ->whereIn('id', $ids)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($entries as $entry) {
+                $this->replay($entry, $userId);
+            }
+
+            return $entries->count();
+        });
+    }
+
+    public function delete(WebhookDlqEntry $entry): void
+    {
+        $entry->delete();
+    }
+
     public function recordFailure(int $orgId, int $webhookId, string $event, array $payload, string $error): WebhookDlqEntry
     {
         $existing = WebhookDlqEntry::where('webhook_id', $webhookId)
