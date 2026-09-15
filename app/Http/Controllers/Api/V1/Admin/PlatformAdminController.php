@@ -7,37 +7,38 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Admin\PlatformAdmin;
 use App\Models\Core\Organization;
-use App\Models\User;
 use App\Services\Admin\PlatformAdminService;
+use App\Services\Admin\PlatformOrganizationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PlatformAdminController extends Controller
 {
-    public function __construct(private PlatformAdminService $service) {}
+    public function __construct(
+        private PlatformAdminService $service,
+        private PlatformOrganizationService $organizations,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $admins = PlatformAdmin::orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
-        return $this->paginated($admins);
+        return $this->paginated($this->service->paginate($request->input('per_page', 20)));
     }
 
     public function store(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:platform_admins,email',
             'password' => 'required|string|min:8|confirmed',
             'role' => 'nullable|string|max:30',
+            'phone' => 'nullable|string|max:30',
+            'avatar' => 'nullable|string|max:500',
+            'is_active' => 'sometimes|boolean',
+            'permissions' => 'nullable|array',
         ]);
 
-        $data = $request->except('password_confirmation');
-        if (isset($data['password'])) {
-            $data['password'] = bcrypt($data['password']);
-        }
-        $admin = PlatformAdmin::create($data);
-        return $this->created($admin);
+        return $this->created($this->service->create($validated));
     }
 
     public function show(PlatformAdmin $admin): JsonResponse
@@ -47,29 +48,38 @@ class PlatformAdminController extends Controller
 
     public function update(Request $request, PlatformAdmin $admin): JsonResponse
     {
-        $admin->update($request->except('password_confirmation'));
-        return $this->success($admin->fresh());
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => ['sometimes', 'email', Rule::unique('platform_admins', 'email')->ignore($admin->id)],
+            'phone' => 'nullable|string|max:30',
+            'password' => 'sometimes|string|min:8|confirmed',
+            'role' => 'sometimes|string|max:30',
+            'avatar' => 'nullable|string|max:500',
+            'is_active' => 'sometimes|boolean',
+            'permissions' => 'nullable|array',
+        ]);
+
+        return $this->success($this->service->update($admin, $validated));
     }
 
     public function destroy(PlatformAdmin $admin): JsonResponse
     {
-        $admin->delete();
+        $this->service->delete($admin);
+
         return $this->success(['message' => 'Admin deleted']);
     }
 
     public function listOrganizations(Request $request): JsonResponse
     {
-        $orgs = Organization::when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('search'), fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
-            ->withCount('users')
-            ->orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
-        return $this->paginated($orgs);
+        return $this->paginated($this->organizations->paginateOrganizations(
+            ['status' => $request->input('status'), 'search' => $request->input('search')],
+            $request->input('per_page', 20)
+        ));
     }
 
     public function showOrganization(Organization $organization): JsonResponse
     {
-        return $this->success($organization->loadCount('users', 'branches'));
+        return $this->success($this->organizations->withCounts($organization));
     }
 
     public function suspendOrganization(Request $request, Organization $organization): JsonResponse
@@ -78,14 +88,12 @@ class PlatformAdminController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        $organization->update(['status' => 'suspended']);
-        return $this->success($organization->fresh());
+        return $this->success($this->organizations->suspend($organization));
     }
 
     public function activateOrganization(Organization $organization): JsonResponse
     {
-        $organization->update(['status' => 'active']);
-        return $this->success($organization->fresh());
+        return $this->success($this->organizations->activate($organization));
     }
 
     public function listUsers(Request $request): JsonResponse
@@ -94,10 +102,9 @@ class PlatformAdminController extends Controller
             abort(403, 'Forbidden: super-admin access required.');
         }
 
-        $users = User::with('organization')
-            ->when($request->input('search'), fn ($q, $s) => $q->where('name', 'like', "%{$s}%")->orWhere('email', 'like', "%{$s}%"))
-            ->orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
-        return $this->paginated($users);
+        return $this->paginated($this->organizations->paginateUsers(
+            $request->input('search'),
+            $request->input('per_page', 20)
+        ));
     }
 }
