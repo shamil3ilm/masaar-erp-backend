@@ -60,8 +60,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Budget/BudgetTransferController.php' => 3,
         'Api/V1/Calendar/CalendarController.php' => 1,
         'Api/V1/Calendar/CalendarEventController.php' => 1,
-        'Api/V1/Campaign/CampaignController.php' => 7,
-        'Api/V1/Campaign/SegmentController.php' => 6,
         'Api/V1/Compliance/DeniedPartyScreeningController.php' => 13,
         'Api/V1/Compliance/OnboardingController.php' => 4,
         'Api/V1/Compliance/ZatcaWebhookController.php' => 1,
