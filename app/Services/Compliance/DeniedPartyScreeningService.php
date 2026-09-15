@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Compliance;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Compliance\DpsListEntry;
 use App\Models\Compliance\DpsSanctionList;
 use App\Models\Compliance\DpsScreeningResult;
 use App\Models\Compliance\DpsScreeningRun;
 use App\Models\Sales\Contact;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +18,101 @@ use Illuminate\Support\Facades\Log;
 class DeniedPartyScreeningService
 {
     private const CONFIRMED_MATCH_THRESHOLD = 95.0;
+
+    // -------------------------------------------------------------------------
+    // Sanction lists and entries
+    // -------------------------------------------------------------------------
+
+    /**
+     * The organization's sanction lists, each with its count of active entries.
+     */
+    public function paginateLists(int $organizationId, int $perPage): LengthAwarePaginator
+    {
+        return DpsSanctionList::where('organization_id', $organizationId)
+            ->withCount(['entries' => fn ($q) => $q->where('is_active', true)])
+            ->paginate($perPage);
+    }
+
+    public function createList(array $data, int $organizationId): DpsSanctionList
+    {
+        return DpsSanctionList::create(array_merge($data, ['organization_id' => $organizationId]));
+    }
+
+    public function findList(int $id): DpsSanctionList
+    {
+        return DpsSanctionList::findOrFail($id);
+    }
+
+    public function findListWithActiveEntryCount(int $id): DpsSanctionList
+    {
+        return DpsSanctionList::withCount([
+            'entries' => fn ($q) => $q->where('is_active', true),
+        ])->findOrFail($id);
+    }
+
+    public function updateList(DpsSanctionList $list, array $data): DpsSanctionList
+    {
+        $list->update($data);
+
+        return $list->fresh();
+    }
+
+    /**
+     * The list's entries, optionally narrowed to names containing the search.
+     */
+    public function paginateEntries(DpsSanctionList $list, ?string $search, int $perPage): LengthAwarePaginator
+    {
+        return DpsListEntry::where('dps_sanction_list_id', $list->id)
+            ->when($search, fn ($q, $term) => $q->where('name', 'like', "%{$term}%"))
+            ->paginate($perPage);
+    }
+
+    public function addEntry(DpsSanctionList $list, array $data): DpsListEntry
+    {
+        return DpsListEntry::create(array_merge($data, ['dps_sanction_list_id' => $list->id]));
+    }
+
+    // -------------------------------------------------------------------------
+    // Screening runs
+    // -------------------------------------------------------------------------
+
+    /**
+     * The organization's screening runs, latest first.
+     *
+     * @param  array{status?: string|null, entity_type?: string|null}  $filters
+     */
+    public function paginateRuns(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return DpsScreeningRun::where('organization_id', $organizationId)
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['entity_type'] ?? null, fn ($q, $type) => $q->where('screened_entity_type', $type))
+            ->orderByDesc('screening_date')
+            ->paginate($perPage);
+    }
+
+    public function findRun(int $id): DpsScreeningRun
+    {
+        return DpsScreeningRun::findOrFail($id);
+    }
+
+    /**
+     * A run with its matches and, by name, the officer who cleared it.
+     */
+    public function findRunWithDetails(int $id): DpsScreeningRun
+    {
+        return DpsScreeningRun::with(['results.listEntry', 'clearedBy:id,name'])->findOrFail($id);
+    }
+
+    /**
+     * The contact's most recent screening run in the organization, if any.
+     */
+    public function latestRunForContact(int $contactId): ?DpsScreeningRun
+    {
+        return DpsScreeningRun::where('screened_entity_type', 'contact')
+            ->where('screened_entity_id', $contactId)
+            ->orderByDesc('screening_date')
+            ->first();
+    }
 
     /**
      * Screen a single contact against all active sanction lists.
@@ -202,15 +299,33 @@ class DeniedPartyScreeningService
 
     /**
      * Mark a screening run as cleared by a compliance officer.
+     *
+     * Only a run awaiting review is cleared, checked on the locked row: a
+     * clearance is the record of who accepted a match and why, so a second
+     * officer cannot overwrite it, and a clean run has nothing to accept.
+     *
+     * @throws BusinessRuleException when the run has no match awaiting review
      */
-    public function clearScreening(DpsScreeningRun $run, int $userId, string $notes): void
+    public function clearScreening(DpsScreeningRun $run, int $userId, string $notes): DpsScreeningRun
     {
-        $run->update([
-            'status'          => DpsScreeningRun::STATUS_CLEARED,
-            'cleared_by'      => $userId,
-            'cleared_at'      => now(),
-            'clearance_notes' => $notes,
-        ]);
+        return $run->lockForTransition(function (DpsScreeningRun $locked) use ($userId, $notes): DpsScreeningRun {
+            if (! $locked->requiresReview()) {
+                throw new BusinessRuleException(
+                    'Only a screening run with a potential or confirmed match can be cleared.',
+                    'SCREENING_NOT_REVIEWABLE',
+                    422
+                );
+            }
+
+            $locked->update([
+                'status'          => DpsScreeningRun::STATUS_CLEARED,
+                'cleared_by'      => $userId,
+                'cleared_at'      => now(),
+                'clearance_notes' => $notes,
+            ]);
+
+            return $locked->fresh(['clearedBy:id,name']);
+        });
     }
 
     /**
@@ -231,10 +346,7 @@ class DeniedPartyScreeningService
      */
     public function isContactClean(int $contactId): bool
     {
-        $latestRun = DpsScreeningRun::where('screened_entity_type', 'contact')
-            ->where('screened_entity_id', $contactId)
-            ->orderByDesc('screening_date')
-            ->first();
+        $latestRun = $this->latestRunForContact($contactId);
 
         if (! $latestRun) {
             return true; // Never screened — treat as not blocked

@@ -4,16 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Compliance;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Compliance\DpsListEntry;
-use App\Models\Compliance\DpsSanctionList;
-use App\Models\Compliance\DpsScreeningRun;
 use App\Services\Compliance\DeniedPartyScreeningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DeniedPartyScreeningController extends Controller
 {
+    use ReportsBusinessRules;
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly DeniedPartyScreeningService $dpsService
     ) {}
@@ -24,13 +27,9 @@ class DeniedPartyScreeningController extends Controller
 
     public function lists(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $lists = DpsSanctionList::where('organization_id', $orgId)
-            ->withCount(['entries' => fn ($q) => $q->where('is_active', true)])
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($lists);
+        return $this->paginated(
+            $this->dpsService->paginateLists($this->organizationId($request), $request->integer('per_page', 15))
+        );
     }
 
     public function storeList(Request $request): JsonResponse
@@ -44,26 +43,17 @@ class DeniedPartyScreeningController extends Controller
             'sync_url'       => 'nullable|url|max:255',
         ]);
 
-        $list = DpsSanctionList::create(array_merge(
-            $validated,
-            ['organization_id' => $this->organizationId($request)]
-        ));
-
-        return $this->created($list);
+        return $this->created($this->dpsService->createList($validated, $this->organizationId($request)));
     }
 
     public function showList(int $id): JsonResponse
     {
-        $list = DpsSanctionList::withCount([
-            'entries' => fn ($q) => $q->where('is_active', true),
-        ])->findOrFail($id);
-
-        return $this->success($list);
+        return $this->success($this->dpsService->findListWithActiveEntryCount($id));
     }
 
     public function updateList(Request $request, int $id): JsonResponse
     {
-        $list      = DpsSanctionList::findOrFail($id);
+        $list      = $this->dpsService->findList($id);
         $validated = $request->validate([
             'list_name'      => 'sometimes|string|max:100',
             'list_authority' => 'sometimes|in:OFAC,EU,UN,HMT,local,other',
@@ -73,9 +63,7 @@ class DeniedPartyScreeningController extends Controller
             'sync_url'       => 'nullable|url|max:255',
         ]);
 
-        $list->update($validated);
-
-        return $this->success($list->fresh());
+        return $this->success($this->dpsService->updateList($list, $validated));
     }
 
     // -------------------------------------------------------------------------
@@ -84,20 +72,16 @@ class DeniedPartyScreeningController extends Controller
 
     public function listEntries(Request $request, int $listId): JsonResponse
     {
-        DpsSanctionList::findOrFail($listId); // guard
+        $list = $this->dpsService->findList($listId);
 
-        $entries = DpsListEntry::where('dps_sanction_list_id', $listId)
-            ->when($request->input('search'), function ($q, $search): void {
-                $q->where('name', 'like', "%{$search}%");
-            })
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($entries);
+        return $this->paginated(
+            $this->dpsService->paginateEntries($list, $request->input('search'), $request->integer('per_page', 20))
+        );
     }
 
     public function storeEntry(Request $request, int $listId): JsonResponse
     {
-        DpsSanctionList::findOrFail($listId); // guard
+        $list = $this->dpsService->findList($listId);
 
         $validated = $request->validate([
             'entry_type'     => 'required|in:person,entity,vessel,aircraft',
@@ -114,17 +98,12 @@ class DeniedPartyScreeningController extends Controller
             'is_active'      => 'nullable|boolean',
         ]);
 
-        $entry = DpsListEntry::create(array_merge(
-            $validated,
-            ['dps_sanction_list_id' => $listId]
-        ));
-
-        return $this->created($entry);
+        return $this->created($this->dpsService->addEntry($list, $validated));
     }
 
     public function importEntries(Request $request, int $listId): JsonResponse
     {
-        DpsSanctionList::findOrFail($listId); // guard
+        $list = $this->dpsService->findList($listId);
 
         $validated = $request->validate([
             'entries'                => 'required|array|min:1|max:5000',
@@ -135,7 +114,7 @@ class DeniedPartyScreeningController extends Controller
             'entries.*.id_number'    => 'nullable|string|max:100',
         ]);
 
-        $count = $this->dpsService->importListEntries($listId, $validated['entries']);
+        $count = $this->dpsService->importListEntries($list->id, $validated['entries']);
 
         return $this->success(['imported' => $count], "{$count} entries imported.");
     }
@@ -147,7 +126,7 @@ class DeniedPartyScreeningController extends Controller
     public function screenContact(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id' => 'required|integer|exists:contacts,id',
+            'contact_id' => ['required', 'integer', $this->ownedBy('contacts')],
             'threshold'  => 'nullable|numeric|min:0|max:100',
         ]);
 
@@ -161,8 +140,7 @@ class DeniedPartyScreeningController extends Controller
 
     public function screenAll(Request $request): JsonResponse
     {
-        $orgId   = $this->organizationId($request);
-        $summary = $this->dpsService->screenAll($orgId);
+        $summary = $this->dpsService->screenAll($this->organizationId($request));
 
         return $this->success($summary, 'Bulk screening complete.');
     }
@@ -173,35 +151,32 @@ class DeniedPartyScreeningController extends Controller
 
     public function runs(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $runs = DpsScreeningRun::where('organization_id', $orgId)
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('entity_type'), fn ($q, $t) => $q->where('screened_entity_type', $t))
-            ->orderByDesc('screening_date')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($runs);
+        return $this->paginated($this->dpsService->paginateRuns(
+            $this->organizationId($request),
+            ['status' => $request->input('status'), 'entity_type' => $request->input('entity_type')],
+            $request->integer('per_page', 15),
+        ));
     }
 
     public function showRun(int $id): JsonResponse
     {
-        $run = DpsScreeningRun::with(['results.listEntry', 'clearedBy'])
-            ->findOrFail($id);
-
-        return $this->success($run);
+        return $this->success($this->dpsService->findRunWithDetails($id));
     }
 
     public function clearRun(Request $request, int $id): JsonResponse
     {
-        $run       = DpsScreeningRun::findOrFail($id);
+        $run       = $this->dpsService->findRun($id);
         $validated = $request->validate([
             'notes' => 'required|string|min:5|max:1000',
         ]);
 
-        $this->dpsService->clearScreening($run, auth()->id(), $validated['notes']);
+        try {
+            $run = $this->dpsService->clearScreening($run, auth()->id(), $validated['notes']);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
-        return $this->success($run->fresh('clearedBy'), 'Screening run cleared.');
+        return $this->success($run, 'Screening run cleared.');
     }
 
     // -------------------------------------------------------------------------
@@ -210,24 +185,16 @@ class DeniedPartyScreeningController extends Controller
 
     public function pendingReviews(Request $request): JsonResponse
     {
-        $orgId   = $this->organizationId($request);
-        $reviews = $this->dpsService->getPendingReviews($orgId);
-
-        return $this->success($reviews);
+        return $this->success($this->dpsService->getPendingReviews($this->organizationId($request)));
     }
 
     public function checkContact(int $contactId): JsonResponse
     {
-        $isClean = $this->dpsService->isContactClean($contactId);
-
-        $latestRun = DpsScreeningRun::where('screened_entity_type', 'contact')
-            ->where('screened_entity_id', $contactId)
-            ->orderByDesc('screening_date')
-            ->first();
+        $latestRun = $this->dpsService->latestRunForContact($contactId);
 
         return $this->success([
             'contact_id'          => $contactId,
-            'is_clean'            => $isClean,
+            'is_clean'            => $this->dpsService->isContactClean($contactId),
             'latest_run_status'   => $latestRun?->status,
             'last_screened_at'    => $latestRun?->screening_date,
         ]);
