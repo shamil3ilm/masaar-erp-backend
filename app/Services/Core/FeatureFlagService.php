@@ -14,6 +14,18 @@ class FeatureFlagService
 {
     private const CACHE_TTL = 30; // seconds
 
+    /**
+     * Forgets the cached value of every feature flag the organization has set.
+     */
+    public function forgetOrganizationFlags(int $organizationId): void
+    {
+        $flagKeys = FeatureFlag::where('organization_id', $organizationId)->pluck('flag_key');
+
+        foreach ($flagKeys as $flagKey) {
+            Cache::forget("feature_flag:{$organizationId}:{$flagKey}");
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------

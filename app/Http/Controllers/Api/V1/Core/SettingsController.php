@@ -5,22 +5,28 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\NumberSequence;
-use App\Models\Core\Organization;
 use App\Models\Core\UserPreference;
 use App\Models\System\Setting;
+use App\Services\Core\FeatureFlagService;
+use App\Services\Core\NumberSequenceService;
 use App\Services\Core\RegionalDefaultsService;
 use App\Services\Core\SettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 class SettingsController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private readonly SettingsService $settingsService
+        private readonly SettingsService $settingsService,
+        private readonly NumberSequenceService $sequences,
+        private readonly FeatureFlagService $featureFlags,
+        private readonly RegionalDefaultsService $regionalDefaults,
     ) {}
 
     // ==========================================
@@ -105,15 +111,8 @@ class SettingsController extends Controller
         ]);
 
         $organizationId = auth()->user()->organization_id;
-        $errors = [];
 
-        foreach ($request->input('settings') as $key => $value) {
-            try {
-                $this->settingsService->set($key, $value, $organizationId);
-            } catch (\InvalidArgumentException $e) {
-                $errors[$key] = $e->getMessage();
-            }
-        }
+        $errors = $this->settingsService->setAll($request->input('settings'), $organizationId);
 
         if (! empty($errors)) {
             return $this->validationError($errors);
@@ -134,14 +133,7 @@ class SettingsController extends Controller
 
         $organizationId = auth()->user()->organization_id;
 
-        $errors = [];
-        foreach ($request->input('settings') as $key => $value) {
-            try {
-                $this->settingsService->set("{$group}.{$key}", $value, $organizationId);
-            } catch (\InvalidArgumentException $e) {
-                $errors[$key] = $e->getMessage();
-            }
-        }
+        $errors = $this->settingsService->setAll($request->input('settings'), $organizationId, $group);
 
         if (! empty($errors)) {
             return $this->validationError($errors);
@@ -337,9 +329,7 @@ class SettingsController extends Controller
     {
         $organizationId = auth()->user()->organization_id;
 
-        $sequences = NumberSequence::where('organization_id', $organizationId)
-            ->orderBy('type')
-            ->get()
+        $sequences = $this->sequences->list($organizationId)
             ->map(fn ($seq) => [
                 'id' => $seq->id,
                 'type' => $seq->type,
@@ -352,7 +342,7 @@ class SettingsController extends Controller
                 'include_month' => $seq->include_month,
                 'reset_yearly' => $seq->reset_yearly,
                 'reset_monthly' => $seq->reset_monthly,
-                'next_number' => $seq->getFormattedNumber(),
+                'next_number' => $this->sequences->nextNumberOf($seq),
             ]);
 
         return $this->success($sequences);
@@ -366,10 +356,7 @@ class SettingsController extends Controller
         $organizationId = auth()->user()->organization_id;
         $branchId = $request->input('branch_id');
 
-        $sequence = NumberSequence::where('organization_id', $organizationId)
-            ->where('type', $type)
-            ->where('branch_id', $branchId)
-            ->first();
+        $sequence = $this->sequences->find($organizationId, $type, $branchId);
 
         if (! $sequence) {
             // Return default configuration
@@ -413,7 +400,7 @@ class SettingsController extends Controller
     {
 
         $request->validate([
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'prefix' => 'nullable|string|max:20',
             'suffix' => 'nullable|string|max:20',
             'padding' => 'integer|min:1|max:10',
@@ -427,30 +414,14 @@ class SettingsController extends Controller
         $organizationId = auth()->user()->organization_id;
         $branchId = $request->input('branch_id');
 
-        $sequence = NumberSequence::updateOrCreate(
-            [
-                'organization_id' => $organizationId,
-                'type' => $type,
-                'branch_id' => $branchId,
-            ],
-            array_filter([
-                'prefix' => $request->input('prefix'),
-                'suffix' => $request->input('suffix'),
-                'padding' => $request->input('padding', 5),
-                'include_year' => $request->input('include_year', true),
-                'include_month' => $request->input('include_month', false),
-                'reset_yearly' => $request->input('reset_yearly', true),
-                'reset_monthly' => $request->input('reset_monthly', false),
-                'current_number' => $request->input('current_number'),
-                'last_reset_year' => now()->year,
-                'last_reset_month' => now()->month,
-            ], fn ($v) => $v !== null)
-        );
+        $sequence = $this->sequences->configure($organizationId, $type, $branchId, $request->only([
+            'prefix', 'suffix', 'padding', 'include_year', 'include_month', 'reset_yearly', 'reset_monthly', 'current_number',
+        ]));
 
         return $this->success([
             'id' => $sequence->id,
             'type' => $sequence->type,
-            'next_number' => NumberSequence::peekNext($organizationId, $type, $branchId),
+            'next_number' => $this->sequences->peekNext($organizationId, $type, $branchId),
         ], 'Number sequence updated');
     }
 
@@ -489,14 +460,7 @@ class SettingsController extends Controller
         $organizationId = auth()->user()->organization_id;
 
         $this->settingsService->clearAllCache($organizationId);
-
-        // Clear feature flags cache
-        $flagKeys = FeatureFlag::where('organization_id', $organizationId)
-            ->pluck('flag_key');
-
-        foreach ($flagKeys as $flagKey) {
-            Cache::forget("feature_flag:{$organizationId}:{$flagKey}");
-        }
+        $this->featureFlags->forgetOrganizationFlags($organizationId);
 
         return $this->success(null, 'Settings cache cleared');
     }
@@ -511,7 +475,7 @@ class SettingsController extends Controller
      */
     public function regions(): JsonResponse
     {
-        $countries = app(RegionalDefaultsService::class)->getSupportedCountries();
+        $countries = $this->regionalDefaults->getSupportedCountries();
 
         return $this->success($countries, 'Supported regions retrieved.');
     }
@@ -522,12 +486,11 @@ class SettingsController extends Controller
      */
     public function previewRegionDefaults(string $countryCode): JsonResponse
     {
-        $service = app(RegionalDefaultsService::class);
-        $defaults = $service->getDefaultsForCountry(strtoupper($countryCode));
+        $defaults = $this->regionalDefaults->getDefaultsForCountry(strtoupper($countryCode));
 
         return $this->success([
             'country_code' => strtoupper($countryCode),
-            'region' => $service->getRegionLabel($countryCode),
+            'region' => $this->regionalDefaults->getRegionLabel($countryCode),
             'defaults' => $defaults,
         ], 'Regional defaults preview.');
     }
@@ -572,15 +535,15 @@ class SettingsController extends Controller
         if (! $orgId) {
             return $this->error('Organization not found.', 'ORGANIZATION_NOT_FOUND', 422);
         }
-        $org = Organization::findOrFail($orgId);
+        $countryCode = $this->settingsService->organizationCountryCode($orgId);
 
-        if (empty($org->country_code)) {
+        if ($countryCode === null) {
             return $this->error('Organization has no country_code set.', 'MISSING_COUNTRY_CODE', 422);
         }
 
         $result = $this->settingsService->initializeByCountry(
             organizationId: $orgId,
-            countryCode: $org->country_code,
+            countryCode: $countryCode,
             force: true,
         );
 
