@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Core;
 
 use App\Models\Core\IpAllowlistRule;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 
 class IpAllowlistService
@@ -46,6 +47,39 @@ class IpAllowlistService
             'active'          => $data['active'] ?? true,
             'created_by'      => $data['created_by'],
         ]);
+    }
+
+    /**
+     * Rules of the organization, allow rules before deny rules, 20 to a page.
+     */
+    public function list(int $orgId): LengthAwarePaginator
+    {
+        return IpAllowlistRule::where('organization_id', $orgId)
+            ->orderBy('rule_type')
+            ->paginate(20);
+    }
+
+    /**
+     * A rule of the organization by id; another organization's rule is not found.
+     */
+    public function findInOrganization(int $orgId, int $id): IpAllowlistRule
+    {
+        return IpAllowlistRule::where('organization_id', $orgId)->findOrFail($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  validated name, type, scope and active flag
+     */
+    public function updateRule(IpAllowlistRule $rule, array $data): IpAllowlistRule
+    {
+        $rule->update($data);
+
+        return $rule;
+    }
+
+    public function deleteRule(IpAllowlistRule $rule): void
+    {
+        $rule->delete();
     }
 
     public function isIpInRange(string $ip, string $start, string $end): bool

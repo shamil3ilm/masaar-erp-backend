@@ -91,7 +91,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Core/FeatureFlagController.php' => 1,
         'Api/V1/Core/GdprController.php' => 4,
         'Api/V1/Core/ImportController.php' => 5,
-        'Api/V1/Core/IpAllowlistController.php' => 3,
         'Api/V1/Core/JobMonitorController.php' => 4,
         'Api/V1/Core/ModuleAccessController.php' => 5,
         'Api/V1/Core/ModuleController.php' => 3,
