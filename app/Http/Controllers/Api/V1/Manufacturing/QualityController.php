@@ -4,19 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\DefectRecord;
-use App\Models\Manufacturing\InspectionLot;
-use App\Models\Manufacturing\QualityNotification;
-use App\Models\Manufacturing\QualityPlan;
 use App\Services\Manufacturing\QualityManagementService;
+use App\Services\Manufacturing\QualityRecordService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class QualityController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private QualityManagementService $qualityService,
+        private QualityRecordService $records,
     ) {}
 
     // =========================================================================
@@ -28,22 +29,12 @@ class QualityController extends Controller
      */
     public function indexPlans(Request $request): JsonResponse
     {
-        $query = QualityPlan::with(['product', 'productCategory'])
-            ->withCount('characteristics')
-            ->when($request->is_active !== null, fn ($q) => $q->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN)))
-            ->when($request->inspection_stage, fn ($q, $stage) => $q->forStage($stage))
-            ->when($request->product_id, fn ($q, $id) => $q->where('product_id', $id))
-            ->when($request->search, function ($q, $search) {
-                $q->where('name', 'like', "%{$search}%");
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'inspection_stage', 'created_at', 'updated_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $plans = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($plans);
+        return $this->paginated($this->records->paginatePlans(
+            $request->only(['is_active', 'inspection_stage', 'product_id', 'search']),
+            $this->safeSortBy($request->sort_by, QualityRecordService::PLAN_SORT_COLUMNS, 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -53,8 +44,8 @@ class QualityController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'product_id' => 'nullable|exists:products,id',
-            'product_category_id' => 'nullable|exists:categories,id',
+            'product_id' => ['nullable', $this->ownedBy('products')],
+            'product_category_id' => ['nullable', $this->ownedBy('categories')],
             'inspection_stage' => 'nullable|in:goods_receipt,production,pre_shipment,in_process,final',
             'is_active' => 'nullable|boolean',
             'description' => 'nullable|string',
@@ -87,8 +78,7 @@ class QualityController extends Controller
      */
     public function showPlan(int $id): JsonResponse
     {
-        $plan = QualityPlan::with(['characteristics', 'product', 'productCategory', 'creator'])
-            ->find($id);
+        $plan = $this->records->findPlan($id, ['characteristics', 'product', 'productCategory', 'creator']);
 
         if ($plan === null) {
             return $this->notFound('Quality plan not found.');
@@ -102,7 +92,7 @@ class QualityController extends Controller
      */
     public function updatePlan(Request $request, int $id): JsonResponse
     {
-        $plan = QualityPlan::find($id);
+        $plan = $this->records->findPlan($id);
 
         if ($plan === null) {
             return $this->notFound('Quality plan not found.');
@@ -110,16 +100,14 @@ class QualityController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
-            'product_id' => 'nullable|exists:products,id',
-            'product_category_id' => 'nullable|exists:categories,id',
+            'product_id' => ['nullable', $this->ownedBy('products')],
+            'product_category_id' => ['nullable', $this->ownedBy('categories')],
             'inspection_stage' => 'nullable|in:goods_receipt,production,pre_shipment,in_process,final',
             'is_active' => 'nullable|boolean',
             'description' => 'nullable|string',
         ]);
 
-        $plan->update($validated);
-
-        return $this->success($plan->fresh(['characteristics', 'product']));
+        return $this->success($this->records->updatePlan($plan, $validated));
     }
 
     /**
@@ -127,13 +115,13 @@ class QualityController extends Controller
      */
     public function destroyPlan(int $id): JsonResponse
     {
-        $plan = QualityPlan::find($id);
+        $plan = $this->records->findPlan($id);
 
         if ($plan === null) {
             return $this->notFound('Quality plan not found.');
         }
 
-        $plan->delete();
+        $this->records->deletePlan($plan);
 
         return $this->success(null, 'Quality plan deleted successfully.');
     }
@@ -147,24 +135,12 @@ class QualityController extends Controller
      */
     public function indexLots(Request $request): JsonResponse
     {
-        $query = InspectionLot::with(['product', 'warehouse', 'qualityPlan', 'inspector'])
-            ->withCount('results')
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
-            ->when($request->product_id, fn ($q, $id) => $q->where('product_id', $id))
-            ->when($request->source_type, fn ($q, $type) => $q->where('source_type', $type))
-            ->when($request->search, function ($q, $search) {
-                $q->where('lot_number', 'like', "%{$search}%");
-            })
-            ->when($request->from, fn ($q, $from) => $q->where('created_at', '>=', $from))
-            ->when($request->to, fn ($q, $to) => $q->where('created_at', '<=', $to . ' 23:59:59'))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['lot_number', 'status', 'created_at', 'inspection_date'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $lots = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($lots);
+        return $this->paginated($this->records->paginateLots(
+            $request->only(['status', 'product_id', 'source_type', 'search', 'from', 'to']),
+            $this->safeSortBy($request->sort_by, QualityRecordService::LOT_SORT_COLUMNS, 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -173,18 +149,16 @@ class QualityController extends Controller
     public function storeLot(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'quality_plan_id' => 'nullable|exists:quality_plans,id',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'product_id' => ['required', $this->ownedBy('products')],
+            'quality_plan_id' => ['nullable', $this->ownedBy('quality_plans')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'source_type' => 'nullable|in:purchase_order,production,transfer,manual',
             'source_id' => 'nullable|integer',
             'quantity' => 'required|numeric|min:0.0001',
             'notes' => 'nullable|string',
         ]);
 
-        $lot = $this->qualityService->createInspectionLot($validated, auth()->id());
-
-        return $this->created($lot);
+        return $this->created($this->qualityService->createInspectionLot($validated, auth()->id()));
     }
 
     /**
@@ -192,7 +166,7 @@ class QualityController extends Controller
      */
     public function showLot(int $id): JsonResponse
     {
-        $lot = InspectionLot::with([
+        $lot = $this->records->findLot($id, [
             'qualityPlan.characteristics',
             'product',
             'warehouse',
@@ -200,7 +174,7 @@ class QualityController extends Controller
             'creator',
             'results.recorder',
             'results.characteristic',
-        ])->find($id);
+        ]);
 
         if ($lot === null) {
             return $this->notFound('Inspection lot not found.');
@@ -214,7 +188,7 @@ class QualityController extends Controller
      */
     public function recordResults(Request $request, int $id): JsonResponse
     {
-        $lot = InspectionLot::find($id);
+        $lot = $this->records->findLot($id);
 
         if ($lot === null) {
             return $this->notFound('Inspection lot not found.');
@@ -226,7 +200,7 @@ class QualityController extends Controller
 
         $validated = $request->validate([
             'results' => 'required|array|min:1',
-            'results.*.quality_plan_characteristic_id' => 'nullable|exists:quality_plan_characteristics,id',
+            'results.*.quality_plan_characteristic_id' => ['nullable', $this->ownedThrough('quality_plan_characteristics', 'quality_plan_id', 'quality_plans')],
             'results.*.characteristic_name' => 'required_without:results.*.quality_plan_characteristic_id|string|max:255',
             'results.*.measured_value' => 'nullable|numeric',
             'results.*.text_result' => 'nullable|string|max:500',
@@ -248,7 +222,7 @@ class QualityController extends Controller
      */
     public function completeLot(Request $request, int $id): JsonResponse
     {
-        $lot = InspectionLot::find($id);
+        $lot = $this->records->findLot($id);
 
         if ($lot === null) {
             return $this->notFound('Inspection lot not found.');
@@ -278,30 +252,12 @@ class QualityController extends Controller
      */
     public function indexNotifications(Request $request): JsonResponse
     {
-        $query = QualityNotification::with(['product', 'assignee', 'creator'])
-            ->withCount('defects')
-            ->when($request->status, fn ($q, $status) => $q->where('status', $status))
-            ->when($request->priority, fn ($q, $priority) => $q->where('priority', $priority))
-            ->when($request->notification_type, fn ($q, $type) => $q->where('notification_type', $type))
-            ->when($request->assigned_to, fn ($q, $id) => $q->where('assigned_to', $id))
-            ->when($request->product_id, fn ($q, $id) => $q->where('product_id', $id))
-            ->when($request->overdue === 'true', fn ($q) => $q->overdue())
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('notification_number', 'like', "%{$search}%")
-                        ->orWhere('title', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->from, fn ($q, $from) => $q->where('created_at', '>=', $from))
-            ->when($request->to, fn ($q, $to) => $q->where('created_at', '<=', $to . ' 23:59:59'))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['notification_number', 'priority', 'status', 'due_date', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $notifications = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($notifications);
+        return $this->paginated($this->records->paginateNotifications(
+            $request->only(['status', 'priority', 'notification_type', 'assigned_to', 'product_id', 'overdue', 'search', 'from', 'to']),
+            $this->safeSortBy($request->sort_by, QualityRecordService::NOTIFICATION_SORT_COLUMNS, 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -313,11 +269,11 @@ class QualityController extends Controller
             'notification_type' => 'nullable|in:defect,complaint,improvement,deviation',
             'source_type' => 'nullable|in:inspection_lot,customer,supplier,internal',
             'source_id' => 'nullable|integer',
-            'product_id' => 'nullable|exists:products,id',
+            'product_id' => ['nullable', $this->ownedBy('products')],
             'title' => 'required|string|max:255',
             'description' => 'required|string',
             'priority' => 'nullable|in:low,medium,high,critical',
-            'assigned_to' => 'nullable|exists:users,id',
+            'assigned_to' => ['nullable', $this->ownedBy('users')],
             'due_date' => 'nullable|date',
             'defects' => 'nullable|array',
             'defects.*.defect_type' => 'required_with:defects|string|max:100',
@@ -328,9 +284,7 @@ class QualityController extends Controller
             'defects.*.location' => 'nullable|string|max:255',
         ]);
 
-        $notification = $this->qualityService->createNotification($validated, auth()->id());
-
-        return $this->created($notification);
+        return $this->created($this->qualityService->createNotification($validated, auth()->id()));
     }
 
     /**
@@ -338,13 +292,7 @@ class QualityController extends Controller
      */
     public function showNotification(int $id): JsonResponse
     {
-        $notification = QualityNotification::with([
-            'defects',
-            'product',
-            'assignee',
-            'creator',
-            'resolver',
-        ])->find($id);
+        $notification = $this->records->findNotification($id, ['defects', 'product', 'assignee', 'creator', 'resolver']);
 
         if ($notification === null) {
             return $this->notFound('Quality notification not found.');
@@ -358,23 +306,21 @@ class QualityController extends Controller
      */
     public function assignNotification(Request $request, int $id): JsonResponse
     {
-        $notification = QualityNotification::find($id);
+        $notification = $this->records->findNotification($id);
 
         if ($notification === null) {
             return $this->notFound('Quality notification not found.');
         }
 
         $validated = $request->validate([
-            'assigned_to' => 'required|exists:users,id',
+            'assigned_to' => ['required', $this->ownedBy('users')],
         ]);
 
-        $notification = $this->qualityService->assignNotification(
+        return $this->success($this->qualityService->assignNotification(
             $notification,
             (int) $validated['assigned_to'],
             auth()->id()
-        );
-
-        return $this->success($notification);
+        ));
     }
 
     /**
@@ -382,7 +328,7 @@ class QualityController extends Controller
      */
     public function resolveNotification(Request $request, int $id): JsonResponse
     {
-        $notification = QualityNotification::find($id);
+        $notification = $this->records->findNotification($id);
 
         if ($notification === null) {
             return $this->notFound('Quality notification not found.');
@@ -394,13 +340,7 @@ class QualityController extends Controller
             'preventive_action' => 'nullable|string',
         ]);
 
-        $notification = $this->qualityService->resolveNotification(
-            $notification,
-            $validated,
-            auth()->id()
-        );
-
-        return $this->success($notification);
+        return $this->success($this->qualityService->resolveNotification($notification, $validated, auth()->id()));
     }
 
     /**
@@ -408,15 +348,13 @@ class QualityController extends Controller
      */
     public function closeNotification(int $id): JsonResponse
     {
-        $notification = QualityNotification::find($id);
+        $notification = $this->records->findNotification($id);
 
         if ($notification === null) {
             return $this->notFound('Quality notification not found.');
         }
 
-        $notification = $this->qualityService->closeNotification($notification, auth()->id());
-
-        return $this->success($notification);
+        return $this->success($this->qualityService->closeNotification($notification, auth()->id()));
     }
 
     /**
@@ -424,17 +362,13 @@ class QualityController extends Controller
      */
     public function listDefects(int $id): JsonResponse
     {
-        $notification = QualityNotification::find($id);
+        $notification = $this->records->findNotification($id);
 
         if ($notification === null) {
             return $this->notFound('Quality notification not found.');
         }
 
-        $defects = DefectRecord::where('quality_notification_id', $notification->id)
-            ->orderBy('created_at')
-            ->get();
-
-        return $this->success($defects);
+        return $this->success($this->records->defectsOf($notification));
     }
 
     // =========================================================================
@@ -451,15 +385,10 @@ class QualityController extends Controller
             'to' => 'required|date|after_or_equal:from',
         ]);
 
-        $orgId = auth()->user()->organization_id;
-
-        $stats = $this->qualityService->getQualityStats(
-            $orgId,
+        return $this->success($this->qualityService->getQualityStats(
+            auth()->user()->organization_id,
             $validated['from'],
             $validated['to']
-        );
-
-        return $this->success($stats);
+        ));
     }
-
 }
