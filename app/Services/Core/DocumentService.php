@@ -17,6 +17,15 @@ class DocumentService
     public const DEFAULT_LINK_TTL_HOURS = 72;
 
     /**
+     * The download token with this value, or null when there is none. The
+     * token itself authorizes the download, so no organization applies.
+     */
+    public function findDownloadToken(string $token): ?DocumentDownloadToken
+    {
+        return DocumentDownloadToken::where('token', $token)->first();
+    }
+
+    /**
      * Generate a time-limited, single-use download token for a document.
      *
      * @param  string   $documentType  One of the DocumentDownloadToken::TYPE_* constants.

@@ -84,7 +84,7 @@ class DocumentDownloadController extends Controller
      */
     public function download(string $token): Response|JsonResponse
     {
-        $tokenModel = DocumentDownloadToken::where('token', $token)->first();
+        $tokenModel = $this->documentService->findDownloadToken($token);
 
         if ($tokenModel === null) {
             return $this->notFound('Download link not found.');
