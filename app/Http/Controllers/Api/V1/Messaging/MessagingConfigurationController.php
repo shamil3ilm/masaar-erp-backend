@@ -6,29 +6,24 @@ namespace App\Http\Controllers\Api\V1\Messaging;
 
 use App\Http\Controllers\Controller;
 use App\Models\Messaging\MessagingConfiguration;
+use App\Services\Messaging\MessagingConfigurationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class MessagingConfigurationController extends Controller
 {
+    public function __construct(private readonly MessagingConfigurationService $configurations) {}
+
     /**
      * List messaging configurations (channels).
      */
     public function index(Request $request): JsonResponse
     {
-        $query = MessagingConfiguration::query()
-            ->when($request->channel_type, fn($q, $type) => $q->forChannel($type))
-            ->when($request->provider, fn($q, $provider) => $q->forProvider($provider))
-            ->when($request->is_active !== null, function ($q) use ($request) {
-                return $request->is_active === 'true' ? $q->active() : $q->where('is_active', false);
-            })
-            ->orderBy('channel_type')
-            ->orderBy('name');
-
-        $configurations = $query->paginate((int) ($request->per_page ?? 15));
-
-        return $this->paginated($configurations);
+        return $this->paginated($this->configurations->paginate(
+            $request->user()->organization_id,
+            $request->only(['channel_type', 'provider', 'is_active']),
+            (int) ($request->per_page ?? 15)
+        ));
     }
 
     /**
@@ -48,18 +43,7 @@ class MessagingConfigurationController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $configuration = DB::transaction(function () use ($validated) {
-            // If setting as default, unset other defaults for this channel type
-            if (!empty($validated['is_default'])) {
-                MessagingConfiguration::where('channel_type', $validated['channel_type'])
-                    ->where('is_default', true)
-                    ->update(['is_default' => false]);
-            }
-
-            return MessagingConfiguration::create($validated);
-        });
-
-        return $this->created($configuration);
+        return $this->created($this->configurations->create($request->user()->organization_id, $validated));
     }
 
     /**
@@ -87,21 +71,8 @@ class MessagingConfigurationController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        DB::transaction(function () use ($messagingConfiguration, $validated) {
-            // If setting as default, unset other defaults for this channel type
-            if (!empty($validated['is_default'])) {
-                $channelType = $validated['channel_type'] ?? $messagingConfiguration->channel_type;
-                MessagingConfiguration::where('channel_type', $channelType)
-                    ->where('is_default', true)
-                    ->where('id', '!=', $messagingConfiguration->id)
-                    ->update(['is_default' => false]);
-            }
-
-            $messagingConfiguration->update($validated);
-        });
-
         return $this->success(
-            $messagingConfiguration->fresh(),
+            $this->configurations->update($messagingConfiguration, $validated),
             'Messaging configuration updated successfully.'
         );
     }
@@ -111,16 +82,10 @@ class MessagingConfigurationController extends Controller
      */
     public function destroy(MessagingConfiguration $messagingConfiguration): JsonResponse
     {
-        if ($messagingConfiguration->isDefault()) {
-            return $this->error(
-                'Cannot delete the default channel configuration. Set another as default first.',
-                'DEFAULT_CHANNEL',
-                422
-            );
-        }
-
-        $messagingConfiguration->delete();
-
-        return $this->success(null, 'Messaging configuration deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->configurations->delete($messagingConfiguration),
+            'Messaging configuration deleted successfully.',
+            'DEFAULT_CHANNEL',
+        );
     }
 }
