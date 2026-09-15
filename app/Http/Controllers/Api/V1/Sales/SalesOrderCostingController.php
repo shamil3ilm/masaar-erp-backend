@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\SalesOrderCostEstimate;
 use App\Services\Sales\SalesOrderCostingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class SalesOrderCostingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly SalesOrderCostingService $service
     ) {}
@@ -29,11 +31,7 @@ class SalesOrderCostingController extends Controller
     {
         $orgId = $this->organizationId($request);
 
-        $validated = $request->validate([
-            'sales_order_id'     => ['nullable', 'integer', 'exists:sales_orders,id'],
-            'quotation_id'       => ['nullable', 'integer', 'exists:quotations,id'],
-            'costing_version_id' => ['nullable', 'integer', 'exists:costing_versions,id'],
-        ]);
+        $validated = $request->validate($this->estimateRules());
 
         $estimate = $this->service->createEstimate(array_merge($validated, [
             'organization_id' => $orgId,
@@ -45,35 +43,27 @@ class SalesOrderCostingController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $estimate = SalesOrderCostEstimate::with(['items.product', 'items.costElement', 'salesOrder', 'costedBy:id,name'])->findOrFail($id);
-
-        return $this->success($estimate);
+        return $this->success($this->service->estimateDetails($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $estimate = SalesOrderCostEstimate::findOrFail($id);
+        $estimate = $this->service->estimateOf($id);
 
-        $validated = $request->validate([
-            'sales_order_id'     => ['nullable', 'integer', 'exists:sales_orders,id'],
-            'quotation_id'       => ['nullable', 'integer', 'exists:quotations,id'],
-            'costing_version_id' => ['nullable', 'integer', 'exists:costing_versions,id'],
-        ]);
+        $validated = $request->validate($this->estimateRules());
 
-        $estimate = $this->service->update($estimate, $validated);
-
-        return $this->success($estimate);
+        return $this->success($this->service->update($estimate, $validated));
     }
 
     public function addItem(Request $request, int $id): JsonResponse
     {
         $orgId    = $this->organizationId($request);
-        $estimate = SalesOrderCostEstimate::findOrFail($id);
+        $estimate = $this->service->estimateOf($id);
 
         $validated = $request->validate([
-            'sales_order_line_id' => ['nullable', 'integer', 'exists:sales_order_lines,id'],
-            'product_id'          => ['nullable', 'integer', 'exists:products,id'],
-            'cost_element_id'     => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'sales_order_line_id' => ['nullable', 'integer', $this->ownedThrough('sales_order_lines', 'sales_order_id', 'sales_orders')],
+            'product_id'          => ['nullable', 'integer', $this->ownedBy('products')],
+            'cost_element_id'     => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'cost_category'       => ['required', Rule::in(['material', 'labor', 'overhead', 'other'])],
             'quantity'            => ['required', 'numeric', 'min:0'],
             'cost_per_unit'       => ['required', 'numeric', 'min:0'],
@@ -89,10 +79,20 @@ class SalesOrderCostingController extends Controller
 
     public function release(int $id): JsonResponse
     {
-        $estimate = SalesOrderCostEstimate::findOrFail($id);
-
-        $estimate = $this->service->release($estimate);
+        $estimate = $this->service->release($this->service->estimateOf($id));
 
         return $this->success($estimate, 'Cost estimate released successfully.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function estimateRules(): array
+    {
+        return [
+            'sales_order_id'     => ['nullable', 'integer', $this->ownedBy('sales_orders')],
+            'quotation_id'       => ['nullable', 'integer', $this->ownedBy('quotations')],
+            'costing_version_id' => ['nullable', 'integer', $this->ownedBy('costing_versions')],
+        ];
     }
 }

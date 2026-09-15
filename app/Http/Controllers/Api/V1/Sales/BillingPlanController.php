@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\BillingPlan;
-use App\Models\Sales\BillingPlanItem;
 use App\Services\Sales\BillingPlanService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Validator;
 
 class BillingPlanController extends Controller
 {
+    use ReportsBusinessRules, ValidatesOwnedRows;
+
     public function __construct(
         private BillingPlanService $billingPlanService,
     ) {}
@@ -32,8 +35,8 @@ class BillingPlanController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'sales_order_id' => 'nullable|exists:sales_orders,id',
-            'quotation_id' => 'nullable|exists:quotations,id',
+            'sales_order_id' => ['nullable', $this->ownedBy('sales_orders')],
+            'quotation_id' => ['nullable', $this->ownedBy('quotations')],
             'plan_type' => 'required|in:milestone,periodic',
             'billing_currency' => 'nullable|string|size:3',
             'total_value' => 'required|numeric|min:0',
@@ -58,14 +61,12 @@ class BillingPlanController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $plan = BillingPlan::with(['salesOrder', 'quotation', 'items.invoice'])->findOrFail($id);
-
-        return $this->success($plan);
+        return $this->success($this->billingPlanService->planDetails($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $plan = BillingPlan::findOrFail($id);
+        $plan = $this->billingPlanService->planOf($id);
 
         $validator = Validator::make($request->all(), [
             'plan_type' => 'nullable|in:milestone,periodic',
@@ -89,15 +90,14 @@ class BillingPlanController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $plan = BillingPlan::findOrFail($id);
-        $plan->delete();
+        $this->billingPlanService->delete($this->billingPlanService->planOf($id));
 
         return $this->noContent();
     }
 
     public function addItem(Request $request, int $id): JsonResponse
     {
-        $plan = BillingPlan::findOrFail($id);
+        $plan = $this->billingPlanService->planOf($id);
 
         $validator = Validator::make($request->all(), [
             'milestone_description' => 'nullable|string|max:255',
@@ -118,7 +118,7 @@ class BillingPlanController extends Controller
 
     public function updateItem(Request $request, int $id, int $itemId): JsonResponse
     {
-        $item = BillingPlanItem::where('billing_plan_id', $id)->findOrFail($itemId);
+        $item = $this->billingPlanService->itemOf($id, $itemId);
 
         $validator = Validator::make($request->all(), [
             'milestone_description' => 'nullable|string|max:255',
@@ -140,17 +140,21 @@ class BillingPlanController extends Controller
 
     public function billItem(Request $request, int $id, int $itemId): JsonResponse
     {
-        $item = BillingPlanItem::where('billing_plan_id', $id)->findOrFail($itemId);
+        $item = $this->billingPlanService->itemOf($id, $itemId);
 
         $validator = Validator::make($request->all(), [
-            'invoice_id' => 'required|exists:invoices,id',
+            'invoice_id' => ['required', $this->ownedBy('invoices')],
         ]);
 
         if ($validator->fails()) {
             return $this->error('Validation failed', 'VALIDATION_ERROR', 422, $validator->errors()->toArray());
         }
 
-        $updated = $this->billingPlanService->billItem($item, (int) $request->input('invoice_id'));
+        try {
+            $updated = $this->billingPlanService->billItem($item, (int) $request->input('invoice_id'));
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success($updated, 'Item billed successfully.');
     }
