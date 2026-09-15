@@ -6,6 +6,7 @@ namespace App\Models\Maintenance;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Organization;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +19,7 @@ class MaintenancePermit extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
+    use LocksForTransition;
     use SoftDeletes;
 
     public const TYPE_HOT_WORK             = 'hot_work';

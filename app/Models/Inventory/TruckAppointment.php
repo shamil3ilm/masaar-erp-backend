@@ -9,6 +9,7 @@ use App\Models\Concerns\HasUuid;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TruckAppointment extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes, LocksForTransition;
 
     public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_CHECKED_IN = 'checked_in';

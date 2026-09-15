@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Maintenance;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Maintenance\EquipmentCounter;
-use App\Models\Maintenance\CounterBasedPlan;
-use App\Models\Maintenance\CounterBasedOrder;
 use App\Services\Maintenance\CounterBasedMaintenanceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -15,44 +13,37 @@ use Illuminate\Http\Request;
 
 class CounterBasedMaintenanceController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly CounterBasedMaintenanceService $service) {}
 
     public function counters(Request $request): JsonResponse
     {
-        $counters = EquipmentCounter::where('organization_id', $request->user()->organization_id)
-            ->with(['equipment', 'functionalLocation'])
-            ->paginate(20);
-
-        return $this->paginated($counters);
+        return $this->paginated($this->service->paginateCounters($request->user()->organization_id));
     }
 
     public function storeCounter(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'counter_name'   => 'required|string|max:255',
-            'equipment_id'   => 'nullable|integer',
-            'floc_id'        => 'nullable|integer',
-            'uom'            => 'required|string|max:20',
+            'counter_name' => 'required|string|max:255',
+            'equipment_id' => ['nullable', 'integer', $this->ownedBy('location_equipment')],
+            'floc_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'uom' => 'required|string|max:20',
             'overflow_value' => 'nullable|numeric',
         ]);
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['uuid']            = (string) \Illuminate\Support\Str::uuid();
-
-        $counter = EquipmentCounter::create($data);
-
-        return $this->created($counter);
+        return $this->created($this->service->createCounter($request->user()->organization_id, $data));
     }
 
     public function recordReading(Request $request, int $counterId): JsonResponse
     {
         $data = $request->validate([
             'reading_value' => 'required|numeric|min:0',
-            'reading_date'  => 'required|date',
+            'reading_date' => 'required|date',
         ]);
 
-        $counter  = EquipmentCounter::where('organization_id', $request->user()->organization_id)->findOrFail($counterId);
-        $reading  = $this->service->recordReading(
+        $counter = $this->service->findCounterOrFail($request->user()->organization_id, $counterId);
+        $reading = $this->service->recordReading(
             $counter,
             (float) $data['reading_value'],
             Carbon::parse($data['reading_date']),
@@ -64,64 +55,50 @@ class CounterBasedMaintenanceController extends Controller
 
     public function plans(Request $request): JsonResponse
     {
-        $plans = CounterBasedPlan::where('organization_id', $request->user()->organization_id)
-            ->with(['functionalLocation', 'counter', 'taskList'])
-            ->paginate(20);
-
-        return $this->paginated($plans);
+        return $this->paginated($this->service->paginatePlans($request->user()->organization_id));
     }
 
     public function storePlan(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'plan_number'       => 'required|string|max:50|unique:counter_based_plans',
-            'plan_type'         => 'required|in:time_based,counter_based,condition_based',
-            'floc_id'           => 'nullable|integer',
-            'counter_id'        => 'nullable|integer',
-            'task_list_id'      => 'nullable|integer',
-            'counter_interval'  => 'nullable|numeric|min:0',
+            'plan_number' => 'required|string|max:50|unique:counter_based_plans',
+            'plan_type' => 'required|in:time_based,counter_based,condition_based',
+            'floc_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'counter_id' => ['nullable', 'integer', $this->ownedBy('equipment_counters')],
+            'task_list_id' => ['nullable', 'integer', $this->ownedBy('maintenance_task_lists')],
+            'counter_interval' => 'nullable|numeric|min:0',
             'threshold_warning' => 'nullable|numeric|min:0',
         ]);
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['uuid']            = (string) \Illuminate\Support\Str::uuid();
-
-        $plan = CounterBasedPlan::create($data);
-
-        return $this->created($plan);
+        return $this->created($this->service->createPlan($request->user()->organization_id, $data));
     }
 
     public function dueOrders(Request $request): JsonResponse
     {
-        $due = $this->service->checkDueOrders($request->user()->organization_id);
-        return $this->success($due);
+        return $this->success($this->service->checkDueOrders($request->user()->organization_id));
     }
 
     public function generateOrder(Request $request, int $planId): JsonResponse
     {
-        $plan  = CounterBasedPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $order = $this->service->generatePmOrder($plan);
+        $plan = $this->service->findPlanOrFail($request->user()->organization_id, $planId);
 
-        return $this->created($order, 'PM Order generated');
+        return $this->created($this->service->generatePmOrder($plan), 'PM Order generated');
     }
 
     public function orders(Request $request): JsonResponse
     {
-        $orders = CounterBasedOrder::where('organization_id', $request->user()->organization_id)
-            ->with(['maintenancePlan', 'functionalLocation'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-
-        return $this->paginated($orders);
+        return $this->paginated($this->service->paginateOrders($request->user()->organization_id));
     }
 
     public function completeOrder(Request $request, int $orderId): JsonResponse
     {
-        $data  = $request->validate(['actual_end' => 'nullable|date']);
-        $order = CounterBasedOrder::where('organization_id', $request->user()->organization_id)->findOrFail($orderId);
+        $data = $request->validate(['actual_end' => 'nullable|date']);
+        $order = $this->service->findOrderOrFail($request->user()->organization_id, $orderId);
 
-        $this->service->completePmOrder($order, $data);
-
-        return $this->success($order->fresh(), 'PM Order completed');
+        return $this->tryAction(
+            fn () => $this->service->completePmOrder($order, $data),
+            'PM Order completed',
+            'INVALID_STATE'
+        );
     }
 }

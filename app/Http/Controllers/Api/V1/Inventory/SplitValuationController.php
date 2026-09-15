@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\ValuationCategory;
 use App\Services\Inventory\SplitValuationService;
@@ -12,12 +13,14 @@ use Illuminate\Http\Request;
 
 class SplitValuationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly SplitValuationService $service) {}
 
     /** GET /split-valuation?product_id=&warehouse_id= */
     public function index(Request $request): JsonResponse
     {
-        $request->validate(['product_id' => ['required', 'integer']]);
+        $request->validate(['product_id' => ['required', 'integer', $this->ownedBy('products')]]);
 
         $splits = $this->service->getSplits(
             organizationId: $request->user()->organization_id,
@@ -32,7 +35,7 @@ class SplitValuationController extends Controller
     public function createCategory(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'product_id' => ['required', 'integer'],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
             'category_code' => ['required', 'string', 'max:50'],
             'category_name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
@@ -73,12 +76,12 @@ class SplitValuationController extends Controller
     public function goodsReceipt(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'product_id' => ['required', 'integer'],
-            'valuation_type_id' => ['required', 'integer'],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'valuation_type_id' => ['required', 'integer', $this->ownedBy('inventory_valuation_types')],
             'quantity' => ['required', 'numeric', 'min:0.0001'],
             'unit_price' => ['required', 'numeric', 'min:0'],
             'currency' => ['required', 'string', 'size:3'],
-            'warehouse_id' => ['nullable', 'integer'],
+            'warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $split = $this->service->goodsReceipt(
@@ -98,10 +101,10 @@ class SplitValuationController extends Controller
     public function goodsIssue(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'product_id' => ['required', 'integer'],
-            'valuation_type_id' => ['required', 'integer'],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'valuation_type_id' => ['required', 'integer', $this->ownedBy('inventory_valuation_types')],
             'quantity' => ['required', 'numeric', 'min:0.0001'],
-            'warehouse_id' => ['nullable', 'integer'],
+            'warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $split = $this->service->goodsIssue(
@@ -119,10 +122,10 @@ class SplitValuationController extends Controller
     public function revaluate(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'product_id' => ['required', 'integer'],
-            'valuation_type_id' => ['required', 'integer'],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'valuation_type_id' => ['required', 'integer', $this->ownedBy('inventory_valuation_types')],
             'new_price' => ['required', 'numeric', 'min:0'],
-            'warehouse_id' => ['nullable', 'integer'],
+            'warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $result = $this->service->revaluate(

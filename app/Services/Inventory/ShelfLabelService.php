@@ -7,6 +7,7 @@ namespace App\Services\Inventory;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ShelfLabel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Collection;
 
 class ShelfLabelService
 {
@@ -93,5 +94,43 @@ class ShelfLabelService
 
             return $label->fresh();
         });
+    }
+
+    /**
+     * Shelf labels of the current organization with their product, variant and
+     * branch, newest first. Each filter applies when its key is present;
+     * needs_reprint only when true.
+     *
+     * @param  array{branch_id?: int, product_id?: int, label_type?: string, aisle?: string, needs_reprint?: bool, is_digital?: bool, is_active?: bool}  $filters
+     * @return Collection<int, ShelfLabel>
+     */
+    public function list(array $filters): Collection
+    {
+        return ShelfLabel::with(['product', 'variant', 'branch'])
+            ->latest()
+            ->when(array_key_exists('branch_id', $filters), fn ($q) => $q->byBranch($filters['branch_id']))
+            ->when(array_key_exists('product_id', $filters), fn ($q) => $q->forProduct($filters['product_id']))
+            ->when(array_key_exists('label_type', $filters), fn ($q) => $q->byLabelType($filters['label_type']))
+            ->when(array_key_exists('aisle', $filters), fn ($q) => $q->inAisle($filters['aisle']))
+            ->when($filters['needs_reprint'] ?? false, fn ($q) => $q->needsReprint())
+            ->when(array_key_exists('is_digital', $filters), fn ($q) => $filters['is_digital'] ? $q->digital() : $q->where('is_digital', false))
+            ->when(array_key_exists('is_active', $filters), fn ($q) => $q->where('is_active', $filters['is_active']))
+            ->get();
+    }
+
+    /**
+     * Update a label; a changed price marks it for reprint.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function update(ShelfLabel $label, array $data): ShelfLabel
+    {
+        if (isset($data['price']) && $data['price'] != $label->price) {
+            $data['needs_reprint'] = true;
+        }
+
+        $label->update($data);
+
+        return $label->fresh();
     }
 }

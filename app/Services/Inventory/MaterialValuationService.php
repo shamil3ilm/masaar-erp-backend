@@ -231,6 +231,37 @@ class MaterialValuationService
     }
 
     /**
+     * Journal entries of the organization that record a price variance
+     * (reference PPV-...) or a revaluation (REVAL-...) dated between $from and
+     * $to, latest first, each with its debit total.
+     *
+     * @return array{entries: \Illuminate\Support\Collection<int, array<string, mixed>>, paginator: \Illuminate\Contracts\Pagination\LengthAwarePaginator}
+     */
+    public function varianceReport(int $orgId, string $from, string $to, int $perPage): array
+    {
+        $paginator = JournalEntry::where('organization_id', $orgId)
+            ->where(function ($q) {
+                $q->where('reference', 'like', 'PPV-%')
+                    ->orWhere('reference', 'like', 'REVAL-%');
+            })
+            ->whereBetween('entry_date', [$from, $to])
+            ->with('lines.account')
+            ->orderByDesc('entry_date')
+            ->paginate($perPage);
+
+        $entries = collect($paginator->items())->map(fn (JournalEntry $je) => [
+            'id'          => $je->id,
+            'reference'   => $je->reference,
+            'type'        => str_starts_with($je->reference ?? '', 'PPV') ? 'price_variance' : 'revaluation',
+            'date'        => $je->entry_date,
+            'description' => $je->description,
+            'amount'      => $je->lines->where('debit', '>', 0)->sum('debit'),
+        ]);
+
+        return ['entries' => $entries, 'paginator' => $paginator];
+    }
+
+    /**
      * Revalue inventory for a product by setting a new unit cost.
      *
      * Posts a revaluation journal entry and updates stock_levels.

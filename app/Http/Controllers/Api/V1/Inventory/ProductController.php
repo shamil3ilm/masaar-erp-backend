@@ -139,7 +139,7 @@ class ProductController extends Controller
     {
         $request->validate([
             'updates' => 'required|array|min:1',
-            'updates.*.product_id' => 'required|integer|exists:products,id',
+            'updates.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
             'updates.*.purchase_price' => 'nullable|numeric|min:0',
             'updates.*.selling_price' => 'nullable|numeric|min:0',
         ]);

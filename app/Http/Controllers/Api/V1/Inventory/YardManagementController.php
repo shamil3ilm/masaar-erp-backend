@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\DockDoor;
-use App\Models\Inventory\TruckAppointment;
-use App\Models\Inventory\YardZone;
 use App\Services\Inventory\YardManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +14,8 @@ use RuntimeException;
 
 class YardManagementController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly YardManagementService $yardService,
     ) {}
@@ -26,12 +27,10 @@ class YardManagementController extends Controller
      */
     public function zones(Request $request): JsonResponse
     {
-        $zones = YardZone::where('organization_id', $request->user()->organization_id)
-            ->when($request->input('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))
-            ->when($request->boolean('active_only', false), fn ($q) => $q->where('is_active', true))
-            ->with('warehouse')
-            ->orderBy('zone_code')
-            ->get();
+        $zones = $this->yardService->listZones($request->user()->organization_id, [
+            'warehouse_id' => $request->input('warehouse_id'),
+            'active_only'  => $request->boolean('active_only', false),
+        ]);
 
         return $this->success($zones);
     }
@@ -42,7 +41,7 @@ class YardManagementController extends Controller
     public function storeZone(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'      => 'required|integer',
+            'warehouse_id'      => ['required', 'integer', $this->ownedBy('warehouses')],
             'zone_code'         => 'required|string|max:20',
             'name'              => 'required|string|max:100',
             'zone_type'         => 'nullable|in:staging,parking,inspection,dock',
@@ -53,9 +52,7 @@ class YardManagementController extends Controller
         $validated['organization_id'] = $request->user()->organization_id;
         $validated['is_active']       = $validated['is_active'] ?? true;
 
-        $zone = YardZone::create($validated);
-
-        return $this->created($zone, 'Yard zone created.');
+        return $this->created($this->yardService->createZone($validated), 'Yard zone created.');
     }
 
     // ── Dock Doors ────────────────────────────────────────────────────────────
@@ -65,13 +62,11 @@ class YardManagementController extends Controller
      */
     public function dockDoors(Request $request): JsonResponse
     {
-        $doors = DockDoor::where('organization_id', $request->user()->organization_id)
-            ->when($request->input('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->boolean('active_only', false), fn ($q) => $q->where('is_active', true))
-            ->with(['warehouse', 'yardZone'])
-            ->orderBy('door_code')
-            ->get();
+        $doors = $this->yardService->listDockDoors($request->user()->organization_id, [
+            'warehouse_id' => $request->input('warehouse_id'),
+            'status'       => $request->input('status'),
+            'active_only'  => $request->boolean('active_only', false),
+        ]);
 
         return $this->success($doors);
     }
@@ -82,10 +77,10 @@ class YardManagementController extends Controller
     public function storeDockDoor(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|integer',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'door_code'    => 'required|string|max:10',
             'door_type'    => 'nullable|in:inbound,outbound,combined',
-            'yard_zone_id' => 'nullable|integer',
+            'yard_zone_id' => ['nullable', 'integer', $this->ownedBy('yard_zones')],
             'is_active'    => 'nullable|boolean',
         ]);
 
@@ -93,9 +88,7 @@ class YardManagementController extends Controller
         $validated['is_active']       = $validated['is_active'] ?? true;
         $validated['status']          = DockDoor::STATUS_AVAILABLE;
 
-        $door = DockDoor::create($validated);
-
-        return $this->created($door->load('yardZone'), 'Dock door created.');
+        return $this->created($this->yardService->createDockDoor($validated), 'Dock door created.');
     }
 
     /**
@@ -103,20 +96,17 @@ class YardManagementController extends Controller
      */
     public function updateDockDoor(Request $request, int $id): JsonResponse
     {
-        $door = DockDoor::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $door = $this->yardService->findDockDoorOrFail($request->user()->organization_id, $id);
 
         $validated = $request->validate([
             'door_code'    => 'sometimes|string|max:10',
             'door_type'    => 'nullable|in:inbound,outbound,combined',
-            'yard_zone_id' => 'nullable|integer',
+            'yard_zone_id' => ['nullable', 'integer', $this->ownedBy('yard_zones')],
             'is_active'    => 'nullable|boolean',
             'status'       => 'nullable|in:available,occupied,maintenance',
         ]);
 
-        $door->update($validated);
-
-        return $this->success($door->fresh()->load('yardZone'), 'Dock door updated.');
+        return $this->success($this->yardService->updateDockDoor($door, $validated), 'Dock door updated.');
     }
 
     // ── Appointments ──────────────────────────────────────────────────────────
@@ -126,13 +116,11 @@ class YardManagementController extends Controller
      */
     public function appointments(Request $request): JsonResponse
     {
-        $appointments = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->when($request->input('warehouse_id'), fn ($q, $w) => $q->where('warehouse_id', $w))
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('date'), fn ($q, $d) => $q->whereDate('scheduled_arrival', $d))
-            ->with(['vendor', 'dockDoor', 'yardZone'])
-            ->orderBy('scheduled_arrival')
-            ->paginate($request->integer('per_page', 20));
+        $appointments = $this->yardService->paginateAppointments(
+            $request->user()->organization_id,
+            $request->only(['warehouse_id', 'status', 'date']),
+            $request->integer('per_page', 20)
+        );
 
         return $this->paginated($appointments);
     }
@@ -143,11 +131,11 @@ class YardManagementController extends Controller
     public function storeAppointment(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'       => 'required|integer',
+            'warehouse_id'       => ['required', 'integer', $this->ownedBy('warehouses')],
             'appointment_number' => 'required|string|max:20',
             'scheduled_arrival'  => 'required|date',
             'appointment_type'   => 'nullable|in:delivery,pickup,both',
-            'vendor_id'          => 'nullable|integer',
+            'vendor_id'          => ['nullable', 'integer', $this->ownedBy('contacts')],
             'scheduled_departure' => 'nullable|date|after_or_equal:scheduled_arrival',
             'vehicle_plate'      => 'nullable|string|max:20',
             'driver_name'        => 'nullable|string|max:100',
@@ -170,9 +158,11 @@ class YardManagementController extends Controller
      */
     public function showAppointment(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->with(['vendor', 'dockDoor', 'yardZone', 'movements', 'creator'])
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail(
+            $request->user()->organization_id,
+            $id,
+            ['vendor', 'dockDoor', 'yardZone', 'movements', 'creator']
+        );
 
         return $this->success($appointment);
     }
@@ -182,8 +172,7 @@ class YardManagementController extends Controller
      */
     public function updateAppointment(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail($request->user()->organization_id, $id);
 
         if ($appointment->isDeparted() || $appointment->isCancelled()) {
             return $this->success(null, 'Departed or cancelled appointments cannot be updated.', 422);
@@ -192,7 +181,7 @@ class YardManagementController extends Controller
         $validated = $request->validate([
             'scheduled_arrival'   => 'sometimes|date',
             'scheduled_departure' => 'nullable|date',
-            'vendor_id'           => 'nullable|integer',
+            'vendor_id'           => ['nullable', 'integer', $this->ownedBy('contacts')],
             'vehicle_plate'       => 'nullable|string|max:20',
             'driver_name'         => 'nullable|string|max:100',
             'driver_phone'        => 'nullable|string|max:30',
@@ -201,9 +190,13 @@ class YardManagementController extends Controller
             'notes'               => 'nullable|string',
         ]);
 
-        $appointment->update($validated);
+        try {
+            $appointment = $this->yardService->updateAppointment($appointment, $validated);
+        } catch (RuntimeException $e) {
+            return $this->success(null, $e->getMessage(), 422);
+        }
 
-        return $this->success($appointment->fresh(), 'Appointment updated.');
+        return $this->success($appointment, 'Appointment updated.');
     }
 
     /**
@@ -211,8 +204,7 @@ class YardManagementController extends Controller
      */
     public function cancelAppointment(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail($request->user()->organization_id, $id);
 
         if ($appointment->isCancelled()) {
             return $this->success($appointment, 'Appointment is already cancelled.');
@@ -222,9 +214,13 @@ class YardManagementController extends Controller
             return $this->success(null, 'Departed appointments cannot be cancelled.', 422);
         }
 
-        $appointment->update(['status' => TruckAppointment::STATUS_CANCELLED]);
+        try {
+            $appointment = $this->yardService->cancelAppointment($appointment);
+        } catch (RuntimeException $e) {
+            return $this->success(null, $e->getMessage(), 422);
+        }
 
-        return $this->success($appointment->fresh(), 'Appointment cancelled.');
+        return $this->success($appointment, 'Appointment cancelled.');
     }
 
     /**
@@ -232,12 +228,11 @@ class YardManagementController extends Controller
      */
     public function checkIn(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail($request->user()->organization_id, $id);
 
         $validated = $request->validate([
             'actual_arrival' => 'nullable|date',
-            'yard_zone_id'   => 'nullable|integer',
+            'yard_zone_id'   => ['nullable', 'integer', $this->ownedBy('yard_zones')],
             'vehicle_plate'  => 'nullable|string|max:20',
             'driver_name'    => 'nullable|string|max:100',
             'driver_phone'   => 'nullable|string|max:30',
@@ -263,11 +258,10 @@ class YardManagementController extends Controller
      */
     public function assignDock(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail($request->user()->organization_id, $id);
 
         $validated = $request->validate([
-            'dock_door_id' => 'required|integer',
+            'dock_door_id' => ['required', 'integer', $this->ownedBy('dock_doors')],
         ]);
 
         try {
@@ -287,8 +281,7 @@ class YardManagementController extends Controller
      */
     public function depart(Request $request, int $id): JsonResponse
     {
-        $appointment = TruckAppointment::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $appointment = $this->yardService->findAppointmentOrFail($request->user()->organization_id, $id);
 
         try {
             $movement = $this->yardService->depart($appointment);
@@ -310,7 +303,7 @@ class YardManagementController extends Controller
     public function availableDocks(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|integer',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'datetime'     => 'nullable|date',
         ]);
 
@@ -328,7 +321,7 @@ class YardManagementController extends Controller
     public function dailySchedule(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|integer',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'date'         => 'nullable|date',
         ]);
 
@@ -346,7 +339,7 @@ class YardManagementController extends Controller
     public function yardStatus(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|integer',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $status = $this->yardService->getYardStatus((int) $validated['warehouse_id']);

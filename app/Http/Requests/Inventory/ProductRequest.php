@@ -19,6 +19,8 @@ class ProductRequest extends FormRequest
     {
         $productId = $this->route('product')?->id;
 
+        // Every referenced row, and the uniqueness of the SKU and barcode, is
+        // checked within the caller's organization.
         $rules = [
             'sku' => [
                 'required',
@@ -32,9 +34,9 @@ class ProductRequest extends FormRequest
             'description' => 'nullable|string|max:2000',
             'type' => 'required|in:goods,service',
 
-            'category_id' => 'nullable|integer|exists:categories,id',
-            'unit_id' => 'nullable|integer|exists:units_of_measure,id',
-            'tax_category_id' => 'nullable|integer|exists:tax_categories,id',
+            'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'unit_id' => ['nullable', 'integer', Rule::exists('units_of_measure', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'tax_category_id' => ['nullable', 'integer', Rule::exists('tax_categories', 'id')->where('organization_id', auth()->user()->organization_id)],
 
             'purchase_price' => 'nullable|numeric|min:0',
             'selling_price' => 'nullable|numeric|min:0',
@@ -47,13 +49,14 @@ class ProductRequest extends FormRequest
                 'max:50',
                 Rule::unique('products', 'barcode')
                     ->ignore($productId)
-                    ->whereNotNull('barcode'),
+                    ->whereNotNull('barcode')
+                    ->where('organization_id', auth()->user()->organization_id),
             ],
             'hsn_code' => 'nullable|string|max:20',
 
-            'income_account_id' => 'nullable|integer|exists:chart_of_accounts,id',
-            'expense_account_id' => 'nullable|integer|exists:chart_of_accounts,id',
-            'inventory_account_id' => 'nullable|integer|exists:chart_of_accounts,id',
+            'income_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'expense_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'inventory_account_id' => ['nullable', 'integer', Rule::exists('chart_of_accounts', 'id')->where('organization_id', auth()->user()->organization_id)],
 
             'track_inventory' => 'nullable|boolean',
             'is_active' => 'nullable|boolean',

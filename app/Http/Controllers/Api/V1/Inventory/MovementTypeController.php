@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Inventory;
 
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\StockMovement;
+use App\Services\Inventory\StockMovementStatisticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,6 +31,10 @@ class MovementTypeController extends Controller
         ['code' => '701', 'name' => 'Goods Issue Physical Inventory',        'direction' => 'out',      'category' => 'inventory'],
         ['code' => '702', 'name' => 'Goods Receipt Physical Inventory',      'direction' => 'in',       'category' => 'inventory'],
     ];
+
+    public function __construct(
+        private readonly StockMovementStatisticsService $statistics
+    ) {}
 
     /**
      * List all movement types used in the system.
@@ -68,19 +72,11 @@ class MovementTypeController extends Controller
      */
     public function statistics(Request $request): JsonResponse
     {
-        $orgId = $request->user()->organization_id;
-        $days  = max(1, $request->integer('days', 30));
-
-        $stats = StockMovement::where('organization_id', $orgId)
-            ->where('created_at', '>=', now()->subDays($days))
-            ->selectRaw('movement_type, COUNT(*) as count, SUM(ABS(quantity)) as total_quantity')
-            ->groupBy('movement_type')
-            ->orderByDesc('count')
-            ->get();
+        $days = max(1, $request->integer('days', 30));
 
         return $this->success([
             'period_days' => $days,
-            'movements'   => $stats,
+            'movements'   => $this->statistics->countsByMovementType($request->user()->organization_id, $days),
         ]);
     }
 }
