@@ -102,36 +102,42 @@ class ReleaseStrategyService
     }
 
     /**
-     * Approve or record a decision on a single release approval level.
+     * Approve a single release approval level.
      * Returns true when the document is fully released (all levels approved).
+     *
+     * The decision is recorded on the locked approval: approving a stale copy
+     * of a level rejected meanwhile would otherwise release the document.
      */
     public function approve(ReleaseStrategyApproval $approval, User $approver, ?string $comments): bool
     {
-        if (! $approval->isPending()) {
-            throw new \InvalidArgumentException('This approval has already been acted upon.');
-        }
+        return $approval->lockForTransition(function (ReleaseStrategyApproval $approval) use ($approver, $comments): bool {
+            $this->decide($approval, ReleaseStrategyApproval::STATUS_APPROVED, $approver, $comments);
 
-        $approval->update([
-            'status'      => ReleaseStrategyApproval::STATUS_APPROVED,
-            'approver_id' => $approver->id,
-            'comments'    => $comments,
-            'acted_at'    => now(),
-        ]);
-
-        return $this->isFullyReleased($approval->document_type, $approval->document_id);
+            return $this->isFullyReleased($approval->document_type, $approval->document_id);
+        });
     }
 
     /**
-     * Reject a release approval level.
+     * Reject a release approval level, recorded on the locked approval.
      */
     public function reject(ReleaseStrategyApproval $approval, User $approver, ?string $comments): void
+    {
+        $approval->lockForTransition(function (ReleaseStrategyApproval $approval) use ($approver, $comments): void {
+            $this->decide($approval, ReleaseStrategyApproval::STATUS_REJECTED, $approver, $comments);
+        });
+    }
+
+    /**
+     * Record an approver's decision on a pending approval.
+     */
+    private function decide(ReleaseStrategyApproval $approval, string $status, User $approver, ?string $comments): void
     {
         if (! $approval->isPending()) {
             throw new \InvalidArgumentException('This approval has already been acted upon.');
         }
 
         $approval->update([
-            'status'      => ReleaseStrategyApproval::STATUS_REJECTED,
+            'status'      => $status,
             'approver_id' => $approver->id,
             'comments'    => $comments,
             'acted_at'    => now(),
