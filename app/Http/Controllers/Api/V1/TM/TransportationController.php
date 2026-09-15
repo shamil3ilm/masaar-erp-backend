@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\TM;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\TM\Carrier;
 use App\Models\TM\FreightAgreement;
@@ -17,6 +18,8 @@ use Illuminate\Http\Request;
 
 class TransportationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly TransportationService $service,
     ) {}
@@ -142,8 +145,8 @@ class TransportationController extends Controller
         $data = $request->validate([
             'code' => 'required|string|max:30',
             'name' => 'required|string|max:200',
-            'carrier_id' => 'nullable|integer',
-            'carrier_service_id' => 'nullable|integer',
+            'carrier_id' => ['nullable', 'integer', $this->ownedBy('carriers')],
+            'carrier_service_id' => ['nullable', 'integer', $this->ownedBy('carrier_services')],
             'valid_from' => 'required|date',
             'valid_to' => 'nullable|date|after_or_equal:valid_from',
             'currency_code' => 'sometimes|string|max:5',
@@ -152,9 +155,7 @@ class TransportationController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $table = FreightRateTable::create(
-            array_merge($data, ['organization_id' => $this->organizationId()])
-        );
+        $table = $this->service->createRateTable($this->organizationId(), $data);
 
         return $this->created($table);
     }

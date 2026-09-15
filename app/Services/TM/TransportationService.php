@@ -630,4 +630,9 @@ class TransportationService
 
         return $agreement->fresh();
     }
+
+    public function createRateTable(int $organizationId, array $data): FreightRateTable
+    {
+        return FreightRateTable::create(array_merge($data, ['organization_id' => $organizationId]));
+    }
 }

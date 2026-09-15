@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Tax;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Core\Organization;
 use App\Models\Tax\VatReturnBox;
 use App\Models\Tax\VatReturnPeriod;
@@ -194,5 +195,46 @@ class VatReturnService
             'zero_rated_supplies'   => $output->where('is_zero_rated', true)->sum('taxable_amount'),
             'exempt_supplies'       => $output->where('is_exempt', true)->sum('taxable_amount'),
         ];
+    }
+
+    /**
+     * The organization's return periods, latest first.
+     *
+     * @param  array{country_code?: string, status?: string}  $filters
+     */
+    public function paginatePeriods(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VatReturnPeriod::where('organization_id', $organizationId)
+            ->orderByDesc('period_start')
+            ->when(isset($filters['country_code']), fn ($q) => $q->where('country_code', $filters['country_code']))
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * The organization's VAT transactions, latest period first. The period
+     * range applies only when both its ends are given.
+     *
+     * @param  array{country_code?: string, transaction_type?: string, period_start?: string, period_end?: string}  $filters
+     */
+    public function paginateTransactions(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VatTransaction::where('organization_id', $organizationId)
+            ->orderByDesc('tax_period')
+            ->when(isset($filters['country_code']), fn ($q) => $q->where('country_code', $filters['country_code']))
+            ->when(isset($filters['transaction_type']), fn ($q) => $q->where('transaction_type', $filters['transaction_type']))
+            ->when(
+                isset($filters['period_start'], $filters['period_end']),
+                fn ($q) => $q->whereBetween('tax_period', [$filters['period_start'], $filters['period_end']])
+            )
+            ->paginate($perPage);
+    }
+
+    /**
+     * Prepares the period for the organization with this id.
+     */
+    public function preparePeriodFor(int $organizationId, string $countryCode, string $periodStart, string $periodEnd): VatReturnPeriod
+    {
+        return $this->preparePeriod(Organization::findOrFail($organizationId), $countryCode, $periodStart, $periodEnd);
     }
 }
