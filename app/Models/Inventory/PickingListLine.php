@@ -6,6 +6,7 @@ namespace App\Models\Inventory;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\Inventory\Product;
@@ -14,7 +15,7 @@ use App\Models\Inventory\WarehouseLocation;
 
 class PickingListLine extends Model
 {
-    use HasFactory;
+    use HasFactory, LocksForTransition;
 
     public const STATUS_PENDING   = 'pending';
     public const STATUS_PARTIAL   = 'partial';
