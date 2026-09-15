@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\CalibrationCertificate;
-use App\Models\Manufacturing\CalibrationEquipment;
-use App\Models\Manufacturing\CalibrationOrder;
-use App\Models\Manufacturing\CalibrationPlan;
 use App\Services\Manufacturing\CalibrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class CalibrationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private CalibrationService $calibrationService,
     ) {}
@@ -25,25 +25,16 @@ class CalibrationController extends Controller
 
     public function equipment(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
+        $filters = [
+            ...$this->filledFilters($request, ['category', 'search']),
+            'active_only' => $request->boolean('active_only'),
+        ];
 
-        $query = CalibrationEquipment::where('organization_id', $orgId)
-            ->with('responsiblePerson')
-            ->when($request->filled('category'), fn($q) => $q->where('category', $request->input('category')))
-            ->when($request->boolean('active_only'), fn($q) => $q->where('is_active', true))
-            ->when($request->filled('search'), function ($q) use ($request): void {
-                $search = '%' . $request->input('search') . '%';
-                $q->where(function ($q) use ($search): void {
-                    $q->where('name', 'like', $search)
-                        ->orWhere('equipment_code', 'like', $search)
-                        ->orWhere('serial_number', 'like', $search);
-                });
-            });
-
-        $perPage  = min((int) $request->input('per_page', 20), 100);
-        $paginator = $query->orderBy('name')->paginate($perPage);
-
-        return $this->paginated($paginator);
+        return $this->paginated($this->calibrationService->listEquipment(
+            $this->organizationId($request),
+            $filters,
+            $this->perPage($request),
+        ));
     }
 
     public function storeEquipment(Request $request): JsonResponse
@@ -56,26 +47,19 @@ class CalibrationController extends Controller
             'serial_number'         => 'nullable|string|max:50',
             'category'              => 'nullable|string|max:50',
             'location'              => 'nullable|string|max:100',
-            'responsible_person_id' => 'nullable|integer|exists:users,id',
+            'responsible_person_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'purchase_date'         => 'nullable|date',
             'is_active'             => 'boolean',
         ]);
 
-        $equipment = CalibrationEquipment::create([
-            'organization_id' => $this->organizationId($request),
-            ...$validated,
-        ]);
+        $equipment = $this->calibrationService->createEquipment($this->organizationId($request), $validated);
 
         return $this->created($equipment);
     }
 
     public function showEquipment(Request $request, int $id): JsonResponse
     {
-        $equipment = CalibrationEquipment::where('organization_id', $this->organizationId($request))
-            ->with(['responsiblePerson', 'calibrationPlans', 'calibrationOrders' => function ($q) {
-                $q->orderByDesc('scheduled_date')->limit(5);
-            }])
-            ->find($id);
+        $equipment = $this->calibrationService->findEquipmentForDisplay($this->organizationId($request), $id);
 
         if ($equipment === null) {
             return $this->notFound('Calibration equipment not found.');
@@ -86,8 +70,7 @@ class CalibrationController extends Controller
 
     public function updateEquipment(Request $request, int $id): JsonResponse
     {
-        $equipment = CalibrationEquipment::where('organization_id', $this->organizationId($request))
-            ->find($id);
+        $equipment = $this->calibrationService->findEquipment($this->organizationId($request), $id);
 
         if ($equipment === null) {
             return $this->notFound('Calibration equipment not found.');
@@ -101,14 +84,12 @@ class CalibrationController extends Controller
             'serial_number'         => 'nullable|string|max:50',
             'category'              => 'nullable|string|max:50',
             'location'              => 'nullable|string|max:100',
-            'responsible_person_id' => 'nullable|integer|exists:users,id',
+            'responsible_person_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'purchase_date'         => 'nullable|date',
             'is_active'             => 'boolean',
         ]);
 
-        $equipment->update($validated);
-
-        return $this->success($equipment->fresh());
+        return $this->success($this->calibrationService->updateEquipment($equipment, $validated));
     }
 
     // -------------------------------------------------------------------------
@@ -117,23 +98,22 @@ class CalibrationController extends Controller
 
     public function plans(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
+        $filters = [
+            ...$this->filledFilters($request, ['equipment_id']),
+            'active_only' => $request->boolean('active_only'),
+        ];
 
-        $query = CalibrationPlan::where('organization_id', $orgId)
-            ->with('equipment')
-            ->when($request->filled('equipment_id'), fn($q) => $q->where('calibration_equipment_id', $request->input('equipment_id')))
-            ->when($request->boolean('active_only'), fn($q) => $q->where('is_active', true));
-
-        $perPage  = min((int) $request->input('per_page', 20), 100);
-        $paginator = $query->orderBy('plan_code')->paginate($perPage);
-
-        return $this->paginated($paginator);
+        return $this->paginated($this->calibrationService->listPlans(
+            $this->organizationId($request),
+            $filters,
+            $this->perPage($request),
+        ));
     }
 
     public function storePlan(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'calibration_equipment_id'  => 'required|integer|exists:calibration_equipment,id',
+            'calibration_equipment_id'  => ['required', 'integer', $this->ownedBy('calibration_equipment')],
             'plan_code'                 => 'required|string|max:30',
             'calibration_interval_days' => 'required|integer|min:1',
             'tolerance_low'             => 'nullable|numeric',
@@ -144,21 +124,12 @@ class CalibrationController extends Controller
             'is_active'                 => 'boolean',
         ]);
 
-        $plan = CalibrationPlan::create([
-            'organization_id' => $this->organizationId($request),
-            ...$validated,
-        ]);
-
-        return $this->created($plan->load('equipment'));
+        return $this->created($this->calibrationService->createPlan($this->organizationId($request), $validated));
     }
 
     public function showPlan(Request $request, int $id): JsonResponse
     {
-        $plan = CalibrationPlan::where('organization_id', $this->organizationId($request))
-            ->with(['equipment', 'calibrationOrders' => function ($q) {
-                $q->orderByDesc('scheduled_date')->limit(10);
-            }])
-            ->find($id);
+        $plan = $this->calibrationService->findPlanForDisplay($this->organizationId($request), $id);
 
         if ($plan === null) {
             return $this->notFound('Calibration plan not found.');
@@ -173,25 +144,18 @@ class CalibrationController extends Controller
 
     public function orders(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $query = CalibrationOrder::where('organization_id', $orgId)
-            ->with(['equipment', 'plan', 'calibratedBy'])
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->filled('equipment_id'), fn($q) => $q->where('calibration_equipment_id', $request->input('equipment_id')))
-            ->when($request->filled('result'), fn($q) => $q->where('result', $request->input('result')));
-
-        $perPage  = min((int) $request->input('per_page', 20), 100);
-        $paginator = $query->orderByDesc('scheduled_date')->paginate($perPage);
-
-        return $this->paginated($paginator);
+        return $this->paginated($this->calibrationService->listOrders(
+            $this->organizationId($request),
+            $this->filledFilters($request, ['status', 'equipment_id', 'result']),
+            $this->perPage($request),
+        ));
     }
 
     public function storeOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'calibration_equipment_id' => 'required|integer|exists:calibration_equipment,id',
-            'calibration_plan_id'      => 'nullable|integer|exists:calibration_plans,id',
+            'calibration_equipment_id' => ['required', 'integer', $this->ownedBy('calibration_equipment')],
+            'calibration_plan_id'      => ['nullable', 'integer', $this->ownedBy('calibration_plans')],
             'scheduled_date'           => 'required|date',
             'external_lab'             => 'nullable|string|max:100',
             'notes'                    => 'nullable|string',
@@ -204,9 +168,11 @@ class CalibrationController extends Controller
 
     public function showOrder(Request $request, int $id): JsonResponse
     {
-        $order = CalibrationOrder::where('organization_id', $this->organizationId($request))
-            ->with(['equipment', 'plan', 'calibratedBy', 'certificates'])
-            ->find($id);
+        $order = $this->calibrationService->findOrder(
+            $this->organizationId($request),
+            $id,
+            ['equipment', 'plan', 'calibratedBy', 'certificates'],
+        );
 
         if ($order === null) {
             return $this->notFound('Calibration order not found.');
@@ -217,21 +183,22 @@ class CalibrationController extends Controller
 
     public function completeOrder(Request $request, int $id): JsonResponse
     {
-        $order = CalibrationOrder::where('organization_id', $this->organizationId($request))
-            ->find($id);
+        $order = $this->calibrationService->findOrder($this->organizationId($request), $id);
 
         if ($order === null) {
             return $this->notFound('Calibration order not found.');
         }
 
-        if (!in_array($order->status, [CalibrationOrder::STATUS_PLANNED, CalibrationOrder::STATUS_IN_PROGRESS], true)) {
-            return $this->error('Only planned or in-progress orders can be completed.', 'INVALID_STATUS', 422);
+        // Checked before validation so a finished order is reported as such;
+        // the service checks again on the locked order.
+        if (! $order->canBeCompleted()) {
+            return $this->invalidStatus('Only planned or in-progress orders can be completed.');
         }
 
         $validated = $request->validate([
             'result'              => 'required|in:pass,fail,conditional',
             'actual_measurement'  => 'nullable|numeric',
-            'calibrated_by'       => 'nullable|integer|exists:users,id',
+            'calibrated_by'       => ['nullable', 'integer', $this->ownedBy('users')],
             'notes'               => 'nullable|string',
             'certificate'         => 'nullable|array',
             'certificate.certificate_number' => 'required_with:certificate|string|max:50',
@@ -242,25 +209,24 @@ class CalibrationController extends Controller
             'certificate.certificate_data'   => 'nullable|array',
         ]);
 
-        $this->calibrationService->completeCalibration($order, $validated);
+        try {
+            $this->calibrationService->completeCalibration($order, $validated);
+        } catch (InvalidArgumentException $e) {
+            return $this->invalidStatus($e->getMessage());
+        }
 
         return $this->success($order->fresh(['equipment', 'plan', 'certificates']));
     }
 
     public function certificates(Request $request, int $orderId): JsonResponse
     {
-        $order = CalibrationOrder::where('organization_id', $this->organizationId($request))
-            ->find($orderId);
+        $order = $this->calibrationService->findOrder($this->organizationId($request), $orderId);
 
         if ($order === null) {
             return $this->notFound('Calibration order not found.');
         }
 
-        $certs = CalibrationCertificate::where('calibration_order_id', $orderId)
-            ->orderByDesc('issued_date')
-            ->get();
-
-        return $this->success($certs);
+        return $this->success($this->calibrationService->certificatesOf($order));
     }
 
     // -------------------------------------------------------------------------
@@ -290,5 +256,30 @@ class CalibrationController extends Controller
         $count = $this->calibrationService->generateCalibrationOrders($orgId);
 
         return $this->success(['generated_count' => $count]);
+    }
+
+    /**
+     * The named query parameters that were given a value.
+     *
+     * @param  array<int, string>  $keys
+     * @return array<string, mixed>
+     */
+    private function filledFilters(Request $request, array $keys): array
+    {
+        return array_filter(
+            $request->only($keys),
+            fn (string $key): bool => $request->filled($key),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    private function perPage(Request $request): int
+    {
+        return min((int) $request->input('per_page', 20), 100);
+    }
+
+    private function invalidStatus(string $message): JsonResponse
+    {
+        return $this->error($message, 'INVALID_STATUS', 422);
     }
 }

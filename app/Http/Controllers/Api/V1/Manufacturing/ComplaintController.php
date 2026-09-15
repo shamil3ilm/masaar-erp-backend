@@ -4,22 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\Complaint;
-use App\Models\Manufacturing\ComplaintResolution;
+use App\Services\Manufacturing\ComplaintService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class ComplaintController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly ComplaintService $service) {}
+
     public function index(Request $request): JsonResponse
     {
-        $complaints = Complaint::where('organization_id', $request->user()->organization_id)
-            ->with(['contact', 'assignedTo'])
-            ->paginate(20);
-
-        return $this->paginated($complaints);
+        return $this->paginated($this->service->list($request->user()->organization_id));
     }
 
     public function store(Request $request): JsonResponse
@@ -27,30 +26,21 @@ class ComplaintController extends Controller
         $data = $request->validate([
             'complaint_number'        => 'required|string|max:50|unique:complaints',
             'complaint_source'        => 'required|in:customer,internal,regulatory,supplier',
-            'contact_id'              => 'nullable|integer|exists:contacts,id',
+            'contact_id'              => ['nullable', 'integer', $this->ownedBy('contacts')],
             'subject'                 => 'required|string|max:255',
             'description'             => 'required|string',
             'priority'                => 'required|in:critical,high,medium,low',
-            'assigned_to_id'          => 'nullable|integer|exists:users,id',
+            'assigned_to_id'          => ['nullable', 'integer', $this->ownedBy('users')],
             'received_date'           => 'required|date',
             'target_resolution_date'  => 'nullable|date',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $complaint = Complaint::create($data);
-
-        return $this->created($complaint);
+        return $this->created($this->service->create($request->user()->organization_id, $data));
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $complaint = Complaint::where('organization_id', $request->user()->organization_id)
-            ->with(['contact', 'assignedTo', 'communications', 'resolutions'])
-            ->findOrFail($id);
-
-        return $this->success($complaint);
+        return $this->success($this->service->findForDisplay($request->user()->organization_id, $id));
     }
 
     public function addCommunication(Request $request, int $id): JsonResponse
@@ -61,14 +51,9 @@ class ComplaintController extends Controller
             'content'   => 'required|string',
         ]);
 
-        $complaint = Complaint::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $comm      = $complaint->communications()->create(array_merge($data, [
-            'uuid'             => (string) Str::uuid(),
-            'user_id'          => $request->user()->id,
-            'communicated_at'  => now(),
-        ]));
+        $complaint = $this->service->find($request->user()->organization_id, $id);
 
-        return $this->created($comm);
+        return $this->created($this->service->addCommunication($complaint, $data, $request->user()->id));
     }
 
     public function resolve(Request $request, int $id): JsonResponse
@@ -79,19 +64,8 @@ class ComplaintController extends Controller
             'customer_accepted'       => 'boolean',
         ]);
 
-        $complaint  = Complaint::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $resolution = ComplaintResolution::create(array_merge($data, [
-            'uuid'            => (string) Str::uuid(),
-            'complaint_id'    => $complaint->id,
-            'resolution_date' => now()->toDateString(),
-            'resolved_by_id'  => $request->user()->id,
-        ]));
+        $complaint = $this->service->find($request->user()->organization_id, $id);
 
-        $complaint->update([
-            'status'                  => 'resolved',
-            'actual_resolution_date'  => now()->toDateString(),
-        ]);
-
-        return $this->created($resolution);
+        return $this->created($this->service->resolve($complaint, $data, $request->user()->id));
     }
 }
