@@ -461,6 +461,9 @@ class PurchaseOrderService
     /**
      * Submit the PO into the approval workflow and set its status to
      * pending_approval.
+     *
+     * The order is still uncommitted inside create()'s transaction, so no
+     * other request can hold a copy of it and it needs no row lock here.
      */
     protected function submitForApproval(PurchaseOrder $po, int $userId): void
     {
@@ -472,15 +475,15 @@ class PurchaseOrderService
                 notes: "Auto-submitted: PO {$po->order_number} requires approval."
             );
         } catch (\InvalidArgumentException $e) {
-            // No workflow configured – fall back to setting status manually so
-            // it is still flagged for manual approval.
+            // No workflow configured: the order still waits for approval
+            // through reviewApproval.
             Log::info('PO approval: no workflow found, setting status to pending_approval manually.', [
                 'po_id'     => $po->id,
                 'po_number' => $po->order_number,
                 'reason'    => $e->getMessage(),
             ]);
 
-            $po->update(['status' => PurchaseOrder::STATUS_PENDING_APPROVAL]);
+            $po->markPendingApproval();
         }
     }
 
@@ -493,37 +496,43 @@ class PurchaseOrderService
      *   3. If not fully released, returns the PO still in pending_approval state.
      *
      * When no release strategy applies, falls back to single-step approval.
+     *
+     * The status is checked and changed on the locked order, so a stale copy
+     * of an order rejected or cancelled meanwhile is not confirmed.
      */
     public function approvePO(PurchaseOrder $po, int $userId, ?string $notes = null): PurchaseOrder
     {
-        if (!$po->isPendingApproval()) {
-            throw new \InvalidArgumentException('Only purchase orders pending approval can be approved.');
-        }
-
-        // Check for an active release strategy
-        $currentLevel = $this->releaseStrategyService->getCurrentLevel(
-            ReleaseStrategy::DOCUMENT_TYPE_PURCHASE_ORDER,
-            $po->id
-        );
-
-        if ($currentLevel !== null) {
-            $approver = \App\Models\User::findOrFail($userId);
-            $fullyReleased = $this->releaseStrategyService->approve($currentLevel, $approver, $notes);
-
-            if (! $fullyReleased) {
-                // More levels remain — keep PO in pending_approval
-                return $po->fresh(['lines', 'supplier']);
+        [$po, $confirmed] = $po->lockForTransition(function (PurchaseOrder $po) use ($userId, $notes): array {
+            if (! $po->isPendingApproval()) {
+                throw new \InvalidArgumentException('Only purchase orders pending approval can be approved.');
             }
 
-            // All levels approved — fall through to mark PO confirmed below
-        }
+            $currentLevel = $this->releaseStrategyService->getCurrentLevel(
+                ReleaseStrategy::DOCUMENT_TYPE_PURCHASE_ORDER,
+                $po->id
+            );
 
-        $po->update([
-            'status'      => PurchaseOrder::STATUS_CONFIRMED,
-            'approved_by' => $userId,
-            'approved_at' => now(),
-            'notes'       => $po->notes . ($notes ? "\n\nApproval notes: {$notes}" : ''),
-        ]);
+            if ($currentLevel !== null) {
+                $approver = \App\Models\User::findOrFail($userId);
+
+                if (! $this->releaseStrategyService->approve($currentLevel, $approver, $notes)) {
+                    // More levels remain, so the order keeps waiting.
+                    return [$po->fresh(['lines', 'supplier']), false];
+                }
+            }
+
+            $po->transitionTo(PurchaseOrder::STATUS_CONFIRMED, [
+                'approved_by' => $userId,
+                'approved_at' => now(),
+                'notes'       => $po->notes . ($notes ? "\n\nApproval notes: {$notes}" : ''),
+            ]);
+
+            return [$po->fresh(['lines', 'supplier']), true];
+        });
+
+        if (! $confirmed) {
+            return $po;
+        }
 
         try {
             $this->userEventService->track(
@@ -536,23 +545,28 @@ class PurchaseOrderService
             Log::warning('Event tracking failed', ['event' => UserEvent::PURCHASE_ORDER_APPROVED, 'error' => $e->getMessage()]);
         }
 
-        return $po->fresh(['lines', 'supplier']);
+        return $po;
     }
 
     /**
-     * Reject a PO that is pending approval, reverting it to draft.
+     * Reject a PO that is pending approval by cancelling it.
+     *
+     * It is not returned to draft, because a draft can be sent and confirmed
+     * without approval. The status is checked and changed on the locked order,
+     * so a stale copy of an order approved meanwhile is not cancelled.
      */
     public function rejectPO(PurchaseOrder $po, int $userId, string $reason): PurchaseOrder
     {
-        if (!$po->isPendingApproval()) {
-            throw new \InvalidArgumentException('Only purchase orders pending approval can be rejected.');
-        }
+        return $po->lockForTransition(function (PurchaseOrder $po) use ($userId, $reason): PurchaseOrder {
+            if (! $po->isPendingApproval()) {
+                throw new \InvalidArgumentException('Only purchase orders pending approval can be rejected.');
+            }
 
-        $po->update([
-            'status' => PurchaseOrder::STATUS_DRAFT,
-            'notes'  => $po->notes . "\n\nRejected by user #{$userId}: {$reason}",
-        ]);
+            $po->transitionTo(PurchaseOrder::STATUS_CANCELLED, [
+                'notes' => $po->notes . "\n\nRejected by user #{$userId}: {$reason}",
+            ]);
 
-        return $po->fresh(['lines', 'supplier']);
+            return $po->fresh(['lines', 'supplier']);
+        });
     }
 }
