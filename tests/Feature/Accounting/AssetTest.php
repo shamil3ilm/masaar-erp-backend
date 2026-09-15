@@ -375,7 +375,7 @@ class AssetTest extends TestCase
     // AuC settlement
     // -------------------------------------------------------------------------
 
-    public function test_settle_auc_returns_404_for_another_organizations_target(): void
+    public function test_settle_auc_rejects_another_organizations_target(): void
     {
         $source        = $this->makeAsset();
         $otherOrg      = Organization::factory()->create();
@@ -391,7 +391,8 @@ class AssetTest extends TestCase
                 'amount'          => 100,
                 'settlement_date' => '2025-06-30',
             ])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('target_asset_id');
     }
 
     public function test_settle_auc_rejects_a_source_that_is_not_auc(): void
