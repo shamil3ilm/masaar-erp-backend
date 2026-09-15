@@ -164,6 +164,9 @@ class PurchaseRequisitionService
 
             $orders = [];
 
+            // The requisition's own organization supplies the fallback currency.
+            $baseCurrency = $requisition->organization()->value('base_currency') ?? 'USD';
+
             foreach ($grouped as $vendorKey => $lines) {
                 $vendorId = $vendorKey === 'no_vendor' ? null : (int) $vendorKey;
 
@@ -185,17 +188,21 @@ class PurchaseRequisitionService
                 $poNumber = $this->numberGenerator->generate('PO');
                 $poData['order_number'] = $poNumber;
 
-                // Resolve supplier snapshot fields
-                $supplier = \App\Models\Sales\Contact::find($vendorId);
-                if ($supplier) {
-                    // Use the supplier's own currency when set; otherwise fall back
-                    // to the organisation's base currency (not a hardcoded 'SAR').
-                    $orgBaseCurrency = \App\Models\Core\Organization::find($requisition->organization_id)
-                        ?->base_currency ?? 'USD';
-                    $poData['supplier_name']  = $supplier->getDisplayName();
-                    $poData['supplier_email'] = $supplier->email;
-                    $poData['currency_code']  = $supplier->currency_code ?? $orgBaseCurrency;
+                // The vendor is looked up in the requisition's organization, so a
+                // line naming another organization's contact is refused rather
+                // than ordered from.
+                $supplier = \App\Models\Sales\Contact::where('organization_id', $requisition->organization_id)
+                    ->find($vendorId);
+
+                if ($supplier === null) {
+                    throw new \InvalidArgumentException('A preferred vendor of this requisition was not found.');
                 }
+
+                // Use the supplier's own currency when set; otherwise fall back
+                // to the organization's base currency.
+                $poData['supplier_name']  = $supplier->getDisplayName();
+                $poData['supplier_email'] = $supplier->email;
+                $poData['currency_code']  = $supplier->currency_code ?? $baseCurrency;
 
                 $poData['exchange_rate'] = 1;
                 $poData['subtotal'] = 0;

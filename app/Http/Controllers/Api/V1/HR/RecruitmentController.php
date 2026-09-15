@@ -7,8 +7,6 @@ namespace App\Http\Controllers\Api\V1\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Candidate;
 use App\Models\HR\InterviewSchedule;
-use App\Models\HR\JobApplication;
-use App\Models\HR\JobOffer;
 use App\Models\HR\JobPosting;
 use App\Services\HR\RecruitmentService;
 use Illuminate\Http\JsonResponse;
@@ -28,30 +26,18 @@ class RecruitmentController extends Controller
 
     public function indexJobPostings(Request $request): JsonResponse
     {
-        $query = JobPosting::with(['department', 'designation', 'creator'])
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->department_id, fn ($q, $v) => $q->where('department_id', $v))
-            ->when($request->employment_type, fn ($q, $v) => $q->where('employment_type', $v))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('title', 'like', "%{$search}%")
-                        ->orWhere('location', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['title', 'status', 'posted_at', 'closes_at', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->recruitmentService->listJobPostings(
+            $request->only(['status', 'department_id', 'employment_type', 'search']),
+            $this->safeSortBy($request->sort_by, ['title', 'status', 'posted_at', 'closes_at', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeJobPosting(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'nullable|integer|exists:branches,id',
-            'department_id' => 'nullable|integer|exists:departments,id',
-            'designation_id' => 'nullable|integer|exists:designations,id',
+            ...$this->placementRules(auth()->user()->organization_id),
             'title' => 'required|string|max:200',
             'description' => 'required|string',
             'requirements' => 'nullable|string',
@@ -76,20 +62,15 @@ class RecruitmentController extends Controller
 
     public function showJobPosting(int $id): JsonResponse
     {
-        $posting = JobPosting::with(['department', 'designation', 'creator'])
-            ->findOrFail($id);
-
-        return $this->success($posting);
+        return $this->success($this->recruitmentService->findJobPosting($id, ['department', 'designation', 'creator']));
     }
 
     public function updateJobPosting(Request $request, int $id): JsonResponse
     {
-        $posting = JobPosting::findOrFail($id);
+        $posting = $this->recruitmentService->findJobPosting($id);
 
         $validated = $request->validate([
-            'branch_id' => 'nullable|integer|exists:branches,id',
-            'department_id' => 'nullable|integer|exists:departments,id',
-            'designation_id' => 'nullable|integer|exists:designations,id',
+            ...$this->placementRules($posting->organization_id),
             'title' => 'sometimes|required|string|max:200',
             'description' => 'sometimes|required|string',
             'requirements' => 'nullable|string',
@@ -114,15 +95,14 @@ class RecruitmentController extends Controller
 
     public function destroyJobPosting(int $id): JsonResponse
     {
-        $posting = JobPosting::findOrFail($id);
-        $posting->delete();
+        $this->recruitmentService->findJobPosting($id)->delete();
 
         return $this->success(null, 'Job posting deleted successfully.');
     }
 
     public function publishJobPosting(int $id): JsonResponse
     {
-        $posting = JobPosting::findOrFail($id);
+        $posting = $this->recruitmentService->findJobPosting($id);
 
         try {
             $posting = $this->recruitmentService->publishJobPosting($posting, auth()->id());
@@ -135,7 +115,7 @@ class RecruitmentController extends Controller
 
     public function closeJobPosting(int $id): JsonResponse
     {
-        $posting = JobPosting::findOrFail($id);
+        $posting = $this->recruitmentService->findJobPosting($id);
         $posting = $this->recruitmentService->closeJobPosting($posting, auth()->id());
 
         return $this->success($posting, 'Job posting closed successfully.');
@@ -147,22 +127,12 @@ class RecruitmentController extends Controller
 
     public function indexCandidates(Request $request): JsonResponse
     {
-        $query = Candidate::with(['applications'])
-            ->when($request->source, fn ($q, $v) => $q->where('source', $v))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('current_company', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['first_name', 'last_name', 'email', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->recruitmentService->listCandidates(
+            $request->only(['source', 'search']),
+            $this->safeSortBy($request->sort_by, ['first_name', 'last_name', 'email', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function storeCandidate(Request $request): JsonResponse
@@ -202,14 +172,12 @@ class RecruitmentController extends Controller
 
     public function showCandidate(int $id): JsonResponse
     {
-        $candidate = Candidate::with(['applications.jobPosting'])->findOrFail($id);
-
-        return $this->success($candidate);
+        return $this->success($this->recruitmentService->findCandidate($id, ['applications.jobPosting']));
     }
 
     public function updateCandidate(Request $request, int $id): JsonResponse
     {
-        $candidate = Candidate::findOrFail($id);
+        $candidate = $this->recruitmentService->findCandidate($id);
         $organizationId = auth()->user()->organization_id;
 
         $validated = $request->validate([
@@ -252,35 +220,29 @@ class RecruitmentController extends Controller
 
     public function indexApplications(Request $request): JsonResponse
     {
-        $query = JobApplication::with(['jobPosting', 'candidate', 'reviewer'])
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->job_posting_id, fn ($q, $v) => $q->where('job_posting_id', $v))
-            ->when($request->candidate_id, fn ($q, $v) => $q->where('candidate_id', $v))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['applied_at', 'status', 'created_at'], 'applied_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->recruitmentService->listApplications(
+            $request->only(['status', 'job_posting_id', 'candidate_id']),
+            $this->safeSortBy($request->sort_by, ['applied_at', 'status', 'created_at'], 'applied_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function showApplication(int $id): JsonResponse
     {
-        $application = JobApplication::with([
+        return $this->success($this->recruitmentService->findApplication($id, [
             'jobPosting',
             'candidate',
             'interviews',
             'offer',
             'reviewer',
-        ])->findOrFail($id);
-
-        return $this->success($application);
+        ]));
     }
 
     public function applyForJob(Request $request, int $jobPostingId): JsonResponse
     {
         $validated = $request->validate([
-            'candidate_id' => 'required|integer|exists:candidates,id',
+            'candidate_id' => ['required', 'integer', Rule::exists('candidates', 'id')->where('organization_id', auth()->user()->organization_id)],
             'cover_letter' => 'nullable|string',
             'expected_salary' => 'nullable|numeric|min:0',
             'notice_period_days' => 'nullable|integer|min:0',
@@ -299,7 +261,7 @@ class RecruitmentController extends Controller
 
     public function shortlistApplication(int $id): JsonResponse
     {
-        $application = JobApplication::findOrFail($id);
+        $application = $this->recruitmentService->findApplication($id);
 
         try {
             $application = $this->recruitmentService->shortlistApplication($application, auth()->id());
@@ -316,7 +278,7 @@ class RecruitmentController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        $application = JobApplication::findOrFail($id);
+        $application = $this->recruitmentService->findApplication($id);
 
         try {
             $application = $this->recruitmentService->rejectApplication(
@@ -333,13 +295,11 @@ class RecruitmentController extends Controller
 
     public function convertToEmployee(Request $request, int $id): JsonResponse
     {
-        $application = JobApplication::findOrFail($id);
+        $application = $this->recruitmentService->findApplication($id);
 
         $validated = $request->validate([
             'employee_number' => 'nullable|string|max:50',
-            'department_id' => 'nullable|integer|exists:departments,id',
-            'designation_id' => 'nullable|integer|exists:designations,id',
-            'branch_id' => 'nullable|integer|exists:branches,id',
+            ...$this->placementRules($application->organization_id),
             'joining_date' => 'nullable|date',
             'employment_type' => 'nullable|string|max:50',
             'employment_status' => 'nullable|string|max:50',
@@ -373,7 +333,8 @@ class RecruitmentController extends Controller
             'location' => 'nullable|string|max:300',
             'meeting_link' => 'nullable|url|max:500',
             'interviewers' => 'nullable|array',
-            'interviewers.*' => 'integer|exists:users,id',
+            // Users carry no tenant scope, so the organization is checked here.
+            'interviewers.*' => ['integer', Rule::exists('users', 'id')->where('organization_id', auth()->user()->organization_id)],
         ]);
 
         $validated['job_application_id'] = $applicationId;
@@ -389,7 +350,7 @@ class RecruitmentController extends Controller
 
     public function recordInterviewFeedback(Request $request, int $interviewId): JsonResponse
     {
-        $interview = InterviewSchedule::findOrFail($interviewId);
+        $interview = $this->recruitmentService->findInterview($interviewId);
 
         $validated = $request->validate([
             'feedback' => 'required|string',
@@ -435,7 +396,7 @@ class RecruitmentController extends Controller
 
     public function sendOffer(int $offerId): JsonResponse
     {
-        $offer = JobOffer::findOrFail($offerId);
+        $offer = $this->recruitmentService->findOffer($offerId);
 
         try {
             $offer = $this->recruitmentService->sendOffer($offer, auth()->id());
@@ -448,7 +409,7 @@ class RecruitmentController extends Controller
 
     public function acceptOffer(int $offerId): JsonResponse
     {
-        $offer = JobOffer::findOrFail($offerId);
+        $offer = $this->recruitmentService->findOffer($offerId);
 
         try {
             $offer = $this->recruitmentService->acceptOffer($offer, auth()->id());
@@ -465,7 +426,7 @@ class RecruitmentController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        $offer = JobOffer::findOrFail($offerId);
+        $offer = $this->recruitmentService->findOffer($offerId);
 
         try {
             $offer = $this->recruitmentService->declineOffer($offer, $validated['reason'], auth()->id());
@@ -474,5 +435,20 @@ class RecruitmentController extends Controller
         }
 
         return $this->success($offer, 'Offer declined.');
+    }
+
+    /**
+     * Branch, department and designation of a posting or a new employee, each
+     * a row of the given organization.
+     *
+     * @return array<string, list<mixed>>
+     */
+    private function placementRules(int $organizationId): array
+    {
+        return [
+            'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where('organization_id', $organizationId)],
+            'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')->where('organization_id', $organizationId)],
+            'designation_id' => ['nullable', 'integer', Rule::exists('designations', 'id')->where('organization_id', $organizationId)],
+        ];
     }
 }

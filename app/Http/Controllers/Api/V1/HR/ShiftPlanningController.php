@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\Employee;
 use App\Models\HR\ShiftPattern;
 use App\Models\HR\ShiftRoster;
 use App\Models\HR\ShiftSwapRequest;
+use App\Services\HR\EmployeeService;
 use App\Services\HR\ShiftPlanningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ShiftPlanningController extends Controller
 {
     public function __construct(
-        private ShiftPlanningService $shiftService
+        private ShiftPlanningService $shiftService,
+        private EmployeeService $employeeService,
     ) {}
 
     /**
@@ -24,12 +26,10 @@ class ShiftPlanningController extends Controller
      */
     public function indexPatterns(Request $request): JsonResponse
     {
-        $patterns = ShiftPattern::query()
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($patterns);
+        return $this->paginated($this->shiftService->listPatterns(
+            $request->boolean('active_only', false),
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -50,10 +50,7 @@ class ShiftPlanningController extends Controller
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $pattern = ShiftPattern::create(array_merge($validated, [
-            'organization_id' => auth()->user()->organization_id,
-            'is_active' => true,
-        ]));
+        $pattern = $this->shiftService->createPattern($validated, auth()->user()->organization_id);
 
         return $this->created($pattern, 'Shift pattern created successfully.');
     }
@@ -85,15 +82,10 @@ class ShiftPlanningController extends Controller
      */
     public function indexRosters(Request $request): JsonResponse
     {
-        $rosters = ShiftRoster::query()
-            ->when($request->status, fn($q, $v) => $q->byStatus($v))
-            ->when($request->branch_id, fn($q, $v) => $q->where('branch_id', $v))
-            ->when($request->department_id, fn($q, $v) => $q->where('department_id', $v))
-            ->withCount('lines')
-            ->orderByDesc('roster_period_start')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($rosters);
+        return $this->paginated($this->shiftService->listRosters(
+            $request->only(['status', 'branch_id', 'department_id']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -101,10 +93,12 @@ class ShiftPlanningController extends Controller
      */
     public function storeRoster(Request $request): JsonResponse
     {
+        $organizationId = auth()->user()->organization_id;
+
         $validated = $request->validate([
             'name' => 'required|string|max:200',
-            'branch_id' => 'nullable|exists:branches,id',
-            'department_id' => 'nullable|exists:departments,id',
+            'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('organization_id', $organizationId)],
+            'department_id' => ['nullable', Rule::exists('departments', 'id')->where('organization_id', $organizationId)],
             'roster_period_start' => 'required|date',
             'roster_period_end' => 'required|date|after:roster_period_start',
             'notes' => 'nullable|string|max:1000',
@@ -135,18 +129,18 @@ class ShiftPlanningController extends Controller
     public function assignShift(Request $request, ShiftRoster $shiftRoster): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', $shiftRoster->organization_id)],
             'shift_date' => 'required|date',
-            'shift_pattern_id' => 'nullable|exists:shift_patterns,id',
+            'shift_pattern_id' => ['nullable', Rule::exists('shift_patterns', 'id')->where('organization_id', $shiftRoster->organization_id)],
             'is_day_off' => 'boolean',
             'override_start_time' => 'nullable|date_format:H:i',
             'override_end_time' => 'nullable|date_format:H:i',
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
         $pattern = isset($validated['shift_pattern_id'])
-            ? ShiftPattern::findOrFail($validated['shift_pattern_id'])
+            ? $this->shiftService->findPattern((int) $validated['shift_pattern_id'])
             : null;
 
         return $this->tryAction(
@@ -162,14 +156,14 @@ class ShiftPlanningController extends Controller
     public function bulkAssign(Request $request, ShiftRoster $shiftRoster): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'shift_pattern_id' => 'required|exists:shift_patterns,id',
+            'employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', $shiftRoster->organization_id)],
+            'shift_pattern_id' => ['required', Rule::exists('shift_patterns', 'id')->where('organization_id', $shiftRoster->organization_id)],
             'from_date' => 'required|date',
             'to_date' => 'required|date|after_or_equal:from_date',
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
-        $pattern = ShiftPattern::findOrFail($validated['shift_pattern_id']);
+        $employee = $this->employeeService->find((int) $validated['employee_id']);
+        $pattern = $this->shiftService->findPattern((int) $validated['shift_pattern_id']);
 
         try {
             $count = $this->shiftService->bulkAssignShift(
@@ -203,15 +197,10 @@ class ShiftPlanningController extends Controller
      */
     public function listSwapRequests(Request $request): JsonResponse
     {
-        $swaps = ShiftSwapRequest::with(['requester', 'requestedEmployee'])
-            ->when($request->status, fn($q, $v) => $q->byStatus($v))
-            ->when($request->employee_id, fn($q, $v) => $q->where(
-                fn($q2) => $q2->where('requester_id', $v)->orWhere('requested_employee_id', $v)
-            ))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($swaps);
+        return $this->paginated($this->shiftService->listSwapRequests(
+            $request->only(['status', 'employee_id']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     /**
@@ -220,14 +209,14 @@ class ShiftPlanningController extends Controller
     public function requestSwap(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'requested_employee_id' => 'required|exists:employees,id',
+            'requested_employee_id' => ['required', Rule::exists('employees', 'id')->where('organization_id', auth()->user()->organization_id)],
             'requester_shift_date' => 'required|date',
             'requested_shift_date' => 'required|date',
             'reason' => 'nullable|string|max:500',
         ]);
 
-        $requester = Employee::where('user_id', auth()->id())->firstOrFail();
-        $requestedEmployee = Employee::findOrFail($validated['requested_employee_id']);
+        $requester = $this->employeeService->findByUser((int) auth()->id());
+        $requestedEmployee = $this->employeeService->find((int) $validated['requested_employee_id']);
 
         try {
             $swap = $this->shiftService->requestSwap(

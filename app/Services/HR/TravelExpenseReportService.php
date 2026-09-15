@@ -7,8 +7,10 @@ namespace App\Services\HR;
 use App\Models\HR\TravelExpenseReport;
 use App\Models\HR\TravelExpenseReportLine;
 use App\Models\HR\TravelExpenseType;
+use App\Models\HR\TravelRequest;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class TravelExpenseReportService
@@ -18,45 +20,112 @@ class TravelExpenseReportService
         private NumberGeneratorService $numberGenerator,
     ) {}
 
-    public function submitRequest(int $organizationId, array $data, int $userId): \App\Models\HR\TravelRequest
+    /**
+     * Travel requests of the current organization with their employee and
+     * approver, newest first.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     */
+    public function listRequests(array $filters, int $perPage): LengthAwarePaginator
     {
-        $travelRequest = \App\Models\HR\TravelRequest::withoutGlobalScope('organization')
+        return TravelRequest::with(['employee', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->byStatus($status))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    public function createRequest(array $data): TravelRequest
+    {
+        return TravelRequest::create($data);
+    }
+
+    /**
+     * A travel request of the current organization by uuid.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findRequestByUuid(string $uuid): TravelRequest
+    {
+        return TravelRequest::findByUuidOrFail($uuid);
+    }
+
+    /**
+     * Expense reports of a travel request with their employee, lines and
+     * approver, newest first.
+     */
+    public function listReports(TravelRequest $travelRequest, int $perPage): LengthAwarePaginator
+    {
+        return TravelExpenseReport::with(['employee', 'lines.expenseType', 'approver'])
+            ->where('travel_request_id', $travelRequest->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Expense types of the current organization by name.
+     *
+     * @param  mixed  $category  filters by category when not empty
+     */
+    public function listExpenseTypes(bool $activeOnly, mixed $category, int $perPage): LengthAwarePaginator
+    {
+        return TravelExpenseType::query()
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->when($category, fn ($q, $cat) => $q->where('category', $cat))
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    public function createExpenseType(array $data): TravelExpenseType
+    {
+        return TravelExpenseType::create($data);
+    }
+
+    public function submitRequest(int $organizationId, array $data, int $userId): TravelRequest
+    {
+        $travelRequest = TravelRequest::withoutGlobalScope('organization')
             ->where('organization_id', $organizationId)
             ->where('uuid', $data['uuid'] ?? '')
             ->firstOrFail();
 
-        if ($travelRequest->status !== \App\Models\HR\TravelRequest::STATUS_DRAFT) {
+        if ($travelRequest->status !== TravelRequest::STATUS_DRAFT) {
             throw new \InvalidArgumentException('Only draft requests can be submitted.');
         }
 
         $requestNumber = $this->numberGenerator->generate('TR', '{prefix}-{year}-{number}', $organizationId);
 
         $travelRequest->update([
-            'status'         => \App\Models\HR\TravelRequest::STATUS_SUBMITTED,
+            'status'         => TravelRequest::STATUS_SUBMITTED,
             'request_number' => $travelRequest->request_number ?? $requestNumber,
         ]);
 
         return $travelRequest->refresh();
     }
 
-    public function approveRequest(int $organizationId, string $uuid, int $approverId): \App\Models\HR\TravelRequest
+    /**
+     * Approve a submitted request, checking its status on the locked row.
+     */
+    public function approveRequest(int $organizationId, string $uuid, int $approverId): TravelRequest
     {
-        $travelRequest = \App\Models\HR\TravelRequest::withoutGlobalScope('organization')
-            ->where('organization_id', $organizationId)
-            ->where('uuid', $uuid)
-            ->firstOrFail();
+        return DB::transaction(function () use ($organizationId, $uuid, $approverId): TravelRequest {
+            $travelRequest = TravelRequest::withoutGlobalScope('organization')
+                ->where('organization_id', $organizationId)
+                ->where('uuid', $uuid)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($travelRequest->status !== \App\Models\HR\TravelRequest::STATUS_SUBMITTED) {
-            throw new \InvalidArgumentException('Only submitted requests can be approved.');
-        }
+            if ($travelRequest->status !== TravelRequest::STATUS_SUBMITTED) {
+                throw new \InvalidArgumentException('Only submitted requests can be approved.');
+            }
 
-        $travelRequest->update([
-            'status'      => \App\Models\HR\TravelRequest::STATUS_APPROVED,
-            'approved_by' => $approverId,
-            'approved_at' => now(),
-        ]);
+            $travelRequest->update([
+                'status'      => TravelRequest::STATUS_APPROVED,
+                'approved_by' => $approverId,
+                'approved_at' => now(),
+            ]);
 
-        return $travelRequest->refresh();
+            return $travelRequest->refresh();
+        });
     }
 
     public function submitExpenseReport(int $organizationId, array $data, int $userId): TravelExpenseReport
@@ -101,26 +170,37 @@ class TravelExpenseReportService
         });
     }
 
+    /**
+     * Approve a submitted report, checking its status on the locked row.
+     */
     public function approveExpenseReport(int $organizationId, string $uuid, int $approverId): TravelExpenseReport
     {
-        $report = TravelExpenseReport::withoutGlobalScope('organization')
-            ->where('organization_id', $organizationId)
-            ->where('uuid', $uuid)
-            ->firstOrFail();
+        return DB::transaction(function () use ($organizationId, $uuid, $approverId): TravelExpenseReport {
+            $report = TravelExpenseReport::withoutGlobalScope('organization')
+                ->where('organization_id', $organizationId)
+                ->where('uuid', $uuid)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($report->status !== TravelExpenseReport::STATUS_SUBMITTED) {
-            throw new \InvalidArgumentException('Only submitted expense reports can be approved.');
-        }
+            if ($report->status !== TravelExpenseReport::STATUS_SUBMITTED) {
+                throw new \InvalidArgumentException('Only submitted expense reports can be approved.');
+            }
 
-        $report->update([
-            'status'      => TravelExpenseReport::STATUS_APPROVED,
-            'approved_by' => $approverId,
-            'approved_at' => now(),
-        ]);
+            $report->update([
+                'status'      => TravelExpenseReport::STATUS_APPROVED,
+                'approved_by' => $approverId,
+                'approved_at' => now(),
+            ]);
 
-        return $report->refresh();
+            return $report->refresh();
+        });
     }
 
+    /**
+     * Post an approved report to the general ledger. The report row is locked
+     * before its status is checked, so two concurrent posts cannot both find
+     * it approved and write two journal entries.
+     */
     public function postExpenseReport(int $organizationId, string $uuid, int $postedBy): TravelExpenseReport
     {
         return DB::transaction(function () use ($organizationId, $uuid, $postedBy) {
@@ -128,6 +208,7 @@ class TravelExpenseReportService
                 ->with('lines.expenseType')
                 ->where('organization_id', $organizationId)
                 ->where('uuid', $uuid)
+                ->lockForUpdate()
                 ->firstOrFail();
 
             if ($report->status !== TravelExpenseReport::STATUS_APPROVED) {

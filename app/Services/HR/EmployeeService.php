@@ -232,6 +232,16 @@ class EmployeeService
     }
 
     /**
+     * The employee record linked to a user account.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException when the user has none
+     */
+    public function findByUser(int $userId): Employee
+    {
+        return Employee::where('user_id', $userId)->firstOrFail();
+    }
+
+    /**
      * A salary structure of the current organization; the tenant scope turns
      * another organization's id into a not-found.
      */

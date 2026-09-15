@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\VendorProductPricing;
+use App\Http\Resources\Purchase\VendorProductPricingResource;
 use App\Services\Purchase\SourceListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class VendorPricingController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    /** Relations a pricing record is returned with. */
+    private const WITH = ['vendor', 'product:id,name,sku'];
+
     public function __construct(
         private SourceListService $sourceListService
     ) {}
@@ -22,15 +27,12 @@ class VendorPricingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $records = VendorProductPricing::with(['vendor:id,name,email', 'product:id,name,sku'])
-            ->when($request->product_id, fn ($q, $id) => $q->forProduct((int) $id))
-            ->when($request->vendor_id, fn ($q, $id) => $q->forVendor((int) $id))
-            ->when($request->preferred_only === 'true', fn ($q) => $q->preferredVendors())
-            ->when($request->valid_only === 'true', fn ($q) => $q->valid())
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 20));
+        $records = $this->sourceListService->listPricingRecords(
+            $request->only(['product_id', 'vendor_id', 'preferred_only', 'valid_only']),
+            $request->integer('per_page', 20),
+        );
 
-        return $this->paginated($records, null);
+        return $this->paginated($records, VendorProductPricingResource::class);
     }
 
     /**
@@ -38,11 +40,9 @@ class VendorPricingController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
         $validated = $request->validate([
-            'product_id'                 => ['required', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-            'vendor_id'                  => ['required', Rule::exists('contacts', 'id')->where('organization_id', $orgId)],
+            'product_id'                 => ['required', $this->ownedBy('products')],
+            'vendor_id'                  => ['required', $this->ownedBy('contacts')],
             'vendor_product_code'        => 'nullable|string|max:100',
             'vendor_product_description' => 'nullable|string|max:500',
             'unit_price'                 => 'required|numeric|min:0',
@@ -56,12 +56,12 @@ class VendorPricingController extends Controller
             'notes'                      => 'nullable|string|max:2000',
         ]);
 
-        $validated['organization_id'] = $orgId;
+        $validated['organization_id'] = $this->organizationId($request);
 
         $record = $this->sourceListService->createPricingRecord($validated);
 
         return $this->created(
-            $record->load(['vendor:id,name,email', 'product:id,name,sku']),
+            new VendorProductPricingResource($record->load(self::WITH)),
             'Vendor pricing record created.'
         );
     }
@@ -71,17 +71,13 @@ class VendorPricingController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $record = VendorProductPricing::with([
-            'vendor:id,name,email',
-            'product:id,name,sku',
-            'vendorSourceListEntries',
-        ])->find($id);
+        $record = $this->sourceListService->findPricingRecord($id, [...self::WITH, 'vendorSourceListEntries']);
 
         if (!$record) {
             return $this->notFound('Vendor pricing record not found.');
         }
 
-        return $this->success($record);
+        return $this->success(new VendorProductPricingResource($record));
     }
 
     /**
@@ -89,7 +85,7 @@ class VendorPricingController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $record = VendorProductPricing::find($id);
+        $record = $this->sourceListService->findPricingRecord($id);
 
         if (!$record) {
             return $this->notFound('Vendor pricing record not found.');
@@ -112,7 +108,7 @@ class VendorPricingController extends Controller
         $record = $this->sourceListService->updatePricingRecord($record, $validated);
 
         return $this->success(
-            $record->load(['vendor:id,name,email', 'product:id,name,sku']),
+            new VendorProductPricingResource($record->load(self::WITH)),
             'Vendor pricing record updated.'
         );
     }
@@ -122,13 +118,13 @@ class VendorPricingController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $record = VendorProductPricing::find($id);
+        $record = $this->sourceListService->findPricingRecord($id);
 
         if (!$record) {
             return $this->notFound('Vendor pricing record not found.');
         }
 
-        $record->delete();
+        $this->sourceListService->deletePricingRecord($record);
 
         return $this->success(null, 'Vendor pricing record deleted.');
     }
@@ -139,13 +135,9 @@ class VendorPricingController extends Controller
      */
     public function forProduct(int $productId): JsonResponse
     {
-        $records = VendorProductPricing::forProduct($productId)
-            ->valid()
-            ->with(['vendor:id,name,email'])
-            ->orderByDesc('is_preferred_vendor')
-            ->orderBy('unit_price')
-            ->get();
-
-        return $this->success($records, 'Vendor pricing records retrieved.');
+        return $this->success(
+            VendorProductPricingResource::collection($this->sourceListService->validPricingRecordsForProduct($productId)),
+            'Vendor pricing records retrieved.'
+        );
     }
 }

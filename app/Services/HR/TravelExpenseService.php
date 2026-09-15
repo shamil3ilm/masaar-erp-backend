@@ -9,6 +9,7 @@ use App\Models\HR\TravelExpenseClaim;
 use App\Models\HR\TravelExpenseLine;
 use App\Models\HR\TravelRequest;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -21,6 +22,29 @@ class TravelExpenseService
     // ---------------------------------------------------------------
     // Per Diem Rates
     // ---------------------------------------------------------------
+
+    /**
+     * Active per diem rates of the current organization by destination.
+     *
+     * @param  mixed  $country  filters by destination country when not empty
+     */
+    public function listPerDiemRates(mixed $country, int $perPage): LengthAwarePaginator
+    {
+        return PerDiemRate::active()
+            ->when($country, fn ($q, $c) => $q->where('destination_country', $c))
+            ->orderBy('destination_country')
+            ->orderBy('destination_city')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A per diem rate of the current organization; the tenant scope turns
+     * another organization's id into a not-found.
+     */
+    public function findPerDiemRate(int $id): PerDiemRate
+    {
+        return PerDiemRate::findOrFail($id);
+    }
 
     public function storePerDiemRate(array $data): PerDiemRate
     {
@@ -102,6 +126,32 @@ class TravelExpenseService
     // Travel Requests
     // ---------------------------------------------------------------
 
+    /**
+     * Travel requests of the current organization with their employee and
+     * approver.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listRequests(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return TravelRequest::with(['employee', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->byStatus($status))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * A travel request of the current organization.
+     *
+     * @param  list<string>  $relations
+     */
+    public function findRequest(int $id, array $relations = []): TravelRequest
+    {
+        return TravelRequest::with($relations)->findOrFail($id);
+    }
+
     public function createRequest(array $data): TravelRequest
     {
         return DB::transaction(function () use ($data): TravelRequest {
@@ -143,44 +193,80 @@ class TravelExpenseService
         });
     }
 
+    /**
+     * Submit a draft request. Like approval and rejection, the status is
+     * checked on the locked row, not on the copy the caller holds.
+     */
     public function submit(TravelRequest $request): void
     {
-        if (!$request->isDraft()) {
-            throw new \InvalidArgumentException('Only draft requests can be submitted.');
-        }
+        $request->lockForTransition(function (TravelRequest $locked): void {
+            if (!$locked->isDraft()) {
+                throw new \InvalidArgumentException('Only draft requests can be submitted.');
+            }
 
-        $request->update(['status' => TravelRequest::STATUS_SUBMITTED]);
+            $locked->update(['status' => TravelRequest::STATUS_SUBMITTED]);
+        });
     }
 
     public function approve(TravelRequest $request, float $advanceApproved): void
     {
-        if ($request->status !== TravelRequest::STATUS_SUBMITTED) {
-            throw new \InvalidArgumentException('Only submitted requests can be approved.');
-        }
+        $request->lockForTransition(function (TravelRequest $locked) use ($advanceApproved): void {
+            if ($locked->status !== TravelRequest::STATUS_SUBMITTED) {
+                throw new \InvalidArgumentException('Only submitted requests can be approved.');
+            }
 
-        $request->update([
-            'status'           => TravelRequest::STATUS_APPROVED,
-            'advance_approved' => $advanceApproved,
-            'approved_by'      => auth()->id(),
-            'approved_at'      => now(),
-        ]);
+            $locked->update([
+                'status'           => TravelRequest::STATUS_APPROVED,
+                'advance_approved' => $advanceApproved,
+                'approved_by'      => auth()->id(),
+                'approved_at'      => now(),
+            ]);
+        });
     }
 
     public function reject(TravelRequest $request, string $reason): void
     {
-        if ($request->status !== TravelRequest::STATUS_SUBMITTED) {
-            throw new \InvalidArgumentException('Only submitted requests can be rejected.');
-        }
+        $request->lockForTransition(function (TravelRequest $locked) use ($reason): void {
+            if ($locked->status !== TravelRequest::STATUS_SUBMITTED) {
+                throw new \InvalidArgumentException('Only submitted requests can be rejected.');
+            }
 
-        $request->update([
-            'status'           => TravelRequest::STATUS_REJECTED,
-            'rejection_reason' => $reason,
-        ]);
+            $locked->update([
+                'status'           => TravelRequest::STATUS_REJECTED,
+                'rejection_reason' => $reason,
+            ]);
+        });
     }
 
     // ---------------------------------------------------------------
     // Expense Claims
     // ---------------------------------------------------------------
+
+    /**
+     * Expense claims of the current organization with their employee,
+     * request and approver.
+     *
+     * @param  array{employee_id?: mixed, status?: mixed}  $filters  empty values are ignored
+     * @param  string  $sortBy  a column the caller has already checked against its allowlist
+     */
+    public function listClaims(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return TravelExpenseClaim::with(['employee', 'travelRequest', 'approver'])
+            ->when($filters['employee_id'] ?? null, fn ($q, $id) => $q->forEmployee((int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->byStatus($status))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * An expense claim of the current organization.
+     *
+     * @param  list<string>  $relations
+     */
+    public function findClaim(int $id, array $relations = []): TravelExpenseClaim
+    {
+        return TravelExpenseClaim::with($relations)->findOrFail($id);
+    }
 
     public function createClaim(array $data): TravelExpenseClaim
     {

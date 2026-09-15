@@ -37,6 +37,29 @@ class PurchasingInfoRecordService
     }
 
     /**
+     * A purchasing info record of the organization, with the given relations loaded.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $id, array $with = []): PurchasingInfoRecord
+    {
+        return PurchasingInfoRecord::with($with)->findOrFail($id);
+    }
+
+    public function delete(PurchasingInfoRecord $record): void
+    {
+        $record->delete();
+    }
+
+    /**
+     * One of the record's pricing conditions.
+     */
+    public function findCondition(PurchasingInfoRecord $record, int $conditionId): PurchasingInfoRecordCondition
+    {
+        return $record->conditions()->findOrFail($conditionId);
+    }
+
+    /**
      * Create a new purchasing info record.
      */
     public function create(array $data): PurchasingInfoRecord

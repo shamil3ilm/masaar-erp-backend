@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Sales\Contact;
 use App\Models\User;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class OutlineAgreement extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const TYPE_QUANTITY_CONTRACT    = 'quantity_contract';
     public const TYPE_VALUE_CONTRACT       = 'value_contract';
