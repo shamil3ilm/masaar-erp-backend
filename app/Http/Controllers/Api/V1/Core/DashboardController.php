@@ -9,6 +9,7 @@ use App\Models\Billing\OrganizationSubscription;
 use App\Models\Billing\SubscriptionPlan;
 use App\Models\Core\DashboardLayout;
 use App\Models\Core\DashboardWidget;
+use App\Services\Core\DashboardLayoutService;
 use App\Services\Core\DashboardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ use Illuminate\Http\Request;
 class DashboardController extends Controller
 {
     public function __construct(
-        protected DashboardService $dashboardService
+        protected DashboardService $dashboardService,
+        private readonly DashboardLayoutService $layouts,
     ) {}
 
     /**
@@ -129,22 +131,10 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        // Get user's own layouts
-        $userLayouts = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->get();
-
-        // Get shared organization layouts
-        $sharedLayouts = DashboardLayout::where('organization_id', $user->organization_id)
-            ->whereNull('user_id')
-            ->where('is_shared', true)
-            ->get();
-
-        return $this->success([
-            'user_layouts' => $userLayouts,
-            'shared_layouts' => $sharedLayouts,
-            'types' => DashboardLayout::getTypes(),
-        ], 'Layouts retrieved successfully');
+        return $this->success(array_merge(
+            $this->layouts->listForUser($user->organization_id, $user->id),
+            ['types' => DashboardLayout::getTypes()],
+        ), 'Layouts retrieved successfully');
     }
 
     /**
@@ -154,12 +144,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where(function ($q) use ($user) {
-                $q->where('user_id', $user->id)
-                    ->orWhere('is_shared', true);
-            })
-            ->findOrFail($id);
+        $layout = $this->layouts->findViewable($user->organization_id, $user->id, $id);
 
         $this->dashboardService->setContext($user->organization_id, $user->current_branch_id);
         $data = $this->dashboardService->getDashboardData($layout);
@@ -189,25 +174,13 @@ class DashboardController extends Controller
             return $this->forbidden('Permission denied for shared layouts');
         }
 
-        $layout = DashboardLayout::create([
-            'organization_id' => $user->organization_id,
-            'user_id' => $isShared ? null : $user->id,
+        $layout = $this->layouts->create($user->organization_id, $user->id, [
             'name' => $request->get('name'),
             'type' => $request->get('type'),
             'widgets' => $request->get('widgets', []),
             'layout' => $request->get('layout', ['columns' => 4, 'row_height' => 150, 'gap' => 16]),
             'is_default' => $request->boolean('is_default'),
-            'is_shared' => $isShared,
-        ]);
-
-        // If setting as default, unset other defaults
-        if ($layout->is_default) {
-            DashboardLayout::where('organization_id', $user->organization_id)
-                ->where('user_id', $isShared ? null : $user->id)
-                ->where('type', $layout->type)
-                ->where('id', '!=', $layout->id)
-                ->update(['is_default' => false]);
-        }
+        ], $isShared);
 
         return $this->success($layout, 'Layout created successfully');
     }
@@ -219,15 +192,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where(function ($q) use ($user) {
-                $q->where('user_id', $user->id)
-                    ->orWhere(function ($q2) use ($user) {
-                        $q2->whereNull('user_id')
-                            ->where('is_shared', true);
-                    });
-            })
-            ->findOrFail($id);
+        $layout = $this->layouts->findChangeable($user->organization_id, $user->id, $id);
 
         // Check permission for shared layouts
         if ($layout->is_shared && !$user->hasPermission('core.settings.edit')) {
@@ -241,17 +206,7 @@ class DashboardController extends Controller
             'is_default' => 'sometimes|boolean',
         ]);
 
-        $layout->fill($validated);
-        $layout->save();
-
-        // If setting as default, unset other defaults
-        if ($request->boolean('is_default')) {
-            DashboardLayout::where('organization_id', $user->organization_id)
-                ->where('user_id', $layout->user_id)
-                ->where('type', $layout->type)
-                ->where('id', '!=', $layout->id)
-                ->update(['is_default' => false]);
-        }
+        $layout = $this->layouts->update($layout, $validated, $request->boolean('is_default'));
 
         return $this->success($layout, 'Layout updated successfully');
     }
@@ -263,11 +218,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($id);
-
-        $layout->delete();
+        $this->layouts->delete($this->layouts->findOwn($user->organization_id, $user->id, $id));
 
         return $this->success(null, 'Layout deleted');
     }
@@ -279,9 +230,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($layoutId);
+        $layout = $this->layouts->findOwn($user->organization_id, $user->id, $layoutId);
 
         $request->validate([
             'widget_code' => 'required|string|exists:dashboard_widgets,code',
@@ -309,9 +258,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($layoutId);
+        $layout = $this->layouts->findOwn($user->organization_id, $user->id, $layoutId);
 
         $layout->removeWidget($widgetCode);
 
@@ -325,9 +272,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $layout = DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($layoutId);
+        $layout = $this->layouts->findOwn($user->organization_id, $user->id, $layoutId);
 
         $request->validate([
             'position' => 'required|array',
@@ -347,18 +292,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        // Delete existing user layout for this type
-        DashboardLayout::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->where('type', $type)
-            ->delete();
-
-        // Create new default layout
-        $layout = DashboardLayout::createDefaultLayout(
-            $user->organization_id,
-            $user->id,
-            $type
-        );
+        $layout = $this->layouts->reset($user->organization_id, $user->id, $type);
 
         $this->dashboardService->setContext($user->organization_id, $user->current_branch_id);
         $data = $this->dashboardService->getDashboardData($layout);
