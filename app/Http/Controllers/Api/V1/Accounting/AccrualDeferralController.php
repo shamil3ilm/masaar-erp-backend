@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\AccrualDeferral;
 use App\Services\Accounting\AccrualDeferralService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class AccrualDeferralController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private AccrualDeferralService $service
     ) {}
@@ -37,8 +40,8 @@ class AccrualDeferralController extends Controller
         $validated = $request->validate([
             'reference'         => ['required', 'string', 'max:50'],
             'type'              => ['required', 'in:accrual,deferral'],
-            'debit_account_id'  => ['required', 'exists:chart_of_accounts,id'],
-            'credit_account_id' => ['required', 'exists:chart_of_accounts,id'],
+            'debit_account_id'  => ['required', $this->ownedBy('chart_of_accounts')],
+            'credit_account_id' => ['required', $this->ownedBy('chart_of_accounts')],
             'total_amount'      => ['required', 'numeric', 'min:0.0001'],
             'currency_code'     => ['nullable', 'string', 'size:3'],
             'start_date'        => ['required', 'date'],

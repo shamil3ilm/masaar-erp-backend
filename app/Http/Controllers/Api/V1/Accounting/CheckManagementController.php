@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\CheckManagementService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class CheckManagementController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CheckManagementService $service,
     ) {}
@@ -32,7 +35,7 @@ class CheckManagementController extends Controller
     public function createBook(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'bank_account_id' => ['required', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['required', $this->ownedBy('bank_accounts')],
             'check_book_number' => ['required', 'string', 'max:50'],
             'from_check_number' => ['required', 'string', 'max:20'],
             'to_check_number' => ['required', 'string', 'max:20'],
@@ -87,13 +90,13 @@ class CheckManagementController extends Controller
     public function createCheck(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'check_book_id' => ['nullable', 'exists:check_books,id'],
+            'check_book_id' => ['nullable', $this->ownedBy('check_books')],
             'check_number' => ['nullable', 'string', 'max:20'],
             'check_type' => ['sometimes', 'in:payment,payroll,refund,other'],
             'direction' => ['sometimes', 'in:issued,received'],
-            'payee_id' => ['nullable', 'exists:contacts,id'],
-            'payment_made_id' => ['nullable', 'exists:payments_made,id'],
-            'payment_received_id' => ['nullable', 'exists:payments_received,id'],
+            'payee_id' => ['nullable', $this->ownedBy('contacts')],
+            'payment_made_id' => ['nullable', $this->ownedBy('payments_made')],
+            'payment_received_id' => ['nullable', $this->ownedBy('payments_received')],
             'check_date' => ['required', 'date'],
             'amount' => ['required', 'numeric', 'min:0.0001'],
             'currency_code' => ['nullable', 'string', 'size:3'],

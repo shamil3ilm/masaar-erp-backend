@@ -6,14 +6,38 @@ namespace App\Services\Messaging;
 
 use App\Models\Messaging\MessageCampaign;
 use App\Models\Messaging\OutboundMessage;
+use App\Models\Sales\Contact;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
 class CampaignService
 {
     public function __construct(
         private MessageService $messageService
     ) {}
+
+    /**
+     * The organization's campaigns.
+     *
+     * @param  array{is_active?: ?string, channel_type?: ?string, trigger_event?: ?string, search?: ?string}  $filters
+     */
+    public function paginate(int $organizationId, array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return MessageCampaign::with(['template', 'creator'])
+            ->where('organization_id', $organizationId)
+            ->when(($filters['is_active'] ?? null) !== null, fn ($query) => $filters['is_active'] === 'true'
+                ? $query->active()
+                : $query->inactive())
+            ->when($filters['channel_type'] ?? null, fn ($query, $type) => $query->forChannel($type))
+            ->when($filters['trigger_event'] ?? null, fn ($query, $event) => $query->forTriggerEvent($event))
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('name', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new campaign (messaging automation).
@@ -28,6 +52,43 @@ class CampaignService
 
             return MessageCampaign::create($data);
         });
+    }
+
+    public function update(MessageCampaign $campaign, array $data): MessageCampaign
+    {
+        $campaign->update($data);
+
+        return $campaign->fresh()->load(['template', 'creator']);
+    }
+
+    /**
+     * Delete an inactive campaign together with its outbound messages.
+     */
+    public function delete(MessageCampaign $campaign): void
+    {
+        $campaign->lockForTransition(function (MessageCampaign $locked) {
+            if ($locked->isActive()) {
+                throw new InvalidArgumentException('Cannot delete an active campaign. Deactivate it first.');
+            }
+
+            $locked->outboundMessages()->delete();
+            $locked->delete();
+        });
+    }
+
+    /**
+     * The campaign's outbound messages, newest first. The contact is shown by
+     * reference only: the full contact carries its decrypted tax number.
+     */
+    public function paginateRecipients(MessageCampaign $campaign, ?string $status, int $perPage): LengthAwarePaginator
+    {
+        return OutboundMessage::query()
+            ->where('organization_id', $campaign->organization_id)
+            ->where('automation_id', $campaign->id)
+            ->with(['contact:'.implode(',', Contact::REFERENCE_COLUMNS)])
+            ->when($status, fn ($query, $value) => $query->where('status', $value))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
     }
 
     /**
@@ -72,22 +133,25 @@ class CampaignService
     }
 
     /**
-     * Launch a campaign - activate it and start processing.
+     * Launch a campaign: activate it and, when it is immediate, send its queued messages.
+     *
+     * Activation commits before sending, so no provider call runs inside the
+     * transaction; each message is claimed as it is sent, so a second launch
+     * does not send it again.
      */
     public function launch(MessageCampaign $campaign): MessageCampaign
     {
-        return DB::transaction(function () use ($campaign) {
-            if (!$campaign->isActive()) {
-                $campaign->update(['is_active' => true]);
+        $campaign->lockForTransition(function (MessageCampaign $locked) {
+            if (! $locked->isActive()) {
+                $locked->update(['is_active' => true]);
             }
-
-            // If immediate, process queued messages now
-            if ($campaign->isImmediate()) {
-                $this->processQueuedMessages($campaign);
-            }
-
-            return $campaign->fresh();
         });
+
+        if ($campaign->isImmediate()) {
+            $this->processQueuedMessages($campaign);
+        }
+
+        return $campaign->fresh();
     }
 
     /**
@@ -95,33 +159,35 @@ class CampaignService
      */
     public function pause(MessageCampaign $campaign): MessageCampaign
     {
-        if (!$campaign->isActive()) {
-            throw new \InvalidArgumentException('Campaign is not active.');
-        }
+        return $campaign->lockForTransition(function (MessageCampaign $locked) {
+            if (! $locked->isActive()) {
+                throw new InvalidArgumentException('Campaign is not active.');
+            }
 
-        $campaign->update(['is_active' => false]);
+            $locked->update(['is_active' => false]);
 
-        return $campaign->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
-     * Resume a paused campaign.
+     * Resume a paused campaign, sending its queued messages after the change commits.
      */
     public function resume(MessageCampaign $campaign): MessageCampaign
     {
-        if ($campaign->isActive()) {
-            throw new \InvalidArgumentException('Campaign is already active.');
-        }
-
-        return DB::transaction(function () use ($campaign) {
-            $campaign->update(['is_active' => true]);
-
-            if ($campaign->isImmediate()) {
-                $this->processQueuedMessages($campaign);
+        $campaign->lockForTransition(function (MessageCampaign $locked) {
+            if ($locked->isActive()) {
+                throw new InvalidArgumentException('Campaign is already active.');
             }
 
-            return $campaign->fresh();
+            $locked->update(['is_active' => true]);
         });
+
+        if ($campaign->isImmediate()) {
+            $this->processQueuedMessages($campaign);
+        }
+
+        return $campaign->fresh();
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\CostingSheetService;
 use Illuminate\Http\JsonResponse;
@@ -12,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class CostingSheetController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostingSheetService $service
     ) {}
@@ -118,10 +121,10 @@ class CostingSheetController extends Controller
             'row_type'               => ['required', Rule::in(['base', 'overhead', 'credit'])],
             'description'            => ['required', 'string', 'max:255'],
             'sort_order'             => ['nullable', 'integer', 'min:0'],
-            'base_cost_element_id'   => ['nullable', 'integer', 'exists:cost_elements,id'],
-            'overhead_key_id'        => ['nullable', 'integer', 'exists:overhead_keys,id'],
-            'credit_cost_center_id'  => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'credit_cost_element_id' => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'base_cost_element_id'   => ['nullable', 'integer', $this->ownedBy('cost_elements')],
+            'overhead_key_id'        => ['nullable', 'integer', $this->ownedBy('overhead_keys')],
+            'credit_cost_center_id'  => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'credit_cost_element_id' => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'from_row'               => ['nullable', 'integer', 'min:0'],
             'to_row'                 => ['nullable', 'integer', 'min:0', 'gte:from_row'],
         ]);

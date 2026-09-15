@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\DirectDebitService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class DirectDebitController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly DirectDebitService $service,
     ) {}
@@ -35,8 +38,8 @@ class DirectDebitController extends Controller
             'mandate_reference' => ['required', 'string', 'max:50'],
             'mandate_type' => ['sometimes', 'in:core,b2b,standing_order'],
             'direction' => ['sometimes', 'in:collection,payment'],
-            'counterparty_id' => ['required', 'exists:contacts,id'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'counterparty_id' => ['required', $this->ownedBy('contacts')],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'iban' => ['nullable', 'string', 'max:34'],
             'bic' => ['nullable', 'string', 'max:11'],
             'currency_code' => ['nullable', 'string', 'size:3'],

@@ -5,37 +5,23 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Messaging;
 
 use App\Http\Controllers\Controller;
-use App\Models\Messaging\NotificationPreference;
-use App\Models\Sales\Contact;
+use App\Services\Messaging\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class NotificationPreferenceController extends Controller
 {
+    public function __construct(private readonly NotificationPreferenceService $preferences) {}
+
     /**
      * Get notification preferences for a contact.
      */
     public function show(Request $request, int $contactId): JsonResponse
     {
-        $preference = NotificationPreference::where('contact_id', $contactId)->first();
+        $preference = $this->preferences->forContact($request->user()->organization_id, $contactId);
 
         if (! $preference) {
-            // Return default preferences if none exist
-            return $this->success([
-                'contact_id' => $contactId,
-                'email_enabled' => true,
-                'sms_enabled' => true,
-                'whatsapp_enabled' => true,
-                'push_enabled' => true,
-                'marketing_enabled' => true,
-                'transactional_enabled' => true,
-                'reminder_enabled' => true,
-                'preferred_channel' => 'email',
-                'preferred_language' => 'en',
-                'timezone' => null,
-                'quiet_hours' => null,
-                'unsubscribed_at' => null,
-            ], 'Default notification preferences.');
+            return $this->success($this->preferences->defaultsFor($contactId), 'Default notification preferences.');
         }
 
         return $this->success($preference);
@@ -62,16 +48,7 @@ class NotificationPreferenceController extends Controller
             'quiet_hours.end' => 'required_with:quiet_hours|string',
         ]);
 
-        // The contact is resolved through its tenant scope first: without it
-        // a preference row is written for any id, in any organisation.
-        Contact::findOrFail($contactId);
-
-        $validated['contact_id'] = $contactId;
-
-        $preference = NotificationPreference::updateOrCreate(
-            ['contact_id' => $contactId],
-            $validated
-        );
+        $preference = $this->preferences->save($request->user()->organization_id, $contactId, $validated);
 
         return $this->success($preference, 'Notification preferences updated successfully.');
     }
@@ -85,14 +62,11 @@ class NotificationPreferenceController extends Controller
             'reason' => 'nullable|string|max:255',
         ]);
 
-        Contact::findOrFail($contactId);
-
-        $preference = NotificationPreference::firstOrCreate(
-            ['contact_id' => $contactId],
-            ['organization_id' => $this->organizationId($request)]
+        $preference = $this->preferences->unsubscribe(
+            $request->user()->organization_id,
+            $contactId,
+            $validated['reason'] ?? null
         );
-
-        $preference->unsubscribe($validated['reason'] ?? null);
 
         return $this->success($preference, 'Contact unsubscribed successfully.');
     }
@@ -100,15 +74,13 @@ class NotificationPreferenceController extends Controller
     /**
      * Resubscribe a contact.
      */
-    public function resubscribe(int $contactId): JsonResponse
+    public function resubscribe(Request $request, int $contactId): JsonResponse
     {
-        $preference = NotificationPreference::where('contact_id', $contactId)->first();
+        $preference = $this->preferences->resubscribe($request->user()->organization_id, $contactId);
 
         if (! $preference) {
             return $this->notFound('No preferences found for this contact.');
         }
-
-        $preference->resubscribe();
 
         return $this->success($preference, 'Contact resubscribed successfully.');
     }

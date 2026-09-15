@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin\SupportTicket;
-use App\Models\Admin\SupportTicketMessage;
 use App\Services\Admin\SupportTicketService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,10 +16,7 @@ class SupportTicketController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $tickets = SupportTicket::when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
-        return $this->paginated($tickets);
+        return $this->paginated($this->service->paginate($request->input('status'), $request->input('per_page', 20)));
     }
 
     public function show(SupportTicket $ticket): JsonResponse
@@ -30,42 +26,40 @@ class SupportTicketController extends Controller
 
     public function reply(Request $request, SupportTicket $ticket): JsonResponse
     {
-        $message = SupportTicketMessage::create([
-            'support_ticket_id' => $ticket->id,
-            'message' => $request->input('message'),
-            'sender_type' => 'admin',
-            'sender_id' => auth()->id(),
+        $validated = $request->validate([
+            'message' => 'required|string',
         ]);
+
+        $message = $this->service->reply($ticket, [
+            'user_id' => $request->user()->id,
+            'message' => $validated['message'],
+            'from_staff' => true,
+        ]);
+
         return $this->created($message);
     }
 
     public function assign(Request $request, SupportTicket $ticket): JsonResponse
     {
-        $ticket->update([
-            'assigned_to' => $request->input('admin_id'),
-            'status' => 'in_progress',
+        $validated = $request->validate([
+            'admin_id' => 'required|integer|exists:platform_admins,id',
         ]);
-        return $this->success($ticket->fresh());
+
+        return $this->success($this->service->assign($ticket, (int) $validated['admin_id']));
     }
 
     public function close(SupportTicket $ticket): JsonResponse
     {
-        $ticket->update(['status' => 'resolved', 'resolved_at' => now()]);
-        return $this->success($ticket->fresh());
+        return $this->success($this->service->resolve($ticket));
     }
 
     public function reopen(SupportTicket $ticket): JsonResponse
     {
-        $ticket->update(['status' => 'open', 'resolved_at' => null]);
-        return $this->success($ticket->fresh());
+        return $this->success($this->service->reopen($ticket));
     }
 
     public function stats(): JsonResponse
     {
-        return $this->success([
-            'open' => SupportTicket::where('status', 'open')->count(),
-            'in_progress' => SupportTicket::where('status', 'in_progress')->count(),
-            'resolved' => SupportTicket::where('status', 'resolved')->count(),
-        ]);
+        return $this->success($this->service->stats());
     }
 }

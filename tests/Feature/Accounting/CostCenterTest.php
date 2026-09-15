@@ -316,7 +316,7 @@ class CostCenterTest extends TestCase
             ->assertJsonPath('data.cost_center.code', 'CC-ASSIGN');
     }
 
-    public function test_assign_returns_404_for_another_organizations_employee(): void
+    public function test_assign_rejects_another_organizations_employee(): void
     {
         $costCenter = $this->makeCostCenter();
         $otherOrg   = Organization::factory()->create();
@@ -327,7 +327,8 @@ class CostCenterTest extends TestCase
                 'employee_id'    => $employee->id,
                 'effective_from' => '2025-01-01',
             ])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('employee_id');
 
         $this->assertDatabaseMissing('cost_center_assignments', ['assignable_id' => $employee->id]);
     }

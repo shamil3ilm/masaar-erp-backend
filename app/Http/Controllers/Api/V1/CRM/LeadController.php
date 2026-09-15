@@ -24,27 +24,13 @@ class LeadController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Lead::with(['leadSource', 'assignee', 'branch'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->rating, fn($q, $rating) => $q->withRating($rating))
-            ->when($request->lead_source_id, fn($q, $id) => $q->fromSource($id))
-            ->when($request->assigned_to, fn($q, $id) => $q->assignedTo($id))
-            ->when($request->open === 'true', fn($q) => $q->open())
-            ->when($request->hot === 'true', fn($q) => $q->hot())
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('lead_number', 'like', "%{$search}%")
-                        ->orWhere('company_name', 'like', "%{$search}%")
-                        ->orWhere('contact_name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['title', 'status', 'created_at', 'updated_at', 'expected_close_date', 'lead_value'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $leads = $query->paginate($request->integer('per_page', 15));
+        $leads = $this->leadService->paginate(
+            $request->user()->organization_id,
+            $request->only(["status", "rating", "lead_source_id", "assigned_to", "open", "hot", "search"]),
+            $this->safeSortBy($request->sort_by, ["title", "status", "created_at", "updated_at", "expected_close_date", "lead_value"], "created_at"),
+            $this->safeSortOrder($request->sort_order, "desc"),
+            $request->integer("per_page", 15)
+        );
 
         return $this->paginated($leads, LeadResource::class);
     }
@@ -144,14 +130,11 @@ class LeadController extends Controller
      */
     public function destroy(Lead $lead): JsonResponse
     {
-        if ($lead->isConverted()) {
-            return $this->error('Converted leads cannot be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $lead->activities()->delete();
-        $lead->delete();
-
-        return $this->success(null, 'Lead deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->leadService->delete($lead),
+            'Lead deleted successfully.',
+            'VALIDATION_ERROR'
+        );
     }
 
     /**

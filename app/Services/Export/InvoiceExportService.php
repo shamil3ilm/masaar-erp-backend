@@ -16,6 +16,23 @@ class InvoiceExportService
     /**
      * Export invoices to CSV.
      */
+    /**
+     * The organization's invoices for a CSV export, latest invoice date first.
+     *
+     * @param  array{start_date?: ?string, end_date?: ?string, status?: ?string, customer_id?: mixed}  $filters
+     */
+    public function invoicesForExport(int $organizationId, array $filters): Collection
+    {
+        return Invoice::with('customer:id,company_name,contact_name')
+            ->where('organization_id', $organizationId)
+            ->when($filters['start_date'] ?? null, fn ($query, $date) => $query->where('invoice_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($query, $date) => $query->where('invoice_date', '<=', $date))
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($filters['customer_id'] ?? null, fn ($query, $id) => $query->where('customer_id', $id))
+            ->orderBy('invoice_date', 'desc')
+            ->get();
+    }
+
     public function exportToCsv(Collection $invoices): string
     {
         $columns = [

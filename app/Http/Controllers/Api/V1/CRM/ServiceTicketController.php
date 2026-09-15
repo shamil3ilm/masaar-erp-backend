@@ -6,8 +6,8 @@ namespace App\Http\Controllers\Api\V1\CRM;
 
 use App\Http\Controllers\Controller;
 use App\Models\CRM\ServiceTicket;
-use App\Models\CRM\SlaPolicy;
 use App\Services\CRM\ServiceTicketService;
+use App\Services\CRM\SlaPolicyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -15,7 +15,8 @@ use Illuminate\Validation\Rule;
 class ServiceTicketController extends Controller
 {
     public function __construct(
-        private ServiceTicketService $ticketService
+        private ServiceTicketService $ticketService,
+        private SlaPolicyService $slaPolicies,
     ) {}
 
     /**
@@ -23,24 +24,13 @@ class ServiceTicketController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ServiceTicket::with(['contact', 'assignedTo', 'slaPolicy', 'creator'])
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->priority, fn($q, $v) => $q->where('priority', $v))
-            ->when($request->type, fn($q, $v) => $q->where('type', $v))
-            ->when($request->assigned_to, fn($q, $v) => $q->where('assigned_to', $v))
-            ->when($request->contact_id, fn($q, $v) => $q->where('contact_id', $v))
-            ->when($request->sla_breached === 'true', fn($q) => $q->breached())
-            ->when($request->overdue === 'true', fn($q) => $q->overdue())
-            ->when($request->search, fn($q, $search) => $q->where(function ($query) use ($search) {
-                $query->where('ticket_number', 'like', "%{$search}%")
-                    ->orWhere('subject', 'like', "%{$search}%");
-            }))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['ticket_number', 'status', 'priority', 'created_at', 'resolution_due_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $tickets = $query->paginate($request->integer('per_page', 15));
+        $tickets = $this->ticketService->paginate(
+            $request->user()->organization_id,
+            $request->only(['status', 'priority', 'type', 'assigned_to', 'contact_id', 'sla_breached', 'overdue', 'search']),
+            $this->safeSortBy($request->sort_by, ['ticket_number', 'status', 'priority', 'created_at', 'resolution_due_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($tickets);
     }
@@ -68,7 +58,7 @@ class ServiceTicketController extends Controller
 
         $ticket = $this->ticketService->create($validated, auth()->id());
 
-        return $this->success($ticket->load(['contact', 'assignedTo', 'slaPolicy']), 'Service ticket created.', 201);
+        return $this->success($ticket, 'Service ticket created.', 201);
     }
 
     /**
@@ -76,9 +66,7 @@ class ServiceTicketController extends Controller
      */
     public function show(ServiceTicket $serviceTicket): JsonResponse
     {
-        $serviceTicket->load(['contact', 'assignedTo', 'slaPolicy', 'comments.user', 'creator']);
-
-        return $this->success($serviceTicket);
+        return $this->success($this->ticketService->loadDetail($serviceTicket));
     }
 
     /**
@@ -102,9 +90,7 @@ class ServiceTicketController extends Controller
             'customer_feedback' => 'nullable|string|max:1000',
         ]);
 
-        $serviceTicket->update($validated);
-
-        return $this->success($serviceTicket->fresh(['contact', 'assignedTo', 'slaPolicy']), 'Ticket updated.');
+        return $this->success($this->ticketService->update($serviceTicket, $validated), 'Ticket updated.');
     }
 
     /**
@@ -184,10 +170,11 @@ class ServiceTicketController extends Controller
      */
     public function indexSla(Request $request): JsonResponse
     {
-        $policies = SlaPolicy::when($request->priority, fn($q, $v) => $q->where('priority', $v))
-            ->when($request->active === 'true', fn($q) => $q->active())
-            ->orderBy('priority')
-            ->paginate($request->integer('per_page', 15));
+        $policies = $this->slaPolicies->paginate(
+            $request->user()->organization_id,
+            ['priority' => $request->priority, 'active_only' => $request->active === 'true'],
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($policies);
     }
@@ -207,9 +194,7 @@ class ServiceTicketController extends Controller
             'is_active'             => 'boolean',
         ]);
 
-        $validated['organization_id'] = auth()->user()->organization_id;
-
-        $policy = SlaPolicy::create($validated);
+        $policy = $this->slaPolicies->create($request->user()->organization_id, $validated);
 
         return $this->success($policy, 'SLA policy created.', 201);
     }

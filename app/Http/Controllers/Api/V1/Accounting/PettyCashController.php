@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Finance\PettyCashFund;
 use App\Models\Finance\PettyCashReplenishment;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 
 class PettyCashController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly PettyCashService $pettyCashService
     ) {}
@@ -36,10 +39,10 @@ class PettyCashController extends Controller
     public function storeFund(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'name' => 'required|string|max:100',
-            'custodian_id' => 'required|exists:users,id',
-            'account_id' => 'required|exists:chart_of_accounts,id',
+            'custodian_id' => ['required', $this->ownedBy('users')],
+            'account_id' => ['required', $this->ownedBy('chart_of_accounts')],
             'opening_balance' => 'required|numeric|min:0',
             'max_transaction_limit' => 'nullable|numeric|min:0',
             'currency_code' => 'nullable|string|size:3',
@@ -63,7 +66,7 @@ class PettyCashController extends Controller
     {
         $validated = $request->validate([
             'name' => 'sometimes|string|max:100',
-            'custodian_id' => 'sometimes|exists:users,id',
+            'custodian_id' => ['sometimes', $this->ownedBy('users')],
             'max_transaction_limit' => 'nullable|numeric|min:0',
             'is_active' => 'nullable|boolean',
         ]);
@@ -98,7 +101,7 @@ class PettyCashController extends Controller
             'category' => 'nullable|string|max:100',
             'payee_payer' => 'nullable|string|max:200',
             'receipt_number' => 'nullable|string|max:100',
-            'account_id' => 'nullable|exists:chart_of_accounts,id',
+            'account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
         ]);
 
         $voucher = $this->pettyCashService->createVoucher($pettyCashFund, $validated);
