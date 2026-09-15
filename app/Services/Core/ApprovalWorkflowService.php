@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Core;
 
 use App\Models\Core\ApprovalAction;
-use App\Models\Core\ApprovalDelegation;
 use App\Models\Core\ApprovalRequest;
 use App\Models\Core\ApprovalWorkflow;
 use App\Models\Core\ApprovalWorkflowStep;
@@ -141,34 +140,14 @@ class ApprovalWorkflowService
     }
 
     /**
-     * Get effective approver considering delegations.
-     * Resolves delegation chains up to a maximum depth to prevent infinite loops.
+     * The user who acts on a new action for this approver.
+     *
+     * There is no store of standing approval delegations, so the approver acts
+     * for themselves; delegate() hands a single pending action to someone else.
      */
-    protected function getEffectiveApprover(int $userId, ?string $approvableType = null, int $depth = 0): int
+    protected function getEffectiveApprover(int $userId, ?string $approvableType = null): int
     {
-        if ($depth > 10) {
-            throw new \RuntimeException('Delegation chain too deep (max 10)');
-        }
-
-        $delegation = ApprovalDelegation::where('user_id', $userId)
-            ->where('is_active', true)
-            ->where('start_date', '<=', now()->toDateString())
-            ->where('end_date', '>=', now()->toDateString())
-            ->when($approvableType, function ($q) use ($approvableType) {
-                $q->where(function ($query) use ($approvableType) {
-                    $query->whereNull('approvable_type')
-                        ->orWhere('approvable_type', $approvableType);
-                });
-            })
-            ->lockForUpdate()
-            ->first();
-
-        if (!$delegation) {
-            return $userId;
-        }
-
-        // Recursively resolve in case the delegate also has an active delegation
-        return $this->getEffectiveApprover($delegation->delegate_to, $approvableType, $depth + 1);
+        return $userId;
     }
 
     /**
@@ -198,7 +177,7 @@ class ApprovalWorkflowService
             $request = ApprovalRequest::lockForUpdate()->findOrFail($action->approval_request_id);
 
             if ($request->submitted_by === $userId) {
-                throw new \App\Exceptions\ApiException('You cannot approve your own request.');
+                throw new \InvalidArgumentException('You cannot approve your own request.');
             }
 
             $action->approve($comments);
@@ -229,9 +208,17 @@ class ApprovalWorkflowService
         }
 
         return DB::transaction(function () use ($action, $comments) {
-            $action->reject($comments);
+            // Lock the action and its request, as approve() does, so an action
+            // another approver has processed meanwhile is not overwritten.
+            $action = ApprovalAction::lockForUpdate()->findOrFail($action->id);
 
-            $request = $action->request;
+            if (!$action->isPending()) {
+                throw new \InvalidArgumentException('Action has already been processed.');
+            }
+
+            $request = ApprovalRequest::lockForUpdate()->findOrFail($action->approval_request_id);
+
+            $action->reject($comments);
 
             // Rejection at any step rejects the entire request
             $request->update([

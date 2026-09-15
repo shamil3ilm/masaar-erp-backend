@@ -16,9 +16,7 @@ class SystemAnnouncementController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $announcements = SystemAnnouncement::orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
-        return $this->paginated($announcements);
+        return $this->paginated($this->service->paginate($request->input('per_page', 20)));
     }
 
     public function store(Request $request): JsonResponse
@@ -33,8 +31,7 @@ class SystemAnnouncementController extends Controller
             'banner_color' => 'nullable|string|max:7',
         ]);
 
-        $announcement = SystemAnnouncement::create($request->all());
-        return $this->created($announcement);
+        return $this->created($this->service->add($request->all()));
     }
 
     public function show(SystemAnnouncement $announcement): JsonResponse
@@ -44,19 +41,18 @@ class SystemAnnouncementController extends Controller
 
     public function update(Request $request, SystemAnnouncement $announcement): JsonResponse
     {
-        $announcement->update($request->all());
-        return $this->success($announcement->fresh());
+        return $this->success($this->service->update($announcement, $request->all()));
     }
 
     public function destroy(SystemAnnouncement $announcement): JsonResponse
     {
-        $announcement->delete();
+        $this->service->delete($announcement);
+
         return $this->success(['message' => 'Announcement deleted']);
     }
 
     public function publish(SystemAnnouncement $announcement): JsonResponse
     {
-        $announcement->update(['status' => 'published', 'published_at' => now()]);
-        return $this->success($announcement->fresh());
+        return $this->success($this->service->markPublished($announcement));
     }
 }

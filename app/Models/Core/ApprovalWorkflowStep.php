@@ -87,7 +87,11 @@ class ApprovalWorkflowStep extends Model
             return [];
         }
 
-        $user = User::find($this->approver_id);
+        // Users carry no tenant scope, so the approver is accepted only from
+        // the workflow's own organization.
+        $user = \App\Models\User::query()
+            ->where('organization_id', $this->workflow->organization_id)
+            ->find($this->approver_id);
 
         return $user ? [$user->id] : [];
     }
@@ -98,7 +102,7 @@ class ApprovalWorkflowStep extends Model
             return [];
         }
 
-        return User::whereHas('roles', function ($query) {
+        return \App\Models\User::whereHas('roles', function ($query) {
             $query->where('roles.id', $this->approver_id);
         })
             ->where('organization_id', $this->workflow->organization_id)

@@ -7,11 +7,46 @@ namespace App\Services\Admin;
 use App\Models\Admin\PlatformAdmin;
 use App\Models\Admin\SupportTicket;
 use App\Models\Admin\SupportTicketMessage;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SupportTicketService
 {
+    /**
+     * Support tickets across the platform, newest first.
+     */
+    public function paginate(?string $status, mixed $perPage): LengthAwarePaginator
+    {
+        return SupportTicket::when($status, fn ($query, $value) => $query->where('status', $value))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * How many tickets are open, in progress and resolved.
+     *
+     * @return array{open: int, in_progress: int, resolved: int}
+     */
+    public function stats(): array
+    {
+        return [
+            'open' => SupportTicket::where('status', SupportTicket::STATUS_OPEN)->count(),
+            'in_progress' => SupportTicket::where('status', SupportTicket::STATUS_IN_PROGRESS)->count(),
+            'resolved' => SupportTicket::where('status', SupportTicket::STATUS_RESOLVED)->count(),
+        ];
+    }
+
+    /**
+     * Reopen a ticket, clearing its resolution time.
+     */
+    public function reopen(SupportTicket $ticket): SupportTicket
+    {
+        $ticket->update(['status' => SupportTicket::STATUS_OPEN, 'resolved_at' => null]);
+
+        return $ticket->fresh();
+    }
+
     /**
      * Create a new support ticket.
      */
@@ -48,6 +83,10 @@ class SupportTicketService
 
     /**
      * Reply to a support ticket.
+     *
+     * A reply from platform staff, a platform admin (admin_id) or a super-admin
+     * user (from_staff), records the first response and waits on the customer;
+     * a customer's reply puts the ticket back in progress.
      */
     public function reply(SupportTicket $ticket, array $data): SupportTicketMessage
     {
@@ -61,7 +100,7 @@ class SupportTicketService
                 'attachments' => $data['attachments'] ?? null,
             ]);
 
-            if ($data['admin_id'] ?? null) {
+            if (($data['admin_id'] ?? null) || ($data['from_staff'] ?? false)) {
                 if (!$ticket->first_response_at) {
                     $ticket->first_response_at = now();
                 }

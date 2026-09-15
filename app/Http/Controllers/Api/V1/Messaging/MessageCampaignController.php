@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Messaging;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Messaging\MessageCampaign;
-use App\Models\Messaging\OutboundMessage;
 use App\Services\Messaging\CampaignService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class MessageCampaignController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private CampaignService $campaignService
     ) {}
@@ -22,24 +24,13 @@ class MessageCampaignController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = MessageCampaign::with(['template', 'creator'])
-            ->when($request->is_active !== null, function ($q) use ($request) {
-                return $request->is_active === 'true' ? $q->active() : $q->inactive();
-            })
-            ->when($request->channel_type, fn($q, $type) => $q->forChannel($type))
-            ->when($request->trigger_event, fn($q, $event) => $q->forTriggerEvent($event))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'status', 'created_at', 'updated_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $campaigns = $query->paginate((int) ($request->per_page ?? 15));
+        $campaigns = $this->campaignService->paginate(
+            $request->user()->organization_id,
+            $request->only(['is_active', 'channel_type', 'trigger_event', 'search']),
+            $this->safeSortBy($request->sort_by, ['name', 'status', 'created_at', 'updated_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            (int) ($request->per_page ?? 15)
+        );
 
         return $this->paginated($campaigns);
     }
@@ -59,8 +50,8 @@ class MessageCampaignController extends Controller
             'delay_unit' => 'nullable|in:minutes,hours,days',
             'conditions' => 'nullable|array',
             'channel_type' => 'required|in:email,sms,whatsapp,push_notification',
-            'template_id' => 'required|exists:message_templates,id',
-            'channel_id' => 'nullable|exists:messaging_channels,id',
+            'template_id' => ['required', $this->ownedBy('message_templates')],
+            'channel_id' => ['nullable', $this->ownedBy('messaging_channels')],
             'recipient_type' => 'nullable|in:contact,user,custom,role',
             'recipient_config' => 'nullable|array',
             'max_sends_per_contact' => 'nullable|integer|min:1',
@@ -98,18 +89,16 @@ class MessageCampaignController extends Controller
             'delay_unit' => 'nullable|in:minutes,hours,days',
             'conditions' => 'nullable|array',
             'channel_type' => 'sometimes|in:email,sms,whatsapp,push_notification',
-            'template_id' => 'sometimes|exists:message_templates,id',
-            'channel_id' => 'nullable|exists:messaging_channels,id',
+            'template_id' => ['sometimes', $this->ownedBy('message_templates')],
+            'channel_id' => ['nullable', $this->ownedBy('messaging_channels')],
             'recipient_type' => 'nullable|in:contact,user,custom,role',
             'recipient_config' => 'nullable|array',
             'max_sends_per_contact' => 'nullable|integer|min:1',
             'rate_limit_period' => 'nullable|in:day,week,month',
         ]);
 
-        $messageCampaign->update($validated);
-
         return $this->success(
-            $messageCampaign->fresh()->load(['template', 'creator']),
+            $this->campaignService->update($messageCampaign, $validated),
             'Campaign updated successfully.'
         );
     }
@@ -119,14 +108,11 @@ class MessageCampaignController extends Controller
      */
     public function destroy(MessageCampaign $messageCampaign): JsonResponse
     {
-        if ($messageCampaign->isActive()) {
-            return $this->error('Cannot delete an active campaign. Deactivate it first.', 'CAMPAIGN_ACTIVE', 422);
-        }
-
-        $messageCampaign->outboundMessages()->delete();
-        $messageCampaign->delete();
-
-        return $this->success(null, 'Campaign deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->campaignService->delete($messageCampaign),
+            'Campaign deleted successfully.',
+            'CAMPAIGN_ACTIVE',
+        );
     }
 
     /**
@@ -134,12 +120,11 @@ class MessageCampaignController extends Controller
      */
     public function launch(MessageCampaign $messageCampaign): JsonResponse
     {
-        try {
-            $campaign = $this->campaignService->launch($messageCampaign);
-            return $this->success($campaign, 'Campaign launched successfully.');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'CAMPAIGN_ERROR', 422);
-        }
+        return $this->tryAction(
+            fn () => $this->campaignService->launch($messageCampaign),
+            'Campaign launched successfully.',
+            'CAMPAIGN_ERROR',
+        );
     }
 
     /**
@@ -184,14 +169,11 @@ class MessageCampaignController extends Controller
      */
     public function recipients(Request $request, MessageCampaign $messageCampaign): JsonResponse
     {
-        $query = OutboundMessage::where('automation_id', $messageCampaign->id)
-            ->with(['contact'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->orderBy('created_at', 'desc');
-
-        $recipients = $query->paginate((int) ($request->per_page ?? 15));
-
-        return $this->paginated($recipients);
+        return $this->paginated($this->campaignService->paginateRecipients(
+            $messageCampaign,
+            $request->status,
+            (int) ($request->per_page ?? 15)
+        ));
     }
 
     /**
@@ -205,7 +187,7 @@ class MessageCampaignController extends Controller
             'recipients.*.email' => 'nullable|email|max:255',
             'recipients.*.phone' => 'nullable|string|max:30',
             'recipients.*.name' => 'nullable|string|max:255',
-            'recipients.*.contact_id' => 'nullable|exists:contacts,id',
+            'recipients.*.contact_id' => ['nullable', $this->ownedBy('contacts')],
             'recipients.*.data' => 'nullable|array',
         ]);
 

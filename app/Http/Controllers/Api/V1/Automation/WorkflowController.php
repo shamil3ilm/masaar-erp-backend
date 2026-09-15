@@ -4,36 +4,36 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Automation;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\ApprovalAction;
-use App\Models\Core\ApprovalRequest;
-use App\Models\Core\ApprovalWorkflow;
 use App\Models\Core\ApprovalWorkflowStep;
+use App\Services\Automation\WorkflowService;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class WorkflowController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly WorkflowService $workflows) {}
+
     /**
      * List approval workflows for the organization.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ApprovalWorkflow::with('steps')
-            ->when($request->approvable_type, fn($q, $type) => $q->where('approvable_type', $type))
-            ->when($request->is_active !== null, fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('code', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy('name');
-
-        $workflows = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($workflows);
+        return $this->paginated($this->workflows->paginateWorkflows(
+            $request->user()->organization_id,
+            [
+                'approvable_type' => $request->approvable_type,
+                'is_active' => $request->is_active !== null ? $request->boolean('is_active') : null,
+                'search' => $request->search,
+            ],
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -57,38 +57,10 @@ class WorkflowController extends Controller
             'steps.*.approver_id' => ['required', 'integer'],
             'steps.*.sequence' => ['required', 'integer', 'min:0'],
             'steps.*.condition' => ['nullable', 'array'],
+            ...$this->approverRules($request),
         ]);
 
-        $workflow = DB::transaction(function () use ($validated, $request) {
-            $workflow = ApprovalWorkflow::create([
-                'organization_id' => $this->organizationId($request),
-                'name' => $validated['name'],
-                'code' => $validated['code'] ?? null,
-                'description' => $validated['description'] ?? null,
-                'approvable_type' => $validated['approvable_type'],
-                'min_amount' => $validated['min_amount'] ?? null,
-                'max_amount' => $validated['max_amount'] ?? null,
-                'conditions' => $validated['conditions'] ?? null,
-                'is_active' => $validated['is_active'] ?? true,
-                'priority' => $validated['priority'] ?? 0,
-            ]);
-
-            if (!empty($validated['steps'])) {
-                foreach ($validated['steps'] as $stepData) {
-                    ApprovalWorkflowStep::create([
-                        'approval_workflow_id' => $workflow->id,
-                        'name' => $stepData['name'],
-                        'approver_type' => $stepData['approver_type'],
-                        'approver_id' => $stepData['approver_id'],
-                        'sequence' => $stepData['sequence'],
-                        'action_type' => 'approve',
-                        'conditions' => $stepData['condition'] ?? null,
-                    ]);
-                }
-            }
-
-            return $workflow->load('steps');
-        });
+        $workflow = $this->workflows->createWorkflow($this->organizationId($request), $validated);
 
         return $this->created($workflow, 'Approval workflow created successfully');
     }
@@ -96,17 +68,11 @@ class WorkflowController extends Controller
     /**
      * Show a specific approval workflow.
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        $workflow = ApprovalWorkflow::with('steps')
-            ->where('organization_id', auth()->user()->organization_id)
-            ->find($id);
+        $workflow = $this->workflows->findWorkflow($request->user()->organization_id, $id, withSteps: true);
 
-        if (!$workflow) {
-            return $this->notFound('Workflow not found');
-        }
-
-        return $this->success($workflow);
+        return $workflow ? $this->success($workflow) : $this->notFound('Workflow not found');
     }
 
     /**
@@ -114,8 +80,7 @@ class WorkflowController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $workflow = ApprovalWorkflow::where('organization_id', auth()->user()->organization_id)
-            ->find($id);
+        $workflow = $this->workflows->findWorkflow($request->user()->organization_id, $id);
 
         if (!$workflow) {
             return $this->notFound('Workflow not found');
@@ -133,9 +98,7 @@ class WorkflowController extends Controller
             'priority' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $workflow->update($validated);
-
-        return $this->success($workflow->load('steps'), 'Workflow updated successfully');
+        return $this->success($this->workflows->updateWorkflow($workflow, $validated), 'Workflow updated successfully');
     }
 
     /**
@@ -143,18 +106,11 @@ class WorkflowController extends Controller
      */
     public function pendingApprovals(Request $request): JsonResponse
     {
-        $query = ApprovalRequest::with(['workflow', 'currentStep', 'submittedBy'])
-            ->where('organization_id', auth()->user()->organization_id)
-            ->whereIn('status', [ApprovalRequest::STATUS_PENDING, ApprovalRequest::STATUS_IN_PROGRESS])
-            ->whereHas('actions', function ($q) {
-                $q->where('assigned_to', auth()->id())
-                    ->where('status', ApprovalAction::STATUS_PENDING);
-            })
-            ->orderByDesc('submitted_at');
-
-        $requests = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($requests);
+        return $this->paginated($this->workflows->paginatePending(
+            $request->user()->organization_id,
+            $request->user()->id,
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -166,48 +122,17 @@ class WorkflowController extends Controller
             'comments' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $approvalRequest = ApprovalRequest::with(['workflow', 'actions'])
-            ->where('organization_id', auth()->user()->organization_id)
-            ->findOrFail($id);
-
-        $pendingAction = $approvalRequest->actions()
-            ->where('workflow_step_id', $approvalRequest->current_step_id)
-            ->where('assigned_to', auth()->id())
-            ->where('status', ApprovalAction::STATUS_PENDING)
-            ->first();
+        $approvalRequest = $this->workflows->findRequest($request->user()->organization_id, $id);
+        $pendingAction = $this->workflows->pendingActionFor($approvalRequest, $request->user()->id);
 
         if (!$pendingAction) {
             return $this->error('No pending action found for this user', 'NO_PENDING_ACTION', 422);
         }
 
-        DB::transaction(function () use ($pendingAction, $approvalRequest, $validated) {
-            $pendingAction->approve($validated['comments'] ?? null);
-
-            // Check if all actions for current step are completed
-            $remainingPending = $approvalRequest->actions()
-                ->where('workflow_step_id', $approvalRequest->current_step_id)
-                ->where('status', ApprovalAction::STATUS_PENDING)
-                ->count();
-
-            if ($remainingPending === 0) {
-                // Move to next step or approve
-                $nextStep = $approvalRequest->workflow->getNextStep($approvalRequest->currentStep);
-
-                if ($nextStep) {
-                    $approvalRequest->update([
-                        'current_step_id' => $nextStep->id,
-                        'status' => ApprovalRequest::STATUS_IN_PROGRESS,
-                    ]);
-                } else {
-                    $approvalRequest->update([
-                        'status' => ApprovalRequest::STATUS_APPROVED,
-                        'completed_at' => now(),
-                    ]);
-                }
-            }
-        });
-
-        return $this->success($approvalRequest->fresh()->load(['workflow', 'actions']), 'Request approved successfully');
+        return $this->tryAction(
+            fn () => $this->workflows->approve($pendingAction, $request->user()->id, $validated['comments'] ?? null),
+            'Request approved successfully'
+        );
     }
 
     /**
@@ -219,30 +144,17 @@ class WorkflowController extends Controller
             'comments' => ['required', 'string', 'max:1000'],
         ]);
 
-        $approvalRequest = ApprovalRequest::with(['workflow', 'actions'])
-            ->where('organization_id', auth()->user()->organization_id)
-            ->findOrFail($id);
-
-        $pendingAction = $approvalRequest->actions()
-            ->where('workflow_step_id', $approvalRequest->current_step_id)
-            ->where('assigned_to', auth()->id())
-            ->where('status', ApprovalAction::STATUS_PENDING)
-            ->first();
+        $approvalRequest = $this->workflows->findRequest($request->user()->organization_id, $id);
+        $pendingAction = $this->workflows->pendingActionFor($approvalRequest, $request->user()->id);
 
         if (!$pendingAction) {
             return $this->error('No pending action found for this user', 'NO_PENDING_ACTION', 422);
         }
 
-        DB::transaction(function () use ($pendingAction, $approvalRequest, $validated) {
-            $pendingAction->reject($validated['comments']);
-
-            $approvalRequest->update([
-                'status' => ApprovalRequest::STATUS_REJECTED,
-                'completed_at' => now(),
-            ]);
-        });
-
-        return $this->success($approvalRequest->fresh()->load(['workflow', 'actions']), 'Request rejected');
+        return $this->tryAction(
+            fn () => $this->workflows->reject($pendingAction, $request->user()->id, $validated['comments']),
+            'Request rejected'
+        );
     }
 
     /**
@@ -250,17 +162,46 @@ class WorkflowController extends Controller
      */
     public function history(Request $request): JsonResponse
     {
-        $query = ApprovalRequest::with(['workflow', 'submittedBy', 'actions.actionBy'])
-            ->where('organization_id', auth()->user()->organization_id)
-            ->whereIn('status', [
-                ApprovalRequest::STATUS_APPROVED,
-                ApprovalRequest::STATUS_REJECTED,
-                ApprovalRequest::STATUS_CANCELLED,
-            ])
-            ->orderByDesc('completed_at');
+        return $this->paginated($this->workflows->paginateHistory(
+            $request->user()->organization_id,
+            $request->integer('per_page', 20)
+        ));
+    }
 
-        $requests = $query->paginate($request->integer('per_page', 20));
+    /**
+     * One exists rule per step for its approver: a user of the organization,
+     * or a role of the organization or a global role. Without it a step could
+     * route approvals, and their notifications, to another organization's user.
+     *
+     * @return array<string, list<mixed>>
+     */
+    private function approverRules(Request $request): array
+    {
+        $steps = $request->input('steps');
 
-        return $this->paginated($requests);
+        if (!is_array($steps)) {
+            return [];
+        }
+
+        $rules = [];
+
+        foreach ($steps as $index => $step) {
+            $type = is_array($step) ? ($step['approver_type'] ?? null) : null;
+
+            $rules["steps.{$index}.approver_id"] = [
+                $type === ApprovalWorkflowStep::APPROVER_TYPE_ROLE ? $this->ownedOrGlobalRole() : $this->ownedBy('users'),
+            ];
+        }
+
+        return $rules;
+    }
+
+    private function ownedOrGlobalRole(): Exists
+    {
+        $organizationId = auth()->user()->organization_id;
+
+        return Rule::exists('roles', 'id')->where(
+            fn (Builder $query) => $query->where('organization_id', $organizationId)->orWhereNull('organization_id')
+        );
     }
 }

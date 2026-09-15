@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Reports;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\Organization;
-use App\Models\Reports\ReportExecution;
 use App\Models\Reports\SavedReport;
 use App\Services\Reports\FinancialReportService;
 use App\Services\Reports\InventoryReportService;
 use App\Services\Reports\ReportDataService;
+use App\Services\Reports\ReportExecutionService;
 use App\Services\Reports\ReportExportService;
 use App\Services\Reports\SalesReportService;
+use App\Services\Reports\SavedReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -27,6 +27,8 @@ class ReportsController extends Controller
         protected SalesReportService $salesService,
         protected ReportExportService $exportService,
         protected ReportDataService $reportData,
+        protected SavedReportService $savedReports,
+        protected ReportExecutionService $executions,
     ) {}
 
     /**
@@ -389,22 +391,9 @@ class ReportsController extends Controller
 
         $data = $this->reportData->generate($reportType, $parameters, $user->organization_id, $user->current_branch_id);
 
-        $execution = ReportExecution::create([
-            'organization_id' => $user->organization_id,
-            'user_id' => $user->id,
-            'report_type' => $reportType,
-            'parameters' => $parameters,
-            'format' => $format,
-            'trigger' => ReportExecution::TRIGGER_MANUAL,
-            'status' => ReportExecution::STATUS_PENDING,
-        ]);
+        $execution = $this->executions->startManual($user, $reportType, $format, $parameters);
 
-        // Get organization data for export
-        $organization = Organization::find($user->organization_id);
-        $orgData = $organization ? $organization->toArray() : [];
-
-        // Export
-        $this->exportService->setContext($user->organization_id, $orgData);
+        $this->exportService->setContext($user->organization_id, $this->executions->organizationData($user->organization_id));
 
         try {
             $filePath = $this->exportService->export($reportType, $data, $format, $execution);
@@ -434,10 +423,7 @@ class ReportsController extends Controller
      */
     public function download(Request $request, int $executionId): BinaryFileResponse|JsonResponse
     {
-        $user = $request->user();
-
-        $execution = ReportExecution::where('organization_id', $user->organization_id)
-            ->findOrFail($executionId);
+        $execution = $this->executions->findForOrganization($request->user()->organization_id, $executionId);
 
         if (! $execution->isFileAvailable()) {
             return $this->notFound('File not available or expired');
@@ -458,18 +444,7 @@ class ReportsController extends Controller
      */
     public function savedReports(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        $reports = SavedReport::where('organization_id', $user->organization_id)
-            ->where(function ($q) use ($user) {
-                $q->where('user_id', $user->id)
-                    ->orWhere('is_shared', true);
-            })
-            ->with('latestExecution')
-            ->orderBy('name')
-            ->get();
-
-        return $this->success($reports);
+        return $this->success($this->savedReports->visibleTo($request->user()));
     }
 
     /**
@@ -491,22 +466,7 @@ class ReportsController extends Controller
             'is_shared' => 'nullable|boolean',
         ]);
 
-        $user = $request->user();
-
-        $report = SavedReport::create([
-            'organization_id' => $user->organization_id,
-            'user_id' => $user->id,
-            // A null left out, so a column with a default keeps it.
-            ...array_filter($validated, fn ($v) => $v !== null),
-            'is_scheduled' => ! empty($validated['schedule_frequency']),
-        ]);
-
-        if ($report->schedule_frequency) {
-            $report->next_run_at = $report->calculateNextRunAt();
-            $report->save();
-        }
-
-        return $this->created($report);
+        return $this->created($this->savedReports->create($request->user(), $validated));
     }
 
     /**
@@ -514,11 +474,7 @@ class ReportsController extends Controller
      */
     public function updateSavedReport(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $report = SavedReport::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($id);
+        $report = $this->savedReports->findOwned($request->user(), $id);
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
@@ -533,14 +489,7 @@ class ReportsController extends Controller
             'is_scheduled' => 'nullable|boolean',
         ]);
 
-        $report->update($validated);
-
-        if ($report->wasChanged('schedule_frequency') || $report->wasChanged('schedule_day')) {
-            $report->next_run_at = $report->calculateNextRunAt();
-            $report->save();
-        }
-
-        return $this->success($report);
+        return $this->success($this->savedReports->update($report, $validated));
     }
 
     /**
@@ -548,13 +497,7 @@ class ReportsController extends Controller
      */
     public function deleteSavedReport(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $report = SavedReport::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->findOrFail($id);
-
-        $report->delete();
+        $this->savedReports->delete($this->savedReports->findOwned($request->user(), $id));
 
         return $this->success(null, 'Report deleted');
     }
@@ -565,13 +508,7 @@ class ReportsController extends Controller
     public function runSavedReport(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
-
-        $report = SavedReport::where('organization_id', $user->organization_id)
-            ->where(function ($q) use ($user) {
-                $q->where('user_id', $user->id)
-                    ->orWhere('is_shared', true);
-            })
-            ->findOrFail($id);
+        $report = $this->savedReports->findRunnable($user, $id);
 
         $data = $this->reportData->generate(
             $report->report_type,
@@ -580,8 +517,7 @@ class ReportsController extends Controller
             $user->current_branch_id
         );
 
-        // Update last run
-        $report->update(['last_run_at' => now()]);
+        $this->savedReports->markRun($report);
 
         return $this->success($data);
     }
@@ -591,14 +527,6 @@ class ReportsController extends Controller
      */
     public function executionHistory(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        $executions = ReportExecution::where('organization_id', $user->organization_id)
-            ->where('user_id', $user->id)
-            ->with('savedReport:id,name')
-            ->orderByDesc('created_at')
-            ->paginate($request->get('per_page', 20));
-
-        return $this->paginated($executions);
+        return $this->paginated($this->executions->paginateForUser($request->user(), $request->get('per_page', 20)));
     }
 }

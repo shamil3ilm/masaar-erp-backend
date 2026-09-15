@@ -6,11 +6,50 @@ namespace App\Services\Admin;
 
 use App\Models\Admin\AnnouncementRead;
 use App\Models\Admin\SystemAnnouncement;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class SystemAnnouncementService
 {
+    /**
+     * Announcements, newest first.
+     */
+    public function paginate(mixed $perPage): LengthAwarePaginator
+    {
+        return SystemAnnouncement::orderByDesc('created_at')->paginate($perPage);
+    }
+
+    /**
+     * Save an announcement exactly as given; only fillable attributes are written.
+     */
+    public function add(array $attributes): SystemAnnouncement
+    {
+        return SystemAnnouncement::create($attributes);
+    }
+
+    public function update(SystemAnnouncement $announcement, array $attributes): SystemAnnouncement
+    {
+        $announcement->update($attributes);
+
+        return $announcement->fresh();
+    }
+
+    public function delete(SystemAnnouncement $announcement): void
+    {
+        $announcement->delete();
+    }
+
+    /**
+     * Mark the announcement published now.
+     */
+    public function markPublished(SystemAnnouncement $announcement): SystemAnnouncement
+    {
+        $announcement->update(['status' => 'published', 'published_at' => now()]);
+
+        return $announcement->fresh();
+    }
+
     /**
      * Create a new system announcement.
      */
