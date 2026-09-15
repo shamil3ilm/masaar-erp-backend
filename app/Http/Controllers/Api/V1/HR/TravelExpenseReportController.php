@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Controllers\Controller;
-use App\Models\HR\TravelExpenseReport;
-use App\Models\HR\TravelExpenseType;
 use App\Models\HR\TravelRequest;
 use App\Services\HR\TravelExpenseReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TravelExpenseReportController extends Controller
 {
@@ -20,18 +19,18 @@ class TravelExpenseReportController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = TravelRequest::with(['employee', 'approver'])
-            ->when($request->get('employee_id'), fn ($q, $id) => $q->forEmployee((int) $id))
-            ->when($request->get('status'), fn ($q, $s) => $q->byStatus($s))
-            ->orderBy('created_at', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->service->listRequests(
+            $request->only(['employee_id', 'status']),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function store(Request $request): JsonResponse
     {
+        $organizationId = $this->organizationId($request);
+
         $validated = $request->validate([
-            'employee_id'         => 'required|integer|exists:employees,id',
+            'employee_id'         => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
             'purpose'             => 'required|string|max:500',
             'destination'         => 'required|string|max:200',
             'departure_date'      => 'required|date',
@@ -40,11 +39,11 @@ class TravelExpenseReportController extends Controller
             'currency_code'       => 'nullable|string|size:3',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $organizationId;
         $validated['created_by']      = auth()->id();
         $validated['status']          = TravelRequest::STATUS_DRAFT;
 
-        $travelRequest = TravelRequest::create($validated);
+        $travelRequest = $this->service->createRequest($validated);
 
         return $this->created(
             $travelRequest->load(['employee', 'creator']),
@@ -70,27 +69,23 @@ class TravelExpenseReportController extends Controller
 
     public function indexReports(Request $request, string $uuid): JsonResponse
     {
-        $travelRequest = TravelRequest::findByUuidOrFail($uuid);
+        $travelRequest = $this->service->findRequestByUuid($uuid);
 
-        $reports = TravelExpenseReport::with(['employee', 'lines.expenseType', 'approver'])
-            ->where('travel_request_id', $travelRequest->id)
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($reports);
+        return $this->paginated($this->service->listReports($travelRequest, $request->integer('per_page', 15)));
     }
 
     public function storeReport(Request $request, string $uuid): JsonResponse
     {
-        $travelRequest = TravelRequest::findByUuidOrFail($uuid);
+        $travelRequest = $this->service->findRequestByUuid($uuid);
+        $organizationId = $travelRequest->organization_id;
 
         $validated = $request->validate([
-            'employee_id'      => 'required|integer|exists:employees,id',
+            'employee_id'      => ['required', 'integer', Rule::exists('employees', 'id')->where('organization_id', $organizationId)],
             'report_date'      => 'nullable|date',
             'currency_code'    => 'nullable|string|size:3',
             'notes'            => 'nullable|string|max:2000',
             'lines'            => 'required|array|min:1',
-            'lines.*.expense_type_id' => 'required|integer|exists:travel_expense_types,id',
+            'lines.*.expense_type_id' => ['required', 'integer', Rule::exists('travel_expense_types', 'id')->where('organization_id', $organizationId)],
             'lines.*.expense_date'    => 'required|date',
             'lines.*.description'     => 'required|string|max:500',
             'lines.*.amount'          => 'required|numeric|min:0.0001',
@@ -142,13 +137,11 @@ class TravelExpenseReportController extends Controller
 
     public function indexTypes(Request $request): JsonResponse
     {
-        $types = TravelExpenseType::query()
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->when($request->get('category'), fn ($q, $cat) => $q->where('category', $cat))
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 50));
-
-        return $this->paginated($types);
+        return $this->paginated($this->service->listExpenseTypes(
+            $request->boolean('active_only'),
+            $request->get('category'),
+            $request->integer('per_page', 50)
+        ));
     }
 
     public function storeType(Request $request): JsonResponse
@@ -165,7 +158,7 @@ class TravelExpenseReportController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        $type = TravelExpenseType::create($validated);
+        $type = $this->service->createExpenseType($validated);
 
         return $this->created($type, 'Expense type created.');
     }

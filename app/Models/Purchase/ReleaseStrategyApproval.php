@@ -6,13 +6,14 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReleaseStrategyApproval extends Model
 {
-    use BelongsToOrganization, HasUuid;
+    use BelongsToOrganization, HasUuid, LocksForTransition;
 
     public const STATUS_PENDING  = 'pending';
     public const STATUS_APPROVED = 'approved';

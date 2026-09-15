@@ -36,6 +36,29 @@ class QuotaArrangementService
     }
 
     /**
+     * A quota arrangement of the organization, with the given relations loaded.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $id, array $with = []): QuotaArrangement
+    {
+        return QuotaArrangement::with($with)->findOrFail($id);
+    }
+
+    public function delete(QuotaArrangement $arrangement): void
+    {
+        $arrangement->delete();
+    }
+
+    /**
+     * One of the arrangement's items.
+     */
+    public function findItem(QuotaArrangement $arrangement, int $itemId): QuotaArrangementItem
+    {
+        return $arrangement->items()->findOrFail($itemId);
+    }
+
+    /**
      * Create a quota arrangement together with its items.
      * Validates that item percentages sum to exactly 100.
      *
@@ -127,6 +150,8 @@ class QuotaArrangementService
      * Determine the best vendor source for a given product and quantity.
      * Picks the non-blocked item with the lowest quota rating, increments its
      * allocated_quantity, and returns the item so the caller can read vendor_id.
+     * The items are locked while they are rated and allocated, so two
+     * determinations at once do not both pick one item from the same totals.
      *
      * @return QuotaArrangementItem|null  null when no active arrangement exists
      */
@@ -145,7 +170,7 @@ class QuotaArrangementService
                     $warehouseId !== null,
                     fn ($q) => $q->where('warehouse_id', $warehouseId)
                 )
-                ->with(['items' => fn ($q) => $q->active()])
+                ->with(['items' => fn ($q) => $q->active()->lockForUpdate()])
                 ->first();
 
             if ($arrangement === null || $arrangement->items->isEmpty()) {

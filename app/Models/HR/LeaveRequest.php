@@ -8,6 +8,7 @@ use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Organization;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LeaveRequest extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, SoftDeletes;
+    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes;
 
     protected static function newFactory(): Factory
     {

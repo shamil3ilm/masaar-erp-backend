@@ -4,16 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Purchase\PurchasingInfoRecordConditionResource;
 use App\Http\Resources\Purchase\PurchasingInfoRecordResource;
-use App\Models\Purchase\PurchasingInfoRecord;
-use App\Models\Purchase\PurchasingInfoRecordCondition;
 use App\Services\Purchase\PurchasingInfoRecordService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PurchasingInfoRecordController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    /** Relations a record is returned with. */
+    private const WITH = ['vendor', 'product', 'warehouse', 'conditions'];
+
     public function __construct(
         private readonly PurchasingInfoRecordService $service
     ) {}
@@ -38,9 +43,9 @@ class PurchasingInfoRecordController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'vendor_id'                  => 'nullable|exists:contacts,id',
-            'product_id'                 => 'nullable|exists:products,id',
-            'warehouse_id'               => 'nullable|exists:warehouses,id',
+            'vendor_id'                  => ['nullable', $this->ownedBy('contacts')],
+            'product_id'                 => ['nullable', $this->ownedBy('products')],
+            'warehouse_id'               => ['nullable', $this->ownedBy('warehouses')],
             'info_category'              => 'sometimes|in:standard,subcontracting,consignment,pipeline',
             'is_active'                  => 'sometimes|boolean',
             'planned_delivery_days'      => 'nullable|integer|min:0|max:65535',
@@ -59,9 +64,8 @@ class PurchasingInfoRecordController extends Controller
         ]);
 
         $record = $this->service->create($validated);
-        $record->load(['vendor', 'product', 'warehouse', 'conditions']);
 
-        return $this->created(new PurchasingInfoRecordResource($record));
+        return $this->created(new PurchasingInfoRecordResource($record->load(self::WITH)));
     }
 
     /**
@@ -69,10 +73,7 @@ class PurchasingInfoRecordController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $record = PurchasingInfoRecord::with(['vendor', 'product', 'warehouse', 'conditions'])
-            ->findOrFail($id);
-
-        return $this->success(new PurchasingInfoRecordResource($record));
+        return $this->success(new PurchasingInfoRecordResource($this->service->find((int) $id, self::WITH)));
     }
 
     /**
@@ -80,12 +81,12 @@ class PurchasingInfoRecordController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        $record = PurchasingInfoRecord::findOrFail($id);
+        $record = $this->service->find((int) $id);
 
         $validated = $request->validate([
-            'vendor_id'                  => 'sometimes|nullable|exists:contacts,id',
-            'product_id'                 => 'sometimes|nullable|exists:products,id',
-            'warehouse_id'               => 'sometimes|nullable|exists:warehouses,id',
+            'vendor_id'                  => ['sometimes', 'nullable', $this->ownedBy('contacts')],
+            'product_id'                 => ['sometimes', 'nullable', $this->ownedBy('products')],
+            'warehouse_id'               => ['sometimes', 'nullable', $this->ownedBy('warehouses')],
             'info_category'              => 'sometimes|in:standard,subcontracting,consignment,pipeline',
             'is_active'                  => 'sometimes|boolean',
             'planned_delivery_days'      => 'sometimes|nullable|integer|min:0|max:65535',
@@ -104,9 +105,8 @@ class PurchasingInfoRecordController extends Controller
         ]);
 
         $record = $this->service->update($record, $validated);
-        $record->load(['vendor', 'product', 'warehouse', 'conditions']);
 
-        return $this->success(new PurchasingInfoRecordResource($record));
+        return $this->success(new PurchasingInfoRecordResource($record->load(self::WITH)));
     }
 
     /**
@@ -114,8 +114,7 @@ class PurchasingInfoRecordController extends Controller
      */
     public function destroy(string $id): JsonResponse
     {
-        $record = PurchasingInfoRecord::findOrFail($id);
-        $record->delete();
+        $this->service->delete($this->service->find((int) $id));
 
         return $this->noContent();
     }
@@ -125,7 +124,7 @@ class PurchasingInfoRecordController extends Controller
      */
     public function addCondition(Request $request, string $id): JsonResponse
     {
-        $record = PurchasingInfoRecord::findOrFail($id);
+        $record = $this->service->find((int) $id);
 
         $validated = $request->validate([
             'valid_from'       => 'required|date',
@@ -137,21 +136,17 @@ class PurchasingInfoRecordController extends Controller
             'is_active'        => 'sometimes|boolean',
         ]);
 
-        $condition = $this->service->addCondition($record, $validated);
-
         return $this->created(
-            new \App\Http\Resources\Purchase\PurchasingInfoRecordConditionResource($condition)
+            new PurchasingInfoRecordConditionResource($this->service->addCondition($record, $validated))
         );
     }
 
     /**
-     * Update an existing pricing condition.
+     * Update an existing pricing condition of the record in the URL.
      */
     public function updateCondition(Request $request, string $id, string $conditionId): JsonResponse
     {
-        // Verify the condition belongs to the specified record.
-        $condition = PurchasingInfoRecordCondition::where('purchasing_info_record_id', $id)
-            ->findOrFail($conditionId);
+        $condition = $this->service->findCondition($this->service->find((int) $id), (int) $conditionId);
 
         $validated = $request->validate([
             'valid_from'       => 'sometimes|date',
@@ -163,10 +158,8 @@ class PurchasingInfoRecordController extends Controller
             'is_active'        => 'sometimes|boolean',
         ]);
 
-        $condition = $this->service->updateCondition($condition, $validated);
-
         return $this->success(
-            new \App\Http\Resources\Purchase\PurchasingInfoRecordConditionResource($condition)
+            new PurchasingInfoRecordConditionResource($this->service->updateCondition($condition, $validated))
         );
     }
 
@@ -175,8 +168,7 @@ class PurchasingInfoRecordController extends Controller
      */
     public function deactivate(string $id): JsonResponse
     {
-        $record = PurchasingInfoRecord::findOrFail($id);
-        $this->service->deactivate($record);
+        $this->service->deactivate($this->service->find((int) $id));
 
         return $this->success(null, 'Purchasing info record deactivated.');
     }
