@@ -6,8 +6,10 @@ namespace App\Services\Core;
 
 use App\Models\Core\JobMonitor;
 use App\Models\Core\JobMonitorLog;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class JobMonitorService
@@ -117,24 +119,84 @@ class JobMonitorService
             ->get();
     }
 
+    /**
+     * Jobs of the organization and platform jobs (no organization), or all
+     * jobs when no organization is given, narrowed by the filters that are set.
+     *
+     * @param  array{status?: ?string, queue_name?: ?string, job_class?: ?string, date_from?: ?string, date_to?: ?string}  $filters
+     */
+    public function list(?int $organizationId, array $filters, string $sortBy, string $sortDir, int $perPage): LengthAwarePaginator
+    {
+        $query = JobMonitor::query()->with('triggeredByUser');
+
+        if ($organizationId !== null) {
+            $query->where(function ($q) use ($organizationId) {
+                $q->where('organization_id', $organizationId)
+                    ->orWhereNull('organization_id');
+            });
+        }
+
+        return $query
+            ->when(!empty($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(!empty($filters['queue_name']), fn ($q) => $q->byQueue($filters['queue_name']))
+            ->when(!empty($filters['job_class']), fn ($q) => $q->where('job_class', 'like', '%' . $filters['job_class'] . '%'))
+            ->when(!empty($filters['date_from']), fn ($q) => $q->where('queued_at', '>=', $filters['date_from']))
+            ->when(!empty($filters['date_to']), fn ($q) => $q->where('queued_at', '<=', $filters['date_to'] . ' 23:59:59'))
+            ->orderBy($sortBy, $sortDir)
+            ->paginate($perPage);
+    }
+
+    public function find(int $monitorId): JobMonitor
+    {
+        return $this->findOrFail($monitorId);
+    }
+
+    /**
+     * A job with who triggered it and its logs.
+     */
+    public function details(int $monitorId): JobMonitor
+    {
+        return JobMonitor::with(['triggeredByUser', 'logs'])->findOrFail($monitorId);
+    }
+
+    /**
+     * A job's logs, oldest first, narrowed to one level when given.
+     */
+    public function logs(int $monitorId, ?string $level, int $perPage): LengthAwarePaginator
+    {
+        return $this->findOrFail($monitorId)
+            ->logs()
+            ->orderBy('created_at')
+            ->when($level !== null, fn ($q) => $q->where('level', $level))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Queues a failed job for another attempt. The status and attempt count
+     * are checked on the locked row, so two retries cannot both queue it.
+     */
     public function retryFailed(int $monitorId): void
     {
-        $monitor = $this->findOrFail($monitorId);
+        $monitor = DB::transaction(function () use ($monitorId): JobMonitor {
+            $monitor = JobMonitor::query()->lockForUpdate()->findOrFail($monitorId);
 
-        if ($monitor->status !== JobMonitor::STATUS_FAILED) {
-            throw new RuntimeException('Only failed jobs can be retried.');
-        }
+            if ($monitor->status !== JobMonitor::STATUS_FAILED) {
+                throw new RuntimeException('Only failed jobs can be retried.');
+            }
 
-        if ($monitor->attempts >= $monitor->max_attempts) {
-            throw new RuntimeException("Job has reached max attempts ({$monitor->max_attempts}).");
-        }
+            if ($monitor->attempts >= $monitor->max_attempts) {
+                throw new RuntimeException("Job has reached max attempts ({$monitor->max_attempts}).");
+            }
 
-        $monitor->update([
-            'status'        => JobMonitor::STATUS_RETRYING,
-            'error_message' => null,
-            'failed_at'     => null,
-            'next_retry_at' => Carbon::now()->addSeconds(30),
-        ]);
+            $monitor->update([
+                'status'        => JobMonitor::STATUS_RETRYING,
+                'error_message' => null,
+                'failed_at'     => null,
+                'next_retry_at' => Carbon::now()->addSeconds(30),
+            ]);
+
+            return $monitor;
+        });
 
         $this->log($monitorId, JobMonitorLog::LEVEL_INFO, 'Job queued for retry', [
             'attempt' => $monitor->attempts + 1,
