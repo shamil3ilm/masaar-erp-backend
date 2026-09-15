@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\UserEvent;
+use App\Services\Core\UserEventService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class UserEventsController extends Controller
 {
+    public function __construct(private readonly UserEventService $events) {}
+
     /**
      * List user events for the authenticated organisation.
      *
@@ -23,24 +24,14 @@ class UserEventsController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $organizationId = $request->user()->organization_id;
-
-        $query = UserEvent::query()
-            ->where('organization_id', $organizationId)
-            ->orderByDesc('created_at')
-            ->when($request->filled('event_type'), fn($q) => $q->where('event_type', $request->string('event_type')))
-            ->when($request->filled('user_id'), fn($q) => $q->where('user_id', (int) $request->input('user_id')))
-            ->when($request->filled('from'), fn($q) => $q->whereDate('created_at', '>=', $request->input('from')))
-            ->when($request->filled('to'), fn($q) => $q->whereDate('created_at', '<=', $request->input('to')));
-
-        $events = $query->paginate(50);
-
-        return $this->success($events->items(), 'Events retrieved successfully', 200, [
-            'current_page' => $events->currentPage(),
-            'per_page'     => $events->perPage(),
-            'total'        => $events->total(),
-            'last_page'    => $events->lastPage(),
+        $events = $this->events->list($request->user()->organization_id, $this->onlyUserId($request), [
+            'event_type' => $request->filled('event_type') ? (string) $request->string('event_type') : null,
+            'user_id' => $request->filled('user_id') ? (int) $request->input('user_id') : null,
+            'from' => $request->filled('from') ? $request->input('from') : null,
+            'to' => $request->filled('to') ? $request->input('to') : null,
         ]);
+
+        return $this->success($events->items(), 'Events retrieved successfully');
     }
 
     /**
@@ -48,21 +39,20 @@ class UserEventsController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $organizationId = $request->user()->organization_id;
-        $since = now()->subDays(30);
-
-        $rows = DB::table('user_events')
-            ->select([
-                'event_type',
-                DB::raw('DATE(created_at) as date'),
-                DB::raw('COUNT(*) as count'),
-            ])
-            ->where('organization_id', $organizationId)
-            ->where('created_at', '>=', $since)
-            ->groupBy('event_type', DB::raw('DATE(created_at)'))
-            ->orderByDesc('date')
-            ->get();
+        $rows = $this->events->summary($request->user()->organization_id, $this->onlyUserId($request));
 
         return $this->success($rows, 'Event summary retrieved successfully');
+    }
+
+    /**
+     * The routes are open to every signed-in user as their own record; only a
+     * holder of core.users.view reads other users' events, which carry their
+     * IP address and browser.
+     */
+    private function onlyUserId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        return $user->hasPermission('core.users.view') ? null : $user->id;
     }
 }
