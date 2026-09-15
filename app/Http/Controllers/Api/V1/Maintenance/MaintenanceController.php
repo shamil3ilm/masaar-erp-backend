@@ -4,20 +4,32 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Maintenance;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Maintenance\Equipment;
 use App\Models\Maintenance\EquipmentCategory;
 use App\Models\Maintenance\FunctionalLocation;
 use App\Models\Maintenance\MaintenanceOrder;
 use App\Models\Maintenance\MaintenancePlan;
+use App\Services\Maintenance\EquipmentCategoryService;
+use App\Services\Maintenance\EquipmentService;
+use App\Services\Maintenance\FunctionalLocationService;
+use App\Services\Maintenance\MaintenancePlanService;
 use App\Services\Maintenance\MaintenanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class MaintenanceController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private MaintenanceService $maintenanceService
+        private readonly MaintenanceService $maintenanceService,
+        private readonly FunctionalLocationService $locationService,
+        private readonly EquipmentCategoryService $categoryService,
+        private readonly EquipmentService $equipmentService,
+        private readonly MaintenancePlanService $planService,
     ) {}
 
     // =========================================================================
@@ -26,73 +38,61 @@ class MaintenanceController extends Controller
 
     public function functionalLocationIndex(Request $request): JsonResponse
     {
-        $query = FunctionalLocation::query()
-            ->with('parent')
-            ->when($request->input('search'), fn ($q, $s) => $q->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%"))
-            ->when($request->input('location_type'), fn ($q, $t) => $q->where('location_type', $t))
-            ->when($request->boolean('roots_only'), fn ($q) => $q->roots())
-            ->when($request->input('parent_id'), fn ($q, $id) => $q->where('parent_id', $id))
-            ->orderBy('name');
-
-        $locations = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($locations);
+        return $this->paginated($this->locationService->paginate([
+            'search' => $request->input('search'),
+            'location_type' => $request->input('location_type'),
+            'roots_only' => $request->boolean('roots_only'),
+            'parent_id' => $request->input('parent_id'),
+        ], $request->integer('per_page', 15)));
     }
 
     public function functionalLocationStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'parent_id'     => 'nullable|integer|exists:functional_locations,id',
-            'code'          => 'required|string|max:50',
-            'name'          => 'required|string|max:200',
-            'description'   => 'nullable|string',
-            'location_type' => 'required|in:' . implode(',', FunctionalLocation::LOCATION_TYPES),
-            'branch_id'     => 'nullable|integer|exists:branches,id',
-            'address'       => 'nullable|string|max:500',
-            'is_active'     => 'nullable|boolean',
+            'parent_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'code' => 'required|string|max:50',
+            'name' => 'required|string|max:200',
+            'description' => 'nullable|string',
+            'location_type' => 'required|in:'.implode(',', FunctionalLocation::LOCATION_TYPES),
+            'branch_id' => ['nullable', 'integer', $this->ownedBy('branches')],
+            'address' => 'nullable|string|max:500',
+            'is_active' => 'nullable|boolean',
         ]);
 
-        $location = FunctionalLocation::create($data);
-
-        return $this->created($location, 'Functional location created successfully.');
+        return $this->created($this->locationService->create($data), 'Functional location created successfully.');
     }
 
     public function functionalLocationShow(FunctionalLocation $functionalLocation): JsonResponse
     {
-        $functionalLocation->load(['parent', 'children', 'equipment']);
-
-        return $this->success($functionalLocation);
+        return $this->success($functionalLocation->load(['parent', 'children', 'equipment']));
     }
 
     public function functionalLocationUpdate(Request $request, FunctionalLocation $functionalLocation): JsonResponse
     {
         $data = $request->validate([
-            'parent_id'     => 'nullable|integer|exists:functional_locations,id',
-            'code'          => 'sometimes|required|string|max:50',
-            'name'          => 'sometimes|required|string|max:200',
-            'description'   => 'nullable|string',
-            'location_type' => 'sometimes|required|in:' . implode(',', FunctionalLocation::LOCATION_TYPES),
-            'branch_id'     => 'nullable|integer|exists:branches,id',
-            'address'       => 'nullable|string|max:500',
-            'is_active'     => 'nullable|boolean',
+            'parent_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'code' => 'sometimes|required|string|max:50',
+            'name' => 'sometimes|required|string|max:200',
+            'description' => 'nullable|string',
+            'location_type' => 'sometimes|required|in:'.implode(',', FunctionalLocation::LOCATION_TYPES),
+            'branch_id' => ['nullable', 'integer', $this->ownedBy('branches')],
+            'address' => 'nullable|string|max:500',
+            'is_active' => 'nullable|boolean',
         ]);
 
-        $functionalLocation->update($data);
-
-        return $this->success($functionalLocation->fresh(), 'Functional location updated successfully.');
+        return $this->success(
+            $this->locationService->update($functionalLocation, $data),
+            'Functional location updated successfully.'
+        );
     }
 
     public function functionalLocationDestroy(FunctionalLocation $functionalLocation): JsonResponse
     {
-        if ($functionalLocation->children()->count() > 0) {
-            return $this->error('Cannot delete a location that has child locations.', 'HAS_CHILDREN', 422);
+        try {
+            $this->locationService->delete($functionalLocation);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        if ($functionalLocation->equipment()->count() > 0) {
-            return $this->error('Cannot delete a location with assigned equipment.', 'HAS_EQUIPMENT', 422);
-        }
-
-        $functionalLocation->delete();
 
         return $this->success(null, 'Functional location deleted successfully.');
     }
@@ -103,25 +103,20 @@ class MaintenanceController extends Controller
 
     public function categoryIndex(Request $request): JsonResponse
     {
-        $categories = EquipmentCategory::query()
-            ->when($request->input('search'), fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
-            ->withCount('equipment')
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($categories);
+        return $this->paginated($this->categoryService->paginate(
+            $request->input('search'),
+            $request->integer('per_page', 15)
+        ));
     }
 
     public function categoryStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'        => 'required|string|max:100',
+            'name' => 'required|string|max:100',
             'description' => 'nullable|string',
         ]);
 
-        $category = EquipmentCategory::create($data);
-
-        return $this->created($category, 'Equipment category created successfully.');
+        return $this->created($this->categoryService->create($data), 'Equipment category created successfully.');
     }
 
     public function categoryShow(EquipmentCategory $equipmentCategory): JsonResponse
@@ -132,22 +127,20 @@ class MaintenanceController extends Controller
     public function categoryUpdate(Request $request, EquipmentCategory $equipmentCategory): JsonResponse
     {
         $data = $request->validate([
-            'name'        => 'sometimes|required|string|max:100',
+            'name' => 'sometimes|required|string|max:100',
             'description' => 'nullable|string',
         ]);
 
-        $equipmentCategory->update($data);
-
-        return $this->success($equipmentCategory->fresh(), 'Category updated successfully.');
+        return $this->success($this->categoryService->update($equipmentCategory, $data), 'Category updated successfully.');
     }
 
     public function categoryDestroy(EquipmentCategory $equipmentCategory): JsonResponse
     {
-        if ($equipmentCategory->equipment()->count() > 0) {
-            return $this->error('Cannot delete a category that has equipment assigned to it.', 'HAS_EQUIPMENT', 422);
+        try {
+            $this->categoryService->delete($equipmentCategory);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $equipmentCategory->delete();
 
         return $this->success(null, 'Equipment category deleted successfully.');
     }
@@ -158,100 +151,80 @@ class MaintenanceController extends Controller
 
     public function equipmentIndex(Request $request): JsonResponse
     {
-        $query = Equipment::query()
-            ->with(['category', 'functionalLocation'])
-            ->when($request->input('search'), function ($q, $s) {
-                $q->where(function ($inner) use ($s) {
-                    $inner->where('name', 'like', "%{$s}%")
-                          ->orWhere('equipment_number', 'like', "%{$s}%")
-                          ->orWhere('serial_number', 'like', "%{$s}%");
-                });
-            })
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('equipment_category_id'), fn ($q, $id) => $q->where('equipment_category_id', $id))
-            ->when($request->input('functional_location_id'), fn ($q, $id) => $q->where('functional_location_id', $id))
-            ->orderBy('name');
-
-        $equipment = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($equipment);
+        return $this->paginated($this->equipmentService->paginate([
+            'search' => $request->input('search'),
+            'status' => $request->input('status'),
+            'equipment_category_id' => $request->input('equipment_category_id'),
+            'functional_location_id' => $request->input('functional_location_id'),
+        ], $request->integer('per_page', 15)));
     }
 
     public function equipmentStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'functional_location_id' => 'nullable|integer|exists:functional_locations,id',
-            'equipment_category_id'  => 'nullable|integer|exists:equipment_categories,id',
-            'equipment_number'       => 'required|string|max:50',
-            'name'                   => 'required|string|max:200',
-            'description'            => 'nullable|string',
-            'manufacturer'           => 'nullable|string|max:100',
-            'model'                  => 'nullable|string|max:100',
-            'serial_number'          => 'nullable|string|max:100',
-            'acquisition_date'       => 'nullable|date',
-            'acquisition_cost'       => 'nullable|numeric|min:0',
-            'warranty_expiry'        => 'nullable|date',
-            'status'                 => 'nullable|in:' . implode(',', Equipment::STATUSES),
-            'notes'                  => 'nullable|string',
+            'functional_location_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'equipment_category_id' => ['nullable', 'integer', $this->ownedBy('equipment_categories')],
+            'equipment_number' => 'required|string|max:50',
+            'name' => 'required|string|max:200',
+            'description' => 'nullable|string',
+            'manufacturer' => 'nullable|string|max:100',
+            'model' => 'nullable|string|max:100',
+            'serial_number' => 'nullable|string|max:100',
+            'acquisition_date' => 'nullable|date',
+            'acquisition_cost' => 'nullable|numeric|min:0',
+            'warranty_expiry' => 'nullable|date',
+            'status' => 'nullable|in:'.implode(',', Equipment::STATUSES),
+            'notes' => 'nullable|string',
         ]);
 
-        try {
-            $equipment = $this->maintenanceService->createEquipment($data, auth()->id());
-
-            return $this->created($equipment->load(['category', 'functionalLocation']), 'Equipment created successfully.');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
-        }
+        return $this->created(
+            $this->equipmentService->create($data, $request->user()->id),
+            'Equipment created successfully.'
+        );
     }
 
     public function equipmentShow(Equipment $equipment): JsonResponse
     {
-        $equipment->load(['category', 'functionalLocation', 'maintenancePlans', 'creator']);
-
-        return $this->success($equipment);
+        return $this->success($equipment->load(['category', 'functionalLocation', 'maintenancePlans', 'creator']));
     }
 
     public function equipmentUpdate(Request $request, Equipment $equipment): JsonResponse
     {
         $data = $request->validate([
-            'functional_location_id' => 'nullable|integer|exists:functional_locations,id',
-            'equipment_category_id'  => 'nullable|integer|exists:equipment_categories,id',
-            'name'                   => 'sometimes|required|string|max:200',
-            'description'            => 'nullable|string',
-            'manufacturer'           => 'nullable|string|max:100',
-            'model'                  => 'nullable|string|max:100',
-            'serial_number'          => 'nullable|string|max:100',
-            'acquisition_date'       => 'nullable|date',
-            'acquisition_cost'       => 'nullable|numeric|min:0',
-            'warranty_expiry'        => 'nullable|date',
-            'status'                 => 'nullable|in:' . implode(',', Equipment::STATUSES),
-            'notes'                  => 'nullable|string',
+            'functional_location_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
+            'equipment_category_id' => ['nullable', 'integer', $this->ownedBy('equipment_categories')],
+            'name' => 'sometimes|required|string|max:200',
+            'description' => 'nullable|string',
+            'manufacturer' => 'nullable|string|max:100',
+            'model' => 'nullable|string|max:100',
+            'serial_number' => 'nullable|string|max:100',
+            'acquisition_date' => 'nullable|date',
+            'acquisition_cost' => 'nullable|numeric|min:0',
+            'warranty_expiry' => 'nullable|date',
+            'status' => 'nullable|in:'.implode(',', Equipment::STATUSES),
+            'notes' => 'nullable|string',
         ]);
 
-        $equipment = $this->maintenanceService->updateEquipment($equipment, $data);
-
-        return $this->success($equipment, 'Equipment updated successfully.');
+        return $this->success($this->equipmentService->update($equipment, $data), 'Equipment updated successfully.');
     }
 
     public function equipmentDestroy(Equipment $equipment): JsonResponse
     {
-        if ($equipment->maintenanceOrders()->whereIn('status', [MaintenanceOrder::STATUS_OPEN, MaintenanceOrder::STATUS_IN_PROGRESS])->exists()) {
-            return $this->error('Cannot delete equipment with open or in-progress maintenance orders.', 'HAS_OPEN_ORDERS', 422);
+        try {
+            $this->equipmentService->delete($equipment);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $equipment->delete();
 
         return $this->success(null, 'Equipment deleted successfully.');
     }
 
     public function equipmentDueSoon(Request $request): JsonResponse
     {
-        $days  = $request->integer('days', 7);
-        $orgId = auth()->user()->organization_id;
-
-        $equipment = $this->maintenanceService->getDueEquipment($orgId, $days);
-
-        return $this->success($equipment);
+        return $this->success($this->equipmentService->dueWithin(
+            $request->user()->organization_id,
+            $request->integer('days', 7)
+        ));
     }
 
     // =========================================================================
@@ -260,80 +233,70 @@ class MaintenanceController extends Controller
 
     public function planIndex(Request $request): JsonResponse
     {
-        $plans = MaintenancePlan::query()
-            ->with('equipment')
-            ->when($request->input('equipment_id'), fn ($q, $id) => $q->where('equipment_id', $id))
-            ->when($request->input('is_active') !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->input('maintenance_type'), fn ($q, $t) => $q->where('maintenance_type', $t))
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($plans);
+        return $this->paginated($this->planService->paginate([
+            'equipment_id' => $request->input('equipment_id'),
+            'is_active' => $request->input('is_active') !== null ? $request->boolean('is_active') : null,
+            'maintenance_type' => $request->input('maintenance_type'),
+        ], $request->integer('per_page', 15)));
     }
 
     public function planStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'equipment_id'             => 'required|integer|exists:equipment,id',
-            'name'                     => 'required|string|max:200',
-            'maintenance_type'         => 'required|in:' . implode(',', MaintenancePlan::MAINTENANCE_TYPES),
-            'frequency_type'           => 'required|in:' . implode(',', MaintenancePlan::FREQUENCY_TYPES),
-            'frequency_value'          => 'required|integer|min:1',
+            'equipment_id' => ['required', 'integer', $this->ownedBy('equipment')],
+            'name' => 'required|string|max:200',
+            'maintenance_type' => 'required|in:'.implode(',', MaintenancePlan::MAINTENANCE_TYPES),
+            'frequency_type' => 'required|in:'.implode(',', MaintenancePlan::FREQUENCY_TYPES),
+            'frequency_value' => 'required|integer|min:1',
             'estimated_duration_hours' => 'nullable|numeric|min:0',
-            'description'              => 'nullable|string',
-            'tasks'                    => 'nullable|array',
-            'tasks.*.description'      => 'required_with:tasks|string',
+            'description' => 'nullable|string',
+            'tasks' => 'nullable|array',
+            'tasks.*.description' => 'required_with:tasks|string',
             'tasks.*.is_safety_critical' => 'nullable|boolean',
-            'is_active'                => 'nullable|boolean',
+            'is_active' => 'nullable|boolean',
         ]);
 
-        try {
-            $plan = $this->maintenanceService->createMaintenancePlan($data, auth()->id());
-
-            return $this->created($plan->load('equipment'), 'Maintenance plan created successfully.');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
-        }
+        return $this->created(
+            $this->planService->create($data, $request->user()->id),
+            'Maintenance plan created successfully.'
+        );
     }
 
     public function planUpdate(Request $request, MaintenancePlan $maintenancePlan): JsonResponse
     {
         $data = $request->validate([
-            'name'                     => 'sometimes|required|string|max:200',
-            'maintenance_type'         => 'sometimes|required|in:' . implode(',', MaintenancePlan::MAINTENANCE_TYPES),
-            'frequency_type'           => 'sometimes|required|in:' . implode(',', MaintenancePlan::FREQUENCY_TYPES),
-            'frequency_value'          => 'sometimes|required|integer|min:1',
+            'name' => 'sometimes|required|string|max:200',
+            'maintenance_type' => 'sometimes|required|in:'.implode(',', MaintenancePlan::MAINTENANCE_TYPES),
+            'frequency_type' => 'sometimes|required|in:'.implode(',', MaintenancePlan::FREQUENCY_TYPES),
+            'frequency_value' => 'sometimes|required|integer|min:1',
             'estimated_duration_hours' => 'nullable|numeric|min:0',
-            'description'              => 'nullable|string',
-            'tasks'                    => 'nullable|array',
-            'tasks.*.description'      => 'required_with:tasks|string',
+            'description' => 'nullable|string',
+            'tasks' => 'nullable|array',
+            'tasks.*.description' => 'required_with:tasks|string',
             'tasks.*.is_safety_critical' => 'nullable|boolean',
-            'is_active'                => 'nullable|boolean',
+            'is_active' => 'nullable|boolean',
         ]);
 
-        $plan = $this->maintenanceService->updateMaintenancePlan($maintenancePlan, $data);
-
-        return $this->success($plan, 'Maintenance plan updated successfully.');
+        return $this->success($this->planService->update($maintenancePlan, $data), 'Maintenance plan updated successfully.');
     }
 
     public function planToggleActive(MaintenancePlan $maintenancePlan): JsonResponse
     {
-        $maintenancePlan->update(['is_active' => !$maintenancePlan->is_active]);
+        $plan = $this->planService->toggleActive($maintenancePlan);
+        $state = $plan->is_active ? 'activated' : 'deactivated';
 
-        $state = $maintenancePlan->is_active ? 'activated' : 'deactivated';
-
-        return $this->success($maintenancePlan->fresh(), "Maintenance plan {$state} successfully.");
+        return $this->success($plan, "Maintenance plan {$state} successfully.");
     }
 
-    public function planGenerateOrder(MaintenancePlan $maintenancePlan): JsonResponse
+    public function planGenerateOrder(Request $request, MaintenancePlan $maintenancePlan): JsonResponse
     {
         try {
-            $order = $this->maintenanceService->generateOrderFromPlan($maintenancePlan, auth()->id());
-
-            return $this->created($order, 'Maintenance order generated from plan successfully.');
+            $order = $this->maintenanceService->generateOrderFromPlan($maintenancePlan, $request->user()->id);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
+
+        return $this->created($order, 'Maintenance order generated from plan successfully.');
     }
 
     // =========================================================================
@@ -342,97 +305,86 @@ class MaintenanceController extends Controller
 
     public function orderIndex(Request $request): JsonResponse
     {
-        $query = MaintenanceOrder::query()
-            ->with(['equipment', 'assignee', 'plan'])
-            ->when($request->input('search'), function ($q, $s) {
-                $q->where(function ($inner) use ($s) {
-                    $inner->where('order_number', 'like', "%{$s}%")
-                          ->orWhere('description', 'like', "%{$s}%");
-                });
-            })
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->when($request->input('priority'), fn ($q, $p) => $q->where('priority', $p))
-            ->when($request->input('order_type'), fn ($q, $t) => $q->where('order_type', $t))
-            ->when($request->input('equipment_id'), fn ($q, $id) => $q->where('equipment_id', $id))
-            ->when($request->input('assigned_to'), fn ($q, $id) => $q->where('assigned_to', $id))
-            ->orderByRaw("FIELD(priority, 'critical','high','medium','low')")
-            ->orderBy('created_at', 'desc');
-
-        $orders = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($orders);
+        return $this->paginated($this->maintenanceService->paginateOrders([
+            'search' => $request->input('search'),
+            'status' => $request->input('status'),
+            'priority' => $request->input('priority'),
+            'order_type' => $request->input('order_type'),
+            'equipment_id' => $request->input('equipment_id'),
+            'assigned_to' => $request->input('assigned_to'),
+        ], $request->integer('per_page', 15)));
     }
 
     public function orderStore(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'equipment_id'     => 'required|integer|exists:equipment,id',
-            'order_type'       => 'required|in:' . implode(',', MaintenanceOrder::ORDER_TYPES),
-            'priority'         => 'nullable|in:' . implode(',', MaintenanceOrder::PRIORITIES),
-            'description'      => 'required|string',
-            'scheduled_start'  => 'nullable|date',
-            'scheduled_end'    => 'nullable|date|after_or_equal:scheduled_start',
-            'assigned_to'      => 'nullable|integer|exists:users,id',
-            'estimated_cost'   => 'nullable|numeric|min:0',
-            'tasks'            => 'nullable|array',
-            'tasks.*.task_description'   => 'required_with:tasks|string',
+            'equipment_id' => ['required', 'integer', $this->ownedBy('equipment')],
+            'order_type' => 'required|in:'.implode(',', MaintenanceOrder::ORDER_TYPES),
+            'priority' => 'nullable|in:'.implode(',', MaintenanceOrder::PRIORITIES),
+            'description' => 'required|string',
+            'scheduled_start' => 'nullable|date',
+            'scheduled_end' => 'nullable|date|after_or_equal:scheduled_start',
+            'assigned_to' => ['nullable', 'integer', $this->ownedBy('users')],
+            'estimated_cost' => 'nullable|numeric|min:0',
+            'tasks' => 'nullable|array',
+            'tasks.*.task_description' => 'required_with:tasks|string',
             'tasks.*.is_safety_critical' => 'nullable|boolean',
-            'tasks.*.sort_order'         => 'nullable|integer',
-            'parts'            => 'nullable|array',
-            'parts.*.product_id'         => 'nullable|integer|exists:products,id',
-            'parts.*.description'        => 'required_with:parts|string',
-            'parts.*.quantity_required'  => 'nullable|numeric|min:0',
-            'parts.*.unit_cost'          => 'nullable|numeric|min:0',
+            'tasks.*.sort_order' => 'nullable|integer',
+            'parts' => 'nullable|array',
+            'parts.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
+            'parts.*.description' => 'required_with:parts|string',
+            'parts.*.quantity_required' => 'nullable|numeric|min:0',
+            'parts.*.unit_cost' => 'nullable|numeric|min:0',
         ]);
 
+        $tasks = $data['tasks'] ?? [];
+        $parts = $data['parts'] ?? [];
+        unset($data['tasks'], $data['parts']);
+
         try {
-            $tasks = $data['tasks'] ?? [];
-            $parts = $data['parts'] ?? [];
-            unset($data['tasks'], $data['parts']);
-
-            $order = $this->maintenanceService->createMaintenanceOrder($data, $tasks, $parts, auth()->id());
-
-            return $this->created($order, 'Maintenance order created successfully.');
+            $order = $this->maintenanceService->createMaintenanceOrder($data, $tasks, $parts, $request->user()->id);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
+
+        return $this->created($order, 'Maintenance order created successfully.');
     }
 
     public function orderShow(MaintenanceOrder $maintenanceOrder): JsonResponse
     {
-        $maintenanceOrder->load(['equipment.category', 'equipment.functionalLocation', 'tasks', 'parts.product', 'assignee', 'plan', 'creator']);
-
-        return $this->success($maintenanceOrder);
+        return $this->success($maintenanceOrder->load([
+            'equipment.category', 'equipment.functionalLocation', 'tasks', 'parts.product', 'assignee', 'plan', 'creator',
+        ]));
     }
 
     public function orderUpdate(Request $request, MaintenanceOrder $maintenanceOrder): JsonResponse
     {
-        if (in_array($maintenanceOrder->status, [MaintenanceOrder::STATUS_COMPLETED, MaintenanceOrder::STATUS_CANCELLED], true)) {
-            return $this->error('Cannot update a completed or cancelled order.', 'ORDER_CLOSED', 422);
-        }
-
         $data = $request->validate([
-            'priority'        => 'nullable|in:' . implode(',', MaintenanceOrder::PRIORITIES),
-            'description'     => 'nullable|string',
+            'priority' => 'nullable|in:'.implode(',', MaintenanceOrder::PRIORITIES),
+            'description' => 'nullable|string',
             'scheduled_start' => 'nullable|date',
-            'scheduled_end'   => 'nullable|date|after_or_equal:scheduled_start',
-            'assigned_to'     => 'nullable|integer|exists:users,id',
-            'estimated_cost'  => 'nullable|numeric|min:0',
-            'status'          => 'nullable|in:' . implode(',', [MaintenanceOrder::STATUS_ON_HOLD]),
+            'scheduled_end' => 'nullable|date|after_or_equal:scheduled_start',
+            'assigned_to' => ['nullable', 'integer', $this->ownedBy('users')],
+            'estimated_cost' => 'nullable|numeric|min:0',
+            'status' => 'nullable|in:'.MaintenanceOrder::STATUS_ON_HOLD,
         ]);
 
-        $maintenanceOrder->update($data);
+        try {
+            $order = $this->maintenanceService->updateOrder($maintenanceOrder, $data);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
-        return $this->success($maintenanceOrder->fresh(), 'Maintenance order updated successfully.');
+        return $this->success($order, 'Maintenance order updated successfully.');
     }
 
     public function orderDestroy(MaintenanceOrder $maintenanceOrder): JsonResponse
     {
-        if (!in_array($maintenanceOrder->status, [MaintenanceOrder::STATUS_OPEN, MaintenanceOrder::STATUS_CANCELLED], true)) {
-            return $this->error('Only open or cancelled orders can be deleted.', 'ORDER_NOT_DELETABLE', 422);
+        try {
+            $this->maintenanceService->deleteOrder($maintenanceOrder);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $maintenanceOrder->delete();
 
         return $this->success(null, 'Maintenance order deleted successfully.');
     }
@@ -440,7 +392,7 @@ class MaintenanceController extends Controller
     public function orderStart(Request $request, MaintenanceOrder $maintenanceOrder): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->maintenanceService->startOrder($maintenanceOrder, auth()->id()),
+            fn () => $this->maintenanceService->startOrder($maintenanceOrder, $request->user()->id),
             'Maintenance order started successfully.',
             'INVALID_STATE'
         );
@@ -453,7 +405,7 @@ class MaintenanceController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->maintenanceService->completeTask($maintenanceOrder, $taskId, $data['notes'] ?? '', auth()->id()),
+            fn () => $this->maintenanceService->completeTask($maintenanceOrder, $taskId, $data['notes'] ?? '', $request->user()->id),
             'Task completed successfully.',
             'INVALID_STATE'
         );
@@ -463,12 +415,12 @@ class MaintenanceController extends Controller
     {
         $data = $request->validate([
             'resolution_notes' => 'nullable|string',
-            'actual_cost'      => 'nullable|numeric|min:0',
-            'downtime_hours'   => 'nullable|numeric|min:0',
+            'actual_cost' => 'nullable|numeric|min:0',
+            'downtime_hours' => 'nullable|numeric|min:0',
         ]);
 
         return $this->tryAction(
-            fn() => $this->maintenanceService->completeOrder($maintenanceOrder, $data, auth()->id()),
+            fn () => $this->maintenanceService->completeOrder($maintenanceOrder, $data, $request->user()->id),
             'Maintenance order completed successfully.',
             'INVALID_STATE'
         );
@@ -477,7 +429,7 @@ class MaintenanceController extends Controller
     public function orderCancel(Request $request, MaintenanceOrder $maintenanceOrder): JsonResponse
     {
         return $this->tryAction(
-            fn() => $this->maintenanceService->cancelOrder($maintenanceOrder, auth()->id()),
+            fn () => $this->maintenanceService->cancelOrder($maintenanceOrder, $request->user()->id),
             'Maintenance order cancelled successfully.',
             'INVALID_STATE'
         );
@@ -489,18 +441,20 @@ class MaintenanceController extends Controller
 
     public function stats(Request $request): JsonResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'from' => 'required|date',
-            'to'   => 'required|date|after_or_equal:from',
+            'to' => 'required|date|after_or_equal:from',
         ]);
 
-        $orgId = auth()->user()->organization_id;
-        $stats = $this->maintenanceService->getMaintenanceStats(
-            $orgId,
-            $request->input('from'),
-            $request->input('to')
-        );
+        return $this->success($this->maintenanceService->getMaintenanceStats(
+            $request->user()->organization_id,
+            $validated['from'],
+            $validated['to']
+        ));
+    }
 
-        return $this->success($stats);
+    private function ruleError(BusinessRuleException $e): JsonResponse
+    {
+        return $this->error($e->getMessage(), $e->getErrorCode(), $e->getHttpStatus());
     }
 }

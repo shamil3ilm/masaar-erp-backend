@@ -7,6 +7,7 @@ namespace App\Services\Maintenance;
 use App\Models\Maintenance\Equipment;
 use App\Models\Maintenance\FunctionalLocation;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -24,26 +25,28 @@ use Illuminate\Support\Facades\DB;
 class EquipmentHierarchyService
 {
     /**
-     * Return the full FLOC hierarchy tree from roots, with equipment at each node.
+     * The functional location tree with the equipment installed at each node:
+     * from the organization's active root locations, or from $rootId when it
+     * is given. Children are active locations only.
      *
-     * @return array<int, array{floc: FunctionalLocation, children: array, equipment: Collection}>
+     * The active locations and their equipment are read once and assembled in
+     * memory, so the number of queries does not grow with the tree.
+     *
+     * @return list<array{floc: array<string, mixed>, equipment: SupportCollection, children: array}>
      */
     public function buildTree(int $organizationId, ?int $rootId = null): array
     {
-        if ($rootId) {
-            $roots = FunctionalLocation::where('organization_id', $organizationId)
-                ->where('id', $rootId)
-                ->with(['equipment.category'])
-                ->get();
-        } else {
-            $roots = FunctionalLocation::where('organization_id', $organizationId)
-                ->whereNull('parent_id')
-                ->where('is_active', true)
-                ->with(['equipment.category'])
-                ->get();
-        }
+        $active = FunctionalLocation::where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->with('equipment')
+            ->orderBy('id')
+            ->get();
 
-        return $this->buildNodes($roots, $organizationId);
+        $roots = $rootId
+            ? FunctionalLocation::where('organization_id', $organizationId)->where('id', $rootId)->with('equipment')->get()
+            : $active->whereNull('parent_id')->values();
+
+        return $this->buildNodes($roots, $active->groupBy('parent_id'), []);
     }
 
     /**
@@ -110,7 +113,7 @@ class EquipmentHierarchyService
         }
 
         return [
-            'equipment'     => $equipment->only(['id', 'uuid', 'equipment_number', 'name', 'status']),
+            'equipment' => $equipment->only(['id', 'uuid', 'equipment_number', 'name', 'status']),
             'location_path' => $path,
         ];
     }
@@ -126,47 +129,52 @@ class EquipmentHierarchyService
             ->get();
 
         $flocIds = $rows->pluck('functional_location_id')->filter()->unique();
-        $flocs   = FunctionalLocation::whereIn('id', $flocIds)->get()->keyBy('id');
+        $flocs = FunctionalLocation::whereIn('id', $flocIds)->get()->keyBy('id');
 
         $summary = [];
         foreach ($rows as $row) {
             $flocId = $row->functional_location_id ?? 'unassigned';
             if (! isset($summary[$flocId])) {
-                $floc             = $row->functional_location_id ? $flocs->get($row->functional_location_id) : null;
+                $floc = $row->functional_location_id ? $flocs->get($row->functional_location_id) : null;
                 $summary[$flocId] = [
-                    'floc_id'   => $row->functional_location_id,
+                    'floc_id' => $row->functional_location_id,
                     'floc_name' => $floc?->name ?? 'Unassigned',
-                    'total'     => 0,
-                    'active'    => 0,
-                    'inactive'  => 0,
+                    'total' => 0,
+                    'active' => 0,
+                    'inactive' => 0,
                 ];
             }
-            $summary[$flocId]['total']                                         += $row->cnt;
+            $summary[$flocId]['total'] += $row->cnt;
             $summary[$flocId][$row->status === Equipment::STATUS_ACTIVE ? 'active' : 'inactive'] += $row->cnt;
         }
 
         return array_values($summary);
     }
 
-    // ----------------------------------------------------------------
-
-    private function buildNodes(Collection $flocs, int $organizationId): array
+    /**
+     * @param  iterable<FunctionalLocation>  $locations
+     * @param  SupportCollection<int|string, Collection<int, FunctionalLocation>>  $childrenByParent
+     * @param  array<int, true>  $ancestors  locations above this level, so a parent loop in the data ends instead of recursing forever
+     */
+    private function buildNodes(iterable $locations, SupportCollection $childrenByParent, array $ancestors): array
     {
         $nodes = [];
 
-        foreach ($flocs as $floc) {
-            $children = FunctionalLocation::where('organization_id', $organizationId)
-                ->where('parent_id', $floc->id)
-                ->where('is_active', true)
-                ->with(['equipment.category'])
-                ->get();
+        foreach ($locations as $location) {
+            if (isset($ancestors[$location->id])) {
+                continue;
+            }
 
             $nodes[] = [
-                'floc'      => $floc->only(['id', 'uuid', 'code', 'name', 'location_type']),
-                'equipment' => $floc->equipment->map(fn (Equipment $e) => $e->only([
+                'floc' => $location->only(['id', 'uuid', 'code', 'name', 'location_type']),
+                'equipment' => $location->equipment->map(fn (Equipment $e) => $e->only([
                     'id', 'uuid', 'equipment_number', 'name', 'status', 'next_maintenance_date',
                 ])),
-                'children'  => $this->buildNodes($children, $organizationId),
+                'children' => $this->buildNodes(
+                    $childrenByParent->get($location->id, []),
+                    $childrenByParent,
+                    $ancestors + [$location->id => true]
+                ),
             ];
         }
 
@@ -175,13 +183,13 @@ class EquipmentHierarchyService
 
     private function collectDescendantIds(FunctionalLocation $floc): array
     {
-        $ids   = [$floc->id];
+        $ids = [$floc->id];
         $queue = [$floc->id];
 
         while (! empty($queue)) {
-            $children = FunctionalLocation::whereIn('parent_id', $queue)->pluck('id')->toArray();
-            $ids      = array_merge($ids, $children);
-            $queue    = $children;
+            $children = FunctionalLocation::whereIn('parent_id', $queue)->whereNotIn('id', $ids)->pluck('id')->toArray();
+            $ids = array_merge($ids, $children);
+            $queue = $children;
         }
 
         return $ids;

@@ -6,6 +6,7 @@ namespace App\Models\Maintenance;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,6 +16,7 @@ class EquipmentCounter extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
+    use LocksForTransition;
     use SoftDeletes;
 
     protected $fillable = [
