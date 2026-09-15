@@ -117,7 +117,18 @@ class FeatureFlagService
     }
 
     /**
-     * Add a targeting rule to a feature flag.
+     * A targeting rule of the organization on this flag; any other rule is not found.
+     */
+    public function findTarget(int $organizationId, string $flagKey, int $targetId): FeatureFlagTarget
+    {
+        return FeatureFlagTarget::where('id', $targetId)
+            ->where('organization_id', $organizationId)
+            ->where('flag_key', $flagKey)
+            ->firstOrFail();
+    }
+
+    /**
+     * Add a targeting rule to a feature flag, with its notes in the same write.
      */
     public function addTarget(
         int $organizationId,
@@ -126,8 +137,9 @@ class FeatureFlagService
         ?int $targetId,
         ?int $percentage,
         int $createdBy,
+        ?string $notes = null,
     ): FeatureFlagTarget {
-        $target = FeatureFlagTarget::create([
+        $attributes = [
             'organization_id' => $organizationId,
             'flag_key'        => $flagKey,
             'target_type'     => $targetType,
@@ -135,7 +147,13 @@ class FeatureFlagService
             'percentage'      => $percentage,
             'enabled'         => true,
             'created_by'      => $createdBy,
-        ]);
+        ];
+
+        if ($notes !== null && $notes !== '') {
+            $attributes['notes'] = $notes;
+        }
+
+        $target = FeatureFlagTarget::create($attributes);
 
         $this->logAction($organizationId, $flagKey, FeatureFlagRolloutLog::ACTION_TARGET_ADDED, $createdBy, [
             'target_id'   => $target->id,
