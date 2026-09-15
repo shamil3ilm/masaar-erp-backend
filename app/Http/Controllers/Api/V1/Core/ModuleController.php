@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use App\Services\Core\ModuleService;
+use App\Services\Core\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ModuleController extends Controller
 {
     public function __construct(
-        protected ModuleService $moduleService
+        protected ModuleService $moduleService,
+        private readonly UserService $users,
     ) {}
 
     /**
@@ -195,8 +196,7 @@ class ModuleController extends Controller
             'modules.*' => 'required|string',
         ]);
 
-        $targetUser = User::where('organization_id', $currentUser->organization_id)
-            ->findOrFail($userId);
+        $targetUser = $this->users->findInOrganization($currentUser->organization_id, $userId);
 
         $this->moduleService->setUserModuleAccess($targetUser, $request->get('modules'));
 
@@ -218,8 +218,7 @@ class ModuleController extends Controller
             return $this->forbidden('Permission denied');
         }
 
-        $targetUser = User::where('organization_id', $currentUser->organization_id)
-            ->findOrFail($userId);
+        $targetUser = $this->users->findInOrganization($currentUser->organization_id, $userId);
 
         $this->moduleService->clearUserModuleAccess($targetUser);
 
@@ -238,8 +237,7 @@ class ModuleController extends Controller
             return $this->forbidden('Permission denied');
         }
 
-        $targetUser = User::where('organization_id', $currentUser->organization_id)
-            ->findOrFail($userId);
+        $targetUser = $this->users->findInOrganization($currentUser->organization_id, $userId);
 
         $accessibleModules = $this->moduleService->getUserModules($targetUser);
 

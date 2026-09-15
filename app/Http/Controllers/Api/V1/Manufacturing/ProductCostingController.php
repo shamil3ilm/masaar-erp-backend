@@ -7,10 +7,8 @@ namespace App\Http\Controllers\Api\V1\Manufacturing;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\CostingRun;
 use App\Models\Manufacturing\CostingVersion;
-use App\Models\Manufacturing\CostVariance;
-use App\Models\Manufacturing\ProductStandardCost;
-use App\Models\Manufacturing\WipValuation;
 use App\Models\Manufacturing\WorkOrder;
+use App\Services\Manufacturing\CostingVersionService;
 use App\Services\Manufacturing\ProductCostingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +17,7 @@ class ProductCostingController extends Controller
 {
     public function __construct(
         private ProductCostingService $costingService,
+        private CostingVersionService $versionService,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -30,19 +29,12 @@ class ProductCostingController extends Controller
      */
     public function indexVersions(Request $request): JsonResponse
     {
-        $query = CostingVersion::query()
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->costing_type, fn ($q, $v) => $q->where('costing_type', $v))
-            ->when($request->search, fn ($q, $s) => $q->where(function ($inner) use ($s) {
-                $inner->where('version_code', 'like', "%{$s}%")
-                    ->orWhere('description', 'like', "%{$s}%");
-            }))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['version_code', 'valid_from', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->versionService->paginate(
+            $request->only(['status', 'costing_type', 'search']),
+            $this->safeSortBy($request->sort_by, CostingVersionService::SORT_COLUMNS, 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -59,12 +51,7 @@ class ProductCostingController extends Controller
             'currency_code' => 'nullable|string|size:3',
         ]);
 
-        $version = CostingVersion::create(array_merge($data, [
-            'status'     => CostingVersion::STATUS_DRAFT,
-            'created_by' => auth()->id(),
-        ]));
-
-        return $this->success($version, 'Costing version created.', 201);
+        return $this->success($this->versionService->create($data, auth()->id()), 'Costing version created.', 201);
     }
 
     /**
@@ -117,12 +104,11 @@ class ProductCostingController extends Controller
      */
     public function indexStandardCosts(Request $request, CostingVersion $version): JsonResponse
     {
-        $query = ProductStandardCost::where('costing_version_id', $version->id)
-            ->with(['product', 'variant'])
-            ->when($request->product_id, fn ($q, $id) => $q->where('product_id', $id))
-            ->orderBy('id');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->versionService->paginateStandardCosts(
+            $version,
+            $request->integer('product_id') ?: null,
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -130,12 +116,7 @@ class ProductCostingController extends Controller
      */
     public function showProductCost(CostingVersion $version, int $productId): JsonResponse
     {
-        $cost = ProductStandardCost::where('costing_version_id', $version->id)
-            ->where('product_id', $productId)
-            ->with(['product', 'components'])
-            ->firstOrFail();
-
-        return $this->success($cost);
+        return $this->success($this->versionService->findStandardCostOrFail($version, $productId));
     }
 
     // -------------------------------------------------------------------------
@@ -157,14 +138,10 @@ class ProductCostingController extends Controller
      */
     public function indexVariances(Request $request): JsonResponse
     {
-        $query = CostVariance::with(['workOrder', 'costingVersion'])
-            ->when($request->period_year, fn ($q, $y) => $q->where('period_year', $y))
-            ->when($request->period_month, fn ($q, $m) => $q->where('period_month', $m))
-            ->when($request->work_order_id, fn ($q, $id) => $q->where('work_order_id', $id))
-            ->orderBy('period_year', 'desc')
-            ->orderBy('period_month', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->costingService->paginateVariances(
+            $request->only(['period_year', 'period_month', 'work_order_id']),
+            $request->integer('per_page', 15),
+        ));
     }
 
     // -------------------------------------------------------------------------
@@ -196,11 +173,9 @@ class ProductCostingController extends Controller
      */
     public function indexWipValuations(Request $request): JsonResponse
     {
-        $query = WipValuation::with('workOrder')
-            ->when($request->valuation_date, fn ($q, $d) => $q->where('valuation_date', $d))
-            ->when($request->work_order_id, fn ($q, $id) => $q->where('work_order_id', $id))
-            ->orderBy('valuation_date', 'desc');
-
-        return $this->paginated($query->paginate($request->integer('per_page', 15)));
+        return $this->paginated($this->costingService->paginateWipValuations(
+            $request->only(['valuation_date', 'work_order_id']),
+            $request->integer('per_page', 15),
+        ));
     }
 }

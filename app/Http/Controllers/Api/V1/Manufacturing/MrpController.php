@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\DemandForecast;
-use App\Models\Manufacturing\MrpPlannedOrder;
 use App\Models\Manufacturing\MrpRun;
 use App\Services\Manufacturing\DemandForecastService;
 use App\Services\Manufacturing\MrpCapacityService;
@@ -18,6 +17,8 @@ use Illuminate\Support\Carbon;
 
 class MrpController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly MrpService $mrpService,
         private readonly MrpCapacityService $capacity,
@@ -30,13 +31,10 @@ class MrpController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $runs = MrpRun::with(['runBy:id,name,email'])
-            ->withCount('plannedOrders')
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('run_date')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($runs, null);
+        return $this->paginated(
+            $this->mrpService->paginateRuns($request->status, $request->integer('per_page', 15)),
+            null
+        );
     }
 
     /**
@@ -44,11 +42,11 @@ class MrpController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $run = MrpRun::with([
+        $run = $this->mrpService->findRun($id, [
             'runBy:id,name,email',
             'demandItems.product:id,name,sku',
             'plannedOrders.product:id,name,sku',
-        ])->find($id);
+        ]);
 
         if (! $run) {
             return $this->notFound('MRP run not found.');
@@ -78,20 +76,20 @@ class MrpController extends Controller
      */
     public function plannedOrders(Request $request, int $id): JsonResponse
     {
-        $run = MrpRun::find($id);
+        $run = $this->mrpService->findRun($id);
 
         if (! $run) {
             return $this->notFound('MRP run not found.');
         }
 
-        $orders = MrpPlannedOrder::where('mrp_run_id', $id)
-            ->with('product:id,name,sku')
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->order_type, fn ($q, $t) => $q->where('order_type', $t))
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($orders, null);
+        return $this->paginated(
+            $this->mrpService->paginatePlannedOrders(
+                $run,
+                $request->only(['status', 'order_type']),
+                $request->integer('per_page', 20)
+            ),
+            null
+        );
     }
 
     /**
@@ -99,7 +97,7 @@ class MrpController extends Controller
      */
     public function firmOrder(Request $request, int $id): JsonResponse
     {
-        $order = MrpPlannedOrder::find($id);
+        $order = $this->mrpService->findPlannedOrder($id);
 
         if (! $order) {
             return $this->notFound('Planned order not found.');
@@ -119,7 +117,7 @@ class MrpController extends Controller
      */
     public function convertOrder(Request $request, int $id): JsonResponse
     {
-        $order = MrpPlannedOrder::find($id);
+        $order = $this->mrpService->findPlannedOrder($id);
 
         if (! $order) {
             return $this->notFound('Planned order not found.');
@@ -131,8 +129,10 @@ class MrpController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
+        $order = $order->fresh();
+
         return $this->success([
-            'planned_order' => $order->fresh(),
+            'planned_order' => $order,
             'converted_to' => $converted,
             'converted_type' => $order->converted_to_type,
         ], 'Planned order converted successfully.');
@@ -143,16 +143,10 @@ class MrpController extends Controller
      */
     public function forecasts(Request $request): JsonResponse
     {
-        $forecasts = DemandForecast::with(['product:id,name,sku', 'warehouse:id,name'])
-            ->when($request->product_id, fn ($q, $id) => $q->forProduct((int) $id))
-            ->when(
-                $request->from && $request->to,
-                fn ($q) => $q->forPeriod($request->from, $request->to)
-            )
-            ->orderByDesc('forecast_date')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($forecasts, null);
+        return $this->paginated(
+            $this->forecasts->paginate($request->only(['product_id', 'from', 'to']), $request->integer('per_page', 20)),
+            null
+        );
     }
 
     /**
@@ -161,8 +155,8 @@ class MrpController extends Controller
     public function storeForecast(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'product_id' => ['required', $this->ownedBy('products')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'forecast_date' => 'required|date',
             'forecast_quantity' => 'required|numeric|min:0',
             'actual_quantity' => 'nullable|numeric|min:0',
@@ -184,7 +178,7 @@ class MrpController extends Controller
      */
     public function updateForecast(Request $request, int $id): JsonResponse
     {
-        $forecast = DemandForecast::find($id);
+        $forecast = $this->forecasts->find($id);
 
         if (! $forecast) {
             return $this->notFound('Demand forecast not found.');
@@ -194,15 +188,10 @@ class MrpController extends Controller
             'forecast_quantity' => 'sometimes|numeric|min:0',
             'actual_quantity' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:500',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
         ]);
 
-        $forecast->update($validated);
-
-        return $this->success(
-            $forecast->fresh(['product:id,name,sku', 'warehouse:id,name']),
-            'Demand forecast updated.'
-        );
+        return $this->success($this->forecasts->update($forecast, $validated), 'Demand forecast updated.');
     }
 
     /**
@@ -210,13 +199,13 @@ class MrpController extends Controller
      */
     public function destroyForecast(int $id): JsonResponse
     {
-        $forecast = DemandForecast::find($id);
+        $forecast = $this->forecasts->find($id);
 
         if (! $forecast) {
             return $this->notFound('Demand forecast not found.');
         }
 
-        $forecast->delete();
+        $this->forecasts->delete($forecast);
 
         return $this->success(null, 'Demand forecast deleted.');
     }
@@ -265,20 +254,12 @@ class MrpController extends Controller
             'mrp_run_id' => 'nullable|integer|min:1',
         ]);
 
-        $orgId = (int) $this->organizationId($request);
-        $horizon = Carbon::parse($validated['to_date']);
-
-        $query = MrpPlannedOrder::withoutGlobalScope('organization')
-            ->where('organization_id', $orgId)
-            ->whereIn('status', [MrpPlannedOrder::STATUS_PLANNED, MrpPlannedOrder::STATUS_FIRMED])
-            ->whereDate('planned_start_date', '>=', $validated['from_date'])
-            ->whereDate('planned_start_date', '<=', $validated['to_date']);
-
-        if (! empty($validated['mrp_run_id'])) {
-            $query->where('mrp_run_id', $validated['mrp_run_id']);
-        }
-
-        $orders = $query->with('product:id,name,sku')->get();
+        $orders = $this->capacity->plannedOrdersStartingBetween(
+            (int) $this->organizationId($request),
+            $validated['from_date'],
+            $validated['to_date'],
+            empty($validated['mrp_run_id']) ? null : (int) $validated['mrp_run_id'],
+        );
 
         if ($orders->isEmpty()) {
             return $this->success(
@@ -288,7 +269,7 @@ class MrpController extends Controller
         }
 
         try {
-            $result = $this->capacity->runCapacityCheck($orders, $horizon);
+            $result = $this->capacity->runCapacityCheck($orders, Carbon::parse($validated['to_date']));
         } catch (\Throwable $e) {
             return $this->error($e->getMessage(), 'CRP_ERROR', 422);
         }
@@ -309,11 +290,11 @@ class MrpController extends Controller
             'to_date' => 'required|date|after_or_equal:from_date',
         ]);
 
-        $orgId = (int) $this->organizationId($request);
-        $fromDate = Carbon::parse($validated['from_date']);
-        $toDate = Carbon::parse($validated['to_date']);
-
-        $load = $this->capacity->getCapacityLoad($orgId, $fromDate, $toDate);
+        $load = $this->capacity->getCapacityLoad(
+            (int) $this->organizationId($request),
+            Carbon::parse($validated['from_date']),
+            Carbon::parse($validated['to_date'])
+        );
 
         return $this->success($load, 'Capacity load retrieved.');
     }

@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\WorkflowEscalationRule;
-use App\Models\Core\WorkflowSubstitutionRule;
 use App\Services\Core\WorkflowEscalationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class WorkflowEscalationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly WorkflowEscalationService $service,
     ) {}
@@ -37,11 +38,11 @@ class WorkflowEscalationController extends Controller
     public function storeRule(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'approval_workflow_id'  => ['nullable', 'exists:approval_workflows,id'],
+            'approval_workflow_id'  => ['nullable', $this->ownedBy('approval_workflows')],
             'step_number'           => ['nullable', 'integer', 'min:1'],
             'escalation_type'       => ['required', 'in:reminder,escalate_to_manager,escalate_to_admin,auto_approve,auto_reject'],
             'trigger_after_hours'   => ['required', 'integer', 'min:1'],
-            'escalate_to_user_id'   => ['nullable', 'exists:users,id'],
+            'escalate_to_user_id'   => ['nullable', $this->ownedBy('users')],
             'escalate_to_role'      => ['nullable', 'string', 'max:100'],
             'notification_template' => ['nullable', 'string'],
             'is_active'             => ['nullable', 'boolean'],
@@ -56,12 +57,12 @@ class WorkflowEscalationController extends Controller
 
     public function updateRule(Request $request, string $id): JsonResponse
     {
-        $rule = WorkflowEscalationRule::findOrFail($id);
+        $rule = $this->service->findRule($id);
 
         $validated = $request->validate([
             'escalation_type'       => ['sometimes', 'in:reminder,escalate_to_manager,escalate_to_admin,auto_approve,auto_reject'],
             'trigger_after_hours'   => ['sometimes', 'integer', 'min:1'],
-            'escalate_to_user_id'   => ['nullable', 'exists:users,id'],
+            'escalate_to_user_id'   => ['nullable', $this->ownedBy('users')],
             'escalate_to_role'      => ['nullable', 'string', 'max:100'],
             'notification_template' => ['nullable', 'string'],
             'is_active'             => ['nullable', 'boolean'],
@@ -74,8 +75,7 @@ class WorkflowEscalationController extends Controller
 
     public function destroyRule(string $id): JsonResponse
     {
-        $rule = WorkflowEscalationRule::findOrFail($id);
-        $this->service->deleteRule($rule);
+        $this->service->deleteRule($this->service->findRule($id));
 
         return $this->success(null, 'Escalation rule deleted.');
     }
@@ -114,8 +114,8 @@ class WorkflowEscalationController extends Controller
     public function createSubstitution(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'approver_id'   => ['required', 'exists:users,id'],
-            'substitute_id' => ['required', 'exists:users,id', 'different:approver_id'],
+            'approver_id'   => ['required', $this->ownedBy('users')],
+            'substitute_id' => ['required', $this->ownedBy('users'), 'different:approver_id'],
             'valid_from'    => ['required', 'date'],
             'valid_to'      => ['nullable', 'date', 'after_or_equal:valid_from'],
             'reason'        => ['nullable', 'string'],
@@ -134,8 +134,7 @@ class WorkflowEscalationController extends Controller
 
     public function revokeSubstitution(string $id): JsonResponse
     {
-        $rule = WorkflowSubstitutionRule::findOrFail($id);
-        $this->service->revokeSubstitution($rule);
+        $this->service->revokeSubstitution($this->service->findSubstitution($id));
 
         return $this->success(null, 'Substitution rule revoked.');
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\StatisticalKeyFigure;
 use App\Services\Accounting\StatisticalKeyFigureService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class StatisticalKeyFigureController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly StatisticalKeyFigureService $service
     ) {}
@@ -83,8 +86,8 @@ class StatisticalKeyFigureController extends Controller
         $this->service->find($id);
 
         $validated = $request->validate([
-            'cost_center_id'   => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'profit_center_id' => ['nullable', 'integer', 'exists:profit_centers,id'],
+            'cost_center_id'   => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'profit_center_id' => ['nullable', 'integer', $this->ownedBy('profit_centers')],
             'period'           => ['required', 'integer', 'min:1', 'max:12'],
             'fiscal_year'      => ['required', 'integer', 'min:2000', 'max:2099'],
             'value'            => ['required', 'numeric'],

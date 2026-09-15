@@ -12,8 +12,11 @@ use App\Models\Manufacturing\MrpRun;
 use App\Models\Manufacturing\PlannedIndependentRequirement;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\StockLevel;
+use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\SalesOrder;
 use App\Models\Sales\SalesOrderLine;
+use App\Services\Purchase\PurchaseOrderService;
+use App\Services\Purchase\SourceListService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -23,6 +26,13 @@ use Illuminate\Support\Facades\Log;
 class MrpService
 {
     private const MAX_BOM_DEPTH = 50;
+
+    public function __construct(
+        private readonly BomService $bomService,
+        private readonly WorkOrderService $workOrderService,
+        private readonly PurchaseOrderService $purchaseOrderService,
+        private readonly SourceListService $sourceListService,
+    ) {}
 
     /**
      * Execute an MRP run for the authenticated organization.
@@ -93,27 +103,100 @@ class MrpService
      */
     public function firmPlannedOrder(MrpPlannedOrder $order, int $userId): MrpPlannedOrder
     {
-        if (!$order->canBeFirmed()) {
-            throw new \InvalidArgumentException('Only planned orders in "planned" status can be firmed.');
-        }
+        return $order->lockForTransition(function (MrpPlannedOrder $order) use ($userId): MrpPlannedOrder {
+            if (!$order->canBeFirmed()) {
+                throw new \InvalidArgumentException('Only planned orders in "planned" status can be firmed.');
+            }
 
-        return $order->firm($userId);
+            return $order->firm($userId);
+        });
     }
 
     /**
-     * Convert a planned order to a purchase order or work order based on its type.
+     * Convert a planned order to a purchase order or work order based on its
+     * type, once: the status is checked on the locked planned order.
      */
     public function convertToOrder(MrpPlannedOrder $order, int $userId): Model
     {
-        if (!$order->canBeConverted()) {
-            throw new \InvalidArgumentException('Only planned or firmed orders can be converted.');
-        }
+        return $order->lockForTransition(function (MrpPlannedOrder $order) use ($userId): Model {
+            if (!$order->canBeConverted()) {
+                throw new \InvalidArgumentException('Only planned or firmed orders can be converted.');
+            }
 
-        return match ($order->order_type) {
-            MrpPlannedOrder::TYPE_PURCHASE   => $order->convertToPurchaseOrder($userId),
-            MrpPlannedOrder::TYPE_PRODUCTION => $order->convertToWorkOrder($userId),
-            default                          => throw new \InvalidArgumentException("Cannot convert order of type '{$order->order_type}'."),
-        };
+            return match ($order->order_type) {
+                MrpPlannedOrder::TYPE_PURCHASE   => $this->convertToPurchaseOrder($order, $userId),
+                MrpPlannedOrder::TYPE_PRODUCTION => $this->convertToWorkOrder($order, $userId),
+                default                          => throw new \InvalidArgumentException("Cannot convert order of type '{$order->order_type}'."),
+            };
+        });
+    }
+
+    /**
+     * Create the purchase order for a purchase planned order, from the
+     * product's preferred vendor, with one line for the planned quantity.
+     *
+     * The vendor comes from the product's preferred vendor price or its
+     * highest-priority active source list entry, both within the organization.
+     * A purchase order cannot exist without a supplier, so a product with
+     * neither is refused and the planned order stays unconverted.
+     */
+    private function convertToPurchaseOrder(MrpPlannedOrder $order, int $userId): PurchaseOrder
+    {
+        $supplier = $this->sourceListService->getPreferredVendor($order->product_id)
+            ?? throw new \InvalidArgumentException(
+                'No supplier could be determined for the product. Give it a preferred vendor price or an active source list entry.'
+            );
+
+        $product = $order->product()->firstOrFail();
+
+        $purchaseOrder = $this->purchaseOrderService->create([
+            'organization_id'        => $order->organization_id,
+            'supplier_id'            => $supplier->id,
+            'order_date'             => now()->toDateString(),
+            'expected_delivery_date' => $order->planned_end_date->toDateString(),
+            'notes'                  => "Auto-generated from MRP planned order #{$order->uuid}",
+            'created_by'             => $userId,
+        ], [[
+            'product_id'  => $product->id,
+            'description' => $product->name,
+            'quantity'    => (float) $order->planned_quantity,
+            'unit_price'  => (float) ($product->purchase_price ?? 0),
+        ]]);
+
+        $order->update([
+            'status'            => MrpPlannedOrder::STATUS_CONVERTED,
+            'converted_at'      => now(),
+            'converted_to_type' => PurchaseOrder::class,
+            'converted_to_id'   => $purchaseOrder->id,
+        ]);
+
+        return $purchaseOrder;
+    }
+
+    /**
+     * Create the work order for a production planned order from the product's
+     * current active BOM, with its number, materials and operations.
+     */
+    private function convertToWorkOrder(MrpPlannedOrder $order, int $userId): \App\Models\Manufacturing\WorkOrder
+    {
+        $bom = $this->bomService->getDefaultForProduct($order->product_id)
+            ?? throw new \InvalidArgumentException('The product has no active BOM to create a work order from.');
+
+        $workOrder = $this->workOrderService->create($bom, [
+            'planned_quantity'   => $order->planned_quantity,
+            'planned_start_date' => $order->planned_start_date->toDateString(),
+            'planned_end_date'   => $order->planned_end_date->toDateString(),
+            'notes'              => "Auto-generated from MRP planned order #{$order->uuid}",
+        ], $userId);
+
+        $order->update([
+            'status'            => MrpPlannedOrder::STATUS_CONVERTED,
+            'converted_at'      => now(),
+            'converted_to_type' => \App\Models\Manufacturing\WorkOrder::class,
+            'converted_to_id'   => $workOrder->id,
+        ]);
+
+        return $workOrder;
     }
 
     /**
@@ -455,5 +538,50 @@ class MrpService
         }
 
         return $plannedCount;
+    }
+
+    /**
+     * The organization's MRP runs, latest first.
+     */
+    public function paginateRuns(mixed $status, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return MrpRun::with(['runBy:id,name,email'])
+            ->withCount('plannedOrders')
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->orderByDesc('run_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's MRP runs, or null.
+     *
+     * @param  list<string>  $with
+     */
+    public function findRun(int $id, array $with = []): ?MrpRun
+    {
+        return MrpRun::with($with)->find($id);
+    }
+
+    /**
+     * The run's planned orders, newest first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginatePlannedOrders(MrpRun $run, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return MrpPlannedOrder::where('mrp_run_id', $run->id)
+            ->with('product:id,name,sku')
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->when($filters['order_type'] ?? null, fn ($q, $t) => $q->where('order_type', $t))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's planned orders, or null.
+     */
+    public function findPlannedOrder(int $id): ?MrpPlannedOrder
+    {
+        return MrpPlannedOrder::find($id);
     }
 }

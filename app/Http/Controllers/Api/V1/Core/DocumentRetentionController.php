@@ -26,9 +26,7 @@ class DocumentRetentionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $policies = RetentionPolicy::where('organization_id', $this->organizationId($request))
-            ->orderBy('document_type')
-            ->get();
+        $policies = $this->service->listPolicies($this->organizationId($request));
 
         return $this->success($policies, 'Retention policies retrieved.');
     }
@@ -87,7 +85,7 @@ class DocumentRetentionController extends Controller
      */
     public function destroy(RetentionPolicy $retentionPolicy): JsonResponse
     {
-        $retentionPolicy->delete();
+        $this->service->deletePolicy($retentionPolicy);
 
         return $this->success(null, 'Retention policy deleted.');
     }
@@ -101,11 +99,7 @@ class DocumentRetentionController extends Controller
      */
     public function legalHoldsIndex(Request $request): JsonResponse
     {
-        $holds = DocumentLegalHold::where('organization_id', $this->organizationId($request))
-            ->where('is_active', true)
-            ->with('heldByUser')
-            ->orderByDesc('created_at')
-            ->paginate($request->integer('per_page', 15));
+        $holds = $this->service->listActiveHolds($this->organizationId($request), $request->integer('per_page', 15));
 
         return $this->success($holds, 'Legal holds retrieved.');
     }

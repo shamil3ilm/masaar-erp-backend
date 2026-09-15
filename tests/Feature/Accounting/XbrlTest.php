@@ -272,7 +272,7 @@ class XbrlTest extends TestCase
             ->assertJsonPath('meta.per_page', 20);
     }
 
-    public function test_filings_store_returns_404_for_another_organizations_fiscal_year_or_taxonomy(): void
+    public function test_filings_store_rejects_another_organizations_fiscal_year_or_taxonomy(): void
     {
         $otherOrg      = Organization::factory()->create();
         $taxonomy      = $this->makeTaxonomy();
@@ -288,11 +288,13 @@ class XbrlTest extends TestCase
 
         $this->withToken($this->token)
             ->postJson('/api/v1/xbrl/filings', ['fiscal_year_id' => $otherYear->id, 'taxonomy_id' => $taxonomy->id])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('fiscal_year_id');
 
         $this->withToken($this->token)
             ->postJson('/api/v1/xbrl/filings', ['fiscal_year_id' => $fiscalYear->id, 'taxonomy_id' => $otherTaxonomy->id])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('taxonomy_id');
 
         $this->assertSame(0, XbrlFiling::withoutGlobalScopes()->count());
     }

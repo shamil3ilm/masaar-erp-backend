@@ -5,11 +5,40 @@ declare(strict_types=1);
 namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\ProductionVersion;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Production versions: which BOM and routing produce a product for a lot size
+ * and validity period, with one default version per product.
+ */
 class ProductionVersionService
 {
+    /**
+     * @param  array{product_id?: mixed, active_only?: bool}  $filters
+     */
+    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ProductionVersion::with(['product', 'bom', 'routing'])
+            ->when($filters['product_id'] ?? null, fn($q, $id) => $q->forProduct((int) $id))
+            ->when($filters['active_only'] ?? false, fn($q) => $q->active())
+            ->orderByDesc('is_default')
+            ->orderBy('product_id')
+            ->orderBy('version_code')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's production versions, or null.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $id, array $with = []): ?ProductionVersion
+    {
+        return ProductionVersion::with($with)->find($id);
+    }
+
     /**
      * Retrieve the default production version for a product.
      */
@@ -22,7 +51,6 @@ class ProductionVersionService
 
     /**
      * Find the first active version whose lot size range covers the given quantity.
-     * Falls back to the default version when no range-specific match is found.
      */
     public function getVersionForLotSize(int $productId, float $quantity): ?ProductionVersion
     {
@@ -68,6 +96,14 @@ class ProductionVersionService
 
             return $version->fresh();
         });
+    }
+
+    /**
+     * Soft-delete a production version.
+     */
+    public function delete(ProductionVersion $version): void
+    {
+        $version->delete();
     }
 
     /**

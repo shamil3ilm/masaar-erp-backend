@@ -8,9 +8,19 @@ use App\Models\Core\FeatureAdoptionEvent;
 use App\Models\Core\OnboardingStep;
 use App\Models\Core\OnboardingTemplate;
 use App\Models\Core\UserOnboardingProgress;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Onboarding checklists and feature adoption.
+ *
+ * Templates carry no organization scope. An organization uses its own
+ * templates and the platform's shared ones (no organization), and changes only
+ * its own: a shared template is seen by every organization, so a step added to
+ * it would appear for all of them.
+ */
 class OnboardingService
 {
     /**
@@ -39,11 +49,26 @@ class OnboardingService
     }
 
     /**
+     * Active templates the organization may use, its own and the shared ones,
+     * in display order with their steps.
+     *
+     * @return Collection<int, OnboardingTemplate>
+     */
+    public function listTemplates(int $organizationId): Collection
+    {
+        return $this->usableTemplates(OnboardingTemplate::query(), $organizationId)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->with('steps')
+            ->get();
+    }
+
+    /**
      * Get all steps for a template with the user's completion status.
      */
     public function getUserProgress(int $organizationId, int $userId, int $templateId): array
     {
-        $template = OnboardingTemplate::with('steps')->findOrFail($templateId);
+        $template = $this->usableTemplates(OnboardingTemplate::with('steps'), $organizationId)->findOrFail($templateId);
 
         $progressMap = UserOnboardingProgress::where('organization_id', $organizationId)
             ->where('user_id', $userId)
@@ -84,7 +109,7 @@ class OnboardingService
      */
     public function completeStep(int $organizationId, int $userId, int $stepId): UserOnboardingProgress
     {
-        $step = OnboardingStep::findOrFail($stepId);
+        $step = $this->findUsableStep($organizationId, $stepId);
 
         $progress = UserOnboardingProgress::firstOrNew([
             'organization_id' => $organizationId,
@@ -105,7 +130,7 @@ class OnboardingService
      */
     public function skipStep(int $organizationId, int $userId, int $stepId): UserOnboardingProgress
     {
-        $step = OnboardingStep::findOrFail($stepId);
+        $step = $this->findUsableStep($organizationId, $stepId);
 
         $progress = UserOnboardingProgress::firstOrNew([
             'organization_id' => $organizationId,
@@ -257,12 +282,34 @@ class OnboardingService
     }
 
     /**
-     * Add a step to an existing template.
+     * Add a step to a template of the organization. A shared or another
+     * organization's template is not found.
      */
-    public function addStep(int $templateId, array $data): OnboardingStep
+    public function addStep(int $organizationId, int $templateId, array $data): OnboardingStep
     {
-        OnboardingTemplate::findOrFail($templateId);
+        OnboardingTemplate::where('organization_id', $organizationId)->findOrFail($templateId);
 
         return OnboardingStep::create(array_merge($data, ['template_id' => $templateId]));
+    }
+
+    /**
+     * A step of a template the organization may use; any other step is not found.
+     */
+    private function findUsableStep(int $organizationId, int $stepId): OnboardingStep
+    {
+        return OnboardingStep::whereHas(
+            'template',
+            fn (Builder $templates) => $this->usableTemplates($templates, $organizationId)
+        )->findOrFail($stepId);
+    }
+
+    /**
+     * Narrows a template query to the organization's own and the shared templates.
+     */
+    private function usableTemplates(Builder $query, int $organizationId): Builder
+    {
+        return $query->where(function (Builder $q) use ($organizationId): void {
+            $q->where('organization_id', $organizationId)->orWhereNull('organization_id');
+        });
     }
 }

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Core;
 use App\Http\Controllers\Controller;
 use App\Models\Core\ImportJob;
 use App\Services\Core\ImportService;
+use App\Services\Core\ModuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -14,7 +15,8 @@ use Illuminate\Support\Facades\Storage;
 class ImportController extends Controller
 {
     public function __construct(
-        protected ImportService $importService
+        protected ImportService $importService,
+        private readonly ModuleService $moduleService,
     ) {}
 
     public function entityTypes(): JsonResponse
@@ -48,7 +50,7 @@ class ImportController extends Controller
         }
 
         $module = $types[$entityType]['module'];
-        if (!app(\App\Services\Core\ModuleService::class)->isModuleEnabled($user->organization_id, $module)) {
+        if (!$this->moduleService->isModuleEnabled($user->organization_id, $module)) {
             return $this->forbidden("Module '{$module}' is not enabled");
         }
 
@@ -70,9 +72,7 @@ class ImportController extends Controller
 
     public function preview(Request $request, string $uuid): JsonResponse
     {
-        $importJob = ImportJob::where('uuid', $uuid)
-            ->where('organization_id', $request->user()->organization_id)
-            ->firstOrFail();
+        $importJob = $this->importService->findForOrganization($request->user()->organization_id, $uuid);
 
         if ($importJob->status !== ImportJob::STATUS_PENDING) {
             return $this->error('Import has already been processed', 'INVALID_STATE', 400);
@@ -96,30 +96,21 @@ class ImportController extends Controller
             'options.dry_run'         => 'sometimes|boolean',
         ]);
 
-        $importJob = ImportJob::where('uuid', $uuid)
-            ->where('organization_id', $request->user()->organization_id)
-            ->firstOrFail();
+        $importJob = $this->importService->findForOrganization($request->user()->organization_id, $uuid);
 
-        if ($importJob->status !== ImportJob::STATUS_PENDING) {
-            return $this->error('Import has already been processed', 'INVALID_STATE', 400);
-        }
+        return $this->tryAction(function () use ($importJob, $validated): array {
+            $importJob = $this->importService->configure($importJob, $validated['column_mapping'], $validated['options'] ?? []);
 
-        $importJob->update([
-            'column_mapping' => $validated['column_mapping'],
-            'options'        => array_merge($importJob->options ?? [], $validated['options'] ?? []),
-        ]);
-
-        return $this->success([
-            'import_id'  => $importJob->uuid,
-            'validation' => $this->importService->validateImport($importJob),
-        ]);
+            return [
+                'import_id'  => $importJob->uuid,
+                'validation' => $this->importService->validateImport($importJob),
+            ];
+        }, 'Success', 'INVALID_STATE', 400);
     }
 
     public function process(Request $request, string $uuid): JsonResponse
     {
-        $importJob = ImportJob::where('uuid', $uuid)
-            ->where('organization_id', $request->user()->organization_id)
-            ->firstOrFail();
+        $importJob = $this->importService->findForOrganization($request->user()->organization_id, $uuid);
 
         if (!in_array($importJob->status, [ImportJob::STATUS_PENDING, ImportJob::STATUS_VALIDATING])) {
             return $this->error('Import cannot be processed in current state', 'INVALID_STATE', 400);
@@ -127,6 +118,12 @@ class ImportController extends Controller
 
         if (!$importJob->column_mapping) {
             return $this->error('Column mapping is required. Call /configure first.', 'CONFIGURATION_REQUIRED', 400);
+        }
+
+        $importJob = $this->importService->claimForProcessing($importJob);
+
+        if ($importJob === null) {
+            return $this->error('Import cannot be processed in current state', 'INVALID_STATE', 400);
         }
 
         try {
@@ -144,18 +141,14 @@ class ImportController extends Controller
 
     public function status(Request $request, string $uuid): JsonResponse
     {
-        $importJob = ImportJob::where('uuid', $uuid)
-            ->where('organization_id', $request->user()->organization_id)
-            ->firstOrFail();
+        $importJob = $this->importService->findForOrganization($request->user()->organization_id, $uuid);
 
         return $this->success($this->importService->getStatus($importJob));
     }
 
     public function cancel(Request $request, string $uuid): JsonResponse
     {
-        $importJob = ImportJob::where('uuid', $uuid)
-            ->where('organization_id', $request->user()->organization_id)
-            ->firstOrFail();
+        $importJob = $this->importService->findForOrganization($request->user()->organization_id, $uuid);
 
         if ($this->importService->cancelImport($importJob)) {
             return $this->success(null, 'Import cancelled successfully');

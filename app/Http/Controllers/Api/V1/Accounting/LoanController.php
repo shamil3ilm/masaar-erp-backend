@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\Loan;
 use App\Services\Accounting\LoanService;
@@ -15,6 +16,7 @@ use Illuminate\Http\Request;
 class LoanController extends Controller
 {
     use ReportsBusinessRules;
+    use ValidatesOwnedRows;
 
     public function __construct(
         private LoanService $loanService
@@ -39,15 +41,15 @@ class LoanController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => ['nullable', 'exists:branches,id'],
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'loan_type' => ['required', 'string', 'in:employee_loan,inter_company,intra_company,bank_loan'],
             'loan_category' => ['nullable', 'string', 'in:personal,salary_advance,housing,vehicle,education'],
-            'employee_id' => ['nullable', 'exists:employees,id'],
-            'contact_id' => ['nullable', 'exists:contacts,id'],
+            'employee_id' => ['nullable', $this->ownedBy('employees')],
+            'contact_id' => ['nullable', $this->ownedBy('contacts')],
             'borrower_name' => ['nullable', 'string', 'max:255'],
             'lender_type' => ['nullable', 'string', 'in:organization,bank,other'],
             'lender_name' => ['nullable', 'string', 'max:255'],
-            'lender_contact_id' => ['nullable', 'exists:contacts,id'],
+            'lender_contact_id' => ['nullable', $this->ownedBy('contacts')],
             'principal_amount' => ['required', 'numeric', 'min:0.01'],
             'interest_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'interest_type' => ['nullable', 'string', 'in:simple,compound,flat'],
@@ -58,9 +60,9 @@ class LoanController extends Controller
             'tenure_months' => ['required', 'integer', 'min:1'],
             'payment_frequency' => ['nullable', 'string', 'in:weekly,bi-weekly,monthly'],
             'total_installments' => ['nullable', 'integer', 'min:1'],
-            'loan_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'interest_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'loan_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'interest_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'deduct_from_payroll' => ['nullable', 'boolean'],
             'monthly_deduction' => ['nullable', 'numeric', 'min:0'],
             'purpose' => ['nullable', 'string'],
@@ -156,7 +158,7 @@ class LoanController extends Controller
     public function recordPayment(Request $request, Loan $loan): JsonResponse
     {
         $validated = $request->validate([
-            'schedule_id' => ['nullable', 'exists:loan_schedules,id'],
+            'schedule_id' => ['nullable', $this->ownedThrough('loan_schedules', 'loan_id', 'loans')],
             'payment_date' => ['required', 'date'],
             'total_paid' => ['nullable', 'numeric', 'min:0.01'],
             'principal_paid' => ['nullable', 'numeric', 'min:0'],

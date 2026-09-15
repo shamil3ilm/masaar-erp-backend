@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\PaymentFile;
 use App\Services\Accounting\PaymentFileService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class PaymentFileController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly PaymentFileService $service
     ) {}
@@ -44,7 +47,7 @@ class PaymentFileController extends Controller
     public function generate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'payment_run_id' => ['required', 'integer', 'exists:payment_runs,id'],
+            'payment_run_id' => ['required', 'integer', $this->ownedBy('payment_runs')],
             'file_format'    => [
                 'required',
                 Rule::in([

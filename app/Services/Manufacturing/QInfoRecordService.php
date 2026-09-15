@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\QInfoRecord;
+use App\Models\Sales\Contact;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -13,7 +14,7 @@ class QInfoRecordService
 {
     public function list(int $orgId, array $filters = []): LengthAwarePaginator
     {
-        $query = QInfoRecord::with(['vendor', 'product', 'skipLotPlan'])
+        $query = QInfoRecord::with([$this->vendorReference(), 'product', 'skipLotPlan'])
             ->where('organization_id', $orgId);
 
         if (isset($filters['vendor_id'])) {
@@ -33,6 +34,29 @@ class QInfoRecordService
         }
 
         return $query->orderByDesc('created_at')->paginate($filters['per_page'] ?? 20);
+    }
+
+    /**
+     * One of the organization's records; a missing id is a 404.
+     */
+    public function find(int $orgId, int $id): QInfoRecord
+    {
+        return QInfoRecord::where('organization_id', $orgId)->findOrFail($id);
+    }
+
+    /**
+     * A record with its vendor, product and plans.
+     */
+    public function findForDisplay(int $orgId, int $id): QInfoRecord
+    {
+        return QInfoRecord::where('organization_id', $orgId)
+            ->with([$this->vendorReference(), 'product', 'skipLotPlan', 'qualityPlan'])
+            ->findOrFail($id);
+    }
+
+    public function delete(QInfoRecord $record): void
+    {
+        $record->delete();
     }
 
     public function create(int $orgId, array $data): QInfoRecord
@@ -70,7 +94,7 @@ class QInfoRecordService
                 $q->whereNull('next_inspection_date')
                     ->orWhere('next_inspection_date', '<=', Carbon::today()->toDateString());
             })
-            ->with(['vendor', 'product'])
+            ->with([$this->vendorReference(), 'product'])
             ->get();
     }
 
@@ -85,5 +109,14 @@ class QInfoRecordService
             'last_inspection_date' => $date->toDateString(),
             'next_inspection_date' => $nextDate?->toDateString(),
         ]);
+    }
+
+    /**
+     * The vendor relation limited to its reference columns, so a vendor's
+     * contact and tax details are never embedded in a record.
+     */
+    private function vendorReference(): string
+    {
+        return 'vendor:'.implode(',', Contact::REFERENCE_COLUMNS);
     }
 }

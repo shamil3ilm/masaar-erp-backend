@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CarryForwardRun;
 use App\Services\Accounting\CarryForwardService;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class CarryForwardController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private CarryForwardService $service
     ) {}
@@ -23,8 +26,8 @@ class CarryForwardController extends Controller
     public function execute(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'from_fiscal_year_id' => ['required', 'exists:fiscal_years,id'],
-            'to_fiscal_year_id'   => ['required', 'exists:fiscal_years,id', 'different:from_fiscal_year_id'],
+            'from_fiscal_year_id' => ['required', $this->ownedBy('fiscal_years')],
+            'to_fiscal_year_id'   => ['required', $this->ownedBy('fiscal_years'), 'different:from_fiscal_year_id'],
             'run_type'            => ['nullable', 'in:balance_sheet,profit_loss,both'],
         ]);
 

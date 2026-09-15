@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +18,7 @@ class ProductCostCollector extends Model
 {
     use HasUuid;
     use BelongsToOrganization;
+    use LocksForTransition;
     use SoftDeletes;
 
     public const STATUS_OPEN   = 'open';

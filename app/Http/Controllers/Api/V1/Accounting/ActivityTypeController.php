@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\ActivityType;
 use App\Services\Accounting\ActivityTypeService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ActivityTypeController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ActivityTypeService $service
     ) {}
@@ -41,7 +44,7 @@ class ActivityTypeController extends Controller
             'code'            => ['required', 'string', 'max:20'],
             'name'            => ['required', 'string', 'max:150'],
             'unit_of_measure' => ['nullable', 'string', 'max:20'],
-            'cost_element_id' => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'cost_element_id' => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'is_active'       => ['nullable', 'boolean'],
         ]);
 
@@ -77,7 +80,7 @@ class ActivityTypeController extends Controller
             'code'            => ['sometimes', 'required', 'string', 'max:20'],
             'name'            => ['sometimes', 'required', 'string', 'max:150'],
             'unit_of_measure' => ['nullable', 'string', 'max:20'],
-            'cost_element_id' => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'cost_element_id' => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'is_active'       => ['nullable', 'boolean'],
         ]);
 
@@ -106,8 +109,8 @@ class ActivityTypeController extends Controller
     public function setRate(Request $request, ActivityType $activityType): JsonResponse
     {
         $validated = $request->validate([
-            'cost_center_id' => ['required', 'integer', 'exists:cost_centers,id'],
-            'fiscal_year_id' => ['required', 'integer', 'exists:fiscal_years,id'],
+            'cost_center_id' => ['required', 'integer', $this->ownedBy('cost_centers')],
+            'fiscal_year_id' => ['required', 'integer', $this->ownedBy('fiscal_years')],
             'period'         => ['required', 'integer', 'min:1', 'max:12'],
             'planned_rate'   => ['nullable', 'numeric', 'min:0'],
             'actual_rate'    => ['nullable', 'numeric', 'min:0'],

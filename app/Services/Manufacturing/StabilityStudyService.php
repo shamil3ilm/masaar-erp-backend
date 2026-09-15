@@ -40,34 +40,71 @@ class StabilityStudyService
         ]));
     }
 
+    /**
+     * One of the organization's studies; a missing id is a 404.
+     */
+    public function find(int $orgId, int $id): StabilityStudy
+    {
+        return StabilityStudy::where('organization_id', $orgId)->findOrFail($id);
+    }
+
+    /**
+     * A study with its product, batch, time points and their results.
+     */
+    public function findForDisplay(int $orgId, int $id): StabilityStudy
+    {
+        return StabilityStudy::where('organization_id', $orgId)
+            ->with(['product', 'inventoryBatch', 'timePoints.results'])
+            ->findOrFail($id);
+    }
+
+    /**
+     * A time point of one of the organization's studies; a time point of
+     * another study is a 404.
+     */
+    public function findTimePoint(int $orgId, int $studyId, int $timePointId): StabilityStudyTimePoint
+    {
+        return $this->find($orgId, $studyId)->timePoints()->findOrFail($timePointId);
+    }
+
+    /**
+     * The status guards of update, activate and complete are checked on the
+     * locked study, so a stale copy cannot modify or reopen a completed study.
+     */
     public function update(StabilityStudy $study, array $data): StabilityStudy
     {
-        if ($study->status === StabilityStudy::STATUS_COMPLETED) {
-            throw new RuntimeException('Completed studies cannot be modified.');
-        }
+        return $study->lockForTransition(function (StabilityStudy $study) use ($data): StabilityStudy {
+            if ($study->status === StabilityStudy::STATUS_COMPLETED) {
+                throw new RuntimeException('Completed studies cannot be modified.');
+            }
 
-        $study->update($data);
-        return $study->fresh();
+            $study->update($data);
+            return $study->fresh();
+        });
     }
 
     public function activate(StabilityStudy $study): StabilityStudy
     {
-        if ($study->status !== StabilityStudy::STATUS_PLANNED) {
-            throw new RuntimeException('Only planned studies can be activated.');
-        }
+        return $study->lockForTransition(function (StabilityStudy $study): StabilityStudy {
+            if ($study->status !== StabilityStudy::STATUS_PLANNED) {
+                throw new RuntimeException('Only planned studies can be activated.');
+            }
 
-        $study->update(['status' => StabilityStudy::STATUS_ACTIVE]);
-        return $study->fresh();
+            $study->update(['status' => StabilityStudy::STATUS_ACTIVE]);
+            return $study->fresh();
+        });
     }
 
     public function complete(StabilityStudy $study): StabilityStudy
     {
-        if ($study->status !== StabilityStudy::STATUS_ACTIVE) {
-            throw new RuntimeException('Only active studies can be completed.');
-        }
+        return $study->lockForTransition(function (StabilityStudy $study): StabilityStudy {
+            if ($study->status !== StabilityStudy::STATUS_ACTIVE) {
+                throw new RuntimeException('Only active studies can be completed.');
+            }
 
-        $study->update(['status' => StabilityStudy::STATUS_COMPLETED]);
-        return $study->fresh();
+            $study->update(['status' => StabilityStudy::STATUS_COMPLETED]);
+            return $study->fresh();
+        });
     }
 
     public function addTimePoint(StabilityStudy $study, array $data): StabilityStudyTimePoint

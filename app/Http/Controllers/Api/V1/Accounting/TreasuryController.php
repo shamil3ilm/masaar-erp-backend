@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\LiquidityPlan;
 use App\Models\Accounting\TreasuryInvestment;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class TreasuryController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private TreasuryService $treasuryService,
     ) {}
@@ -52,8 +55,8 @@ class TreasuryController extends Controller
             'investment_date'   => ['required', 'date'],
             'maturity_date'     => ['required', 'date', 'after:investment_date'],
             'currency_code'     => ['required', 'string', 'size:3'],
-            'bank_account_id'   => ['nullable', 'exists:bank_accounts,id'],
-            'gl_account_id'     => ['nullable', 'exists:chart_of_accounts,id'],
+            'bank_account_id'   => ['nullable', $this->ownedBy('bank_accounts')],
+            'gl_account_id'     => ['nullable', $this->ownedBy('chart_of_accounts')],
         ]);
 
         $investment = $this->treasuryService->createInvestment(array_merge($validated, [
@@ -169,7 +172,7 @@ class TreasuryController extends Controller
             'lines.*.flow_type'      => ['required', 'in:inflow,outflow'],
             'lines.*.planned_amount' => ['required', 'numeric', 'min:0'],
             'lines.*.currency_code'  => ['nullable', 'string', 'size:3'],
-            'lines.*.bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'lines.*.bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
         ]);
 
         $plan = $this->treasuryService->createLiquidityPlan(array_merge($validated, [

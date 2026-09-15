@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Manufacturing;
 
 use App\Events\Manufacturing\WorkOrderStarted;
+use App\Models\Accounting\Account;
 use App\Models\Inventory\StockMovement;
 use App\Models\Manufacturing\BomTemplate;
 use App\Models\Manufacturing\MaterialTransaction;
@@ -12,20 +13,78 @@ use App\Models\Manufacturing\ProductionLog;
 use App\Models\Manufacturing\WorkOrder;
 use App\Models\Manufacturing\WorkOrderMaterial;
 use App\Models\Manufacturing\WorkOrderOperation;
+use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
 use App\Services\Inventory\StockService;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Work order lifecycle, material movements and production output.
+ *
+ * Every change runs on the locked work order and re-checks its status there,
+ * so two requests holding the same order cannot both release, complete or
+ * issue against it. The stock movement, material records and journal entry of
+ * a change commit together or not at all.
+ */
 class WorkOrderService
 {
+    /** Request sort keys and the work order columns they order by. */
+    public const SORT_COLUMNS = [
+        'order_number' => 'work_order_number',
+        'status' => 'status',
+        'start_date' => 'planned_start_date',
+        'end_date' => 'planned_end_date',
+        'created_at' => 'created_at',
+        'updated_at' => 'updated_at',
+    ];
+
     public function __construct(
         private NumberGeneratorService $numberGenerator,
         private StockService $stockService,
         private BomService $bomService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private AccountResolver $accountResolver,
     ) {}
+
+    /**
+     * The organization's work orders, filtered and sorted for the list.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginate(array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return WorkOrder::with(['product', 'bomTemplate', 'assignedTo', 'sourceWarehouse', 'targetWarehouse'])
+            ->withCount(['materials', 'operations', 'productionLogs'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['priority'] ?? null, fn ($q, $priority) => $q->where('priority', $priority))
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct($id))
+            ->when($filters['assigned_to'] ?? null, fn ($q, $id) => $q->assignedTo($id))
+            ->when($filters['branch_id'] ?? null, fn ($q, $id) => $q->where('branch_id', $id))
+            ->when(($filters['overdue'] ?? null) === 'true', fn ($q) => $q->overdue())
+            ->when(($filters['active'] ?? null) === 'true', fn ($q) => $q->active())
+            ->when($filters['start_date'] ?? null, fn ($q, $date) => $q->where('planned_start_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($q, $date) => $q->where('planned_end_date', '<=', $date))
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('work_order_number', 'like', "%{$search}%")
+                        ->orWhereHas('product', fn ($p) => $p->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->orderBy(self::SORT_COLUMNS[$sortBy] ?? 'created_at', $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Create a work order from one of the organization's BOM templates.
+     */
+    public function createFromTemplate(int $bomTemplateId, array $data, int $userId): WorkOrder
+    {
+        return $this->create(BomTemplate::findOrFail($bomTemplateId), $data, $userId);
+    }
 
     /**
      * Create a work order from a BOM template.
@@ -41,7 +100,6 @@ class WorkOrderService
         return DB::transaction(function () use ($bom, $data, $userId) {
             $quantity = (float) $data['planned_quantity'];
 
-            // Calculate costs
             $costs = $bom->calculateTotalCost($quantity);
 
             $workOrder = WorkOrder::create([
@@ -72,10 +130,7 @@ class WorkOrderService
                 'created_by' => $userId,
             ]);
 
-            // Create work order materials from BOM lines
             $this->createMaterialsFromBom($workOrder, $bom, $quantity);
-
-            // Create work order operations from BOM operations
             $this->createOperationsFromBom($workOrder, $bom);
 
             return $workOrder->fresh(['materials.product', 'operations', 'bomTemplate']);
@@ -90,15 +145,13 @@ class WorkOrderService
         $multiplier = (float) bcdiv((string) $quantity, (string) $bom->output_quantity, 6);
 
         foreach ($bom->lines as $line) {
-            $requiredQuantity = $line->getAdjustedQuantity($multiplier);
-
             WorkOrderMaterial::create([
                 'work_order_id' => $workOrder->id,
                 'bom_line_id' => $line->id,
                 'product_id' => $line->product_id,
                 'variant_id' => $line->variant_id,
                 'description' => $line->description,
-                'required_quantity' => $requiredQuantity,
+                'required_quantity' => $line->getAdjustedQuantity($multiplier),
                 'issued_quantity' => 0,
                 'consumed_quantity' => 0,
                 'returned_quantity' => 0,
@@ -132,115 +185,129 @@ class WorkOrderService
     }
 
     /**
-     * Update a work order.
+     * Update a work order that has not started.
      */
     public function update(WorkOrder $workOrder, array $data): WorkOrder
     {
-        if (! $workOrder->canBeEdited()) {
-            throw new \InvalidArgumentException('Work order cannot be edited in its current status.');
-        }
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($data): WorkOrder {
+            if (! $workOrder->canBeEdited()) {
+                throw new \InvalidArgumentException('Work order cannot be edited in its current status.');
+            }
 
-        $workOrder->update($data);
+            $workOrder->update($data);
 
-        return $workOrder->fresh();
+            return $workOrder->fresh();
+        });
     }
 
     /**
-     * Release work order for production.
+     * Delete a draft work order with its materials and operations.
+     */
+    public function delete(WorkOrder $workOrder): void
+    {
+        $workOrder->lockForTransition(function (WorkOrder $workOrder): void {
+            if (! $workOrder->isDraft()) {
+                throw new \InvalidArgumentException('Only draft work orders can be deleted.');
+            }
+
+            $workOrder->materials()->delete();
+            $workOrder->operations()->delete();
+            $workOrder->delete();
+        });
+    }
+
+    /**
+     * Release a draft work order for production once its critical materials are available.
      */
     public function release(WorkOrder $workOrder): WorkOrder
     {
-        if (! $workOrder->isDraft()) {
-            throw new \InvalidArgumentException('Only draft work orders can be released.');
-        }
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder): WorkOrder {
+            if (! $workOrder->isDraft()) {
+                throw new \InvalidArgumentException('Only draft work orders can be released.');
+            }
 
-        $workOrder->loadMissing(['bomTemplate.lines.product', 'bomTemplate.operations']);
+            $workOrder->load(['bomTemplate.lines.product', 'bomTemplate.operations']);
 
-        // Check material availability
-        $availability = $this->bomService->checkAvailability(
-            $workOrder->bomTemplate,
-            (float) $workOrder->planned_quantity,
-            $workOrder->source_warehouse_id
-        );
+            $availability = $this->bomService->checkAvailability(
+                $workOrder->bomTemplate,
+                (float) $workOrder->planned_quantity,
+                $workOrder->source_warehouse_id
+            );
 
-        if ($availability['critical_shortage']) {
-            throw new \InvalidArgumentException('Cannot release work order. Critical materials are not available.');
-        }
+            if ($availability['critical_shortage']) {
+                throw new \InvalidArgumentException('Cannot release work order. Critical materials are not available.');
+            }
 
-        $workOrder->update(['status' => WorkOrder::STATUS_RELEASED]);
+            $workOrder->transitionTo(WorkOrder::STATUS_RELEASED);
 
-        return $workOrder->fresh();
+            return $workOrder->fresh();
+        });
     }
 
     /**
-     * Schedule a work order.
+     * Schedule a work order that has not started.
      */
     public function schedule(WorkOrder $workOrder, array $data): WorkOrder
     {
-        $unstarted = [WorkOrder::STATUS_DRAFT, WorkOrder::STATUS_RELEASED];
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($data): WorkOrder {
+            if (! in_array($workOrder->status, [WorkOrder::STATUS_DRAFT, WorkOrder::STATUS_RELEASED], true)) {
+                throw new \InvalidArgumentException('Only a work order that has not started can be scheduled.');
+            }
 
-        if (! in_array($workOrder->status, $unstarted, true)) {
-            throw new \InvalidArgumentException('Only a work order that has not started can be scheduled.');
-        }
+            $workOrder->update([
+                'planned_start_date' => $data['planned_start_date'] ?? $workOrder->planned_start_date,
+                'planned_end_date' => $data['planned_end_date'] ?? $workOrder->planned_end_date,
+                'assigned_to' => $data['assigned_to'] ?? $workOrder->assigned_to,
+            ]);
 
-        $workOrder->update([
-            'planned_start_date' => $data['planned_start_date'] ?? $workOrder->planned_start_date,
-            'planned_end_date' => $data['planned_end_date'] ?? $workOrder->planned_end_date,
-            'assigned_to' => $data['assigned_to'] ?? $workOrder->assigned_to,
-        ]);
-
-        return $workOrder->fresh();
+            return $workOrder->fresh();
+        });
     }
 
     /**
-     * Start a work order.
+     * Start a work order. The started event is dispatched once the start has committed.
      */
     public function start(WorkOrder $workOrder): WorkOrder
     {
-        if (! $workOrder->canBeStarted()) {
-            throw new \InvalidArgumentException('Work order cannot be started in its current status.');
-        }
+        $started = $workOrder->lockForTransition(function (WorkOrder $workOrder): WorkOrder {
+            if (! $workOrder->canBeStarted()) {
+                throw new \InvalidArgumentException('Work order cannot be started in its current status.');
+            }
 
-        $workOrder->start();
+            $workOrder->start();
 
-        $workOrder = $workOrder->fresh();
+            return $workOrder->fresh();
+        });
 
-        WorkOrderStarted::dispatch($workOrder);
+        WorkOrderStarted::dispatch($started);
 
-        return $workOrder;
+        return $started;
     }
 
     /**
-     * Issue materials to work order.
+     * Issue materials from stock to an in-progress work order. A material is
+     * never issued beyond its required quantity, counting what was issued before.
      */
     public function issueMaterials(WorkOrder $workOrder, array $issues, int $userId): WorkOrder
     {
-        if (! $workOrder->isInProgress()) {
-            throw new \InvalidArgumentException('Materials can only be issued to in-progress work orders.');
-        }
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($issues, $userId): WorkOrder {
+            if (! $workOrder->isInProgress()) {
+                throw new \InvalidArgumentException('Materials can only be issued to in-progress work orders.');
+            }
 
-        return DB::transaction(function () use ($workOrder, $issues, $userId) {
-            // Preload all requested materials in one query to avoid N+1
-            $materialIds = array_column($issues, 'work_order_material_id');
-            $materials = WorkOrderMaterial::whereIn('id', $materialIds)->get()->keyBy('id');
+            $materials = $this->lockMaterials($workOrder, array_column($issues, 'work_order_material_id'));
 
             foreach ($issues as $issue) {
-                $material = $materials->get($issue['work_order_material_id'])
-                    ?? throw new \InvalidArgumentException("Material {$issue['work_order_material_id']} not found.");
-
-                if ($material->work_order_id !== $workOrder->id) {
-                    throw new \InvalidArgumentException('Material does not belong to this work order.');
-                }
-
+                $material = $this->materialIn($materials, (int) $issue['work_order_material_id']);
                 $quantity = (float) $issue['quantity'];
-                $requiredQty = (float) $material->required_quantity;
-                if (bccomp((string) $quantity, (string) $requiredQty, 4) > 0) {
-                    throw new \RuntimeException('Cannot issue more material than required.');
+
+                $issuedAfter = bcadd((string) $material->issued_quantity, (string) $quantity, 4);
+                if (bccomp($issuedAfter, (string) $material->required_quantity, 4) > 0) {
+                    throw new \InvalidArgumentException('Cannot issue more material than required.');
                 }
 
                 $warehouseId = $issue['warehouse_id'] ?? $material->warehouse_id;
 
-                // Record stock movement (out) - only if warehouse is set
                 if ($warehouseId) {
                     $this->stockService->recordMovement(
                         productId: $material->product_id,
@@ -255,22 +322,8 @@ class WorkOrderService
                     );
                 }
 
-                // Record material transaction
-                $transaction = MaterialTransaction::create([
-                    'organization_id' => $workOrder->organization_id,
-                    'work_order_id' => $workOrder->id,
-                    'work_order_material_id' => $material->id,
-                    'transaction_type' => MaterialTransaction::TYPE_ISSUE,
-                    'transaction_datetime' => now(),
-                    'quantity' => $quantity,
-                    'unit_cost' => $material->unit_cost,
-                    'warehouse_id' => $warehouseId,
-                    'reference' => $issue['reference'] ?? null,
-                    'notes' => $issue['notes'] ?? null,
-                    'processed_by' => $userId,
-                ]);
+                $this->recordMaterialTransaction($workOrder, $material, MaterialTransaction::TYPE_ISSUE, $quantity, $warehouseId, $issue, $userId);
 
-                // Update material record
                 $material->recordIssue($quantity);
             }
 
@@ -281,117 +334,48 @@ class WorkOrderService
     }
 
     /**
-     * Return materials from work order.
+     * Return issued materials from a work order to stock.
      */
     public function returnMaterials(WorkOrder $workOrder, array $returns, int $userId = 0): WorkOrder
     {
-        return DB::transaction(function () use ($workOrder, $returns, $userId) {
-            // Preload all requested materials in one query to avoid N+1
-            $materialIds = array_column($returns, 'work_order_material_id');
-            $materials = WorkOrderMaterial::whereIn('id', $materialIds)->get()->keyBy('id');
-
-            foreach ($returns as $return) {
-                $material = $materials->get($return['work_order_material_id'])
-                    ?? throw new \InvalidArgumentException("Material {$return['work_order_material_id']} not found.");
-
-                if ($material->work_order_id !== $workOrder->id) {
-                    throw new \InvalidArgumentException('Material does not belong to this work order.');
-                }
-
-                $quantity = (float) $return['quantity'];
-                $warehouseId = $return['warehouse_id'] ?? $material->warehouse_id;
-
-                // Check if we can return this much
-                if ($quantity > $material->getAvailableQuantity()) {
-                    throw new \InvalidArgumentException("Cannot return more than available quantity for {$material->product->name}.");
-                }
-
-                // Record stock movement (in) - only if warehouse is set
-                if ($warehouseId) {
-                    $this->stockService->recordMovement(
-                        productId: $material->product_id,
-                        warehouseId: $warehouseId,
-                        movementType: StockMovement::TYPE_MATERIAL_RETURN,
-                        direction: StockMovement::DIRECTION_IN,
-                        quantity: $quantity,
-                        unitCost: (float) $material->unit_cost,
-                        referenceType: WorkOrder::class,
-                        referenceId: $workOrder->id,
-                        notes: "Material return from WO: {$workOrder->work_order_number}",
-                    );
-                }
-
-                // Record material transaction
-                MaterialTransaction::create([
-                    'organization_id' => $workOrder->organization_id,
-                    'work_order_id' => $workOrder->id,
-                    'work_order_material_id' => $material->id,
-                    'transaction_type' => MaterialTransaction::TYPE_RETURN,
-                    'transaction_datetime' => now(),
-                    'quantity' => $quantity,
-                    'unit_cost' => $material->unit_cost,
-                    'warehouse_id' => $warehouseId,
-                    'reference' => $return['reference'] ?? null,
-                    'notes' => $return['notes'] ?? null,
-                    'processed_by' => $userId ?: null,
-                ]);
-
-                // Update material record
-                $material->recordReturn($quantity);
-            }
-
-            $this->recalculateActualMaterialCost($workOrder);
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($returns, $userId): WorkOrder {
+            $this->returnOnLockedOrder($workOrder, $returns, $userId);
 
             return $workOrder->fresh(['materials.product']);
         });
     }
 
     /**
-     * Record material consumption.
+     * Record material consumption and wastage against issued quantities.
      */
     public function consumeMaterials(WorkOrder $workOrder, array $consumptions, int $userId): WorkOrder
     {
-        return DB::transaction(function () use ($workOrder, $consumptions, $userId) {
-            // Preload all requested materials in one query to avoid N+1
-            $materialIds = array_column($consumptions, 'work_order_material_id');
-            $materials = WorkOrderMaterial::whereIn('id', $materialIds)->get()->keyBy('id');
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($consumptions, $userId): WorkOrder {
+            $materials = $this->lockMaterials($workOrder, array_column($consumptions, 'work_order_material_id'));
 
             foreach ($consumptions as $consumption) {
-                $material = $materials->get($consumption['work_order_material_id'])
-                    ?? throw new \InvalidArgumentException("Material {$consumption['work_order_material_id']} not found.");
-
-                if ($material->work_order_id !== $workOrder->id) {
-                    throw new \InvalidArgumentException('Material does not belong to this work order.');
-                }
-
+                $material = $this->materialIn($materials, (int) $consumption['work_order_material_id']);
                 $quantity = (float) $consumption['quantity'];
                 $wastageQuantity = (float) ($consumption['wastage_quantity'] ?? 0);
 
-                // Check if we have enough issued material
-                $availableQuantity = $material->getAvailableQuantity();
-                if (($quantity + $wastageQuantity) > $availableQuantity) {
+                if (($quantity + $wastageQuantity) > $material->getAvailableQuantity()) {
                     throw new \InvalidArgumentException("Insufficient issued quantity for {$material->product->name}.");
                 }
 
-                // Record consumption
                 $material->recordConsumption($quantity);
 
-                // Record wastage if any
                 if ($wastageQuantity > 0) {
                     $material->recordWastage($wastageQuantity);
 
-                    MaterialTransaction::create([
-                        'organization_id' => $workOrder->organization_id,
-                        'work_order_id' => $workOrder->id,
-                        'work_order_material_id' => $material->id,
-                        'transaction_type' => MaterialTransaction::TYPE_WASTAGE,
-                        'transaction_datetime' => now(),
-                        'quantity' => $wastageQuantity,
-                        'unit_cost' => $material->unit_cost,
-                        'warehouse_id' => $material->warehouse_id,
-                        'notes' => $consumption['wastage_reason'] ?? 'Material wastage',
-                        'processed_by' => $userId,
-                    ]);
+                    $this->recordMaterialTransaction(
+                        $workOrder,
+                        $material,
+                        MaterialTransaction::TYPE_WASTAGE,
+                        $wastageQuantity,
+                        $material->warehouse_id,
+                        ['notes' => $consumption['wastage_reason'] ?? 'Material wastage'],
+                        $userId,
+                    );
                 }
             }
 
@@ -402,20 +386,19 @@ class WorkOrderService
     }
 
     /**
-     * Record production output.
+     * Record production output and receive the good quantity into the target warehouse.
      */
     public function recordProduction(WorkOrder $workOrder, array $data, int $userId): ProductionLog
     {
-        if (! $workOrder->isInProgress()) {
-            throw new \InvalidArgumentException('Production can only be recorded for in-progress work orders.');
-        }
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($data, $userId): ProductionLog {
+            if (! $workOrder->isInProgress()) {
+                throw new \InvalidArgumentException('Production can only be recorded for in-progress work orders.');
+            }
 
-        return DB::transaction(function () use ($workOrder, $data, $userId) {
             $quantityProduced = (float) $data['quantity_produced'];
             $quantityRejected = (float) ($data['quantity_rejected'] ?? 0);
             $goodQuantity = $quantityProduced - $quantityRejected;
 
-            // Record stock movement for good quantity (only if target warehouse is set)
             if ($goodQuantity > 0 && $workOrder->target_warehouse_id) {
                 $this->stockService->recordMovement(
                     productId: $workOrder->product_id,
@@ -430,7 +413,6 @@ class WorkOrderService
                 );
             }
 
-            // Create production log
             $log = ProductionLog::create([
                 'organization_id' => $workOrder->organization_id,
                 'work_order_id' => $workOrder->id,
@@ -446,7 +428,6 @@ class WorkOrderService
                 'logged_by' => $userId,
             ]);
 
-            // Update work order quantities
             $workOrder->update([
                 'produced_quantity' => bcadd((string) $workOrder->produced_quantity, (string) $quantityProduced, 4),
                 'rejected_quantity' => bcadd((string) $workOrder->rejected_quantity, (string) $quantityRejected, 4),
@@ -457,41 +438,26 @@ class WorkOrderService
     }
 
     /**
-     * Complete a work order.
+     * Complete a work order: return unused materials, settle actual costs, skip
+     * pending operations and post the finished-goods journal.
      */
     public function complete(WorkOrder $workOrder): WorkOrder
     {
-        if (! $workOrder->canBeCompleted()) {
-            throw new \InvalidArgumentException('Work order cannot be completed in its current status.');
-        }
-
-        return DB::transaction(function () use ($workOrder) {
-            // Collect all materials with remaining quantity and return in one call (avoids N+1)
-            $returns = $workOrder->materials
-                ->filter(fn ($material) => $material->getAvailableQuantity() > 0)
-                ->map(fn ($material) => [
-                    'work_order_material_id' => $material->id,
-                    'quantity' => $material->getAvailableQuantity(),
-                    'notes' => 'Auto-return on work order completion',
-                ])
-                ->values()
-                ->toArray();
-
-            if (! empty($returns)) {
-                $this->returnMaterials($workOrder, $returns);
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder): WorkOrder {
+            if (! $workOrder->canBeCompleted()) {
+                throw new \InvalidArgumentException('Work order cannot be completed in its current status.');
             }
 
-            // Recalculate actual costs
+            $this->returnOnLockedOrder($workOrder, $this->unusedMaterialReturns($workOrder, 'Auto-return on work order completion'));
+
             $this->recalculateActualCosts($workOrder);
 
-            // Complete all pending operations
             foreach ($workOrder->operations()->pending()->get() as $operation) {
                 $operation->skip('Auto-skipped on work order completion');
             }
 
             $workOrder->complete();
 
-            // Post GL journal: FG Inventory ← WIP Inventory (only when accounts configured)
             $this->postCompletionJournal($workOrder->fresh());
 
             return $workOrder->fresh();
@@ -499,30 +465,16 @@ class WorkOrderService
     }
 
     /**
-     * Cancel a work order.
+     * Cancel a work order and return its unused materials to stock.
      */
     public function cancel(WorkOrder $workOrder, string $reason): WorkOrder
     {
-        if (! $workOrder->canBeCancelled()) {
-            throw new \InvalidArgumentException('Work order cannot be cancelled in its current status.');
-        }
-
-        return DB::transaction(function () use ($workOrder, $reason) {
-            // Collect all materials with remaining quantity and return in one call (avoids N+1)
-            $returns = $workOrder->materials
-                ->filter(fn ($material) => $material->getAvailableQuantity() > 0)
-                ->map(fn ($material) => [
-                    'work_order_material_id' => $material->id,
-                    'quantity' => $material->getAvailableQuantity(),
-                    'warehouse_id' => $material->warehouse_id,
-                    'notes' => 'Material return due to work order cancellation',
-                ])
-                ->values()
-                ->toArray();
-
-            if (! empty($returns)) {
-                $this->returnMaterials($workOrder, $returns);
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($reason): WorkOrder {
+            if (! $workOrder->canBeCancelled()) {
+                throw new \InvalidArgumentException('Work order cannot be cancelled in its current status.');
             }
+
+            $this->returnOnLockedOrder($workOrder, $this->unusedMaterialReturns($workOrder, 'Material return due to work order cancellation'));
 
             $workOrder->cancel($reason);
 
@@ -531,24 +483,170 @@ class WorkOrderService
     }
 
     /**
+     * Start one of the work order's operations.
+     */
+    public function startOperation(WorkOrder $workOrder, int $operationId): WorkOrder
+    {
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($operationId): WorkOrder {
+            $operation = $this->lockOperation($workOrder, $operationId);
+
+            if (! $operation->canBeStarted()) {
+                throw new \InvalidArgumentException('Operation cannot be started in its current status.');
+            }
+
+            $operation->start();
+
+            return $workOrder->fresh(['operations']);
+        });
+    }
+
+    /**
+     * Complete one of the work order's operations.
+     */
+    public function completeOperation(WorkOrder $workOrder, int $operationId, ?int $actualMinutes, ?string $notes): WorkOrder
+    {
+        return $workOrder->lockForTransition(function (WorkOrder $workOrder) use ($operationId, $actualMinutes, $notes): WorkOrder {
+            $operation = $this->lockOperation($workOrder, $operationId);
+
+            if (! $operation->canBeCompleted()) {
+                throw new \InvalidArgumentException('Operation cannot be completed in its current status.');
+            }
+
+            $operation->complete($actualMinutes, $notes);
+
+            return $workOrder->fresh(['operations']);
+        });
+    }
+
+    /**
+     * Return materials to stock; the caller holds the lock on the work order.
+     */
+    private function returnOnLockedOrder(WorkOrder $workOrder, array $returns, int $userId = 0): void
+    {
+        if ($returns === []) {
+            return;
+        }
+
+        $materials = $this->lockMaterials($workOrder, array_column($returns, 'work_order_material_id'));
+
+        foreach ($returns as $return) {
+            $material = $this->materialIn($materials, (int) $return['work_order_material_id']);
+            $quantity = (float) $return['quantity'];
+            $warehouseId = $return['warehouse_id'] ?? $material->warehouse_id;
+
+            if ($quantity > $material->getAvailableQuantity()) {
+                throw new \InvalidArgumentException("Cannot return more than available quantity for {$material->product->name}.");
+            }
+
+            if ($warehouseId) {
+                $this->stockService->recordMovement(
+                    productId: $material->product_id,
+                    warehouseId: $warehouseId,
+                    movementType: StockMovement::TYPE_MATERIAL_RETURN,
+                    direction: StockMovement::DIRECTION_IN,
+                    quantity: $quantity,
+                    unitCost: (float) $material->unit_cost,
+                    referenceType: WorkOrder::class,
+                    referenceId: $workOrder->id,
+                    notes: "Material return from WO: {$workOrder->work_order_number}",
+                );
+            }
+
+            $this->recordMaterialTransaction($workOrder, $material, MaterialTransaction::TYPE_RETURN, $quantity, $warehouseId, $return, $userId ?: null);
+
+            $material->recordReturn($quantity);
+        }
+
+        $this->recalculateActualMaterialCost($workOrder);
+    }
+
+    /**
+     * A return line for every material that still holds an issued, unused quantity.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function unusedMaterialReturns(WorkOrder $workOrder, string $note): array
+    {
+        return $workOrder->materials()->get()
+            ->filter(fn (WorkOrderMaterial $material) => $material->getAvailableQuantity() > 0)
+            ->map(fn (WorkOrderMaterial $material) => [
+                'work_order_material_id' => $material->id,
+                'quantity' => $material->getAvailableQuantity(),
+                'notes' => $note,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The work order's materials with the given ids, locked until the transaction ends.
+     *
+     * @return Collection<int, WorkOrderMaterial>
+     */
+    private function lockMaterials(WorkOrder $workOrder, array $materialIds): Collection
+    {
+        return WorkOrderMaterial::with('product')
+            ->whereIn('id', $materialIds)
+            ->where('work_order_id', $workOrder->id)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+    }
+
+    private function materialIn(Collection $materials, int $materialId): WorkOrderMaterial
+    {
+        return $materials->get($materialId)
+            ?? throw new \InvalidArgumentException('Material does not belong to this work order.');
+    }
+
+    private function lockOperation(WorkOrder $workOrder, int $operationId): WorkOrderOperation
+    {
+        return WorkOrderOperation::whereKey($operationId)
+            ->where('work_order_id', $workOrder->id)
+            ->lockForUpdate()
+            ->first()
+            ?? throw new \InvalidArgumentException('Operation does not belong to this work order.');
+    }
+
+    private function recordMaterialTransaction(
+        WorkOrder $workOrder,
+        WorkOrderMaterial $material,
+        string $type,
+        float $quantity,
+        ?int $warehouseId,
+        array $details,
+        ?int $userId,
+    ): void {
+        MaterialTransaction::create([
+            'organization_id' => $workOrder->organization_id,
+            'work_order_id' => $workOrder->id,
+            'work_order_material_id' => $material->id,
+            'transaction_type' => $type,
+            'transaction_datetime' => now(),
+            'quantity' => $quantity,
+            'unit_cost' => $material->unit_cost,
+            'warehouse_id' => $warehouseId,
+            'reference' => $details['reference'] ?? null,
+            'notes' => $details['notes'] ?? null,
+            'processed_by' => $userId,
+        ]);
+    }
+
+    /**
      * Recalculate actual material cost.
      */
     protected function recalculateActualMaterialCost(WorkOrder $workOrder): void
     {
-        $totalCost = $workOrder->materials()->sum('total_cost');
-
-        $workOrder->update(['actual_material_cost' => $totalCost]);
+        $workOrder->update(['actual_material_cost' => $workOrder->materials()->sum('total_cost')]);
     }
 
     /**
-     * Recalculate all actual costs.
+     * Recalculate material, labor and overhead actual costs.
      */
     protected function recalculateActualCosts(WorkOrder $workOrder): void
     {
-        // Material cost
         $materialCost = $workOrder->materials()->sum('total_cost');
 
-        // Labor cost (from operations) — eager-load to avoid N+1 on bomOperation
         $laborCost = 0;
         foreach ($workOrder->operations()->with('bomOperation')->get() as $operation) {
             if ($operation->bomOperation && $operation->actual_minutes > 0) {
@@ -561,7 +659,7 @@ class WorkOrderService
             }
         }
 
-        // Overhead cost (proportional to produced quantity)
+        // Overhead is absorbed in proportion to the quantity produced.
         $plannedQty = (string) $workOrder->planned_quantity;
         if (bccomp($plannedQty, '0', 4) <= 0) {
             $overheadCost = '0.0000';
@@ -578,15 +676,22 @@ class WorkOrderService
     }
 
     /**
-     * Post completion GL journal: Debit FG Inventory, Credit WIP Inventory.
-     * Only runs when both accounts are configured in erp.default_accounts.
+     * Journal the completed work order: debit finished goods, credit WIP.
+     *
+     * Both accounts are the work order's organization's own. Finished goods is
+     * the account mapped as fg_inventory_account_id, or the organization's
+     * inventory account; WIP is the account mapped as wip_account_id. Without
+     * both, or with one account for both roles, nothing is posted.
      */
     protected function postCompletionJournal(WorkOrder $workOrder): void
     {
-        $fgAccount = config('erp.default_accounts.fg_inventory');
-        $wipAccount = config('erp.default_accounts.wip_inventory');
+        $organizationId = (int) $workOrder->organization_id;
 
-        if (! $fgAccount || ! $wipAccount) {
+        $finishedGoods = $this->accountResolver->mapped($organizationId, 'fg_inventory_account_id')
+            ?? $this->accountResolver->bySubType($organizationId, Account::SUBTYPE_INVENTORY);
+        $wip = $this->accountResolver->mapped($organizationId, 'wip_account_id');
+
+        if ($finishedGoods === null || $wip === null || $finishedGoods->is($wip)) {
             return;
         }
 
@@ -600,7 +705,8 @@ class WorkOrderService
             return;
         }
 
-        $this->journalService->create([
+        $this->journalService->createEntry([
+            'organization_id' => $organizationId,
             'entry_date' => now(),
             'reference' => $workOrder->work_order_number,
             'description' => "Work Order Completion: {$workOrder->work_order_number}",
@@ -608,13 +714,13 @@ class WorkOrderService
             'source_id' => $workOrder->id,
         ], [
             [
-                'account_id' => $fgAccount,
+                'account_id' => $finishedGoods->id,
                 'description' => "FG Receipt - {$workOrder->work_order_number}",
                 'debit' => $totalCost,
                 'credit' => 0,
             ],
             [
-                'account_id' => $wipAccount,
+                'account_id' => $wip->id,
                 'description' => "WIP Clearance - {$workOrder->work_order_number}",
                 'debit' => 0,
                 'credit' => $totalCost,

@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Sales\Contact;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SkipLotDecision extends Model
 {
-    use HasUuid;
+    use HasUuid, LocksForTransition;
     use BelongsToOrganization;
 
     public const LEVEL_SKIP_LOT  = 'skip_lot';

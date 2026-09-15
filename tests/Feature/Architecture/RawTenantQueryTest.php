@@ -47,8 +47,6 @@ class RawTenantQueryTest extends TestCase
      */
     private const DECLARED = [
         'Console/Commands/CleanupAuditLogs.php',
-        'Http/Controllers/Api/V1/Core/SensitiveAccessController.php',
-        'Http/Controllers/Api/V1/Core/UserEventsController.php',
         'Services/Accounting/AgingReportService.php',
         'Services/Accounting/AssessmentCycleService.php',
         'Services/Accounting/CopaService.php',

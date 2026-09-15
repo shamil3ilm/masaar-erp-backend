@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\JournalEntry;
 use App\Services\Accounting\JournalEntryQueryService;
@@ -16,6 +17,7 @@ use Illuminate\Validation\Rule;
 class JournalEntryController extends Controller
 {
     use SupportsAgGrid;
+    use ValidatesOwnedRows;
     public function __construct(
         private JournalService $journalService,
         private JournalEntryQueryService $journalEntries,
@@ -61,7 +63,7 @@ class JournalEntryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => ['nullable', 'exists:branches,id'],
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'entry_date' => ['required', 'date'],
             'reference' => ['nullable', 'string', 'max:100'],
             'description' => ['nullable', 'string'],

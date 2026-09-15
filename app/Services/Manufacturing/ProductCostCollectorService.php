@@ -10,6 +10,13 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
+/**
+ * Period cost collectors per product and production line.
+ *
+ * Posting, recalculating and closing run on the locked collector, so cost is
+ * never added to a collector closed by a concurrent request and a collector
+ * closes once.
+ */
 class ProductCostCollectorService
 {
     // ----------------------------------------------------------------
@@ -50,13 +57,23 @@ class ProductCostCollectorService
     }
 
     /**
-     * Post (add or update) a cost item to the collector.
+     * One of the organization's collectors.
+     *
+     * @param  list<string>  $with
+     */
+    public function findOrFail(int $id, array $with = []): ProductCostCollector
+    {
+        return ProductCostCollector::with($with)->findOrFail($id);
+    }
+
+    /**
+     * Post (add to or create) a cost item on an open collector.
      *
      * @param array{cost_element_id?: int|null, cost_category: string, standard_cost: float, actual_cost: float} $costData
      */
     public function postCost(ProductCostCollector $collector, array $costData): void
     {
-        DB::transaction(function () use ($collector, $costData): void {
+        $collector->lockForTransition(function (ProductCostCollector $collector) use ($costData): void {
             if ($collector->isClosed()) {
                 throw new InvalidArgumentException('Cannot post cost to a closed collector.');
             }
@@ -65,17 +82,17 @@ class ProductCostCollectorService
                 ->where('product_cost_collector_id', $collector->id)
                 ->where('cost_category', $costData['cost_category'])
                 ->where('cost_element_id', $costData['cost_element_id'] ?? null)
+                ->lockForUpdate()
                 ->first();
 
             if ($existing !== null) {
+                $standard = bcadd((string) $existing->standard_cost, (string) $costData['standard_cost'], 4);
+                $actual = bcadd((string) $existing->actual_cost, (string) $costData['actual_cost'], 4);
+
                 $existing->update([
-                    'standard_cost' => bcadd((string) $existing->standard_cost, (string) $costData['standard_cost'], 4),
-                    'actual_cost'   => bcadd((string) $existing->actual_cost, (string) $costData['actual_cost'], 4),
-                    'variance'      => bcsub(
-                        bcadd((string) $existing->actual_cost, (string) $costData['actual_cost'], 4),
-                        bcadd((string) $existing->standard_cost, (string) $costData['standard_cost'], 4),
-                        4
-                    ),
+                    'standard_cost' => $standard,
+                    'actual_cost'   => $actual,
+                    'variance'      => bcsub($actual, $standard, 4),
                 ]);
             } else {
                 $stdCost    = (float) ($costData['standard_cost'] ?? 0);
@@ -92,7 +109,7 @@ class ProductCostCollectorService
                 ]);
             }
 
-            $this->recalculate($collector->fresh());
+            $this->recalculateTotals($collector);
         });
     }
 
@@ -101,39 +118,20 @@ class ProductCostCollectorService
      */
     public function recalculate(ProductCostCollector $collector): void
     {
-        $items = ProductCostCollectorItem::withoutGlobalScope('organization')
-            ->where('product_cost_collector_id', $collector->id)
-            ->get();
-
-        $standardTotal = $items->sum(fn ($i) => (float) $i->standard_cost);
-        $actualTotal   = $items->sum(fn ($i) => (float) $i->actual_cost);
-        $variance      = round($actualTotal - $standardTotal, 4);
-
-        $qty = (float) $collector->quantity_produced;
-
-        $costPerUnitStd    = $qty > 0 ? round($standardTotal / $qty, 4) : 0.0;
-        $costPerUnitActual = $qty > 0 ? round($actualTotal / $qty, 4) : 0.0;
-
-        $collector->update([
-            'standard_cost_total'    => round($standardTotal, 4),
-            'actual_cost_total'      => round($actualTotal, 4),
-            'total_variance'         => $variance,
-            'cost_per_unit_standard' => $costPerUnitStd,
-            'cost_per_unit_actual'   => $costPerUnitActual,
-        ]);
+        $collector->lockForTransition(fn (ProductCostCollector $collector) => $this->recalculateTotals($collector));
     }
 
     /**
-     * Close a collector — set status to closed, record closed_at.
+     * Close an open collector after settling its totals.
      */
     public function close(ProductCostCollector $collector): ProductCostCollector
     {
-        return DB::transaction(function () use ($collector): ProductCostCollector {
+        return $collector->lockForTransition(function (ProductCostCollector $collector): ProductCostCollector {
             if ($collector->isClosed()) {
                 throw new InvalidArgumentException('Collector is already closed.');
             }
 
-            $this->recalculate($collector->fresh());
+            $this->recalculateTotals($collector);
 
             $collector->update([
                 'status'    => ProductCostCollector::STATUS_CLOSED,
@@ -165,5 +163,29 @@ class ProductCostCollectorService
         }
 
         return $query->paginate($perPage);
+    }
+
+    /**
+     * Totals and unit costs from the collector's items; the caller holds the collector's lock.
+     */
+    private function recalculateTotals(ProductCostCollector $collector): void
+    {
+        $items = ProductCostCollectorItem::withoutGlobalScope('organization')
+            ->where('product_cost_collector_id', $collector->id)
+            ->get();
+
+        $standardTotal = $items->sum(fn ($i) => (float) $i->standard_cost);
+        $actualTotal   = $items->sum(fn ($i) => (float) $i->actual_cost);
+        $variance      = round($actualTotal - $standardTotal, 4);
+
+        $qty = (float) $collector->quantity_produced;
+
+        $collector->update([
+            'standard_cost_total'    => round($standardTotal, 4),
+            'actual_cost_total'      => round($actualTotal, 4),
+            'total_variance'         => $variance,
+            'cost_per_unit_standard' => $qty > 0 ? round($standardTotal / $qty, 4) : 0.0,
+            'cost_per_unit_actual'   => $qty > 0 ? round($actualTotal / $qty, 4) : 0.0,
+        ]);
     }
 }
