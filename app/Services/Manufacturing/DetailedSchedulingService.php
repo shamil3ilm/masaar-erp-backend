@@ -232,4 +232,65 @@ class DetailedSchedulingService
             'sequence_number'  => $op->sequence_number,
         ];
     }
+
+    public function paginateBoards(int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return SchedulingBoard::withCount('operations')
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    public function createBoard(array $data): SchedulingBoard
+    {
+        return SchedulingBoard::create($data);
+    }
+
+    /**
+     * One of the organization's scheduling boards, or null.
+     */
+    public function findBoard(int $id): ?SchedulingBoard
+    {
+        return SchedulingBoard::find($id);
+    }
+
+    /**
+     * The organization's scheduling operations by work center and start.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateOperations(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $from = $filters['date_from'] ?? null;
+        $to = $filters['date_to'] ?? null;
+
+        return SchedulingOperation::with(['workCenter', 'workOrder', 'processOrder'])
+            ->when($filters['work_center_id'] ?? null, fn ($q, $v) => $q->forWorkCenter((int) $v))
+            ->when($filters['board_id'] ?? null, fn ($q, $v) => $q->forBoard((int) $v))
+            ->when($filters['work_order_id'] ?? null, fn ($q, $v) => $q->where('work_order_id', $v))
+            ->when($from && $to, fn ($q) => $q->between($from, $to))
+            ->orderBy('work_center_id')
+            ->orderBy('planned_start')
+            ->paginate($perPage);
+    }
+
+    public function createOperation(array $data, int $organizationId): SchedulingOperation
+    {
+        return SchedulingOperation::create(array_merge($data, ['organization_id' => $organizationId]))
+            ->load(['workCenter', 'workOrder', 'processOrder']);
+    }
+
+    /**
+     * One of the organization's scheduling operations, or null.
+     */
+    public function findOperation(int $id): ?SchedulingOperation
+    {
+        return SchedulingOperation::find($id);
+    }
+
+    public function updateOperation(SchedulingOperation $operation, array $data): SchedulingOperation
+    {
+        $operation->update($data);
+
+        return $operation->fresh(['workCenter', 'workOrder', 'processOrder']);
+    }
 }

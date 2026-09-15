@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class KanbanCard extends Model
 {
-    use HasFactory, HasUuid;
+    use HasFactory, HasUuid, LocksForTransition;
 
     public const STATUS_FULL             = 'full';
     public const STATUS_EMPTY            = 'empty';
