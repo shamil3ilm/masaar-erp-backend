@@ -101,7 +101,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Core/RoleController.php' => 4,
         'Api/V1/Core/SensitiveAccessController.php' => 3,
         'Api/V1/Core/SettingsController.php' => 5,
-        'Api/V1/Core/UserController.php' => 2,
         'Api/V1/Core/UserEventsController.php' => 2,
         'Api/V1/Core/WebhookController.php' => 9,
         'Api/V1/Core/WebhookDlqController.php' => 4,
