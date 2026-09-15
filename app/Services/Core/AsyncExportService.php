@@ -72,6 +72,16 @@ class AsyncExportService
     }
 
     /**
+     * An export of the organization by uuid; another organization's export is not found.
+     */
+    public function findForOrganization(int $organizationId, string $uuid): ExportJob
+    {
+        return ExportJob::where('uuid', $uuid)
+            ->where('organization_id', $organizationId)
+            ->firstOrFail();
+    }
+
+    /**
      * Process an export job.
      */
     public function processExport(ExportJob $exportJob): ExportJob
@@ -92,8 +102,10 @@ class AsyncExportService
                 return $exportJob;
             }
 
-            // Determine columns to export
-            $columns = $exportJob->columns ?? array_keys($entityType['columns']);
+            // Only columns the entity type offers are written; any other name
+            // would be read straight off the record, sensitive fields included.
+            $offered = array_keys($entityType['columns']);
+            $columns = array_values(array_intersect($exportJob->columns ?? $offered, $offered));
             $columnLabels = array_intersect_key($entityType['columns'], array_flip($columns));
 
             // Generate file
