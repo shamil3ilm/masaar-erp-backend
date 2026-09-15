@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CopaPlanVersion;
 use App\Services\Accounting\CopaService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class CopaController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CopaService $service
     ) {}
@@ -28,12 +31,12 @@ class CopaController extends Controller
     public function profitability(Request $request): JsonResponse
     {
         $request->validate([
-            'fiscal_year_id'  => ['nullable', 'integer', 'exists:fiscal_years,id'],
+            'fiscal_year_id'  => ['nullable', 'integer', $this->ownedBy('fiscal_years')],
             'period'          => ['nullable', 'integer', 'min:1', 'max:12'],
             'from_date'       => ['nullable', 'date'],
             'to_date'         => ['nullable', 'date', 'after_or_equal:from_date'],
-            'profit_center_id' => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'cost_center_id'  => ['nullable', 'integer', 'exists:cost_centers,id'],
+            'profit_center_id' => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'cost_center_id'  => ['nullable', 'integer', $this->ownedBy('cost_centers')],
             'product_id'      => ['nullable', 'integer'],
             'contact_id'      => ['nullable', 'integer'],
         ]);
@@ -61,12 +64,12 @@ class CopaController extends Controller
     public function dimensionBreakdown(Request $request, string $dimension): JsonResponse
     {
         $request->validate([
-            'fiscal_year_id'  => ['nullable', 'integer', 'exists:fiscal_years,id'],
+            'fiscal_year_id'  => ['nullable', 'integer', $this->ownedBy('fiscal_years')],
             'period'          => ['nullable', 'integer', 'min:1', 'max:12'],
             'from_date'       => ['nullable', 'date'],
             'to_date'         => ['nullable', 'date', 'after_or_equal:from_date'],
-            'profit_center_id' => ['nullable', 'integer', 'exists:profit_centers,id'],
-            'cost_center_id'  => ['nullable', 'integer', 'exists:cost_centers,id'],
+            'profit_center_id' => ['nullable', 'integer', $this->ownedBy('profit_centers')],
+            'cost_center_id'  => ['nullable', 'integer', $this->ownedBy('cost_centers')],
             'product_id'      => ['nullable', 'integer'],
             'contact_id'      => ['nullable', 'integer'],
         ]);
@@ -93,7 +96,7 @@ class CopaController extends Controller
     public function planVersions(Request $request): JsonResponse
     {
         $request->validate([
-            'fiscal_year_id' => ['nullable', 'integer', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['nullable', 'integer', $this->ownedBy('fiscal_years')],
         ]);
 
         $versions = $this->service->listPlanVersions(
@@ -112,7 +115,7 @@ class CopaController extends Controller
     {
         $data = $request->validate([
             'version_name'   => ['required', 'string', 'max:100'],
-            'fiscal_year_id' => ['required', 'integer', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['required', 'integer', $this->ownedBy('fiscal_years')],
             'is_active'      => ['boolean'],
         ]);
 
@@ -132,7 +135,7 @@ class CopaController extends Controller
         $request->validate([
             'lines'                        => ['required', 'array', 'min:1'],
             'lines.*.period'               => ['required', 'integer', 'min:1', 'max:12'],
-            'lines.*.profit_center_id'     => ['nullable', 'integer', 'exists:profit_centers,id'],
+            'lines.*.profit_center_id'     => ['nullable', 'integer', $this->ownedBy('profit_centers')],
             'lines.*.product_id'           => ['nullable', 'integer'],
             'lines.*.contact_id'           => ['nullable', 'integer'],
             'lines.*.planned_revenue'      => ['nullable', 'numeric', 'min:0'],
@@ -155,10 +158,10 @@ class CopaController extends Controller
     public function varianceReport(Request $request): JsonResponse
     {
         $request->validate([
-            'fiscal_year_id'   => ['required', 'integer', 'exists:fiscal_years,id'],
-            'plan_version_id'  => ['required', 'integer', 'exists:copa_plan_versions,id'],
+            'fiscal_year_id'   => ['required', 'integer', $this->ownedBy('fiscal_years')],
+            'plan_version_id'  => ['required', 'integer', $this->ownedBy('copa_plan_versions')],
             'period'           => ['nullable', 'integer', 'min:1', 'max:12'],
-            'profit_center_id' => ['nullable', 'integer', 'exists:profit_centers,id'],
+            'profit_center_id' => ['nullable', 'integer', $this->ownedBy('profit_centers')],
             'product_id'       => ['nullable', 'integer'],
             'contact_id'       => ['nullable', 'integer'],
         ]);
