@@ -26,8 +26,9 @@ class CustomerPortalController extends Controller
 
     public function register(Request $request): JsonResponse
     {
+        // No exists rule: on a public endpoint it would tell anyone which contact ids exist.
         $validated = $request->validate([
-            'contact_id' => 'required|integer|exists:contacts,id',
+            'contact_id' => 'required|integer',
             'email'      => 'required|email|max:150',
             'password'   => 'required|string|min:8|confirmed',
         ]);
@@ -130,7 +131,7 @@ class CustomerPortalController extends Controller
         return $this->success([
             'uuid'            => $portalUser->uuid,
             'email'           => $portalUser->email,
-            'contact'         => $portalUser->contact()->first(),
+            'contact'         => $this->portalService->profileContact($portalUser),
             'last_login_at'   => $portalUser->last_login_at,
             'login_count'     => $portalUser->login_count,
         ]);
@@ -157,19 +158,11 @@ class CustomerPortalController extends Controller
             return $this->unauthorized();
         }
 
-        $invoice = Invoice::where('customer_id', $portalUser->contact_id)
-            ->with('lines')
-            ->find($id);
+        $invoice = $this->portalService->getCustomerInvoice($portalUser->id, $id);
 
         if (! $invoice) {
             return $this->notFound('Invoice not found.');
         }
-
-        $this->portalService->logActivity(
-            $portalUser->id,
-            'invoice_viewed',
-            "Viewed invoice #{$invoice->invoice_number}"
-        );
 
         return $this->success($invoice);
     }

@@ -268,20 +268,89 @@ class ImportService
     }
 
     /**
-     * Cancel an import.
+     * An import of the organization by uuid; another organization's import is not found.
+     */
+    public function findForOrganization(int $organizationId, string $uuid): ImportJob
+    {
+        return ImportJob::where('uuid', $uuid)
+            ->where('organization_id', $organizationId)
+            ->firstOrFail();
+    }
+
+    /**
+     * Stores the column mapping and merges the options of a pending import.
+     * The status is checked on the locked row, so an import that started
+     * processing meanwhile is not reconfigured.
+     *
+     * @param  array<string, mixed>  $columnMapping
+     * @param  array<string, mixed>  $options
+     *
+     * @throws \InvalidArgumentException when the import is no longer pending
+     */
+    public function configure(ImportJob $importJob, array $columnMapping, array $options): ImportJob
+    {
+        return DB::transaction(function () use ($importJob, $columnMapping, $options): ImportJob {
+            $locked = ImportJob::query()->lockForUpdate()->findOrFail($importJob->id);
+
+            if ($locked->status !== ImportJob::STATUS_PENDING) {
+                throw new \InvalidArgumentException('Import has already been processed');
+            }
+
+            $locked->update([
+                'column_mapping' => $columnMapping,
+                'options'        => array_merge($locked->options ?? [], $options),
+            ]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Marks a pending or validating import as processing and returns it, or
+     * returns null when it is no longer in either state. The check and the
+     * change happen on the locked row, so two requests cannot both start the
+     * same import and write its rows twice.
+     */
+    public function claimForProcessing(ImportJob $importJob): ?ImportJob
+    {
+        return DB::transaction(function () use ($importJob): ?ImportJob {
+            $locked = ImportJob::query()->lockForUpdate()->findOrFail($importJob->id);
+
+            if (! in_array($locked->status, [ImportJob::STATUS_PENDING, ImportJob::STATUS_VALIDATING], true)) {
+                return null;
+            }
+
+            $locked->markAsProcessing();
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Cancel an import unless it is being validated or processed. The state is
+     * checked on the locked row, and the file is removed after the change commits.
      */
     public function cancelImport(ImportJob $importJob): bool
     {
-        if ($importJob->isProcessing()) {
-            // Can't cancel while processing (would need queue job handling)
+        $cancelled = DB::transaction(function () use ($importJob): ?ImportJob {
+            $locked = ImportJob::query()->lockForUpdate()->findOrFail($importJob->id);
+
+            if ($locked->isProcessing()) {
+                // Can't cancel while processing (would need queue job handling)
+                return null;
+            }
+
+            $locked->update(['status' => ImportJob::STATUS_CANCELLED]);
+
+            return $locked;
+        });
+
+        if ($cancelled === null) {
             return false;
         }
 
-        $importJob->update(['status' => ImportJob::STATUS_CANCELLED]);
-
-        // Clean up file
-        if ($importJob->file_path) {
-            Storage::disk('local')->delete($importJob->file_path);
+        if ($cancelled->file_path) {
+            Storage::disk('local')->delete($cancelled->file_path);
         }
 
         return true;

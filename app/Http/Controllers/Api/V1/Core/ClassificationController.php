@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\ClassCharacteristic;
-use App\Models\Core\ClassificationClass;
 use App\Services\Core\ClassificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ClassificationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ClassificationService $service,
     ) {}
@@ -57,14 +58,12 @@ class ClassificationController extends Controller
 
     public function showClass(string $id): JsonResponse
     {
-        $class = ClassificationClass::with(['characteristics'])->findOrFail($id);
-
-        return $this->success($class);
+        return $this->success($this->service->classDetails($id));
     }
 
     public function updateClass(Request $request, string $id): JsonResponse
     {
-        $class = ClassificationClass::findOrFail($id);
+        $class = $this->service->findClass($id);
 
         $validated = $request->validate([
             'class_name'  => ['sometimes', 'string', 'max:100'],
@@ -79,8 +78,7 @@ class ClassificationController extends Controller
 
     public function destroyClass(string $id): JsonResponse
     {
-        $class = ClassificationClass::findOrFail($id);
-        $class->delete();
+        $this->service->deleteClass($this->service->findClass($id));
 
         return $this->success(null, 'Classification class deleted.');
     }
@@ -91,7 +89,7 @@ class ClassificationController extends Controller
 
     public function addCharacteristic(Request $request, string $classId): JsonResponse
     {
-        $class = ClassificationClass::findOrFail($classId);
+        $class = $this->service->findClass($classId);
 
         $validated = $request->validate([
             'characteristic_code' => ['required', 'string', 'max:30'],
@@ -113,8 +111,7 @@ class ClassificationController extends Controller
 
     public function updateCharacteristic(Request $request, string $classId, string $charId): JsonResponse
     {
-        ClassificationClass::findOrFail($classId);
-        $characteristic = ClassCharacteristic::where('classification_class_id', $classId)->findOrFail($charId);
+        $characteristic = $this->service->findCharacteristic($classId, $charId);
 
         $validated = $request->validate([
             'characteristic_name' => ['sometimes', 'string', 'max:100'],
@@ -141,7 +138,7 @@ class ClassificationController extends Controller
         $validated = $request->validate([
             'object_type' => ['required', 'string', 'max:50'],
             'object_id'   => ['required', 'integer', 'min:1'],
-            'class_id'    => ['required', 'exists:classification_classes,id'],
+            'class_id'    => ['required', $this->ownedBy('classification_classes')],
         ]);
 
         $assignment = $this->service->assignClassToObject(
@@ -160,22 +157,16 @@ class ClassificationController extends Controller
             'object_type'                => ['required', 'string', 'max:50'],
             'object_id'                  => ['required', 'integer', 'min:1'],
             'values'                     => ['required', 'array', 'min:1'],
-            'values.*.characteristic_id' => ['required', 'exists:class_characteristics,id'],
+            'values.*.characteristic_id' => ['required', $this->ownedBy('class_characteristics')],
             'values.*.value'             => ['present'],
         ]);
 
-        $orgId = $this->organizationId($request);
-        $saved = [];
-
-        foreach ($validated['values'] as $item) {
-            $saved[] = $this->service->setCharacteristicValue(
-                objectType: $validated['object_type'],
-                objectId: (int) $validated['object_id'],
-                characteristicId: (int) $item['characteristic_id'],
-                value: $item['value'],
-                orgId: $orgId,
-            );
-        }
+        $saved = $this->service->setCharacteristicValues(
+            $validated['object_type'],
+            (int) $validated['object_id'],
+            $validated['values'],
+            $this->organizationId($request),
+        );
 
         return $this->success($saved, count($saved) . ' value(s) saved.');
     }

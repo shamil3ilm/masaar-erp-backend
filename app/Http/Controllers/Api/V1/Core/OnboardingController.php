@@ -6,9 +6,10 @@ namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
 use App\Services\Core\OnboardingService;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Models\Core\OnboardingTemplate;
+use Illuminate\Validation\Rule;
 
 class OnboardingController extends Controller
 {
@@ -21,15 +22,7 @@ class OnboardingController extends Controller
      */
     public function indexTemplates(Request $request): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $templates = OnboardingTemplate::where(function ($q) use ($orgId): void {
-            $q->where('organization_id', $orgId)->orWhereNull('organization_id');
-        })
-            ->where('is_active', true)
-            ->orderBy('order')
-            ->with('steps')
-            ->get();
+        $templates = $this->onboardingService->listTemplates($this->organizationId($request));
 
         return $this->success($templates, 'Onboarding templates retrieved successfully.');
     }
@@ -55,7 +48,7 @@ class OnboardingController extends Controller
     }
 
     /**
-     * Add a step to an existing onboarding template.
+     * Add a step to an existing onboarding template of the organization.
      */
     public function addStep(Request $request, int $templateId): JsonResponse
     {
@@ -69,7 +62,7 @@ class OnboardingController extends Controller
             'order'       => 'integer|min:0|max:127',
         ]);
 
-        $step = $this->onboardingService->addStep($templateId, $validated);
+        $step = $this->onboardingService->addStep($this->organizationId($request), $templateId, $validated);
 
         return $this->created($step, 'Step added successfully.');
     }
@@ -80,9 +73,19 @@ class OnboardingController extends Controller
      */
     public function getUserProgress(Request $request, int $userId): JsonResponse
     {
-        $request->validate(['template_id' => 'required|integer|exists:onboarding_templates,id']);
-
         $orgId = $this->organizationId($request);
+
+        // A template of the organization or a shared one (no organization).
+        $request->validate(['template_id' => [
+            'required',
+            'integer',
+            Rule::exists('onboarding_templates', 'id')->where(
+                fn (Builder $query) => $query->where(
+                    fn (Builder $owner) => $owner->where('organization_id', $orgId)->orWhereNull('organization_id')
+                )
+            ),
+        ]]);
+
         $templateId = (int) $request->query('template_id');
 
         $progress = $this->onboardingService->getUserProgress($orgId, $userId, $templateId);
