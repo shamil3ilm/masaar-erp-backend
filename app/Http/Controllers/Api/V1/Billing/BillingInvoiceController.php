@@ -4,21 +4,26 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Billing;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Billing\BillingInvoice;
+use App\Services\Billing\BillingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class BillingInvoiceController extends Controller
 {
+    use ReportsBusinessRules;
+
+    public function __construct(private readonly BillingService $billingService) {}
+
     public function index(Request $request): JsonResponse
     {
-        $invoices = BillingInvoice::where('organization_id', auth()->user()->organization_id)
-            ->with('subscription.plan')
-            ->orderByDesc('invoice_date')
-            ->paginate($request->input('per_page', 20));
-
-        return $this->paginated($invoices);
+        return $this->paginated($this->billingService->paginateInvoices(
+            auth()->user()->organization_id,
+            (int) $request->input('per_page', 20),
+        ));
     }
 
     public function show(BillingInvoice $invoice): JsonResponse
@@ -26,15 +31,17 @@ class BillingInvoiceController extends Controller
         return $this->success($invoice->load('items', 'payments'));
     }
 
+    /**
+     * Records an invoice as paid in full. The route admits platform
+     * administrators only: a tenant settles its invoices through payment, not
+     * by marking them.
+     */
     public function pay(BillingInvoice $invoice): JsonResponse
     {
-        $invoice->update([
-            'status' => 'paid',
-            'paid_at' => now(),
-            'amount_paid' => $invoice->total,
-            'amount_due' => 0,
-        ]);
-
-        return $this->success($invoice->fresh());
+        try {
+            return $this->success($this->billingService->markInvoicePaid($invoice));
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
     }
 }

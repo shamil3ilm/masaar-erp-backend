@@ -6,26 +6,27 @@ namespace App\Http\Controllers\Api\V1\Billing;
 
 use App\Http\Controllers\Controller;
 use App\Models\Billing\SubscriptionPlan;
+use App\Services\Billing\BillingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/**
+ * The platform's plan catalog. Every organization may read it; the routes
+ * that change it admit platform administrators only, since a plan is shared
+ * by every tenant subscribed to it.
+ */
 class SubscriptionPlanController extends Controller
 {
+    public function __construct(private readonly BillingService $billingService) {}
+
     public function index(): JsonResponse
     {
-        $plans = SubscriptionPlan::where('is_active', true)
-            ->where('is_public', true)
-            ->orderBy('display_order')
-            ->get();
-
-        return $this->success($plans);
+        return $this->success($this->billingService->getPlans());
     }
 
     public function store(Request $request): JsonResponse
     {
-        $plan = SubscriptionPlan::create($this->validated($request));
-
-        return $this->created($plan);
+        return $this->created($this->billingService->createPlan($this->validated($request)));
     }
 
     public function show(SubscriptionPlan $plan): JsonResponse
@@ -35,14 +36,12 @@ class SubscriptionPlanController extends Controller
 
     public function update(Request $request, SubscriptionPlan $plan): JsonResponse
     {
-        $plan->update($this->validated($request, $plan->id));
-
-        return $this->success($plan->fresh());
+        return $this->success($this->billingService->updatePlan($plan, $this->validated($request, $plan->id)));
     }
 
     public function destroy(SubscriptionPlan $plan): JsonResponse
     {
-        $plan->delete();
+        $this->billingService->deletePlan($plan);
 
         return $this->success(['message' => 'Plan deleted']);
     }
