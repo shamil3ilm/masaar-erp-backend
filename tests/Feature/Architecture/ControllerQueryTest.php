@@ -132,7 +132,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Manufacturing/ComplaintController.php' => 6,
         'Api/V1/Manufacturing/ProcurementInspectionController.php' => 8,
         'Api/V1/Manufacturing/QInfoRecordController.php' => 3,
-        'Api/V1/Manufacturing/QualityController.php' => 15,
         'Api/V1/Manufacturing/QualityCostController.php' => 3,
         'Api/V1/Manufacturing/ReturnsInspectionController.php' => 2,
         'Api/V1/Manufacturing/SkipLotController.php' => 4,

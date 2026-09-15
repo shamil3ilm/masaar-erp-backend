@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
+use App\Models\Inventory\StockMovement;
 use App\Models\Manufacturing\CapaRecord;
 use App\Models\Manufacturing\DefectRecord;
 use App\Models\Manufacturing\InspectionLot;
@@ -160,7 +161,7 @@ class QualityManagementService
         float $rejected,
         int $userId
     ): InspectionLot {
-        return DB::transaction(function () use ($lot, $accepted, $rejected, $userId) {
+        return $lot->lockForTransition(function (InspectionLot $lot) use ($accepted, $rejected, $userId) {
             if (!in_array($lot->status, [
                 InspectionLot::STATUS_PENDING,
                 InspectionLot::STATUS_IN_INSPECTION,
@@ -190,7 +191,7 @@ class QualityManagementService
                             productId: $completedLot->product_id,
                             warehouseId: $completedLot->warehouse_id,
                             movementType: '321',
-                            direction: 'IN',
+                            direction: StockMovement::DIRECTION_IN,
                             quantity: $accepted,
                             unitCost: 0,
                             referenceType: 'inspection_lot',
@@ -213,7 +214,7 @@ class QualityManagementService
                             productId: $completedLot->product_id,
                             warehouseId: $completedLot->warehouse_id,
                             movementType: '344',
-                            direction: 'OUT',
+                            direction: StockMovement::DIRECTION_OUT,
                             quantity: $rejected,
                             unitCost: 0,
                             referenceType: 'inspection_lot',
@@ -276,7 +277,7 @@ class QualityManagementService
         array $data,
         int $userId
     ): UsageDecision {
-        return DB::transaction(function () use ($lot, $data, $userId) {
+        return $lot->lockForTransition(function (InspectionLot $lot) use ($data, $userId) {
             if (!in_array($lot->status, [
                 InspectionLot::STATUS_PENDING,
                 InspectionLot::STATUS_IN_INSPECTION,
@@ -339,9 +340,9 @@ class QualityManagementService
             // Post stock movements when linked to a warehouse
             if ($lot->warehouse_id !== null) {
                 $movements = [
-                    [UsageDecision::MOVEMENT_UNRESTRICTED, 'IN',  $qtyUnrestricted, 'unrestricted'],
-                    [UsageDecision::MOVEMENT_BLOCKED,      'OUT', $qtyBlocked,      'blocked'],
-                    [UsageDecision::MOVEMENT_SCRAP,        'OUT', $qtyScrap,        'scrap'],
+                    [UsageDecision::MOVEMENT_UNRESTRICTED, StockMovement::DIRECTION_IN,  $qtyUnrestricted, 'unrestricted'],
+                    [UsageDecision::MOVEMENT_BLOCKED,      StockMovement::DIRECTION_OUT, $qtyBlocked,      'blocked'],
+                    [UsageDecision::MOVEMENT_SCRAP,        StockMovement::DIRECTION_OUT, $qtyScrap,        'scrap'],
                 ];
 
                 foreach ($movements as [$movementType, $direction, $qty, $label]) {
