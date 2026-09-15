@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\CRM;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\CRM\Lead;
-use App\Models\CRM\Territory;
 use App\Models\CRM\TerritoryAssignment;
-use App\Models\CRM\TerritoryRoutingRule;
 use App\Services\CRM\TerritoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class TerritoryController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private TerritoryService $territoryService
     ) {}
@@ -28,17 +28,14 @@ class TerritoryController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Territory::with(['parent', 'creator'])
-            ->latest()
-            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('territory_type'), fn ($q) => $q->ofType($request->input('territory_type')))
-            ->when($request->has('parent_id'), fn ($q) => $q->where('parent_id', $request->integer('parent_id')))
-            ->when($request->boolean('roots_only'), fn ($q) => $q->roots())
-            ->when($request->has('country_code'), fn ($q) => $q->forCountry($request->input('country_code')));
+        $filters = $request->only(['status', 'territory_type', 'parent_id', 'country_code']);
+        $filters['roots_only'] = $request->boolean('roots_only');
 
-        $territories = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($territories);
+        return $this->paginated($this->territoryService->paginateTerritories(
+            $request->user()->organization_id,
+            $filters,
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -47,7 +44,7 @@ class TerritoryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'parent_id' => 'nullable|integer|exists:territories,id',
+            'parent_id' => ['nullable', 'integer', $this->ownedBy('territories')],
             'name' => 'required|string|max:200',
             'code' => 'required|string|max:50',
             'description' => 'nullable|string',
@@ -59,7 +56,7 @@ class TerritoryController extends Controller
             'status' => 'sometimes|in:active,inactive',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $request->user()->organization_id;
 
         $territory = $this->territoryService->createTerritory($validated, $request->user()->id);
 
@@ -69,12 +66,9 @@ class TerritoryController extends Controller
     /**
      * Show a territory.
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        $territory = Territory::with(['parent', 'children', 'assignments.employee', 'routingRules', 'creator'])
-            ->findOrFail($id);
-
-        return $this->success($territory);
+        return $this->success($this->territoryService->findTerritoryDetail($request->user()->organization_id, $id));
     }
 
     /**
@@ -82,10 +76,10 @@ class TerritoryController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $territory = Territory::findOrFail($id);
+        $territory = $this->territoryService->findTerritory($request->user()->organization_id, $id);
 
         $validated = $request->validate([
-            'parent_id' => 'nullable|integer|exists:territories,id',
+            'parent_id' => ['nullable', 'integer', $this->ownedBy('territories')],
             'name' => 'sometimes|string|max:200',
             'code' => 'sometimes|string|max:50',
             'description' => 'nullable|string',
@@ -97,18 +91,17 @@ class TerritoryController extends Controller
             'status' => 'sometimes|in:active,inactive',
         ]);
 
-        $territory->update($validated);
-
-        return $this->success($territory->refresh()->load('parent'));
+        return $this->success($this->territoryService->updateTerritory($territory, $validated));
     }
 
     /**
      * Soft-delete a territory.
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
-        $territory = Territory::findOrFail($id);
-        $territory->delete();
+        $this->territoryService->deleteTerritory(
+            $this->territoryService->findTerritory($request->user()->organization_id, $id)
+        );
 
         return $this->success([], 'Territory deleted successfully.');
     }
@@ -122,14 +115,13 @@ class TerritoryController extends Controller
      */
     public function assignmentIndex(Request $request, int $territoryId): JsonResponse
     {
-        $territory = Territory::findOrFail($territoryId);
+        $territory = $this->territoryService->findTerritory($request->user()->organization_id, $territoryId);
 
-        $query = $territory->assignments()->with('employee')->latest()
-            ->when($request->boolean('active_only'), fn ($q) => $q->active());
-
-        $assignments = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($assignments);
+        return $this->paginated($this->territoryService->paginateAssignments(
+            $territory,
+            $request->boolean('active_only'),
+            $request->integer('per_page', 20)
+        ));
     }
 
     /**
@@ -137,10 +129,10 @@ class TerritoryController extends Controller
      */
     public function assignmentStore(Request $request, int $territoryId): JsonResponse
     {
-        $territory = Territory::findOrFail($territoryId);
+        $territory = $this->territoryService->findTerritory($request->user()->organization_id, $territoryId);
 
         $validated = $request->validate([
-            'employee_id' => 'required|integer|exists:employees,id',
+            'employee_id' => ['required', 'integer', $this->ownedBy('employees')],
             'role' => 'sometimes|in:owner,backup,viewer',
             'effective_from' => 'required|date',
             'effective_to' => 'nullable|date|after:effective_from',
@@ -152,14 +144,10 @@ class TerritoryController extends Controller
             role: $validated['role'] ?? TerritoryAssignment::ROLE_OWNER,
             effectiveFrom: $validated['effective_from'],
             userId: $request->user()->id,
+            effectiveTo: $validated['effective_to'] ?? null,
         );
 
-        if (! empty($validated['effective_to'])) {
-            $assignment->effective_to = $validated['effective_to'];
-            $assignment->save();
-        }
-
-        return $this->created($assignment->load('employee'));
+        return $this->created($assignment);
     }
 
     /**
@@ -167,7 +155,7 @@ class TerritoryController extends Controller
      */
     public function assignmentDestroy(Request $request, int $assignmentId): JsonResponse
     {
-        $assignment = TerritoryAssignment::findOrFail($assignmentId);
+        $assignment = $this->territoryService->findAssignment($request->user()->organization_id, $assignmentId);
         $this->territoryService->removeAssignment($assignment, $request->user()->id);
 
         return $this->success([], 'Assignment removed successfully.');
@@ -182,15 +170,14 @@ class TerritoryController extends Controller
      */
     public function routingRuleIndex(Request $request): JsonResponse
     {
-        $query = TerritoryRoutingRule::with('territory')
-            ->orderBy('priority')
-            ->when($request->has('entity_type'), fn ($q) => $q->forEntityType($request->input('entity_type')))
-            ->when($request->has('territory_id'), fn ($q) => $q->where('territory_id', $request->integer('territory_id')))
-            ->when($request->boolean('active_only'), fn ($q) => $q->active());
+        $filters = $request->only(['entity_type', 'territory_id']);
+        $filters['active_only'] = $request->boolean('active_only');
 
-        $rules = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($rules);
+        return $this->paginated($this->territoryService->paginateRoutingRules(
+            $request->user()->organization_id,
+            $filters,
+            $request->integer('per_page', 25)
+        ));
     }
 
     /**
@@ -199,7 +186,7 @@ class TerritoryController extends Controller
     public function routingRuleStore(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'territory_id' => 'required|integer|exists:territories,id',
+            'territory_id' => ['required', 'integer', $this->ownedBy('territories')],
             'entity_type' => 'sometimes|in:lead,opportunity,contact',
             'match_field' => 'required|in:country,state,postal_code,city,custom',
             'match_value' => 'required|string|max:200',
@@ -207,7 +194,7 @@ class TerritoryController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $validated['organization_id'] = $request->user()->organization_id;
 
         $rule = $this->territoryService->createRoutingRule($validated, $request->user()->id);
 
@@ -219,10 +206,10 @@ class TerritoryController extends Controller
      */
     public function routingRuleUpdate(Request $request, int $id): JsonResponse
     {
-        $rule = TerritoryRoutingRule::findOrFail($id);
+        $rule = $this->territoryService->findRoutingRule($request->user()->organization_id, $id);
 
         $validated = $request->validate([
-            'territory_id' => 'sometimes|integer|exists:territories,id',
+            'territory_id' => ['sometimes', 'integer', $this->ownedBy('territories')],
             'entity_type' => 'sometimes|in:lead,opportunity,contact',
             'match_field' => 'sometimes|in:country,state,postal_code,city,custom',
             'match_value' => 'sometimes|string|max:200',
@@ -230,18 +217,17 @@ class TerritoryController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $rule->update($validated);
-
-        return $this->success($rule->load('territory'));
+        return $this->success($this->territoryService->updateRoutingRule($rule, $validated));
     }
 
     /**
      * Delete a routing rule.
      */
-    public function routingRuleDestroy(int $id): JsonResponse
+    public function routingRuleDestroy(Request $request, int $id): JsonResponse
     {
-        $rule = TerritoryRoutingRule::findOrFail($id);
-        $rule->delete();
+        $this->territoryService->deleteRoutingRule(
+            $this->territoryService->findRoutingRule($request->user()->organization_id, $id)
+        );
 
         return $this->success([], 'Routing rule deleted successfully.');
     }
@@ -255,14 +241,14 @@ class TerritoryController extends Controller
      */
     public function autoAssignLead(Request $request, int $leadId): JsonResponse
     {
-        $lead = Lead::findOrFail($leadId);
+        $lead = $this->territoryService->findLead($request->user()->organization_id, $leadId);
         $assignment = $this->territoryService->autoAssignLead($lead, $request->user()->id);
 
         if ($assignment === null) {
             return $this->success(null, 'No matching territory or owner found for this lead.');
         }
 
-        return $this->success($assignment->load(['territory', 'employee']), 'Lead auto-assigned successfully.');
+        return $this->success($assignment, 'Lead auto-assigned successfully.');
     }
 
     /**
@@ -270,7 +256,7 @@ class TerritoryController extends Controller
      */
     public function performance(Request $request, int $id): JsonResponse
     {
-        $territory = Territory::findOrFail($id);
+        $territory = $this->territoryService->findTerritory($request->user()->organization_id, $id);
 
         $validated = $request->validate([
             'from' => 'required|date',
@@ -291,7 +277,7 @@ class TerritoryController extends Controller
      */
     public function teamWorkload(Request $request): JsonResponse
     {
-        $workload = $this->territoryService->getTeamWorkload($this->organizationId($request));
+        $workload = $this->territoryService->getTeamWorkload($request->user()->organization_id);
 
         return $this->success($workload);
     }
