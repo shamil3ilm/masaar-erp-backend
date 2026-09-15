@@ -9,6 +9,7 @@ use App\Models\Purchase\SupplierEvaluationCriteria;
 use App\Models\Purchase\SupplierIncident;
 use App\Models\Purchase\SupplierScorecard;
 use App\Models\Purchase\SupplierScorecardRating;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class SupplierPerformanceService
@@ -16,6 +17,26 @@ class SupplierPerformanceService
     // -------------------------------------------------------------------------
     // Evaluation Criteria
     // -------------------------------------------------------------------------
+
+    /**
+     * A page of evaluation criteria ordered by category and name.
+     *
+     * @param  array{category?: string|null, active_only?: bool}  $filters
+     */
+    public function listCriteria(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SupplierEvaluationCriteria::query()
+            ->when($filters['category'] ?? null, fn ($q, $category) => $q->forCategory($category))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->orderBy('category')
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    public function findCriteria(int $id): ?SupplierEvaluationCriteria
+    {
+        return SupplierEvaluationCriteria::find($id);
+    }
 
     /**
      * @param array<string, mixed> $data
@@ -38,9 +59,38 @@ class SupplierPerformanceService
         return $criteria->fresh();
     }
 
+    public function deleteCriteria(SupplierEvaluationCriteria $criteria): void
+    {
+        $criteria->delete();
+    }
+
     // -------------------------------------------------------------------------
     // Scorecards
     // -------------------------------------------------------------------------
+
+    /**
+     * A page of scorecards, latest period first, with supplier and evaluator loaded.
+     *
+     * @param  array<string, mixed>  $filters  supplier_id, status, from, to
+     */
+    public function listScorecards(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SupplierScorecard::with(['supplier', 'evaluator'])
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['from'] ?? null, fn ($q, $date) => $q->where('evaluation_period_start', '>=', $date))
+            ->when($filters['to'] ?? null, fn ($q, $date) => $q->where('evaluation_period_end', '<=', $date))
+            ->orderBy('evaluation_period_start', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findScorecard(int $id, array $with = []): ?SupplierScorecard
+    {
+        return SupplierScorecard::with($with)->find($id);
+    }
 
     /**
      * Create a scorecard with optional ratings.
@@ -74,11 +124,20 @@ class SupplierPerformanceService
     }
 
     /**
+     * Update a draft scorecard and replace its ratings when new ones are given.
+     *
+     * The draft status is checked on the locked scorecard, so one finalized
+     * meanwhile is not changed.
+     *
      * @param array<string, mixed> $data
      */
     public function updateScorecard(SupplierScorecard $scorecard, array $data, int $userId): SupplierScorecard
     {
-        return DB::transaction(function () use ($scorecard, $data): SupplierScorecard {
+        return $scorecard->lockForTransition(function (SupplierScorecard $scorecard) use ($data): SupplierScorecard {
+            if (! $scorecard->isDraft()) {
+                throw new \InvalidArgumentException('Only draft scorecards can be updated.');
+            }
+
             $fields = array_filter([
                 'supplier_id'             => $data['supplier_id'] ?? null,
                 'evaluation_period_start' => $data['evaluation_period_start'] ?? null,
@@ -109,19 +168,43 @@ class SupplierPerformanceService
 
     /**
      * Finalize a scorecard: calculate per-category and overall scores.
+     *
+     * The status is checked on the locked scorecard: finalizing a stale copy
+     * would recalculate a finalized scorecard and replace its evaluator.
      */
     public function finalizeScorecard(SupplierScorecard $scorecard, int $userId): SupplierScorecard
     {
-        if ($scorecard->isFinalized()) {
-            throw new \LogicException('Scorecard is already finalized.');
-        }
+        return $scorecard->lockForTransition(function (SupplierScorecard $scorecard) use ($userId): SupplierScorecard {
+            if ($scorecard->isFinalized()) {
+                throw new \InvalidArgumentException('Scorecard is already finalized.');
+            }
 
-        return DB::transaction(fn(): SupplierScorecard => $scorecard->finalize($userId));
+            return $scorecard->finalize($userId);
+        });
     }
 
     // -------------------------------------------------------------------------
     // Delivery Records
     // -------------------------------------------------------------------------
+
+    /**
+     * A page of delivery records, latest promised date first.
+     *
+     * @param  array<string, mixed>  $filters  supplier_id, from, to, is_on_time (applied when present)
+     */
+    public function listDeliveryRecords(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SupplierDeliveryRecord::with(['supplier', 'purchaseOrder'])
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', $id))
+            ->when($filters['from'] ?? null, fn ($q, $date) => $q->where('promised_date', '>=', $date))
+            ->when($filters['to'] ?? null, fn ($q, $date) => $q->where('promised_date', '<=', $date))
+            ->when(
+                array_key_exists('is_on_time', $filters),
+                fn ($q) => $q->where('is_on_time', filter_var($filters['is_on_time'], FILTER_VALIDATE_BOOLEAN))
+            )
+            ->orderBy('promised_date', 'desc')
+            ->paginate($perPage);
+    }
 
     /**
      * Record a delivery event, auto-calculating on-time and completeness flags.
@@ -162,6 +245,29 @@ class SupplierPerformanceService
     // -------------------------------------------------------------------------
 
     /**
+     * A page of incidents, latest first, with supplier and creator loaded.
+     *
+     * @param  array<string, mixed>  $filters  supplier_id, severity, incident_type, open_only, from, to
+     */
+    public function listIncidents(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SupplierIncident::with(['supplier', 'createdBy'])
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->forSupplier((int) $id))
+            ->when($filters['severity'] ?? null, fn ($q, $severity) => $q->ofSeverity($severity))
+            ->when($filters['incident_type'] ?? null, fn ($q, $type) => $q->where('incident_type', $type))
+            ->when($filters['open_only'] ?? false, fn ($q) => $q->open())
+            ->when($filters['from'] ?? null, fn ($q, $date) => $q->where('occurred_at', '>=', $date))
+            ->when($filters['to'] ?? null, fn ($q, $date) => $q->where('occurred_at', '<=', $date))
+            ->orderBy('occurred_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    public function findIncident(int $id): ?SupplierIncident
+    {
+        return SupplierIncident::find($id);
+    }
+
+    /**
      * Record a new supplier incident.
      *
      * @param array<string, mixed> $data
@@ -182,18 +288,19 @@ class SupplierPerformanceService
     }
 
     /**
-     * Resolve an open incident.
+     * Resolve an open incident, checked on the locked row so a resolution is
+     * not overwritten by a second one.
      */
     public function resolveIncident(
         SupplierIncident $incident,
         string $resolutionNotes,
         int $userId
     ): SupplierIncident {
-        if ($incident->isResolved()) {
-            throw new \LogicException('Incident is already resolved.');
-        }
+        return $incident->lockForTransition(function (SupplierIncident $incident) use ($resolutionNotes): SupplierIncident {
+            if ($incident->isResolved()) {
+                throw new \InvalidArgumentException('Incident is already resolved.');
+            }
 
-        return DB::transaction(function () use ($incident, $resolutionNotes): SupplierIncident {
             $incident->update([
                 'resolved_at'      => now()->toDateString(),
                 'resolution_notes' => $resolutionNotes,
