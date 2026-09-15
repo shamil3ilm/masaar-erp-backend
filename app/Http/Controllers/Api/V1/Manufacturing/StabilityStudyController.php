@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\StabilityStudy;
-use App\Models\Manufacturing\StabilityStudyTimePoint;
 use App\Services\Manufacturing\StabilityStudyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +13,8 @@ use RuntimeException;
 
 class StabilityStudyController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly StabilityStudyService $service) {}
 
     public function index(Request $request): JsonResponse
@@ -26,8 +27,8 @@ class StabilityStudyController extends Controller
     {
         $data = $request->validate([
             'study_number'       => 'required|string|max:50',
-            'product_id'         => 'required|integer|exists:products,id',
-            'inventory_batch_id' => 'nullable|integer|exists:inventory_batches,id',
+            'product_id'         => ['required', 'integer', $this->ownedBy('products')],
+            'inventory_batch_id' => ['nullable', 'integer', $this->ownedBy('inventory_batches')],
             'study_type'         => 'required|in:real_time,accelerated,intermediate',
             'start_date'         => 'required|date',
             'planned_end_date'   => 'nullable|date|after_or_equal:start_date',
@@ -42,15 +43,13 @@ class StabilityStudyController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $study = StabilityStudy::where('organization_id', $request->user()->organization_id)
-            ->with(['product', 'inventoryBatch', 'timePoints.results'])
-            ->findOrFail($id);
+        $study = $this->service->findForDisplay($request->user()->organization_id, $id);
         return $this->success($study, 'Study retrieved.');
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $study = StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $study = $this->service->find($request->user()->organization_id, $id);
 
         $data = $request->validate([
             'study_number'       => 'string|max:50',
@@ -72,7 +71,7 @@ class StabilityStudyController extends Controller
 
     public function activate(Request $request, int $id): JsonResponse
     {
-        $study = StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $study = $this->service->find($request->user()->organization_id, $id);
 
         try {
             $updated = $this->service->activate($study);
@@ -84,7 +83,7 @@ class StabilityStudyController extends Controller
 
     public function complete(Request $request, int $id): JsonResponse
     {
-        $study = StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $study = $this->service->find($request->user()->organization_id, $id);
 
         try {
             $updated = $this->service->complete($study);
@@ -102,7 +101,7 @@ class StabilityStudyController extends Controller
 
     public function addTimePoint(Request $request, int $id): JsonResponse
     {
-        $study = StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $study = $this->service->find($request->user()->organization_id, $id);
 
         $data = $request->validate([
             'time_point'     => 'required|string|max:20',
@@ -115,8 +114,7 @@ class StabilityStudyController extends Controller
 
     public function updateTimePoint(Request $request, int $id, int $tpId): JsonResponse
     {
-        StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $timePoint = StabilityStudyTimePoint::where('stability_study_id', $id)->findOrFail($tpId);
+        $timePoint = $this->service->findTimePoint($request->user()->organization_id, $id, $tpId);
 
         $data = $request->validate([
             'time_point'     => 'string|max:20',
@@ -131,8 +129,7 @@ class StabilityStudyController extends Controller
 
     public function addResult(Request $request, int $id, int $tpId): JsonResponse
     {
-        StabilityStudy::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $timePoint = StabilityStudyTimePoint::where('stability_study_id', $id)->findOrFail($tpId);
+        $timePoint = $this->service->findTimePoint($request->user()->organization_id, $id, $tpId);
 
         $data = $request->validate([
             'parameter_name'    => 'required|string|max:100',
@@ -142,7 +139,7 @@ class StabilityStudyController extends Controller
             'result_text'       => 'nullable|string|max:255',
             'unit_of_measure'   => 'nullable|string|max:20',
             'is_pass'           => 'nullable|boolean',
-            'tested_by'         => 'nullable|integer|exists:users,id',
+            'tested_by'         => ['nullable', 'integer', $this->ownedBy('users')],
         ]);
 
         $result = $this->service->addResult($timePoint, $data);
