@@ -124,8 +124,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Inventory/PriceCheckController.php' => 3,
         'Api/V1/Inventory/ProductDetailController.php' => 1,
         'Api/V1/Inventory/ShelfLabelController.php' => 1,
-        'Api/V1/Inventory/StorageTypeController.php' => 8,
-        'Api/V1/Inventory/WarehouseTransferOrderController.php' => 1,
         'Api/V1/Inventory/WaveController.php' => 13,
         'Api/V1/Inventory/YardManagementController.php' => 12,
         'Api/V1/Maintenance/ConditionMaintenanceController.php' => 3,
