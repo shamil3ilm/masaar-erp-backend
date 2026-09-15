@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Core\Branch;
 use App\Models\Core\Notification;
 use App\Models\Core\Organization;
@@ -24,7 +25,7 @@ use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
 class User extends Authenticatable implements JWTSubject, \Illuminate\Contracts\Auth\MustVerifyEmail
 {
-    use HasFactory, Notifiable, SoftDeletes, HasUuid, HasAuditTrail;
+    use HasFactory, Notifiable, SoftDeletes, HasUuid, HasAuditTrail, LocksForTransition;
 
     protected $fillable = [
         'organization_id',
