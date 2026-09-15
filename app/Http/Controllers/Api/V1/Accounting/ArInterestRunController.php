@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\ArInterestRunService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class ArInterestRunController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ArInterestRunService $service
     ) {}
@@ -25,7 +28,7 @@ class ArInterestRunController extends Controller
     {
         $params = $request->validate([
             'annual_rate' => ['nullable', 'numeric', 'min:0.01', 'max:100'],
-            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'min_days_overdue' => ['nullable', 'integer', 'min:1'],
             'max_days_overdue' => ['nullable', 'integer', 'min:1'],
         ]);
@@ -47,7 +50,7 @@ class ArInterestRunController extends Controller
     {
         $params = $request->validate([
             'annual_rate' => ['nullable', 'numeric', 'min:0.01', 'max:100'],
-            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'min_days_overdue' => ['nullable', 'integer', 'min:1'],
             'max_days_overdue' => ['nullable', 'integer', 'min:1'],
         ]);
