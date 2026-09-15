@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Inventory\PhysicalInventoryDocumentResource;
 use App\Models\Inventory\PhysicalInventoryDocument;
 use App\Services\Inventory\PhysicalInventoryService;
 use Illuminate\Http\JsonResponse;
@@ -12,6 +14,8 @@ use Illuminate\Http\Request;
 
 class PhysicalInventoryController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PhysicalInventoryService $service
     ) {}
@@ -21,17 +25,12 @@ class PhysicalInventoryController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PhysicalInventoryDocument::with(['warehouse', 'assignee'])
-            ->when($request->status, fn($q, $v) => $q->byStatus($v))
-            ->when($request->warehouse_id, fn($q, $v) => $q->byWarehouse((int) $v))
-            ->when($request->inventory_type, fn($q, $v) => $q->where('inventory_type', $v))
-            ->when($request->start_date, fn($q, $v) => $q->where('count_date', '>=', $v))
-            ->when($request->end_date, fn($q, $v) => $q->where('count_date', '<=', $v))
-            ->orderByDesc('count_date');
+        $documents = $this->service->list(
+            $request->only(['status', 'warehouse_id', 'inventory_type', 'start_date', 'end_date']),
+            $request->integer('per_page', 15)
+        );
 
-        $documents = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($documents, \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource::class);
+        return $this->paginated($documents, PhysicalInventoryDocumentResource::class);
     }
 
     /**
@@ -40,10 +39,10 @@ class PhysicalInventoryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => 'required|exists:warehouses,id',
+            'warehouse_id' => ['required', $this->ownedBy('warehouses')],
             'count_date' => 'required|date',
             'inventory_type' => 'nullable|in:full,cycle,spot',
-            'assigned_to' => 'nullable|exists:users,id',
+            'assigned_to' => ['nullable', $this->ownedBy('users')],
             'document_number' => 'nullable|string|max:30',
         ]);
 
@@ -55,7 +54,7 @@ class PhysicalInventoryController extends Controller
         }
 
         return $this->created(
-            new \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource($document),
+            new PhysicalInventoryDocumentResource($document),
             'Physical inventory document created successfully.'
         );
     }
@@ -66,7 +65,7 @@ class PhysicalInventoryController extends Controller
     public function show(PhysicalInventoryDocument $physicalInventoryDocument): JsonResponse
     {
         return $this->success(
-            new \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource(
+            new PhysicalInventoryDocumentResource(
                 $physicalInventoryDocument->load([
                     'lines.product',
                     'lines.variant',
@@ -91,13 +90,17 @@ class PhysicalInventoryController extends Controller
         $validated = $request->validate([
             'count_date' => 'sometimes|date',
             'inventory_type' => 'nullable|in:full,cycle,spot',
-            'assigned_to' => 'nullable|exists:users,id',
+            'assigned_to' => ['nullable', $this->ownedBy('users')],
         ]);
 
-        $physicalInventoryDocument->update($validated);
+        try {
+            $document = $this->service->updateHeader($physicalInventoryDocument, $validated);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
+        }
 
         return $this->success(
-            new \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource($physicalInventoryDocument->fresh(['warehouse', 'assignee'])),
+            new PhysicalInventoryDocumentResource($document),
             'Physical inventory document updated successfully.'
         );
     }
@@ -107,11 +110,11 @@ class PhysicalInventoryController extends Controller
      */
     public function destroy(PhysicalInventoryDocument $physicalInventoryDocument): JsonResponse
     {
-        if (!$physicalInventoryDocument->canBeCancelled()) {
-            return $this->error('Document cannot be cancelled in its current status.', 'VALIDATION_ERROR', 422);
+        try {
+            $this->service->cancel($physicalInventoryDocument);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
-
-        $physicalInventoryDocument->update(['status' => PhysicalInventoryDocument::STATUS_CANCELLED]);
 
         return $this->success(null, 'Physical inventory document cancelled.');
     }
@@ -137,7 +140,7 @@ class PhysicalInventoryController extends Controller
         }
 
         return $this->success(
-            new \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource($document),
+            new PhysicalInventoryDocumentResource($document),
             'Counts saved successfully.'
         );
     }
@@ -157,7 +160,7 @@ class PhysicalInventoryController extends Controller
         }
 
         return $this->success(
-            new \App\Http\Resources\Inventory\PhysicalInventoryDocumentResource($document),
+            new PhysicalInventoryDocumentResource($document),
             'Physical inventory adjustments posted successfully.'
         );
     }

@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Accounting\JournalEntry;
 use App\Services\Inventory\MaterialValuationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class MaterialValuationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly MaterialValuationService $service
     ) {}
@@ -40,7 +42,7 @@ class MaterialValuationController extends Controller
     public function revalue(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'    => ['required', 'integer', 'min:1'],
+            'product_id'    => ['required', 'integer', 'min:1', $this->ownedBy('products')],
             'new_unit_cost' => ['required', 'numeric', 'min:0'],
         ]);
 
@@ -65,36 +67,21 @@ class MaterialValuationController extends Controller
             'to'   => ['nullable', 'date', 'after_or_equal:from'],
         ]);
 
-        $orgId = $this->organizationId($request);
-        $from  = $validated['from'] ?? now()->startOfMonth()->toDateString();
-        $to    = $validated['to']   ?? now()->toDateString();
+        $from = $validated['from'] ?? now()->startOfMonth()->toDateString();
+        $to   = $validated['to']   ?? now()->toDateString();
 
-        $perPage = $request->integer('per_page', 25);
-
-        // Pull journal entries that represent variance postings (PPV / REVAL)
-        $paginator = JournalEntry::where('organization_id', $orgId)
-            ->where(function ($q) {
-                $q->where('reference', 'like', 'PPV-%')
-                    ->orWhere('reference', 'like', 'REVAL-%');
-            })
-            ->whereBetween('entry_date', [$from, $to])
-            ->with('lines.account')
-            ->orderByDesc('entry_date')
-            ->paginate($perPage);
-
-        $entries = collect($paginator->items())->map(fn (JournalEntry $je) => [
-            'id'          => $je->id,
-            'reference'   => $je->reference,
-            'type'        => str_starts_with($je->reference ?? '', 'PPV') ? 'price_variance' : 'revaluation',
-            'date'        => $je->entry_date,
-            'description' => $je->description,
-            'amount'      => $je->lines->where('debit', '>', 0)->sum('debit'),
-        ]);
+        $report = $this->service->varianceReport(
+            $this->organizationId($request),
+            $from,
+            $to,
+            $request->integer('per_page', 25)
+        );
+        $paginator = $report['paginator'];
 
         return $this->success([
             'from'    => $from,
             'to'      => $to,
-            'entries' => $entries,
+            'entries' => $report['entries'],
             'meta'    => [
                 'current_page' => $paginator->currentPage(),
                 'per_page'     => $paginator->perPage(),
