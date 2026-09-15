@@ -47,7 +47,6 @@ class ControllerQueryTest extends TestCase
      */
     private const OFFENDERS = [
         'Api/V1/Aml/AmlController.php' => 5,
-        'Api/V1/Analytics/UserAnalyticsController.php' => 7,
         'Api/V1/Auth/AuthController.php' => 14,
         'Api/V1/Billing/BillingInvoiceController.php' => 1,
         'Api/V1/Billing/SubscriptionController.php' => 6,
