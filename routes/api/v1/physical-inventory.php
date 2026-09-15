@@ -5,7 +5,10 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Inventory\PhysicalInventoryController;
 use Illuminate\Support\Facades\Route;
 
+// The parameter is named after the controller argument so the document is
+// bound by implicit route binding, which applies the organization scope.
 Route::apiResource('physical-inventory', PhysicalInventoryController::class)
+    ->parameters(['physical-inventory' => 'physicalInventoryDocument'])
     ->names('inventory.physical-inventory')->middlewareFor(['store', 'update', 'destroy'], 'check.permission:inventory.physical-inventory.manage')->middlewareFor(['index', 'show'], 'check.permission:inventory.physical-inventory.view');
 
 Route::post('physical-inventory/{physicalInventoryDocument}/counts', [PhysicalInventoryController::class, 'enterCounts'])

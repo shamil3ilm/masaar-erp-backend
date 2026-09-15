@@ -8,6 +8,7 @@ use App\Models\Inventory\StockMovement;
 use App\Models\Inventory\StockTransfer;
 use App\Models\Inventory\StockTransferLine;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class StockTransferService
@@ -16,6 +17,36 @@ class StockTransferService
         private StockService $stockService,
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * Stock transfers of the current organization with their warehouses,
+     * lines and creator, newest first. Each filter applies when its key is
+     * present.
+     *
+     * @param  array{from_warehouse_id?: mixed, to_warehouse_id?: mixed, status?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return StockTransfer::with(['fromWarehouse', 'toWarehouse', 'lines.product', 'lines.variant', 'creator'])
+            ->latest()
+            ->when(array_key_exists('from_warehouse_id', $filters), fn ($q) => $q->fromWarehouse((int) $filters['from_warehouse_id']))
+            ->when(array_key_exists('to_warehouse_id', $filters), fn ($q) => $q->toWarehouse((int) $filters['to_warehouse_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('transfer_date', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('transfer_date', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Draft and in-transit transfers of the current organization, newest first.
+     */
+    public function paginatePending(int $perPage): LengthAwarePaginator
+    {
+        return StockTransfer::with(['fromWarehouse', 'toWarehouse', 'lines.product', 'creator'])
+            ->whereIn('status', [StockTransfer::STATUS_DRAFT, StockTransfer::STATUS_IN_TRANSIT])
+            ->latest()
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new stock transfer.

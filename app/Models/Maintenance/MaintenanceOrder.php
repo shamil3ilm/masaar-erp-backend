@@ -7,6 +7,7 @@ namespace App\Models\Maintenance;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,6 +22,7 @@ class MaintenanceOrder extends Model
     use HasUuid;
     use BelongsToOrganization;
     use HasAuditTrail;
+    use LocksForTransition;
     use SoftDeletes;
 
     // Order type constants

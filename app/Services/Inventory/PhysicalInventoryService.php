@@ -12,6 +12,7 @@ use App\Models\Inventory\StockLevel;
 use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +25,60 @@ class PhysicalInventoryService
         private JournalService $journalService,
         private AccountResolver $accountResolver,
     ) {}
+
+    /**
+     * Physical inventory documents of the current organization with their
+     * warehouse and assignee, latest count date first. Each filter applies
+     * when its value is truthy.
+     *
+     * @param  array{status?: mixed, warehouse_id?: mixed, inventory_type?: mixed, start_date?: mixed, end_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PhysicalInventoryDocument::with(['warehouse', 'assignee'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->byStatus($v))
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $v) => $q->byWarehouse((int) $v))
+            ->when($filters['inventory_type'] ?? null, fn ($q, $v) => $q->where('inventory_type', $v))
+            ->when($filters['start_date'] ?? null, fn ($q, $v) => $q->where('count_date', '>=', $v))
+            ->when($filters['end_date'] ?? null, fn ($q, $v) => $q->where('count_date', '<=', $v))
+            ->orderByDesc('count_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Change the header of a document that is still being counted. The
+     * editable check runs on the locked row, so a post committed meanwhile
+     * is seen.
+     *
+     * @param  array{count_date?: string, inventory_type?: string|null, assigned_to?: int|null}  $data
+     */
+    public function updateHeader(PhysicalInventoryDocument $document, array $data): PhysicalInventoryDocument
+    {
+        return $document->lockForTransition(function (PhysicalInventoryDocument $document) use ($data): PhysicalInventoryDocument {
+            if (! $document->isEditable()) {
+                throw new \InvalidArgumentException('Document cannot be edited in its current status.');
+            }
+
+            $document->update($data);
+
+            return $document->fresh(['warehouse', 'assignee']);
+        });
+    }
+
+    /**
+     * Cancel a document that is not posted. Runs on the locked row, so a
+     * document posted by a concurrent request is not cancelled afterwards.
+     */
+    public function cancel(PhysicalInventoryDocument $document): void
+    {
+        $document->lockForTransition(function (PhysicalInventoryDocument $document): void {
+            if (! $document->canBeCancelled()) {
+                throw new \InvalidArgumentException('Document cannot be cancelled in its current status.');
+            }
+
+            $document->update(['status' => PhysicalInventoryDocument::STATUS_CANCELLED]);
+        });
+    }
 
     /**
      * Create a physical inventory document and auto-populate lines with current book quantities.

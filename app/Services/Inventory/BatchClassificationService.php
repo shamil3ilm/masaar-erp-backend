@@ -8,11 +8,59 @@ use App\Models\Inventory\BatchCharacteristic;
 use App\Models\Inventory\BatchCharacteristicValue;
 use App\Models\Inventory\BatchClass;
 use App\Models\Inventory\InventoryBatch;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class BatchClassificationService
 {
+    /**
+     * Batch classes of the organization with their characteristic count; only
+     * active ones when $activeOnly.
+     */
+    public function paginateClasses(int $orgId, bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return BatchClass::where('organization_id', $orgId)
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->withCount('characteristics')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findClassOrFail(int $orgId, int|string $classId, array $with = []): BatchClass
+    {
+        return BatchClass::where('organization_id', $orgId)
+            ->with($with)
+            ->findOrFail($classId);
+    }
+
+    public function deleteClass(BatchClass $batchClass): void
+    {
+        $batchClass->delete();
+    }
+
+    /**
+     * Sets several characteristic values on a batch in one transaction, so a
+     * value that fails validation leaves none of the others written.
+     *
+     * @param  list<array{characteristic_id: int|string, value: mixed}>  $values
+     * @return list<BatchCharacteristicValue>
+     */
+    public function setBatchValues(InventoryBatch $batch, array $values): array
+    {
+        return DB::transaction(fn (): array => array_map(
+            fn (array $entry): BatchCharacteristicValue => $this->setCharacteristicValue(
+                $batch,
+                (int) $entry['characteristic_id'],
+                $entry['value']
+            ),
+            $values
+        ));
+    }
+
     public function createClass(int $orgId, array $data): BatchClass
     {
         return BatchClass::create(array_merge($data, [

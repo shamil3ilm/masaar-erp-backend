@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Services\Inventory;
 
 use App\Models\Inventory\HazmatClassification;
+use App\Models\Inventory\HazmatStorageClass;
 use App\Models\Inventory\HazmatStorageCompatibilityRule;
 use App\Models\Inventory\HazmatTransportRegulation;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductHazmatClassification;
 use App\Models\Inventory\SafetyDataSheet;
 use App\Models\Inventory\SafetyDataSheetSection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -23,6 +25,10 @@ class HazmatService
     public function classifyProduct(int $productId, array $classificationData): void
     {
         DB::transaction(function () use ($productId, $classificationData): void {
+            // Classifications carry no organization column, so they are
+            // written only for a product the caller's organization owns.
+            Product::query()->lockForUpdate()->findOrFail($productId);
+
             // Remove existing classifications for this product.
             ProductHazmatClassification::where('product_id', $productId)->delete();
 
@@ -131,5 +137,84 @@ class HazmatService
     public function isProductHazardous(int $productId): bool
     {
         return ProductHazmatClassification::where('product_id', $productId)->exists();
+    }
+
+    /**
+     * Classifications of the current organization by system and code. system
+     * and active_only apply when truthy.
+     *
+     * @param  array{system?: mixed, active_only?: mixed}  $filters
+     */
+    public function paginateClassifications(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return HazmatClassification::query()
+            ->when($filters['system'] ?? null, fn ($q, $s) => $q->bySystem($s))
+            ->when($filters['active_only'] ?? null, fn ($q) => $q->active())
+            ->orderBy('classification_system')
+            ->orderBy('code')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createClassification(array $data): HazmatClassification
+    {
+        return HazmatClassification::create($data);
+    }
+
+    public function paginateStorageClasses(int $perPage): LengthAwarePaginator
+    {
+        return HazmatStorageClass::query()
+            ->orderBy('code')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createStorageClass(array $data): HazmatStorageClass
+    {
+        return HazmatStorageClass::create($data);
+    }
+
+    /**
+     * Safety data sheets of the current organization with their product,
+     * latest revision first. product_id, language and current_only apply when
+     * truthy.
+     *
+     * @param  array{product_id?: mixed, language?: mixed, current_only?: mixed}  $filters
+     */
+    public function paginateSafetyDataSheets(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return SafetyDataSheet::with(['product'])
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct((int) $id))
+            ->when($filters['language'] ?? null, fn ($q, $lang) => $q->forLanguage($lang))
+            ->when($filters['current_only'] ?? null, fn ($q) => $q->current())
+            ->orderByDesc('revision_date')
+            ->paginate($perPage);
+    }
+
+    public function findSafetyDataSheetOrFail(int $id): SafetyDataSheet
+    {
+        return SafetyDataSheet::with('sections')->findOrFail($id);
+    }
+
+    /**
+     * Transport regulations of a product, for one transport mode when given.
+     */
+    public function listTransportRegulations(int $productId, ?string $mode): Collection
+    {
+        return HazmatTransportRegulation::forProduct($productId)
+            ->when($mode, fn ($q, $m) => $q->forMode($m))
+            ->get();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createTransportRegulation(array $data): HazmatTransportRegulation
+    {
+        return HazmatTransportRegulation::create($data);
     }
 }

@@ -6,6 +6,7 @@ namespace App\Services\Inventory;
 
 use App\Models\Inventory\CrossDockingOrder;
 use App\Models\Inventory\CrossDockingOrderLine;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -46,62 +47,71 @@ class CrossDockingService
     }
 
     /**
-     * Transition a planned order to in_progress.
+     * Transition a planned order to in_progress, checked on the locked order.
      */
     public function startTransfer(CrossDockingOrder $order): void
     {
-        if (!$order->isPlanned()) {
-            throw new RuntimeException(
-                "Only planned orders can be started. Current status: {$order->status}."
-            );
-        }
+        $order->lockForTransition(function (CrossDockingOrder $order): void {
+            if (!$order->isPlanned()) {
+                throw new RuntimeException(
+                    "Only planned orders can be started. Current status: {$order->status}."
+                );
+            }
 
-        $order->update(['status' => CrossDockingOrder::STATUS_IN_PROGRESS]);
+            $order->update(['status' => CrossDockingOrder::STATUS_IN_PROGRESS]);
+        });
     }
 
     /**
      * Record a quantity transfer against a specific order line.
+     *
+     * The remaining quantity is read from the locked line, so two transfers
+     * cannot together move more than the line holds.
      */
     public function transferLine(CrossDockingOrderLine $line, float $quantity): void
     {
-        if ($line->isTransferred()) {
-            throw new RuntimeException('This line has already been fully transferred.');
-        }
+        $line->lockForTransition(function (CrossDockingOrderLine $line) use ($quantity): void {
+            if ($line->isTransferred()) {
+                throw new RuntimeException('This line has already been fully transferred.');
+            }
 
-        $remaining = $line->getRemainingQuantity();
+            $remaining = $line->getRemainingQuantity();
 
-        if ($quantity > $remaining) {
-            throw new RuntimeException(
-                "Transfer quantity ({$quantity}) exceeds remaining ({$remaining})."
-            );
-        }
+            if ($quantity > $remaining) {
+                throw new RuntimeException(
+                    "Transfer quantity ({$quantity}) exceeds remaining ({$remaining})."
+                );
+            }
 
-        $newTransferred = (float) bcadd((string) $line->quantity_transferred, (string) $quantity, 4);
-        $isFullyTransferred = bccomp((string) $newTransferred, (string) $line->quantity, 4) >= 0;
+            $newTransferred = (float) bcadd((string) $line->quantity_transferred, (string) $quantity, 4);
+            $isFullyTransferred = bccomp((string) $newTransferred, (string) $line->quantity, 4) >= 0;
 
-        $line->update([
-            'quantity_transferred' => $newTransferred,
-            'status' => $isFullyTransferred
-                ? CrossDockingOrderLine::STATUS_TRANSFERRED
-                : CrossDockingOrderLine::STATUS_PARTIAL,
-        ]);
+            $line->update([
+                'quantity_transferred' => $newTransferred,
+                'status' => $isFullyTransferred
+                    ? CrossDockingOrderLine::STATUS_TRANSFERRED
+                    : CrossDockingOrderLine::STATUS_PARTIAL,
+            ]);
+        });
     }
 
     /**
-     * Complete a cross-docking order (all lines must be transferred or partial allowed).
+     * Complete an in-progress cross-docking order, checked on the locked order.
      */
     public function complete(CrossDockingOrder $order): void
     {
-        if (!$order->isInProgress()) {
-            throw new RuntimeException(
-                "Only in-progress orders can be completed. Current status: {$order->status}."
-            );
-        }
+        $order->lockForTransition(function (CrossDockingOrder $order): void {
+            if (!$order->isInProgress()) {
+                throw new RuntimeException(
+                    "Only in-progress orders can be completed. Current status: {$order->status}."
+                );
+            }
 
-        $order->update([
-            'status'      => CrossDockingOrder::STATUS_COMPLETED,
-            'actual_date' => now(),
-        ]);
+            $order->update([
+                'status'      => CrossDockingOrder::STATUS_COMPLETED,
+                'actual_date' => now(),
+            ]);
+        });
     }
 
     /**
@@ -133,5 +143,67 @@ class CrossDockingService
             ->with(['lines.product'])
             ->orderBy('planned_date')
             ->get();
+    }
+
+    /**
+     * Cross-docking orders of the organization with their lines and products,
+     * latest planned date first. warehouse_id and status apply when given.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed}  $filters
+     */
+    public function paginateOrders(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CrossDockingOrder::where('organization_id', $organizationId)
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $w) => $q->where('warehouse_id', $w))
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->with(['lines.product'])
+            ->orderByDesc('planned_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findOrderOrFail(int $organizationId, int $id, array $with = []): CrossDockingOrder
+    {
+        return CrossDockingOrder::where('organization_id', $organizationId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateOrder(CrossDockingOrder $order, array $data): CrossDockingOrder
+    {
+        $order->update($data);
+
+        return $order->fresh();
+    }
+
+    /**
+     * Delete an order that is not completed, checked on the locked order.
+     */
+    public function deleteOrder(CrossDockingOrder $order): void
+    {
+        $order->lockForTransition(function (CrossDockingOrder $order): void {
+            if ($order->isCompleted()) {
+                throw new RuntimeException('Completed orders cannot be deleted.');
+            }
+
+            $order->delete();
+        });
+    }
+
+    /**
+     * A line of one of the organization's orders. Lines carry no organization
+     * column, so the line is found through its order.
+     */
+    public function findLineOrFail(int $organizationId, int $lineId): CrossDockingOrderLine
+    {
+        return CrossDockingOrderLine::whereHas(
+            'crossDockingOrder',
+            fn ($q) => $q->where('organization_id', $organizationId)
+        )->findOrFail($lineId);
     }
 }

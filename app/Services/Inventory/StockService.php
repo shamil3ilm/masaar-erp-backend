@@ -12,6 +12,7 @@ use App\Models\Inventory\StockLevel;
 use App\Models\Inventory\StockMovement;
 use App\Models\Inventory\Warehouse;
 use App\Traits\StructuredLogger;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -541,6 +542,43 @@ class StockService
         }
 
         return $stockLevel->hasAvailable($quantity);
+    }
+
+    /**
+     * Stock levels of the current organization with their product, variant,
+     * warehouse and location. product_id and warehouse_id apply when present;
+     * low_stock_only and in_stock_only when true.
+     *
+     * @param  array{product_id?: mixed, warehouse_id?: mixed, low_stock_only?: bool, in_stock_only?: bool}  $filters
+     */
+    public function paginateLevels(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return StockLevel::with(['product', 'variant', 'warehouse', 'location'])
+            ->when(array_key_exists('product_id', $filters), fn ($q) => $q->where('product_id', (int) $filters['product_id']))
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->inWarehouse((int) $filters['warehouse_id']))
+            ->when($filters['low_stock_only'] ?? false, fn ($q) => $q->lowStock())
+            ->when($filters['in_stock_only'] ?? false, fn ($q) => $q->hasStock())
+            ->paginate($perPage);
+    }
+
+    /**
+     * Stock movements of the current organization with their product,
+     * variant, warehouse and creator, newest first. Each filter applies when
+     * its key is present; a direction other than "in" lists outgoing movements.
+     *
+     * @param  array{product_id?: mixed, warehouse_id?: mixed, movement_type?: mixed, direction?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function paginateMovements(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return StockMovement::with(['product', 'variant', 'warehouse', 'creator'])
+            ->latest()
+            ->when(array_key_exists('product_id', $filters), fn ($q) => $q->forProduct((int) $filters['product_id']))
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->inWarehouse((int) $filters['warehouse_id']))
+            ->when(array_key_exists('movement_type', $filters), fn ($q) => $q->byType((string) $filters['movement_type']))
+            ->when(array_key_exists('direction', $filters), fn ($q) => $filters['direction'] === 'in' ? $q->incoming() : $q->outgoing())
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('created_at', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('created_at', '<=', $filters['to_date']))
+            ->paginate($perPage);
     }
 
     /**

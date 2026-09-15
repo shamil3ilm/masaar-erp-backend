@@ -13,7 +13,9 @@ use Illuminate\Validation\Rules\Exists;
  *
  * An exists rule on the table alone accepts another organization's id: the request then
  * either links that row into this organization's document or learns that the
- * id exists. These rules accept only a row of the caller's organization.
+ * id exists. These rules accept only a row of the caller's organization. Users
+ * carry no tenant scope, so a user id is checked through ownedBy('users') like
+ * any other table.
  */
 trait ValidatesOwnedRows
 {
@@ -40,5 +42,21 @@ trait ValidatesOwnedRows
                 fn (Builder $parents) => $parents->select('id')->from($parentTable)->where('organization_id', $organizationId)
             )
         );
+    }
+
+    /**
+     * A product variant whose product belongs to the caller's organization.
+     */
+    protected function ownedVariant(): Exists
+    {
+        return $this->ownedThrough('product_variants', 'product_id', 'products');
+    }
+
+    /**
+     * A warehouse location whose warehouse belongs to the caller's organization.
+     */
+    protected function ownedLocation(): Exists
+    {
+        return $this->ownedThrough('warehouse_locations', 'warehouse_id', 'warehouses');
     }
 }

@@ -33,6 +33,9 @@ class Employee extends Model
     public const STATUS_RESIGNED = 'resigned';
     public const STATUS_ABSCONDED = 'absconded';
 
+    /** The columns another record embeds when it names an employee, leaving out contact, pay and identity details. */
+    public const REFERENCE_COLUMNS = ['id', 'employee_number', 'first_name', 'last_name'];
+
     /**
      * Identity, tax and bank numbers are left out whenever an employee is
      * serialized as a model, which is how most HR records return the employee

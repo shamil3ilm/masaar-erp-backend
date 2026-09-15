@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Services\Inventory;
 
 use App\Models\Inventory\DockDoor;
+use App\Models\Sales\Contact;
 use App\Models\Inventory\TruckAppointment;
 use App\Models\Inventory\YardMovement;
 use App\Models\Inventory\YardZone;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -33,16 +35,19 @@ class YardManagementService
     /**
      * Check in a truck: set actual_arrival, update status to checked_in,
      * assign to a yard zone if provided, and create an arrival movement.
+     *
+     * The status is checked on the locked appointment, so a second check-in
+     * is refused instead of recording another arrival.
      */
     public function checkIn(TruckAppointment $appointment, array $data): YardMovement
     {
-        if (!$appointment->canCheckIn()) {
-            throw new RuntimeException(
-                "Appointment cannot be checked in. Current status: {$appointment->status}."
-            );
-        }
+        return $appointment->lockForTransition(function (TruckAppointment $appointment) use ($data): YardMovement {
+            if (!$appointment->canCheckIn()) {
+                throw new RuntimeException(
+                    "Appointment cannot be checked in. Current status: {$appointment->status}."
+                );
+            }
 
-        return DB::transaction(function () use ($appointment, $data): YardMovement {
             $yardZoneId = $data['yard_zone_id'] ?? null;
 
             $appointment->update([
@@ -68,22 +73,25 @@ class YardManagementService
 
     /**
      * Assign a checked-in truck to a dock door.
+     *
+     * The appointment and the door are both locked while the checks run, so
+     * two trucks cannot both take a door that was free when they asked.
      */
     public function assignToDock(TruckAppointment $appointment, int $dockDoorId): YardMovement
     {
-        if (!$appointment->canAssignDock()) {
-            throw new RuntimeException(
-                "Appointment cannot be assigned to a dock. Current status: {$appointment->status}."
-            );
-        }
+        return $appointment->lockForTransition(function (TruckAppointment $appointment) use ($dockDoorId): YardMovement {
+            if (!$appointment->canAssignDock()) {
+                throw new RuntimeException(
+                    "Appointment cannot be assigned to a dock. Current status: {$appointment->status}."
+                );
+            }
 
-        $dockDoor = DockDoor::findOrFail($dockDoorId);
+            $dockDoor = DockDoor::query()->lockForUpdate()->findOrFail($dockDoorId);
 
-        if (!$dockDoor->isAvailable()) {
-            throw new RuntimeException("Dock door #{$dockDoorId} is not available.");
-        }
+            if (!$dockDoor->isAvailable()) {
+                throw new RuntimeException("Dock door #{$dockDoorId} is not available.");
+            }
 
-        return DB::transaction(function () use ($appointment, $dockDoor): YardMovement {
             $previousZoneId = $appointment->yard_zone_id;
 
             $appointment->update([
@@ -107,16 +115,19 @@ class YardManagementService
 
     /**
      * Mark a truck as departed and free the dock door.
+     *
+     * The status is checked on the locked appointment, so a second departure
+     * is refused instead of recording another movement.
      */
     public function depart(TruckAppointment $appointment): YardMovement
     {
-        if (!$appointment->canDepart()) {
-            throw new RuntimeException(
-                "Appointment cannot be departed. Current status: {$appointment->status}."
-            );
-        }
+        return $appointment->lockForTransition(function (TruckAppointment $appointment): YardMovement {
+            if (!$appointment->canDepart()) {
+                throw new RuntimeException(
+                    "Appointment cannot be departed. Current status: {$appointment->status}."
+                );
+            }
 
-        return DB::transaction(function () use ($appointment): YardMovement {
             $dockDoorId = $appointment->dock_door_id;
 
             $appointment->update([
@@ -169,7 +180,7 @@ class YardManagementService
         return TruckAppointment::where('warehouse_id', $warehouseId)
             ->whereDate('scheduled_arrival', $date)
             ->whereNot('status', TruckAppointment::STATUS_CANCELLED)
-            ->with(['vendor', 'dockDoor', 'yardZone'])
+            ->with([$this->vendorReference(), 'dockDoor', 'yardZone'])
             ->orderBy('scheduled_arrival')
             ->get();
     }
@@ -208,7 +219,7 @@ class YardManagementService
 
         $activeAppointments = TruckAppointment::where('warehouse_id', $warehouseId)
             ->whereNotIn('status', [TruckAppointment::STATUS_DEPARTED, TruckAppointment::STATUS_CANCELLED])
-            ->with(['vendor', 'dockDoor', 'yardZone'])
+            ->with([$this->vendorReference(), 'dockDoor', 'yardZone'])
             ->orderBy('scheduled_arrival')
             ->get();
 
@@ -226,5 +237,150 @@ class YardManagementService
                 'active_trucks'          => $activeAppointments->count(),
             ],
         ];
+    }
+
+    // ── Lookups and master data ──────────────────────────────────────────────
+
+    /**
+     * Yard zones of the organization with their warehouse, by zone code.
+     * warehouse_id applies when given; active_only when true.
+     *
+     * @param  array{warehouse_id?: mixed, active_only?: bool}  $filters
+     */
+    public function listZones(int $organizationId, array $filters): Collection
+    {
+        return YardZone::where('organization_id', $organizationId)
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $w) => $q->where('warehouse_id', $w))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->where('is_active', true))
+            ->with('warehouse')
+            ->orderBy('zone_code')
+            ->get();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createZone(array $data): YardZone
+    {
+        return YardZone::create($data);
+    }
+
+    /**
+     * Dock doors of the organization with their warehouse and zone, by door
+     * code. warehouse_id and status apply when given; active_only when true.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, active_only?: bool}  $filters
+     */
+    public function listDockDoors(int $organizationId, array $filters): Collection
+    {
+        return DockDoor::where('organization_id', $organizationId)
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $w) => $q->where('warehouse_id', $w))
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->where('is_active', true))
+            ->with(['warehouse', 'yardZone'])
+            ->orderBy('door_code')
+            ->get();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createDockDoor(array $data): DockDoor
+    {
+        return DockDoor::create($data)->load('yardZone');
+    }
+
+    public function findDockDoorOrFail(int $organizationId, int $id): DockDoor
+    {
+        return DockDoor::where('organization_id', $organizationId)->findOrFail($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateDockDoor(DockDoor $door, array $data): DockDoor
+    {
+        $door->update($data);
+
+        return $door->fresh()->load('yardZone');
+    }
+
+    /**
+     * Appointments of the organization with their vendor, door and zone, by
+     * scheduled arrival. warehouse_id, status and date apply when given.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, date?: mixed}  $filters
+     */
+    public function paginateAppointments(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return TruckAppointment::where('organization_id', $organizationId)
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $w) => $q->where('warehouse_id', $w))
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->when($filters['date'] ?? null, fn ($q, $d) => $q->whereDate('scheduled_arrival', $d))
+            ->with([$this->vendorReference(), 'dockDoor', 'yardZone'])
+            ->orderBy('scheduled_arrival')
+            ->paginate($perPage);
+    }
+
+    /**
+     * An appointment of the organization. A vendor among $with is loaded with
+     * its reference columns only.
+     *
+     * @param  list<string>  $with
+     */
+    public function findAppointmentOrFail(int $organizationId, int $id, array $with = []): TruckAppointment
+    {
+        $with = array_map(fn (string $relation) => $relation === 'vendor' ? $this->vendorReference() : $relation, $with);
+
+        return TruckAppointment::where('organization_id', $organizationId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
+    /**
+     * Update an appointment that has neither departed nor been cancelled,
+     * checked on the locked row.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function updateAppointment(TruckAppointment $appointment, array $data): TruckAppointment
+    {
+        return $appointment->lockForTransition(function (TruckAppointment $appointment) use ($data): TruckAppointment {
+            if ($appointment->isDeparted() || $appointment->isCancelled()) {
+                throw new RuntimeException('Departed or cancelled appointments cannot be updated.');
+            }
+
+            $appointment->update($data);
+
+            return $appointment->fresh();
+        });
+    }
+
+    /**
+     * Cancel an appointment that has not departed, checked on the locked row.
+     * An appointment already cancelled is returned as it is.
+     */
+    public function cancelAppointment(TruckAppointment $appointment): TruckAppointment
+    {
+        return $appointment->lockForTransition(function (TruckAppointment $appointment): TruckAppointment {
+            if ($appointment->isDeparted()) {
+                throw new RuntimeException('Departed appointments cannot be cancelled.');
+            }
+
+            if (! $appointment->isCancelled()) {
+                $appointment->update(['status' => TruckAppointment::STATUS_CANCELLED]);
+            }
+
+            return $appointment->fresh();
+        });
+    }
+
+    /**
+     * The vendor is a contact; only its reference columns are embedded, never
+     * its tax number or other private fields.
+     */
+    private function vendorReference(): string
+    {
+        return 'vendor:'.implode(',', Contact::REFERENCE_COLUMNS);
     }
 }

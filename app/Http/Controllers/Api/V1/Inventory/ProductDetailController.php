@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductCertification;
@@ -17,6 +18,8 @@ use Illuminate\Http\Request;
 
 class ProductDetailController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private ProductDetailService $service) {}
 
     public function show(Product $product): JsonResponse
@@ -47,6 +50,7 @@ class ProductDetailController extends Controller
             'alt_text' => 'nullable|string|max:255',
             'is_primary' => 'nullable|boolean',
             'display_order' => 'nullable|integer',
+            'variant_id' => ['nullable', 'integer', $this->ownedVariant()],
         ]);
 
         return $this->created($this->service->addImage($product->id, $request->all()));
@@ -54,7 +58,7 @@ class ProductDetailController extends Controller
 
     public function removeImage(Product $product, ProductImage $image): JsonResponse
     {
-        $this->service->removeImage($image->id);
+        $this->service->removeProductImage($product, $image);
         return $this->success(['message' => 'Image removed']);
     }
 
@@ -83,7 +87,7 @@ class ProductDetailController extends Controller
 
     public function removeDocument(Product $product, ProductDocument $document): JsonResponse
     {
-        $document->delete();
+        $this->service->removeProductDocument($product, $document);
         return $this->success(['message' => 'Document removed']);
     }
 
@@ -99,7 +103,7 @@ class ProductDetailController extends Controller
 
     public function removeVideo(Product $product, ProductVideo $video): JsonResponse
     {
-        $video->delete();
+        $this->service->removeProductVideo($product, $video);
         return $this->success(['message' => 'Video removed']);
     }
 
@@ -110,17 +114,18 @@ class ProductDetailController extends Controller
 
     public function setRelations(Request $request, Product $product): JsonResponse
     {
+        $request->validate([
+            'related_ids' => 'nullable|array',
+            'related_ids.*' => ['integer', $this->ownedBy('products')],
+        ]);
+
         $this->service->setRelations($product->id, $request->input('relation_type'), $request->input('related_ids', []));
         return $this->success(['message' => 'Relations updated']);
     }
 
     public function reviews(Request $request, Product $product): JsonResponse
     {
-        $reviews = ProductReview::where('product_id', $product->id)
-            ->when($request->input('status'), fn ($q, $s) => $q->where('status', $s))
-            ->orderByDesc('created_at')
-            ->get();
-        return $this->success($reviews);
+        return $this->success($this->service->listReviews($product->id, $request->input('status')));
     }
 
     public function submitReview(Request $request, Product $product): JsonResponse
@@ -137,13 +142,12 @@ class ProductDetailController extends Controller
 
     public function approveReview(Product $product, ProductReview $review): JsonResponse
     {
-        return $this->success($this->service->approveReview($review->id, auth()->id()));
+        return $this->success($this->service->approveProductReview($product, $review, auth()->id()));
     }
 
     public function rejectReview(Product $product, ProductReview $review): JsonResponse
     {
-        $review->update(['status' => 'rejected']);
-        return $this->success($review->fresh());
+        return $this->success($this->service->rejectProductReview($product, $review));
     }
 
     public function priceHistory(Product $product): JsonResponse
@@ -169,9 +173,22 @@ class ProductDetailController extends Controller
         return $this->created($this->service->addCertification($product->id, $request->all()));
     }
 
+    /**
+     * Only the certification's own fields are taken from the request; the
+     * product it belongs to cannot be changed here.
+     */
     public function updateCertification(Request $request, Product $product, ProductCertification $certification): JsonResponse
     {
-        $certification->update($request->all());
-        return $this->success($certification->fresh());
+        $validated = $request->validate([
+            'certification_name' => 'sometimes|required|string|max:255',
+            'certification_body' => 'nullable|string|max:255',
+            'certificate_number' => 'nullable|string|max:100',
+            'issued_date' => 'nullable|date',
+            'expiry_date' => 'nullable|date',
+            'certificate_file_path' => 'nullable|string|max:500',
+            'status' => 'nullable|string|max:50',
+        ]);
+
+        return $this->success($this->service->updateProductCertification($product, $certification, $validated));
     }
 }
