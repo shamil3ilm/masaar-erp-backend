@@ -132,8 +132,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Manufacturing/WorkCenterController.php' => 1,
         'Api/V1/Manufacturing/WorkOrderController.php' => 2,
         'Api/V1/RealEstate/VacancyController.php' => 4,
-        'Api/V1/Reports/ExportController.php' => 1,
-        'Api/V1/Reports/ReportsController.php' => 9,
         'Api/V1/TM/TransportationController.php' => 1,
         'Api/V1/Tax/TaxDeterminationController.php' => 1,
         'Api/V1/Tax/VatReturnController.php' => 3,
