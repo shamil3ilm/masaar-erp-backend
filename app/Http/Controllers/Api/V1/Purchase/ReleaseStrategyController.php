@@ -8,10 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Purchase\ReleaseStrategy;
 use App\Models\Purchase\ReleaseStrategyApproval;
 use App\Models\Purchase\ReleaseStrategyLevel;
-use App\Models\Purchase\PurchaseOrder;
-use App\Models\Purchase\PurchaseRequisition;
+use App\Services\Purchase\ReleaseApprovalService;
 use App\Services\Purchase\ReleaseStrategyService;
-use App\Services\Purchase\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -19,7 +17,7 @@ class ReleaseStrategyController extends Controller
 {
     public function __construct(
         private readonly ReleaseStrategyService $releaseStrategyService,
-        private readonly PurchaseOrderService $purchaseOrderService,
+        private readonly ReleaseApprovalService $releaseApprovalService,
     ) {}
 
     /**
@@ -154,7 +152,7 @@ class ReleaseStrategyController extends Controller
 
     /**
      * Approve a release approval record.
-     * If all levels are approved, also marks the underlying PO/PR as approved.
+     * If all levels are approved, also approves the underlying PO/PR.
      */
     public function approve(Request $request, ReleaseStrategyApproval $approval): JsonResponse
     {
@@ -162,12 +160,10 @@ class ReleaseStrategyController extends Controller
             'comments' => 'nullable|string|max:1000',
         ]);
 
-        $approver = auth()->user();
-
         try {
-            $fullyReleased = $this->releaseStrategyService->approve(
+            $fullyReleased = $this->releaseApprovalService->approve(
                 $approval,
-                $approver,
+                auth()->user(),
                 $validated['comments'] ?? null
             );
         } catch (\InvalidArgumentException $e) {
@@ -181,7 +177,6 @@ class ReleaseStrategyController extends Controller
 
         if ($fullyReleased) {
             $responseData['message'] = 'Document fully released.';
-            $this->markDocumentApproved($approval, $approver->id);
         }
 
         return $this->success($responseData, 'Approval recorded successfully.');
@@ -196,12 +191,10 @@ class ReleaseStrategyController extends Controller
             'comments' => 'nullable|string|max:1000',
         ]);
 
-        $approver = auth()->user();
-
         try {
             $this->releaseStrategyService->reject(
                 $approval,
-                $approver,
+                auth()->user(),
                 $validated['comments'] ?? null
             );
         } catch (\InvalidArgumentException $e) {
@@ -212,30 +205,5 @@ class ReleaseStrategyController extends Controller
             $approval->fresh(['level', 'approver']),
             'Approval rejected.'
         );
-    }
-
-    /**
-     * After all levels are approved, mark the underlying document as approved/confirmed.
-     */
-    private function markDocumentApproved(ReleaseStrategyApproval $approval, int $userId): void
-    {
-        if ($approval->document_type === ReleaseStrategy::DOCUMENT_TYPE_PURCHASE_ORDER) {
-            $po = PurchaseOrder::find($approval->document_id);
-            if ($po && $po->isPendingApproval()) {
-                $this->purchaseOrderService->approvePO($po, $userId, 'Auto-approved via release strategy.');
-            }
-            return;
-        }
-
-        if ($approval->document_type === ReleaseStrategy::DOCUMENT_TYPE_PURCHASE_REQUISITION) {
-            $pr = PurchaseRequisition::find($approval->document_id);
-            if ($pr && $pr->isPendingApproval()) {
-                $pr->update([
-                    'status'      => PurchaseRequisition::STATUS_APPROVED,
-                    'approved_by' => $userId,
-                    'approved_at' => now(),
-                ]);
-            }
-        }
     }
 }

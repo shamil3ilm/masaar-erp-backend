@@ -4,16 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Purchase\PurchaseOrderResource;
+use App\Http\Resources\Purchase\RfqQuoteResource;
+use App\Http\Resources\Purchase\RfqResource;
 use App\Models\Purchase\RfqHeader;
-use App\Models\Purchase\RfqQuote;
-use App\Models\Purchase\RfqVendor;
 use App\Services\Purchase\RfqService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class RfqController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private RfqService $rfqService
     ) {}
@@ -23,22 +28,14 @@ class RfqController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = RfqHeader::with(['creator', 'vendors', 'items'])
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('rfq_number', 'like', "%{$search}%")
-                        ->orWhere('title', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->start_date, fn($q, $date) => $q->where('submission_deadline', '>=', $date))
-            ->when($request->end_date, fn($q, $date) => $q->where('submission_deadline', '<=', $date))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['rfq_number', 'title', 'status', 'submission_deadline', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
+        $rfqs = $this->rfqService->list(
+            $request->only(['status', 'search', 'start_date', 'end_date']),
+            $this->safeSortBy($request->sort_by, ['rfq_number', 'title', 'status', 'submission_deadline', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 15)), \App\Http\Resources\Purchase\RfqResource::class);
+        return $this->paginated($rfqs, RfqResource::class);
     }
 
     /**
@@ -54,12 +51,12 @@ class RfqController extends Controller
             'delivery_address' => 'nullable|string',
             'currency_code' => 'nullable|string|size:3',
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_id' => ['nullable', $this->ownedBy('products')],
             'items.*.description' => 'required|string|max:500',
             'items.*.quantity' => 'required|numeric|min:0.0001',
-            'items.*.unit_id' => 'nullable|exists:units_of_measure,id',
+            'items.*.unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
             'items.*.notes' => 'nullable|string',
             'items.*.sort_order' => 'nullable|integer',
         ]);
@@ -72,7 +69,7 @@ class RfqController extends Controller
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
-        return $this->created(new \App\Http\Resources\Purchase\RfqResource($rfq), 'RFQ created successfully.');
+        return $this->created(new RfqResource($rfq), 'RFQ created successfully.');
     }
 
     /**
@@ -81,9 +78,7 @@ class RfqController extends Controller
     public function show(RfqHeader $rfq): JsonResponse
     {
         return $this->success(
-            new \App\Http\Resources\Purchase\RfqResource(
-                $rfq->load(['items.product', 'vendors.contact', 'quotes.lines', 'creator'])
-            )
+            new RfqResource($rfq->load(['items.product', 'vendors.contact', 'quotes.lines', 'creator']))
         );
     }
 
@@ -92,10 +87,6 @@ class RfqController extends Controller
      */
     public function update(Request $request, RfqHeader $rfq): JsonResponse
     {
-        if (!$rfq->isEditable()) {
-            return $this->error('Only draft RFQs can be updated.', 'VALIDATION_ERROR', 422);
-        }
-
         $validated = $request->validate([
             'title' => 'sometimes|string|max:200',
             'submission_deadline' => 'nullable|date',
@@ -103,12 +94,13 @@ class RfqController extends Controller
             'delivery_address' => 'nullable|string',
             'currency_code' => 'nullable|string|size:3',
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
         ]);
 
-        $rfq->update($validated);
-
-        return $this->success(new \App\Http\Resources\Purchase\RfqResource($rfq->fresh(['items', 'vendors'])), 'RFQ updated successfully.');
+        return $this->tryAction(
+            fn () => new RfqResource($this->rfqService->update($rfq, $validated)),
+            'RFQ updated successfully.'
+        );
     }
 
     /**
@@ -118,16 +110,13 @@ class RfqController extends Controller
     {
         $validated = $request->validate([
             'vendor_ids' => 'required|array|min:1',
-            'vendor_ids.*' => 'required|exists:contacts,id',
+            'vendor_ids.*' => ['required', $this->ownedBy('contacts')],
         ]);
 
-        try {
-            $rfq = $this->rfqService->sendToVendors($rfq, $validated['vendor_ids']);
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
-        }
-
-        return $this->success(new \App\Http\Resources\Purchase\RfqResource($rfq), 'RFQ sent to vendors successfully.');
+        return $this->tryAction(
+            fn () => new RfqResource($this->rfqService->sendToVendors($rfq, $validated['vendor_ids'])),
+            'RFQ sent to vendors successfully.'
+        );
     }
 
     /**
@@ -136,7 +125,7 @@ class RfqController extends Controller
     public function recordQuote(Request $request, RfqHeader $rfq): JsonResponse
     {
         $validated = $request->validate([
-            'rfq_vendor_id' => 'required|exists:rfq_vendors,id',
+            'rfq_vendor_id' => 'required|integer',
             'quote_number' => 'nullable|string|max:100',
             'quote_date' => 'nullable|date',
             'valid_until' => 'nullable|date',
@@ -146,7 +135,8 @@ class RfqController extends Controller
             'payment_terms' => 'nullable|string|max:200',
             'notes' => 'nullable|string',
             'lines' => 'required|array|min:1',
-            'lines.*.rfq_item_id' => 'required|exists:rfq_items,id',
+            // Items carry no organization column; an item of this RFQ is one of the caller's.
+            'lines.*.rfq_item_id' => ['required', Rule::exists('rfq_items', 'id')->where('rfq_id', $rfq->id)],
             'lines.*.unit_price' => 'required|numeric|min:0',
             'lines.*.quantity' => 'required|numeric|min:0.0001',
             'lines.*.discount_pct' => 'nullable|numeric|min:0|max:100',
@@ -156,19 +146,13 @@ class RfqController extends Controller
             'lines.*.notes' => 'nullable|string',
         ]);
 
-        $rfqVendor = RfqVendor::findOrFail($validated['rfq_vendor_id']);
-
-        if ($rfqVendor->rfq_id !== $rfq->id) {
-            return $this->error('Vendor invitation does not belong to this RFQ.', 'VALIDATION_ERROR', 422);
-        }
-
         try {
-            $quote = $this->rfqService->recordQuote($rfqVendor, $validated);
+            $quote = $this->rfqService->recordQuote($rfq, (int) $validated['rfq_vendor_id'], $validated);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
 
-        return $this->created(new \App\Http\Resources\Purchase\RfqQuoteResource($quote), 'Quote recorded successfully.');
+        return $this->created(new RfqQuoteResource($quote), 'Quote recorded successfully.');
     }
 
     /**
@@ -176,9 +160,7 @@ class RfqController extends Controller
      */
     public function compareQuotes(RfqHeader $rfq): JsonResponse
     {
-        $matrix = $this->rfqService->compareQuotes($rfq);
-
-        return $this->success($matrix);
+        return $this->success($this->rfqService->compareQuotes($rfq));
     }
 
     /**
@@ -187,22 +169,13 @@ class RfqController extends Controller
     public function awardQuote(Request $request, RfqHeader $rfq): JsonResponse
     {
         $validated = $request->validate([
-            'quote_id' => 'required|exists:rfq_quotes,id',
+            'quote_id' => 'required|integer',
         ]);
 
-        $quote = RfqQuote::findOrFail($validated['quote_id']);
-
-        if ($quote->rfq_id !== $rfq->id) {
-            return $this->error('Quote does not belong to this RFQ.', 'VALIDATION_ERROR', 422);
-        }
-
-        try {
-            $quote = $this->rfqService->awardQuote($quote);
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
-        }
-
-        return $this->success(new \App\Http\Resources\Purchase\RfqQuoteResource($quote), 'Quote awarded successfully.');
+        return $this->tryAction(
+            fn () => new RfqQuoteResource($this->rfqService->awardQuote($rfq, (int) $validated['quote_id'])),
+            'Quote awarded successfully.'
+        );
     }
 
     /**
@@ -211,17 +184,11 @@ class RfqController extends Controller
     public function convertToPo(Request $request, RfqHeader $rfq): JsonResponse
     {
         $validated = $request->validate([
-            'quote_id' => 'required|exists:rfq_quotes,id',
+            'quote_id' => 'required|integer',
         ]);
 
-        $quote = RfqQuote::findOrFail($validated['quote_id']);
-
-        if ($quote->rfq_id !== $rfq->id) {
-            return $this->error('Quote does not belong to this RFQ.', 'VALIDATION_ERROR', 422);
-        }
-
         try {
-            $purchaseOrder = $this->rfqService->convertToPurchaseOrder($quote);
+            $purchaseOrder = $this->rfqService->convertToPurchaseOrder($rfq, (int) $validated['quote_id']);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         } catch (\Exception $e) {
@@ -230,6 +197,6 @@ class RfqController extends Controller
             return $this->error('An unexpected error occurred.', 'SERVER_ERROR', 500);
         }
 
-        return $this->created(new \App\Http\Resources\Purchase\PurchaseOrderResource($purchaseOrder), 'Purchase order created from RFQ successfully.');
+        return $this->created(new PurchaseOrderResource($purchaseOrder), 'Purchase order created from RFQ successfully.');
     }
 }
