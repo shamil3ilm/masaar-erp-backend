@@ -252,7 +252,7 @@ class CreditManagementTest extends TestCase
         $this->assertSame([$high->id], array_column($response->json('data'), 'id'));
     }
 
-    public function test_store_limit_returns_404_for_another_organizations_contact(): void
+    public function test_store_limit_rejects_another_organizations_contact(): void
     {
         $otherOrg = \App\Models\Core\Organization::factory()->create();
         $contact = Contact::factory()->create(['organization_id' => $otherOrg->id]);
@@ -263,7 +263,8 @@ class CreditManagementTest extends TestCase
                 'credit_limit' => 1000,
                 'valid_from'   => '2025-01-01',
             ])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('contact_id');
 
         $this->assertSame(0, CreditLimit::withoutGlobalScopes()->count());
     }
