@@ -272,14 +272,15 @@ class CashFlowTest extends TestCase
         $this->assertCount(1, $filtered->json('data'));
     }
 
-    public function test_generate_forecast_returns_404_for_another_organizations_scenario(): void
+    public function test_generate_forecast_rejects_another_organizations_scenario(): void
     {
         $otherOrg = \App\Models\Core\Organization::factory()->create();
         $scenario = $this->makeScenario(['organization_id' => $otherOrg->id]);
 
         $this->withToken($this->token)
             ->postJson('/api/v1/cash-flow/forecasts/generate', ['horizon_days' => 30, 'scenario_id' => $scenario->id])
-            ->assertStatus(404);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('scenario_id');
 
         $this->assertSame(0, CashFlowForecast::withoutGlobalScopes()->count());
     }

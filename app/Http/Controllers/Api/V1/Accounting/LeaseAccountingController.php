@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\LeaseContract;
 use App\Services\Accounting\LeaseAccountingService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class LeaseAccountingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly LeaseAccountingService $leaseService,
     ) {}
@@ -43,11 +46,11 @@ class LeaseAccountingController extends Controller
             'currency_code'           => ['sometimes', 'string', 'size:3'],
             'discount_rate'           => ['required', 'numeric', 'min:0', 'max:1'],
             'classification'          => ['sometimes', 'in:finance,operating,short_term,low_value'],
-            'rou_asset_account_id'              => ['nullable', 'exists:chart_of_accounts,id'],
-            'accum_depreciation_account_id'     => ['nullable', 'exists:chart_of_accounts,id'],
-            'lease_liability_account_id'        => ['nullable', 'exists:chart_of_accounts,id'],
-            'interest_expense_account_id'       => ['nullable', 'exists:chart_of_accounts,id'],
-            'depreciation_expense_account_id'   => ['nullable', 'exists:chart_of_accounts,id'],
+            'rou_asset_account_id'              => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'accum_depreciation_account_id'     => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'lease_liability_account_id'        => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'interest_expense_account_id'       => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'depreciation_expense_account_id'   => ['nullable', $this->ownedBy('chart_of_accounts')],
             'notes'                   => ['nullable', 'string'],
         ]);
 

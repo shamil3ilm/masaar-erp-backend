@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\InterCompanyTransfer;
 use App\Services\Accounting\InterCompanyTransferService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class InterCompanyTransferController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private InterCompanyTransferService $transferService
     ) {}
@@ -36,17 +39,17 @@ class InterCompanyTransferController extends Controller
     {
         $validated = $request->validate([
             'transfer_type' => ['required', 'string', 'in:fund_transfer,loan,investment'],
-            'from_branch_id' => ['nullable', 'exists:branches,id'],
-            'from_bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
-            'to_branch_id' => ['nullable', 'exists:branches,id'],
-            'to_bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'from_branch_id' => ['nullable', $this->ownedBy('branches')],
+            'from_bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
+            'to_branch_id' => ['nullable', $this->ownedBy('branches')],
+            'to_bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'to_organization_id' => ['nullable', 'integer'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'currency_code' => ['nullable', 'string', 'size:3'],
             'transfer_date' => ['required', 'date'],
             'reference' => ['nullable', 'string', 'max:255'],
             'purpose' => ['nullable', 'string'],
-            'loan_id' => ['nullable', 'exists:loans,id'],
+            'loan_id' => ['nullable', $this->ownedBy('loans')],
         ]);
 
         try {

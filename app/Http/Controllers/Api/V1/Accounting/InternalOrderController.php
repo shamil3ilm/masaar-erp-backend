@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\InternalOrder;
 use App\Services\Accounting\InternalOrderService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class InternalOrderController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly InternalOrderService $service
     ) {}
@@ -47,8 +50,8 @@ class InternalOrderController extends Controller
                 InternalOrder::TYPE_ACCRUAL,
                 InternalOrder::TYPE_STATISTICAL,
             ])],
-            'cost_center_id'      => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'cost_center_id'      => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'responsible_user_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'start_date'          => ['nullable', 'date'],
             'end_date'            => ['nullable', 'date', 'after_or_equal:start_date'],
             'budget_amount'       => ['nullable', 'numeric', 'min:0'],
@@ -90,8 +93,8 @@ class InternalOrderController extends Controller
                 InternalOrder::TYPE_ACCRUAL,
                 InternalOrder::TYPE_STATISTICAL,
             ])],
-            'cost_center_id'      => ['nullable', 'integer', 'exists:cost_centers,id'],
-            'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'cost_center_id'      => ['nullable', 'integer', $this->ownedBy('cost_centers')],
+            'responsible_user_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'start_date'          => ['nullable', 'date'],
             'end_date'            => ['nullable', 'date', 'after_or_equal:start_date'],
             'budget_amount'       => ['nullable', 'numeric', 'min:0'],
