@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\Contact;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProcurementInspection extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_PENDING     = 'pending';
     public const STATUS_IN_PROGRESS = 'in_progress';
@@ -85,6 +86,22 @@ class ProcurementInspection extends Model
     public function results(): HasMany
     {
         return $this->hasMany(ProcurementInspectionResult::class);
+    }
+
+    /**
+     * Results are recorded once, while the inspection is pending or in progress.
+     */
+    public function canRecordResults(): bool
+    {
+        return in_array($this->status, [self::STATUS_PENDING, self::STATUS_IN_PROGRESS], true);
+    }
+
+    /**
+     * A completed inspection waits to be approved or rejected.
+     */
+    public function isAwaitingDecision(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED;
     }
 
     public function calculateDefectRate(): float

@@ -9,14 +9,153 @@ use App\Models\Manufacturing\CalibrationEquipment;
 use App\Models\Manufacturing\CalibrationOrder;
 use App\Models\Manufacturing\CalibrationPlan;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class CalibrationService
 {
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    // -------------------------------------------------------------------------
+    // Equipment
+    // -------------------------------------------------------------------------
+
+    /**
+     * The organization's equipment by name, optionally filtered by category,
+     * whether it is active and a search on name, code or serial number.
+     *
+     * @param  array{category?: mixed, active_only?: bool, search?: mixed}  $filters
+     */
+    public function listEquipment(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CalibrationEquipment::where('organization_id', $organizationId)
+            ->with('responsiblePerson')
+            ->when(isset($filters['category']), fn ($q) => $q->where('category', $filters['category']))
+            ->when(! empty($filters['active_only']), fn ($q) => $q->where('is_active', true))
+            ->when(isset($filters['search']), function ($q) use ($filters): void {
+                $search = '%' . $filters['search'] . '%';
+                $q->where(function ($q) use ($search): void {
+                    $q->where('name', 'like', $search)
+                        ->orWhere('equipment_code', 'like', $search)
+                        ->orWhere('serial_number', 'like', $search);
+                });
+            })
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
+
+    public function createEquipment(int $organizationId, array $data): CalibrationEquipment
+    {
+        return CalibrationEquipment::create([
+            'organization_id' => $organizationId,
+            ...$data,
+        ]);
+    }
+
+    public function findEquipment(int $organizationId, int $id): ?CalibrationEquipment
+    {
+        return CalibrationEquipment::where('organization_id', $organizationId)->find($id);
+    }
+
+    /**
+     * Equipment with its plans and its five most recently scheduled orders.
+     */
+    public function findEquipmentForDisplay(int $organizationId, int $id): ?CalibrationEquipment
+    {
+        return CalibrationEquipment::where('organization_id', $organizationId)
+            ->with(['responsiblePerson', 'calibrationPlans', 'calibrationOrders' => function ($q) {
+                $q->orderByDesc('scheduled_date')->limit(5);
+            }])
+            ->find($id);
+    }
+
+    public function updateEquipment(CalibrationEquipment $equipment, array $data): CalibrationEquipment
+    {
+        $equipment->update($data);
+
+        return $equipment->fresh();
+    }
+
+    // -------------------------------------------------------------------------
+    // Plans
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param  array{equipment_id?: mixed, active_only?: bool}  $filters
+     */
+    public function listPlans(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CalibrationPlan::where('organization_id', $organizationId)
+            ->with('equipment')
+            ->when(isset($filters['equipment_id']), fn ($q) => $q->where('calibration_equipment_id', $filters['equipment_id']))
+            ->when(! empty($filters['active_only']), fn ($q) => $q->where('is_active', true))
+            ->orderBy('plan_code')
+            ->paginate($perPage);
+    }
+
+    public function createPlan(int $organizationId, array $data): CalibrationPlan
+    {
+        $plan = CalibrationPlan::create([
+            'organization_id' => $organizationId,
+            ...$data,
+        ]);
+
+        return $plan->load('equipment');
+    }
+
+    /**
+     * A plan with its equipment and its ten most recently scheduled orders.
+     */
+    public function findPlanForDisplay(int $organizationId, int $id): ?CalibrationPlan
+    {
+        return CalibrationPlan::where('organization_id', $organizationId)
+            ->with(['equipment', 'calibrationOrders' => function ($q) {
+                $q->orderByDesc('scheduled_date')->limit(10);
+            }])
+            ->find($id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Orders
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param  array{status?: mixed, equipment_id?: mixed, result?: mixed}  $filters
+     */
+    public function listOrders(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return CalibrationOrder::where('organization_id', $organizationId)
+            ->with(['equipment', 'plan', 'calibratedBy'])
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['equipment_id']), fn ($q) => $q->where('calibration_equipment_id', $filters['equipment_id']))
+            ->when(isset($filters['result']), fn ($q) => $q->where('result', $filters['result']))
+            ->orderByDesc('scheduled_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's orders, or null.
+     *
+     * @param  array<int, string>  $with
+     */
+    public function findOrder(int $organizationId, int $id, array $with = []): ?CalibrationOrder
+    {
+        return CalibrationOrder::where('organization_id', $organizationId)
+            ->with($with)
+            ->find($id);
+    }
+
+    /**
+     * An order's certificates, most recently issued first.
+     */
+    public function certificatesOf(CalibrationOrder $order): Collection
+    {
+        return $order->certificates()->orderByDesc('issued_date')->get();
+    }
 
     /**
      * Create a planned calibration order for a piece of equipment, outside its
@@ -67,19 +206,23 @@ class CalibrationService
 
     /**
      * Record calibration results, issue a certificate, and schedule the next order.
+     *
+     * The status is checked on the locked order, so a double submit completes
+     * it, issues its certificate and schedules the next order once.
      */
-    public function completeCalibration(CalibrationOrder $order, array $results): void
+    public function completeCalibration(CalibrationOrder $order, array $results): CalibrationOrder
     {
-        DB::transaction(function () use ($order, $results): void {
+        return $order->lockForTransition(function (CalibrationOrder $order) use ($results): CalibrationOrder {
+            if (! $order->canBeCompleted()) {
+                throw new InvalidArgumentException('Only planned or in-progress orders can be completed.');
+            }
+
             $completedDate = now()->toDateString();
+            $plan = $order->calibration_plan_id !== null ? $order->plan()->first() : null;
 
             // Determine next calibration date
-            $nextDate = null;
-            if ($order->calibration_plan_id !== null) {
-                $plan = $order->plan ?? CalibrationPlan::find($order->calibration_plan_id);
-                $baseDate = \DateTimeImmutable::createFromFormat('Y-m-d', $completedDate);
-                $nextDate = $plan?->calculateNextDueDate($baseDate)->format('Y-m-d');
-            }
+            $baseDate = \DateTimeImmutable::createFromFormat('Y-m-d', $completedDate);
+            $nextDate = $plan?->calculateNextDueDate($baseDate)->format('Y-m-d');
 
             $order->update([
                 'status' => CalibrationOrder::STATUS_COMPLETED,
@@ -107,12 +250,11 @@ class CalibrationService
             }
 
             // Auto-schedule next order if a plan exists
-            if ($order->calibration_plan_id !== null && $nextDate !== null) {
-                $plan = $order->plan ?? CalibrationPlan::find($order->calibration_plan_id);
-                if ($plan?->is_active) {
-                    $this->createCalibrationOrder($plan);
-                }
+            if ($plan?->is_active && $nextDate !== null) {
+                $this->createCalibrationOrder($plan);
             }
+
+            return $order;
         });
     }
 

@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\SkipLotDecision;
-use App\Models\Manufacturing\SkipLotSamplingPlan;
 use App\Services\Manufacturing\SkipLotService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SkipLotController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly SkipLotService $service) {}
 
     public function index(Request $request): JsonResponse
@@ -44,15 +45,13 @@ class SkipLotController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $plan = SkipLotSamplingPlan::where('organization_id', $request->user()->organization_id)
-            ->with('decisions')
-            ->findOrFail($id);
+        $plan = $this->service->findPlan($request->user()->organization_id, $id, ['decisions']);
         return $this->success($plan, 'Sampling plan retrieved.');
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $plan = SkipLotSamplingPlan::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $plan = $this->service->findPlan($request->user()->organization_id, $id);
 
         $data = $request->validate([
             'plan_code'                          => 'string|max:30',
@@ -74,8 +73,7 @@ class SkipLotController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $plan = SkipLotSamplingPlan::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $plan->delete();
+        $this->service->deletePlan($this->service->findPlan($request->user()->organization_id, $id));
         return $this->success(null, 'Sampling plan deleted.');
     }
 
@@ -89,9 +87,9 @@ class SkipLotController extends Controller
     public function shouldInspect(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'vendor_id'  => 'required|integer',
-            'product_id' => 'required|integer',
-            'plan_id'    => 'required|integer',
+            'vendor_id'  => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'plan_id'    => ['required', 'integer', $this->ownedBy('skip_lot_sampling_plans')],
         ]);
 
         $orgId    = $request->user()->organization_id;
@@ -113,11 +111,11 @@ class SkipLotController extends Controller
 
     public function recordResult(Request $request, int $id): JsonResponse
     {
-        $decision = SkipLotDecision::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $decision = $this->service->findDecision($request->user()->organization_id, $id);
 
         $data = $request->validate([
             'accepted'            => 'required|boolean',
-            'inspection_lot_id'   => 'required|integer',
+            'inspection_lot_id'   => ['required', 'integer', $this->ownedBy('inspection_lots')],
         ]);
 
         $this->service->recordResult($decision, (bool) $data['accepted'], (int) $data['inspection_lot_id']);

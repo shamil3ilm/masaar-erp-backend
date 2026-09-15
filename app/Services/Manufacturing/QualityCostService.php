@@ -11,6 +11,13 @@ use Illuminate\Support\Facades\DB;
 
 class QualityCostService
 {
+    private const CATEGORIES = [
+        QualityCostEntry::CATEGORY_PREVENTION,
+        QualityCostEntry::CATEGORY_APPRAISAL,
+        QualityCostEntry::CATEGORY_INTERNAL_FAILURE,
+        QualityCostEntry::CATEGORY_EXTERNAL_FAILURE,
+    ];
+
     public function list(int $orgId, array $filters = []): LengthAwarePaginator
     {
         $query = QualityCostEntry::with(['product', 'recorder'])
@@ -29,6 +36,18 @@ class QualityCostService
         }
 
         return $query->orderByDesc('created_at')->paginate($filters['per_page'] ?? 20);
+    }
+
+    /**
+     * One of the organization's entries; a missing id is a 404.
+     *
+     * @param  array<int, string>  $with
+     */
+    public function find(int $orgId, int $id, array $with = []): QualityCostEntry
+    {
+        return QualityCostEntry::where('organization_id', $orgId)
+            ->with($with)
+            ->findOrFail($id);
     }
 
     public function create(int $orgId, array $data): QualityCostEntry
@@ -52,23 +71,15 @@ class QualityCostService
         $rows = QualityCostEntry::where('organization_id', $orgId)
             ->where('period', $period)
             ->where('fiscal_year', $year)
-            ->whereNull('deleted_at')
             ->select('cost_category', DB::raw('SUM(amount) as total'))
             ->groupBy('cost_category')
             ->get()
             ->keyBy('cost_category');
 
-        $categories = [
-            QualityCostEntry::CATEGORY_PREVENTION,
-            QualityCostEntry::CATEGORY_APPRAISAL,
-            QualityCostEntry::CATEGORY_INTERNAL_FAILURE,
-            QualityCostEntry::CATEGORY_EXTERNAL_FAILURE,
-        ];
-
         $summary = [];
         $grandTotal = '0.0000';
 
-        foreach ($categories as $category) {
+        foreach (self::CATEGORIES as $category) {
             $total = isset($rows[$category]) ? (string) $rows[$category]->total : '0.0000';
             $summary[$category] = $total;
             $grandTotal = bcadd($grandTotal, $total, 4);
@@ -82,24 +93,35 @@ class QualityCostService
         ];
     }
 
+    /**
+     * Each of the last $months months, oldest first, with its total per category.
+     *
+     * The totals for the whole range are read in one grouped query: a period
+     * is numbered fiscal_year * 12 + period, so the range is a single BETWEEN.
+     */
     public function getTrend(int $months, int $orgId): array
     {
-        $result = [];
         $now = Carbon::now();
+        $dates = [];
 
         for ($i = $months - 1; $i >= 0; $i--) {
-            $date = $now->copy()->subMonths($i);
+            $dates[] = $now->copy()->subMonths($i);
+        }
+
+        $monthNumber = fn (Carbon $date): int => (int) $date->format('Y') * 12 + (int) $date->format('n');
+
+        $totals = QualityCostEntry::where('organization_id', $orgId)
+            ->whereRaw('(fiscal_year * 12 + period) between ? and ?', [$monthNumber($dates[0]), $monthNumber(end($dates))])
+            ->select('fiscal_year', 'period', 'cost_category', DB::raw('SUM(amount) as total'))
+            ->groupBy('fiscal_year', 'period', 'cost_category')
+            ->get()
+            ->keyBy(fn (QualityCostEntry $row): string => "{$row->fiscal_year}-{$row->period}-{$row->cost_category}");
+
+        $result = [];
+
+        foreach ($dates as $date) {
             $period = (int) $date->format('n');
             $year   = (int) $date->format('Y');
-
-            $rows = QualityCostEntry::where('organization_id', $orgId)
-                ->where('period', $period)
-                ->where('fiscal_year', $year)
-                ->whereNull('deleted_at')
-                ->select('cost_category', DB::raw('SUM(amount) as total'))
-                ->groupBy('cost_category')
-                ->get()
-                ->keyBy('cost_category');
 
             $entry = [
                 'period'      => $period,
@@ -107,13 +129,9 @@ class QualityCostService
                 'label'       => $date->format('M Y'),
             ];
 
-            foreach ([
-                QualityCostEntry::CATEGORY_PREVENTION,
-                QualityCostEntry::CATEGORY_APPRAISAL,
-                QualityCostEntry::CATEGORY_INTERNAL_FAILURE,
-                QualityCostEntry::CATEGORY_EXTERNAL_FAILURE,
-            ] as $cat) {
-                $entry[$cat] = isset($rows[$cat]) ? (string) $rows[$cat]->total : '0.0000';
+            foreach (self::CATEGORIES as $cat) {
+                $row = $totals->get("{$year}-{$period}-{$cat}");
+                $entry[$cat] = $row !== null ? (string) $row->total : '0.0000';
             }
 
             $result[] = $entry;

@@ -7,10 +7,100 @@ namespace App\Services\Manufacturing;
 use App\Models\Manufacturing\ProcurementInspection;
 use App\Models\Manufacturing\ProcurementInspectionConfig;
 use App\Models\Manufacturing\ProcurementInspectionResult;
+use App\Models\Sales\Contact;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class ProcurementInspectionService
 {
+    /**
+     * The vendor relation limited to its reference columns, so a vendor's
+     * contact and tax details are never embedded in an inspection or config.
+     */
+    public function vendorReference(): string
+    {
+        return 'vendor:'.implode(',', Contact::REFERENCE_COLUMNS);
+    }
+
+    /**
+     * The organization's inspection configs, optionally filtered by product,
+     * vendor and whether they are active.
+     *
+     * @param  array{product_id?: mixed, vendor_id?: mixed, active_only?: bool}  $filters
+     */
+    public function listConfigs(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ProcurementInspectionConfig::where('organization_id', $organizationId)
+            ->with(['product', $this->vendorReference(), 'qualityPlan'])
+            ->when(isset($filters['product_id']), fn ($q) => $q->where('product_id', $filters['product_id']))
+            ->when(isset($filters['vendor_id']), fn ($q) => $q->where('vendor_id', $filters['vendor_id']))
+            ->when(! empty($filters['active_only']), fn ($q) => $q->where('is_active', true))
+            ->paginate($perPage);
+    }
+
+    public function createConfig(int $organizationId, array $data): ProcurementInspectionConfig
+    {
+        $config = ProcurementInspectionConfig::create([
+            'organization_id' => $organizationId,
+            ...$data,
+        ]);
+
+        return $config->load(['product', $this->vendorReference(), 'qualityPlan']);
+    }
+
+    public function findConfig(int $organizationId, int $id): ?ProcurementInspectionConfig
+    {
+        return ProcurementInspectionConfig::where('organization_id', $organizationId)->find($id);
+    }
+
+    public function updateConfig(ProcurementInspectionConfig $config, array $data): ProcurementInspectionConfig
+    {
+        $config->update($data);
+
+        return $config->fresh(['product', $this->vendorReference(), 'qualityPlan']);
+    }
+
+    /**
+     * The organization's inspections, newest first, optionally filtered by
+     * status, vendor, product and purchase order.
+     *
+     * @param  array{status?: mixed, vendor_id?: mixed, product_id?: mixed, purchase_order_id?: mixed}  $filters
+     */
+    public function listInspections(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ProcurementInspection::where('organization_id', $organizationId)
+            ->with(['product', $this->vendorReference(), 'inspector', 'purchaseOrder'])
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['vendor_id']), fn ($q) => $q->where('vendor_id', $filters['vendor_id']))
+            ->when(isset($filters['product_id']), fn ($q) => $q->where('product_id', $filters['product_id']))
+            ->when(isset($filters['purchase_order_id']), fn ($q) => $q->where('purchase_order_id', $filters['purchase_order_id']))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's inspections, or null.
+     *
+     * @param  array<int, string>  $with
+     */
+    public function findInspection(int $organizationId, int $id, array $with = []): ?ProcurementInspection
+    {
+        return ProcurementInspection::where('organization_id', $organizationId)
+            ->with($with)
+            ->find($id);
+    }
+
+    /**
+     * An inspection with everything its detail view shows.
+     */
+    public function findInspectionForDisplay(int $organizationId, int $id): ?ProcurementInspection
+    {
+        return $this->findInspection($organizationId, $id, [
+            'product', $this->vendorReference(), 'inspector', 'results', 'inspectionLot', 'purchaseOrder',
+        ]);
+    }
+
     /**
      * Determine whether inspection is required for a product/vendor combination.
      */
@@ -66,7 +156,7 @@ class ProcurementInspectionService
      */
     public function createInspection(array $data): ProcurementInspection
     {
-        return DB::transaction(function () use ($data): ProcurementInspection {
+        $inspection = DB::transaction(function () use ($data): ProcurementInspection {
             $orgId    = auth()->user()->organization_id;
             $config   = $data['config'] ?? $this->shouldInspect(
                 $data['product_id'],
@@ -94,14 +184,23 @@ class ProcurementInspectionService
                 'notes'              => $data['notes'] ?? null,
             ]);
         });
+
+        return $inspection->load(['product', $this->vendorReference()]);
     }
 
     /**
      * Record inspection characteristic results against an inspection.
+     *
+     * The status is checked on the locked inspection, so a double submit
+     * records the results and their characteristic rows once.
      */
-    public function recordResults(ProcurementInspection $inspection, array $results): void
+    public function recordResults(ProcurementInspection $inspection, array $results): ProcurementInspection
     {
-        DB::transaction(function () use ($inspection, $results): void {
+        return $inspection->lockForTransition(function (ProcurementInspection $inspection) use ($results): ProcurementInspection {
+            if (! $inspection->canRecordResults()) {
+                throw new InvalidArgumentException('Results can only be recorded on pending or in-progress inspections.');
+            }
+
             foreach ($results['characteristics'] ?? [] as $char) {
                 ProcurementInspectionResult::create([
                     'procurement_inspection_id' => $inspection->id,
@@ -131,31 +230,45 @@ class ProcurementInspectionService
                 'inspection_date'    => now(),
                 'inspected_by'       => $results['inspected_by'] ?? auth()->id(),
             ]);
+
+            return $inspection;
         });
     }
 
     /**
-     * Approve a completed inspection.
+     * Approve a completed inspection, checked on the locked inspection.
      */
-    public function approveInspection(ProcurementInspection $inspection): void
+    public function approveInspection(ProcurementInspection $inspection): ProcurementInspection
     {
-        $inspection->update([
-            'status' => ProcurementInspection::STATUS_APPROVED,
-        ]);
+        return $inspection->lockForTransition(function (ProcurementInspection $inspection): ProcurementInspection {
+            $this->assertAwaitingDecision($inspection, 'approved');
+
+            $inspection->update([
+                'status' => ProcurementInspection::STATUS_APPROVED,
+            ]);
+
+            return $inspection;
+        });
     }
 
     /**
-     * Reject a completed inspection with a reason.
+     * Reject a completed inspection with a reason, checked on the locked inspection.
      */
-    public function rejectInspection(ProcurementInspection $inspection, string $reason): void
+    public function rejectInspection(ProcurementInspection $inspection, string $reason): ProcurementInspection
     {
-        $existing = $inspection->notes ?? '';
-        $notes    = trim($existing . "\nRejection reason: " . $reason);
+        return $inspection->lockForTransition(function (ProcurementInspection $inspection) use ($reason): ProcurementInspection {
+            $this->assertAwaitingDecision($inspection, 'rejected');
 
-        $inspection->update([
-            'status' => ProcurementInspection::STATUS_REJECTED,
-            'notes'  => $notes,
-        ]);
+            $existing = $inspection->notes ?? '';
+            $notes    = trim($existing . "\nRejection reason: " . $reason);
+
+            $inspection->update([
+                'status' => ProcurementInspection::STATUS_REJECTED,
+                'notes'  => $notes,
+            ]);
+
+            return $inspection;
+        });
     }
 
     /**
@@ -198,5 +311,12 @@ class ProcurementInspectionService
             'total_inspections' => $total,
             'pass_rate'        => $passRate,
         ];
+    }
+
+    private function assertAwaitingDecision(ProcurementInspection $inspection, string $decision): void
+    {
+        if (! $inspection->isAwaitingDecision()) {
+            throw new InvalidArgumentException("Only completed inspections can be {$decision}.");
+        }
     }
 }

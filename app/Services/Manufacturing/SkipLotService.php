@@ -6,6 +6,7 @@ namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\SkipLotDecision;
 use App\Models\Manufacturing\SkipLotSamplingPlan;
+use App\Models\Sales\Contact;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,6 +31,31 @@ class SkipLotService
     public function createPlan(int $orgId, array $data): SkipLotSamplingPlan
     {
         return SkipLotSamplingPlan::create(array_merge($data, ['organization_id' => $orgId]));
+    }
+
+    /**
+     * One of the organization's sampling plans; a missing id is a 404.
+     *
+     * @param  array<int, string>  $with
+     */
+    public function findPlan(int $orgId, int $id, array $with = []): SkipLotSamplingPlan
+    {
+        return SkipLotSamplingPlan::where('organization_id', $orgId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
+    public function deletePlan(SkipLotSamplingPlan $plan): void
+    {
+        $plan->delete();
+    }
+
+    /**
+     * One of the organization's skip lot decisions; a missing id is a 404.
+     */
+    public function findDecision(int $orgId, int $id): SkipLotDecision
+    {
+        return SkipLotDecision::where('organization_id', $orgId)->findOrFail($id);
     }
 
     public function updatePlan(SkipLotSamplingPlan $plan, array $data): SkipLotSamplingPlan
@@ -88,9 +114,23 @@ class SkipLotService
         return true;
     }
 
+    /**
+     * Count an inspection result and re-evaluate the decision's level.
+     *
+     * The counters are read and written on the locked decision, so a result
+     * recorded through a stale copy is added to the current counts instead of
+     * overwriting them.
+     */
     public function recordResult(SkipLotDecision $decision, bool $accepted, int $inspectionLotId): void
     {
-        $plan = $decision->plan;
+        $decision->lockForTransition(function (SkipLotDecision $decision) use ($accepted, $inspectionLotId): void {
+            $this->applyResult($decision, $accepted, $inspectionLotId);
+        });
+    }
+
+    private function applyResult(SkipLotDecision $decision, bool $accepted, int $inspectionLotId): void
+    {
+        $plan = $decision->plan()->firstOrFail();
 
         $newConsecutiveAccepted = $accepted ? $decision->consecutive_accepted + 1 : 0;
         $newConsecutiveRejected = $accepted ? 0 : $decision->consecutive_rejected + 1;
@@ -126,7 +166,8 @@ class SkipLotService
 
     public function getDecisions(int $orgId, array $filters = []): LengthAwarePaginator
     {
-        $query = SkipLotDecision::with(['plan', 'vendor', 'product'])
+        // The vendor is shown by reference, so its contact and tax details are never embedded.
+        $query = SkipLotDecision::with(['plan', 'vendor:'.implode(',', Contact::REFERENCE_COLUMNS), 'product'])
             ->where('organization_id', $orgId);
 
         if (isset($filters['vendor_id'])) {
