@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\SerialNumber;
 use App\Services\Inventory\SerialNumberService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class SerialNumberController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly SerialNumberService $serialNumberService,
     ) {}
@@ -39,11 +42,11 @@ class SerialNumberController extends Controller
     {
         $validated = $request->validate([
             'serial_number'       => 'required|string|max:100',
-            'product_id'          => 'required|exists:products,id',
-            'product_variant_id'  => 'nullable|exists:product_variants,id',
-            'batch_id'            => 'nullable|exists:inventory_batches,id',
-            'warehouse_id'        => 'nullable|exists:warehouses,id',
-            'location_id'         => 'nullable|exists:warehouse_locations,id',
+            'product_id'          => ['required', $this->ownedBy('products')],
+            'product_variant_id'  => ['nullable', $this->ownedVariant()],
+            'batch_id'            => ['nullable', $this->ownedBy('inventory_batches')],
+            'warehouse_id'        => ['nullable', $this->ownedBy('warehouses')],
+            'location_id'         => ['nullable', $this->ownedLocation()],
             'manufacture_date'    => 'nullable|date',
             'expiry_date'         => 'nullable|date|after_or_equal:manufacture_date',
             'warranty_expiry_date' => 'nullable|date',
@@ -85,7 +88,7 @@ class SerialNumberController extends Controller
     public function bulkCreate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'     => 'required|exists:products,id',
+            'product_id'     => ['required', $this->ownedBy('products')],
             'serial_numbers' => 'required|array|min:1',
             'serial_numbers.*' => 'required|string|max:100|distinct',
         ]);
@@ -111,8 +114,8 @@ class SerialNumberController extends Controller
     public function receive(Request $request, SerialNumber $serialNumber): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'  => 'required|exists:warehouses,id',
-            'location_id'   => 'nullable|exists:warehouse_locations,id',
+            'warehouse_id'  => ['required', $this->ownedBy('warehouses')],
+            'location_id'   => ['nullable', $this->ownedLocation()],
             'document_type' => 'required|string|max:50',
             'document_id'   => 'required|integer|min:1',
         ]);
@@ -134,8 +137,8 @@ class SerialNumberController extends Controller
     public function issue(Request $request, SerialNumber $serialNumber): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'  => 'required|exists:warehouses,id',
-            'contact_id'    => 'nullable|exists:contacts,id',
+            'warehouse_id'  => ['required', $this->ownedBy('warehouses')],
+            'contact_id'    => ['nullable', $this->ownedBy('contacts')],
             'document_type' => 'required|string|max:50',
             'document_id'   => 'required|integer|min:1',
         ]);
@@ -161,8 +164,8 @@ class SerialNumberController extends Controller
     public function transfer(Request $request, SerialNumber $serialNumber): JsonResponse
     {
         $validated = $request->validate([
-            'to_warehouse_id' => 'required|exists:warehouses,id',
-            'to_location_id'  => 'nullable|exists:warehouse_locations,id',
+            'to_warehouse_id' => ['required', $this->ownedBy('warehouses')],
+            'to_location_id'  => ['nullable', $this->ownedLocation()],
         ]);
 
         $this->serialNumberService->transfer(
