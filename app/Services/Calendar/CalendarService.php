@@ -14,6 +14,101 @@ use Illuminate\Support\Facades\DB;
 class CalendarService
 {
     /**
+     * The organization's calendars; a page of them when a page size is given.
+     *
+     * @param  array{type?: ?string, user_id?: mixed, visible_only?: bool, search?: ?string}  $filters
+     */
+    public function listCalendars(
+        int $organizationId,
+        array $filters,
+        string $sortBy,
+        string $sortOrder,
+        ?int $perPage,
+    ): \Illuminate\Contracts\Pagination\LengthAwarePaginator|\Illuminate\Database\Eloquent\Collection {
+        $query = Calendar::with(['user'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['type'] ?? null, fn ($q, $type) => $q->ofType($type))
+            ->when($filters['user_id'] ?? null, fn ($q, $id) => $q->forUser((int) $id))
+            ->when($filters['visible_only'] ?? false, fn ($q) => $q->visible())
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
+            ->orderBy($sortBy, $sortOrder);
+
+        return $perPage !== null ? $query->paginate($perPage) : $query->get();
+    }
+
+    /**
+     * Delete a calendar together with its events.
+     */
+    public function deleteCalendar(Calendar $calendar): void
+    {
+        DB::transaction(function () use ($calendar) {
+            $calendar->events()->delete();
+            $calendar->delete();
+        });
+    }
+
+    /**
+     * The organization's events; a page of them when a page size is given.
+     *
+     * @param  array{calendar_id?: mixed, event_type?: ?string, status?: ?string, start_date?: ?string, end_date?: ?string,
+     *     upcoming?: bool, all_day?: bool, recurring?: bool, search?: ?string}  $filters
+     */
+    public function listEvents(
+        int $organizationId,
+        array $filters,
+        string $sortBy,
+        string $sortOrder,
+        ?int $perPage,
+    ): \Illuminate\Contracts\Pagination\LengthAwarePaginator|\Illuminate\Database\Eloquent\Collection {
+        $query = CalendarEvent::with(['calendar', 'creator', 'attendees', 'reminders'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['calendar_id'] ?? null, fn ($q, $id) => $q->forCalendar((int) $id))
+            ->when($filters['event_type'] ?? null, fn ($q, $type) => $q->ofType($type))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when(($filters['start_date'] ?? null) && ($filters['end_date'] ?? null), fn ($q) => $q->inDateRange($filters['start_date'], $filters['end_date']))
+            ->when($filters['upcoming'] ?? false, fn ($q) => $q->upcoming())
+            ->when($filters['all_day'] ?? false, fn ($q) => $q->allDay())
+            ->when($filters['recurring'] ?? false, fn ($q) => $q->recurring())
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where(
+                fn ($inner) => $inner->where('title', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('location', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder);
+
+        return $perPage !== null ? $query->paginate($perPage) : $query->get();
+    }
+
+    /**
+     * Record an attendee's response. The attendee is looked up through the
+     * event, so an attendee of another event, or organization, is not found.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function respondAttendee(CalendarEvent $event, CalendarEventAttendee $attendee, array $data): CalendarEventAttendee
+    {
+        $attendee = $event->attendees()->whereKey($attendee->id)->firstOrFail();
+
+        $attendee->update([
+            'status' => $data['status'],
+            'comment' => $data['comment'] ?? null,
+            'responded_at' => now(),
+        ]);
+
+        return $attendee->fresh('user');
+    }
+
+    /**
+     * Remove a reminder, looked up through its event.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function removeReminder(CalendarEvent $event, CalendarEventReminder $reminder): void
+    {
+        $event->reminders()->whereKey($reminder->id)->firstOrFail()->delete();
+    }
+
+    /**
      * Create a new calendar.
      */
     public function create(array $data, int $userId): Calendar

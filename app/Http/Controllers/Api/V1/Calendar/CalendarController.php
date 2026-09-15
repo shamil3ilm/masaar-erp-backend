@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Calendar;
 use App\Http\Controllers\Controller;
 use App\Models\Calendar\Calendar;
 use App\Services\Calendar\CalendarService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -22,23 +23,20 @@ class CalendarController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Calendar::with(['user'])
-            ->when($request->type, fn($q, $type) => $q->ofType($type))
-            ->when($request->user_id, fn($q, $id) => $q->forUser((int) $id))
-            ->when($request->boolean('visible_only'), fn($q) => $q->visible())
-            ->when($request->search, function ($q, $search) {
-                $q->where('name', 'like', "%{$search}%");
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
+        $calendars = $this->calendarService->listCalendars(
+            $request->user()->organization_id,
+            [
+                'type' => $request->type,
+                'user_id' => $request->user_id,
+                'visible_only' => $request->boolean('visible_only'),
+                'search' => $request->search,
+            ],
+            $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            $request->per_page ? (int) $request->per_page : null
+        );
 
-        if ($request->per_page) {
-            return $this->paginated($query->paginate((int) $request->per_page));
-        }
-
-        return $this->success($query->get());
+        return $calendars instanceof LengthAwarePaginator ? $this->paginated($calendars) : $this->success($calendars);
     }
 
     /**
@@ -94,8 +92,7 @@ class CalendarController extends Controller
      */
     public function destroy(Calendar $calendar): JsonResponse
     {
-        $calendar->events()->delete();
-        $calendar->delete();
+        $this->calendarService->deleteCalendar($calendar);
 
         return $this->success(null, 'Calendar deleted successfully.');
     }
