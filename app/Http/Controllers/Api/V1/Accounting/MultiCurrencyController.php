@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CurrencyRevaluation;
 use App\Services\Accounting\MultiCurrencyService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class MultiCurrencyController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private MultiCurrencyService $multiCurrencyService
     ) {}
@@ -39,9 +42,9 @@ class MultiCurrencyController extends Controller
         $validated = $request->validate([
             'currency_code' => ['required', 'string', 'max:3', 'exists:currencies,code'],
             'is_base_currency' => ['sometimes', 'boolean'],
-            'exchange_gain_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'exchange_loss_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'rounding_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'exchange_gain_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'exchange_loss_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'rounding_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'rounding_precision' => ['sometimes', 'numeric', 'min:0.0001'],
             'rounding_method' => ['sometimes', 'in:round,ceil,floor'],
         ]);
@@ -94,13 +97,13 @@ class MultiCurrencyController extends Controller
             'old_rate' => ['nullable', 'numeric', 'min:0.00000001'],
             'new_rate' => ['required', 'numeric', 'min:0.00000001'],
             'base_currency' => ['nullable', 'string', 'max:3'],
-            'gain_loss_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'gain_loss_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'notes' => ['nullable', 'string'],
             'accounts' => ['nullable', 'array'],
-            'accounts.*.account_id' => ['required_with:accounts', 'exists:chart_of_accounts,id'],
+            'accounts.*.account_id' => ['required_with:accounts', $this->ownedBy('chart_of_accounts')],
             'accounts.*.account_type' => ['required_with:accounts', 'in:receivable,payable,bank,asset,liability'],
             'accounts.*.foreign_currency_balance' => ['required_with:accounts', 'numeric'],
-            'accounts.*.contact_id' => ['nullable', 'exists:contacts,id'],
+            'accounts.*.contact_id' => ['nullable', $this->ownedBy('contacts')],
         ]);
 
         $validated['organization_id'] = $this->organizationId($request);
@@ -141,7 +144,7 @@ class MultiCurrencyController extends Controller
     public function postRevaluation(Request $request, CurrencyRevaluation $currencyRevaluation): JsonResponse
     {
         $validated = $request->validate([
-            'gain_loss_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'gain_loss_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
         ]);
 
         return $this->tryAction(

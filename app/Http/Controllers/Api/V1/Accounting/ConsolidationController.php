@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Accounting\ConsolidationService;
 use Illuminate\Http\JsonResponse;
@@ -12,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class ConsolidationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ConsolidationService $consolidationService
     ) {}
@@ -375,8 +378,8 @@ class ConsolidationController extends Controller
         $validated = $request->validate([
             'entry_type'       => 'required|in:intercompany_receivable,intercompany_payable,dividend,investment,other',
             'description'      => 'required|string|max:500',
-            'debit_account_id' => 'required|exists:chart_of_accounts,id',
-            'credit_account_id' => 'required|exists:chart_of_accounts,id|different:debit_account_id',
+            'debit_account_id' => ['required', $this->ownedBy('chart_of_accounts')],
+            'credit_account_id' => ['required', $this->ownedBy('chart_of_accounts'), 'different:debit_account_id'],
             'amount'           => 'required|numeric|min:0.0001',
             'currency_code'    => 'nullable|string|size:3',
         ]);
