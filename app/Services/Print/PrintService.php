@@ -7,12 +7,66 @@ namespace App\Services\Print;
 use App\Models\Core\Organization;
 use App\Models\Core\PrintConfiguration;
 use App\Models\Core\PrintTemplate;
+use App\Models\Purchase\PurchaseOrder;
+use App\Models\Sales\Invoice;
+use App\Models\Sales\PaymentReceived;
+use App\Models\Sales\Quotation;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\Str;
 
 class PrintService
 {
+    /** The model printed for each document type. */
+    private const DOCUMENT_MODELS = [
+        'invoice' => Invoice::class,
+        'quotation' => Quotation::class,
+        'purchase_order' => PurchaseOrder::class,
+        'payment_receipt' => PaymentReceived::class,
+    ];
+
+    /**
+     * The relations each document type's template reads. Loading them with the
+     * document keeps a batch from querying per document, and from failing
+     * where lazy loading is disabled.
+     */
+    private const DOCUMENT_RELATIONS = [
+        'invoice' => ['lines.product', 'lines.unit', 'customer'],
+        'quotation' => ['lines.product', 'lines.unit', 'customer'],
+        'purchase_order' => ['lines.product', 'lines.unit', 'supplier'],
+        'payment_receipt' => ['allocations.invoice', 'customer', 'bankAccount'],
+    ];
+
+    /**
+     * A document of the organization with the relations its template reads;
+     * another organization's document is not found.
+     */
+    public function findDocument(string $documentType, int $organizationId, int $id): Model
+    {
+        $model = self::DOCUMENT_MODELS[$documentType];
+
+        return $model::where('organization_id', $organizationId)
+            ->with(self::DOCUMENT_RELATIONS[$documentType])
+            ->findOrFail($id);
+    }
+
+    /**
+     * The organization's documents among $ids with the relations their template reads.
+     *
+     * @param  list<int>  $ids
+     */
+    public function findDocuments(string $documentType, int $organizationId, array $ids): Collection
+    {
+        $model = self::DOCUMENT_MODELS[$documentType];
+
+        return $model::where('organization_id', $organizationId)
+            ->with(self::DOCUMENT_RELATIONS[$documentType])
+            ->whereIn('id', $ids)
+            ->get();
+    }
+
     /**
      * Generate PDF from document.
      */
@@ -203,7 +257,8 @@ class PrintService
                 'invoice' => $document,
                 'lines' => $document->lines,
                 'customer' => $document->customer,
-                'payments' => $document->payments ?? collect(),
+                // Invoices have no payments relation; the template gets an empty collection.
+                'payments' => collect(),
             ]),
             PrintTemplate::DOC_QUOTATION => array_merge($baseData, [
                 'quotation' => $document,

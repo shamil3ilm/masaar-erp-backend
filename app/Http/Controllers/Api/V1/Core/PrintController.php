@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Core\PrintConfiguration;
 use App\Models\Core\PrintTemplate;
-use App\Models\Sales\Invoice;
-use App\Models\Sales\PaymentReceived;
-use App\Models\Sales\Quotation;
-use App\Models\Purchase\PurchaseOrder;
+use App\Services\Core\PrintTemplateService;
 use App\Services\Print\PrintService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,8 +16,11 @@ use Illuminate\Http\Response;
 
 class PrintController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        protected PrintService $printService
+        protected PrintService $printService,
+        private readonly PrintTemplateService $templates,
     ) {}
 
     /**
@@ -27,15 +28,8 @@ class PrintController extends Controller
      */
     public function templates(Request $request): JsonResponse
     {
-        $templates = PrintTemplate::where('organization_id', $request->user()->organization_id)
-            ->active()
-            ->orderBy('document_type')
-            ->orderBy('paper_size')
-            ->get()
-            ->groupBy('document_type');
-
         return $this->success([
-            'data' => $templates,
+            'data' => $this->templates->listActiveTemplates($request->user()->organization_id),
             'document_types' => PrintTemplate::getDocumentTypes(),
             'paper_sizes' => PrintTemplate::getPaperSizeOptions(),
         ]);
@@ -46,10 +40,7 @@ class PrintController extends Controller
      */
     public function showTemplate(Request $request, int $id): JsonResponse
     {
-        $template = PrintTemplate::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
-
-        return $this->success($template);
+        return $this->success($this->templates->findTemplate($request->user()->organization_id, $id));
     }
 
     /**
@@ -77,17 +68,7 @@ class PrintController extends Controller
 
         $data['organization_id'] = $request->user()->organization_id;
 
-        // If setting as default, unset other defaults
-        if ($data['is_default'] ?? false) {
-            PrintTemplate::where('organization_id', $data['organization_id'])
-                ->where('document_type', $data['document_type'])
-                ->where('paper_size', $data['paper_size'])
-                ->update(['is_default' => false]);
-        }
-
-        $template = PrintTemplate::create($data);
-
-        return $this->created($template);
+        return $this->created($this->templates->createTemplate($data));
     }
 
     /**
@@ -95,8 +76,7 @@ class PrintController extends Controller
      */
     public function updateTemplate(Request $request, int $id): JsonResponse
     {
-        $template = PrintTemplate::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $template = $this->templates->findTemplate($request->user()->organization_id, $id);
 
         $data = $request->validate([
             'name' => 'sometimes|string|max:255',
@@ -113,18 +93,7 @@ class PrintController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        // If setting as default, unset other defaults
-        if ($data['is_default'] ?? false) {
-            PrintTemplate::where('organization_id', $template->organization_id)
-                ->where('document_type', $template->document_type)
-                ->where('paper_size', $template->paper_size)
-                ->where('id', '!=', $template->id)
-                ->update(['is_default' => false]);
-        }
-
-        $template->update($data);
-
-        return $this->success($template);
+        return $this->success($this->templates->updateTemplate($template, $data));
     }
 
     /**
@@ -132,10 +101,7 @@ class PrintController extends Controller
      */
     public function destroyTemplate(Request $request, int $id): JsonResponse
     {
-        $template = PrintTemplate::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
-
-        $template->delete();
+        $this->templates->deleteTemplate($this->templates->findTemplate($request->user()->organization_id, $id));
 
         return $this->success(null, 'Template deleted');
     }
@@ -145,12 +111,8 @@ class PrintController extends Controller
      */
     public function configurations(Request $request): JsonResponse
     {
-        $configs = PrintConfiguration::where('organization_id', $request->user()->organization_id)
-            ->with('branch')
-            ->get();
-
         return $this->success([
-            'data' => $configs,
+            'data' => $this->templates->listConfigurations($request->user()->organization_id),
             'printer_types' => PrintConfiguration::getPrinterTypes(),
         ]);
     }
@@ -161,7 +123,7 @@ class PrintController extends Controller
     public function storeConfiguration(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
             'printer_type' => 'required|string|in:' . implode(',', array_keys(PrintConfiguration::getPrinterTypes())),
             'default_paper_size' => 'required|string',
             'paper_sizes' => 'nullable|array',
@@ -176,15 +138,7 @@ class PrintController extends Controller
 
         $data['organization_id'] = $request->user()->organization_id;
 
-        if ($data['is_default'] ?? false) {
-            PrintConfiguration::where('organization_id', $data['organization_id'])
-                ->where('branch_id', $data['branch_id'] ?? null)
-                ->update(['is_default' => false]);
-        }
-
-        $config = PrintConfiguration::create($data);
-
-        return $this->created($config);
+        return $this->created($this->templates->createConfiguration($data));
     }
 
     /**
@@ -192,10 +146,9 @@ class PrintController extends Controller
      */
     public function updateConfiguration(Request $request, int $id): JsonResponse
     {
-        $config = PrintConfiguration::where('organization_id', $request->user()->organization_id)
-            ->findOrFail($id);
+        $config = $this->templates->findConfiguration($request->user()->organization_id, $id);
 
-        $config->update($request->validate([
+        $config = $this->templates->updateConfiguration($config, $request->validate([
             'printer_type' => 'sometimes|string',
             'default_paper_size' => 'sometimes|string',
             'thermal_settings' => 'nullable|array',
@@ -216,9 +169,7 @@ class PrintController extends Controller
      */
     public function invoice(Request $request, int $id): Response|JsonResponse
     {
-        $invoice = Invoice::where('organization_id', $request->user()->organization_id)
-            ->with(['lines.product', 'lines.unit', 'customer', 'payments'])
-            ->findOrFail($id);
+        $invoice = $this->printService->findDocument('invoice', $request->user()->organization_id, $id);
 
         $paperSize = $request->get('paper_size', 'a4');
         $templateCode = $request->get('template');
@@ -251,9 +202,7 @@ class PrintController extends Controller
      */
     public function quotation(Request $request, int $id): Response|JsonResponse
     {
-        $quotation = Quotation::where('organization_id', $request->user()->organization_id)
-            ->with(['lines.product', 'lines.unit', 'customer'])
-            ->findOrFail($id);
+        $quotation = $this->printService->findDocument('quotation', $request->user()->organization_id, $id);
 
         $paperSize = $request->get('paper_size', 'a4');
         $templateCode = $request->get('template');
@@ -280,9 +229,7 @@ class PrintController extends Controller
      */
     public function paymentReceipt(Request $request, int $id): Response|JsonResponse
     {
-        $payment = PaymentReceived::where('organization_id', $request->user()->organization_id)
-            ->with(['allocations.invoice', 'customer', 'bankAccount'])
-            ->findOrFail($id);
+        $payment = $this->printService->findDocument('payment_receipt', $request->user()->organization_id, $id);
 
         $paperSize = $request->get('paper_size', 'a4');
         $templateCode = $request->get('template');
@@ -315,9 +262,7 @@ class PrintController extends Controller
      */
     public function purchaseOrder(Request $request, int $id): Response|JsonResponse
     {
-        $po = PurchaseOrder::where('organization_id', $request->user()->organization_id)
-            ->with(['lines.product', 'lines.unit', 'supplier'])
-            ->findOrFail($id);
+        $po = $this->printService->findDocument('purchase_order', $request->user()->organization_id, $id);
 
         $paperSize = $request->get('paper_size', 'a4');
         $templateCode = $request->get('template');
@@ -352,19 +297,9 @@ class PrintController extends Controller
         ]);
 
         $documentType = $request->get('document_type');
-        $ids = $request->get('ids');
         $paperSize = $request->get('paper_size', 'a4');
 
-        $modelClass = match ($documentType) {
-            'invoice' => Invoice::class,
-            'quotation' => Quotation::class,
-            'purchase_order' => PurchaseOrder::class,
-            'payment_receipt' => PaymentReceived::class,
-        };
-
-        $documents = $modelClass::where('organization_id', $request->user()->organization_id)
-            ->whereIn('id', $ids)
-            ->get();
+        $documents = $this->printService->findDocuments($documentType, $request->user()->organization_id, $request->get('ids'));
 
         if ($documents->isEmpty()) {
             return $this->notFound('No documents found');
@@ -386,23 +321,7 @@ class PrintController extends Controller
      */
     public function initializeDefaults(Request $request): JsonResponse
     {
-        $organizationId = $request->user()->organization_id;
-
-        $existingCodes = PrintTemplate::where('organization_id', $organizationId)
-            ->pluck('code')
-            ->toArray();
-
-        $created = 0;
-
-        foreach (PrintTemplate::DEFAULT_TEMPLATES as $template) {
-            if (!in_array($template['code'], $existingCodes)) {
-                PrintTemplate::create(array_merge($template, [
-                    'organization_id' => $organizationId,
-                    'is_default' => $created === 0, // First one is default
-                ]));
-                $created++;
-            }
-        }
+        $created = $this->templates->initializeDefaults($request->user()->organization_id);
 
         return $this->success(
             ['created' => $created],
