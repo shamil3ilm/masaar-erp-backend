@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ecommerce;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Models\Sales\Contact;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Ecommerce\EcommerceChannel;
 use App\Models\Ecommerce\EcommerceSyncLog;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +26,46 @@ class EcommerceChannelService
 
             return EcommerceChannel::create($data);
         });
+    }
+
+    /**
+     * The organization's channels, newest first, each with its default
+     * warehouse and its default customer by reference.
+     *
+     * @param  array<string, mixed>  $filters  platform and status, each applied when present
+     */
+    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return EcommerceChannel::with($this->presentedRelations())
+            ->latest()
+            ->when(array_key_exists('platform', $filters), fn ($q) => $q->byPlatform($filters['platform']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->paginate($perPage);
+    }
+
+    public function present(EcommerceChannel $channel): EcommerceChannel
+    {
+        return $channel->load($this->presentedRelations());
+    }
+
+    /**
+     * @throws BusinessRuleException when orders were imported through the channel
+     */
+    public function delete(EcommerceChannel $channel): void
+    {
+        if ($channel->orders()->exists()) {
+            throw new BusinessRuleException('Cannot delete channel with existing orders.', 'VALIDATION_ERROR', 422);
+        }
+
+        $channel->delete();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function presentedRelations(): array
+    {
+        return ['defaultWarehouse', 'defaultCustomer:'.implode(',', Contact::REFERENCE_COLUMNS)];
     }
 
     /**

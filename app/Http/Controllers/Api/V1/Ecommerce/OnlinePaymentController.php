@@ -21,16 +21,13 @@ class OnlinePaymentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = OnlinePayment::with(['gateway'])
-            ->latest()
-            ->when($request->has('gateway_id'), fn($q) => $q->byGateway($request->integer('gateway_id')))
-            ->when($request->has('status'), fn($q) => $q->byStatus($request->input('status')))
-            ->when($request->has('from_date'), fn($q) => $q->where('created_at', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('created_at', '<=', $request->input('to_date')));
+        $filters = $request->only(['status', 'from_date', 'to_date']);
 
-        $payments = $query->paginate($request->integer('per_page', 15));
+        if ($request->has('gateway_id')) {
+            $filters['gateway_id'] = $request->integer('gateway_id');
+        }
 
-        return $this->paginated($payments);
+        return $this->paginated($this->paymentService->paginate($filters, $request->integer('per_page', 15)));
     }
 
     /**
@@ -38,9 +35,7 @@ class OnlinePaymentController extends Controller
      */
     public function show(OnlinePayment $onlinePayment): JsonResponse
     {
-        $onlinePayment->load(['gateway', 'payable']);
-
-        return $this->success($onlinePayment);
+        return $this->success($this->paymentService->present($onlinePayment));
     }
 
     /**

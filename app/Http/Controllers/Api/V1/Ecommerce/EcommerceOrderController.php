@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Ecommerce;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Ecommerce\EcommerceChannel;
 use App\Models\Ecommerce\EcommerceOrder;
 use App\Services\Ecommerce\EcommerceOrderService;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +13,8 @@ use Illuminate\Http\Request;
 
 class EcommerceOrderController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private EcommerceOrderService $orderService
     ) {}
@@ -22,25 +24,15 @@ class EcommerceOrderController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = EcommerceOrder::with(['channel', 'customer'])
-            ->latest('ordered_at')
-            ->when($request->has('channel_id'), fn($q) => $q->byChannel($request->integer('channel_id')))
-            ->when($request->has('status'), fn($q) => $q->byStatus($request->input('status')))
-            ->when($request->has('from_date'), fn($q) => $q->where('ordered_at', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('ordered_at', '<=', $request->input('to_date')))
-            ->when($request->boolean('unprocessed'), fn($q) => $q->unprocessed())
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->input('search');
-                $q->where(function ($q) use ($search) {
-                    $q->where('order_number', 'like', "%{$search}%")
-                        ->orWhere('customer_name', 'like', "%{$search}%")
-                        ->orWhere('customer_email', 'like', "%{$search}%");
-                });
-            });
+        $filters = $request->only(['status', 'from_date', 'to_date', 'search']);
 
-        $orders = $query->paginate($request->integer('per_page', 15));
+        if ($request->has('channel_id')) {
+            $filters['channel_id'] = $request->integer('channel_id');
+        }
 
-        return $this->paginated($orders);
+        $filters['unprocessed'] = $request->boolean('unprocessed');
+
+        return $this->paginated($this->orderService->paginate($filters, $request->integer('per_page', 15)));
     }
 
     /**
@@ -48,9 +40,7 @@ class EcommerceOrderController extends Controller
      */
     public function show(EcommerceOrder $ecommerceOrder): JsonResponse
     {
-        $ecommerceOrder->load(['channel', 'customer', 'items.product', 'invoice', 'salesOrder']);
-
-        return $this->success($ecommerceOrder);
+        return $this->success($this->orderService->present($ecommerceOrder));
     }
 
     /**
@@ -62,10 +52,10 @@ class EcommerceOrderController extends Controller
     public function import(Request $request): JsonResponse
     {
         $request->validate([
-            'channel_id' => 'required|integer|exists:ecommerce_channels,id',
+            'channel_id' => ['required', 'integer', $this->ownedBy('ecommerce_channels')],
         ]);
 
-        $channel = EcommerceChannel::findOrFail($request->input('channel_id'));
+        $channel = $this->orderService->findChannel($request->integer('channel_id'));
 
         // If no individual order data is provided, trigger a channel sync
         if (!$request->has('external_order_id') && !$request->has('items')) {
@@ -83,7 +73,7 @@ class EcommerceOrderController extends Controller
             'customer_email' => 'nullable|email|max:255',
             'customer_name' => 'nullable|string|max:255',
             'customer_phone' => 'nullable|string|max:50',
-            'customer_id' => 'nullable|integer|exists:contacts,id',
+            'customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'shipping_address' => 'nullable|array',
             'billing_address' => 'nullable|array',
             'currency_code' => 'required|string|size:3',
@@ -105,7 +95,7 @@ class EcommerceOrderController extends Controller
             'items.*.discount_amount' => 'nullable|numeric|min:0',
             'items.*.tax_amount' => 'nullable|numeric|min:0',
             'items.*.total_amount' => 'required|numeric|min:0',
-            'items.*.product_id' => 'nullable|integer|exists:products,id',
+            'items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
         ]);
 
         $items = $validated['items'];
