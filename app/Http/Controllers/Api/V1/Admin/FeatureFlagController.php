@@ -6,14 +6,17 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin\FeatureFlag;
+use App\Services\Admin\FeatureFlagService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class FeatureFlagController extends Controller
 {
+    public function __construct(private readonly FeatureFlagService $flags) {}
+
     public function index(): JsonResponse
     {
-        return $this->success(FeatureFlag::orderBy('code')->get());
+        return $this->success($this->flags->all());
     }
 
     public function store(Request $request): JsonResponse
@@ -31,8 +34,7 @@ class FeatureFlagController extends Controller
             'ends_at' => 'nullable|date|after_or_equal:starts_at',
         ]);
 
-        $flag = FeatureFlag::create($validated);
-        return $this->created($flag);
+        return $this->created($this->flags->create($validated));
     }
 
     public function show(FeatureFlag $flag): JsonResponse
@@ -55,24 +57,18 @@ class FeatureFlagController extends Controller
             'ends_at' => 'nullable|date|after_or_equal:starts_at',
         ]);
 
-        $flag->update($validated);
-        return $this->success($flag->fresh());
+        return $this->success($this->flags->update($flag, $validated));
     }
 
     public function toggle(FeatureFlag $flag): JsonResponse
     {
-        $flag->update(['is_enabled' => !$flag->is_enabled]);
-        return $this->success($flag->fresh());
+        return $this->success($this->flags->toggle($flag));
     }
 
     public function checkFlag(string $code): JsonResponse
     {
-        $flag = FeatureFlag::where('code', $code)->first();
+        $flag = $this->flags->findByCode($code);
 
-        if (!$flag) {
-            return $this->notFound('Feature flag not found');
-        }
-
-        return $this->success($flag);
+        return $flag ? $this->success($flag) : $this->notFound('Feature flag not found');
     }
 }

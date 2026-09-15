@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Campaign;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ReevaluateSegmentMembershipsJob;
-use App\Models\Campaign\UserSegment;
 use App\Services\Campaign\SegmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,14 +17,9 @@ class SegmentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $segments = UserSegment::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->orderBy('name')
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($segments);
+        return $this->paginated(
+            $this->segmentService->paginate($this->organizationId($request), $request->integer('per_page', 15))
+        );
     }
 
     public function store(Request $request): JsonResponse
@@ -42,37 +35,15 @@ class SegmentController extends Controller
             'is_dynamic' => 'nullable|boolean',
         ]);
 
-        $organizationId = $this->organizationId($request);
-
-        $segment = UserSegment::create([
-            'organization_id' => $organizationId,
-            'name'            => $validated['name'],
-            'description'     => $validated['description'] ?? null,
-            'conditions'      => $validated['conditions'],
-            'color'           => $validated['color'] ?? '#6366f1',
-            'is_dynamic'      => $validated['is_dynamic'] ?? true,
-            'created_by'      => auth()->id(),
-        ]);
-
-        // Trigger async reevaluation for this segment
-        dispatch(function () use ($segment) {
-            app(SegmentService::class)->reevaluateSegment($segment);
-        })->afterResponse();
+        $segment = $this->segmentService->create($this->organizationId($request), $request->user()->id, $validated);
 
         return $this->created($segment, 'Segment created successfully.');
     }
 
     public function show(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $segment = UserSegment::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $members = $segment->members()
-            ->paginate(request()->integer('per_page', 15));
+        $segment = $this->segmentService->find($this->organizationId($request), $id);
+        $members = $this->segmentService->paginateMembers($segment, $request->integer('per_page', 15));
 
         return $this->success([
             'segment' => $segment,
@@ -90,12 +61,7 @@ class SegmentController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $segment = UserSegment::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
+        $segment = $this->segmentService->find($this->organizationId($request), $id);
 
         $validated = $request->validate([
             'name'        => 'sometimes|string|max:255',
@@ -108,46 +74,20 @@ class SegmentController extends Controller
             'is_dynamic' => 'nullable|boolean',
         ]);
 
-        $conditionsChanged = isset($validated['conditions'])
-            && $validated['conditions'] !== $segment->conditions;
-
-        $segment->update($validated);
-
-        if ($conditionsChanged) {
-            dispatch(function () use ($segment) {
-                app(SegmentService::class)->reevaluateSegment($segment->fresh());
-            })->afterResponse();
-        }
-
-        return $this->success($segment->fresh(), 'Segment updated successfully.');
+        return $this->success($this->segmentService->update($segment, $validated), 'Segment updated successfully.');
     }
 
     public function destroy(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $segment = UserSegment::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $segment->delete();
+        $this->segmentService->delete($this->segmentService->find($this->organizationId($request), $id));
 
         return $this->success(null, 'Segment deleted successfully.');
     }
 
     public function members(Request $request, string $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
+        $segment = $this->segmentService->find($this->organizationId($request), $id);
 
-        $segment = UserSegment::where('organization_id', $organizationId)
-            ->whereNull('deleted_at')
-            ->where('id', $id)
-            ->firstOrFail();
-
-        $members = $segment->members()
-            ->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($members);
+        return $this->paginated($this->segmentService->paginateMembers($segment, $request->integer('per_page', 15)));
     }
 }

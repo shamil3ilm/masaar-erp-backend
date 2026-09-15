@@ -7,7 +7,9 @@ namespace App\Services\CRM;
 use App\Models\CRM\ServiceTicket;
 use App\Models\CRM\ServiceTicketComment;
 use App\Models\CRM\SlaPolicy;
+use App\Models\Sales\Contact;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -16,6 +18,56 @@ class ServiceTicketService
     public function __construct(
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * The relations a ticket is returned with. The contact is loaded by
+     * reference columns: the full contact carries its decrypted tax number.
+     *
+     * @return list<string>
+     */
+    public function relations(): array
+    {
+        return ['contact:'.implode(',', Contact::REFERENCE_COLUMNS), 'assignedTo', 'slaPolicy'];
+    }
+
+    /**
+     * The organization's tickets.
+     *
+     * @param  array{status?: ?string, priority?: ?string, type?: ?string, assigned_to?: mixed, contact_id?: mixed,
+     *     sla_breached?: ?string, overdue?: ?string, search?: ?string}  $filters
+     */
+    public function paginate(int $organizationId, array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return ServiceTicket::with([...$this->relations(), 'creator'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['status'] ?? null, fn ($query, $value) => $query->where('status', $value))
+            ->when($filters['priority'] ?? null, fn ($query, $value) => $query->where('priority', $value))
+            ->when($filters['type'] ?? null, fn ($query, $value) => $query->where('type', $value))
+            ->when($filters['assigned_to'] ?? null, fn ($query, $value) => $query->where('assigned_to', $value))
+            ->when($filters['contact_id'] ?? null, fn ($query, $value) => $query->where('contact_id', $value))
+            ->when(($filters['sla_breached'] ?? null) === 'true', fn ($query) => $query->breached())
+            ->when(($filters['overdue'] ?? null) === 'true', fn ($query) => $query->overdue())
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('ticket_number', 'like', "%{$search}%")->orWhere('subject', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * The ticket with everything its detail view shows.
+     */
+    public function loadDetail(ServiceTicket $ticket): ServiceTicket
+    {
+        return $ticket->load([...$this->relations(), 'comments.user', 'creator']);
+    }
+
+    public function update(ServiceTicket $ticket, array $data): ServiceTicket
+    {
+        $ticket->update($data);
+
+        return $ticket->fresh($this->relations());
+    }
 
     /**
      * Create a new service ticket, applying SLA deadlines if a policy is attached.
@@ -45,7 +97,7 @@ class ServiceTicketService
                 ]);
             }
 
-            return $ticket->fresh(['contact', 'assignedTo', 'slaPolicy']);
+            return $ticket->fresh($this->relations());
         });
     }
 

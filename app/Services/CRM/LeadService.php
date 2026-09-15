@@ -11,13 +11,58 @@ use App\Models\CRM\Opportunity;
 use App\Models\CRM\PipelineStage;
 use App\Models\Sales\Contact;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class LeadService
 {
     public function __construct(
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * The organization's leads.
+     *
+     * @param  array{status?: ?string, rating?: ?string, lead_source_id?: mixed, assigned_to?: mixed,
+     *     open?: ?string, hot?: ?string, search?: ?string}  $filters
+     */
+    public function paginate(int $organizationId, array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return Lead::with(['leadSource', 'assignee', 'branch'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($filters['rating'] ?? null, fn ($query, $rating) => $query->withRating($rating))
+            ->when($filters['lead_source_id'] ?? null, fn ($query, $id) => $query->fromSource($id))
+            ->when($filters['assigned_to'] ?? null, fn ($query, $id) => $query->assignedTo($id))
+            ->when(($filters['open'] ?? null) === 'true', fn ($query) => $query->open())
+            ->when(($filters['hot'] ?? null) === 'true', fn ($query) => $query->hot())
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('lead_number', 'like', "%{$search}%")
+                    ->orWhere('company_name', 'like', "%{$search}%")
+                    ->orWhere('contact_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Delete a lead that was not converted, together with its activities.
+     */
+    public function delete(Lead $lead): void
+    {
+        DB::transaction(function () use ($lead) {
+            $locked = Lead::query()->lockForUpdate()->findOrFail($lead->id);
+
+            if ($locked->isConverted()) {
+                throw new InvalidArgumentException('Converted leads cannot be deleted.');
+            }
+
+            $locked->activities()->delete();
+            $locked->delete();
+        });
+    }
 
     /**
      * Create a new lead.
