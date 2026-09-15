@@ -38,11 +38,10 @@ class LongTermPlanningService
      */
     public function runSimulation(PlanningSimulation $simulation): void
     {
-        if (! $simulation->canBeRun()) {
-            throw new \LogicException("Simulation '{$simulation->name}' cannot be run in status '{$simulation->status}'.");
-        }
-
-        DB::transaction(function () use ($simulation): void {
+        $simulation->lockForTransition(function (PlanningSimulation $simulation): void {
+            if (! $simulation->canBeRun()) {
+                throw new \LogicException("Simulation '{$simulation->name}' cannot be run in status '{$simulation->status}'.");
+            }
             $simulation->update(['status' => PlanningSimulation::STATUS_RUNNING]);
 
             // Clear previous simulation data
@@ -210,5 +209,66 @@ class LongTermPlanningService
 
         // Rough estimate: each production order requires 1 hour by default
         return (float) $count;
+    }
+
+    /**
+     * The organization's simulations, newest first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginate(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return PlanningSimulation::with(['createdBy', 'mrpRun'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['search'] ?? null, fn ($q, $v) => $q->where('name', 'like', "%{$v}%"))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's simulations, or null.
+     *
+     * @param  list<string>  $with
+     * @param  list<string>  $counts
+     */
+    public function find(int $id, array $with = [], array $counts = []): ?PlanningSimulation
+    {
+        return PlanningSimulation::with($with)->withCount($counts)->find($id);
+    }
+
+    /**
+     * Update a draft simulation; the status is checked on the locked row.
+     */
+    public function update(PlanningSimulation $simulation, array $data): PlanningSimulation
+    {
+        return $simulation->lockForTransition(function (PlanningSimulation $simulation) use ($data): PlanningSimulation {
+            if (! $simulation->isDraft()) {
+                throw new \InvalidArgumentException('Only draft simulations can be updated.');
+            }
+
+            $simulation->update($data);
+
+            return $simulation->fresh();
+        });
+    }
+
+    public function delete(PlanningSimulation $simulation): void
+    {
+        $simulation->delete();
+    }
+
+    /**
+     * The simulation's planned orders, earliest start first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginatePlannedOrders(PlanningSimulation $simulation, array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return LongTermPlannedOrder::where('planning_simulation_id', $simulation->id)
+            ->with(['product', 'unit', 'productionVersion', 'vendor'])
+            ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->where('product_id', $v))
+            ->when($filters['order_type'] ?? null, fn ($q, $v) => $q->where('planned_order_type', $v))
+            ->orderBy('planned_start')
+            ->paginate($perPage);
     }
 }

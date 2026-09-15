@@ -377,4 +377,46 @@ class BomService
             ->orderBy('version', 'desc')
             ->first();
     }
+
+    /**
+     * The organization's BOM templates, filtered and sorted for the list.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginate(array $filters, string $sortBy, string $sortOrder, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return BomTemplate::with(['product', 'outputUnit', 'defaultWarehouse'])
+            ->withCount(['lines', 'operations', 'workOrders'])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct($id))
+            ->when(($filters['effective'] ?? null) === 'true', fn ($q) => $q->effective())
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('bom_number', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Delete a draft BOM template that no work order uses, with its lines and operations.
+     */
+    public function delete(BomTemplate $bom): void
+    {
+        $bom->lockForTransition(function (BomTemplate $bom): void {
+            if (! $bom->isDraft()) {
+                throw new \InvalidArgumentException('Only draft BOM templates can be deleted.');
+            }
+
+            if ($bom->workOrders()->exists()) {
+                throw new \InvalidArgumentException('BOM template cannot be deleted. It has associated work orders.');
+            }
+
+            $bom->lines()->delete();
+            $bom->operations()->delete();
+            $bom->delete();
+        });
+    }
 }

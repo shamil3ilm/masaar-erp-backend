@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasUuid;
 use App\Models\Inventory\Product;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InspectionLot extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid;
+    use BelongsToOrganization, LocksForTransition, HasAuditTrail, HasFactory, HasUuid;
 
     // Status constants
     public const STATUS_PENDING = 'pending';

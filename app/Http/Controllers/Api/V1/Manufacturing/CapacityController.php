@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\CapacityRequirement;
 use App\Models\Manufacturing\WorkCenter;
 use App\Services\Manufacturing\CapacityPlanningService;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +18,8 @@ use Illuminate\Http\Request;
  */
 class CapacityController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CapacityPlanningService $capacityService
     ) {}
@@ -105,7 +107,7 @@ class CapacityController extends Controller
         $validated = $request->validate([
             'from'           => 'required|date',
             'to'             => 'required|date|after_or_equal:from|before_or_equal:' . now()->parse($request->input('from', now()))->addDays(90)->toDateString(),
-            'work_center_id' => 'nullable|integer|exists:work_centers,id',
+            'work_center_id' => ['nullable', 'integer', $this->ownedBy('work_centers')],
         ]);
 
         $data = $this->capacityService->getCapacityLoad(
@@ -142,14 +144,11 @@ class CapacityController extends Controller
      */
     public function requirements(Request $request): JsonResponse
     {
-        $query = CapacityRequirement::with(['workCenter', 'workOrder'])
-            ->when($request->work_center_id, fn($q, $id) => $q->where('work_center_id', $id))
-            ->when($request->work_order_id, fn($q, $id) => $q->where('work_order_id', $id))
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->orderBy('scheduled_start');
-
         return $this->paginated(
-            $query->paginate($request->integer('per_page', 15)),
+            $this->capacityService->paginateRequirements(
+                $request->only(['work_center_id', 'work_order_id', 'status']),
+                $request->integer('per_page', 15),
+            ),
             null
         );
     }

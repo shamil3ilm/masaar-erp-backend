@@ -644,4 +644,48 @@ class CapacityPlanningService
             $cursor->addDay();
         }
     }
+
+    /** Columns a work center list may be sorted by. */
+    public const WORK_CENTER_SORT_COLUMNS = ['code', 'name', 'work_center_type', 'created_at'];
+
+    /**
+     * The organization's work centers, filtered and sorted for the list.
+     *
+     * @param  array{search?: mixed, type?: mixed, active_only?: bool}  $filters
+     */
+    public function paginateWorkCenters(array $filters, string $sortBy, string $sortOrder, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return WorkCenter::with(['exceptions', 'createdBy'])
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where(
+                fn ($inner) => $inner->where('name', 'like', "%{$search}%")
+                    ->orWhere('code', 'like', "%{$search}%")
+            ))
+            ->when($filters['type'] ?? null, fn ($q, $type) => $q->ofType($type))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Soft-delete a work center.
+     */
+    public function deleteWorkCenter(WorkCenter $workCenter): void
+    {
+        $workCenter->delete();
+    }
+
+    /**
+     * The organization's capacity requirements, earliest scheduled first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateRequirements(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return CapacityRequirement::with(['workCenter', 'workOrder'])
+            ->when($filters['work_center_id'] ?? null, fn ($q, $id) => $q->where('work_center_id', $id))
+            ->when($filters['work_order_id'] ?? null, fn ($q, $id) => $q->where('work_order_id', $id))
+            ->when($filters['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
+            ->orderBy('scheduled_start')
+            ->paginate($perPage);
+    }
 }

@@ -8,6 +8,9 @@ use App\Models\Manufacturing\BomAlternative;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Alternative BOMs per product and the rule that picks one for a lot size and date.
+ */
 class BomAlternativeService
 {
     public function list(int $productId, array $filters = []): Collection
@@ -19,6 +22,16 @@ class BomAlternativeService
             ->when(isset($filters['valid_on']), fn($q) => $q->validOn($filters['valid_on']))
             ->orderBy('alternative_number')
             ->get();
+    }
+
+    /**
+     * One of the organization's alternatives for the given product.
+     *
+     * @param  list<string>  $with
+     */
+    public function findOrFail(int $productId, int $id, array $with = []): BomAlternative
+    {
+        return BomAlternative::with($with)->forProduct($productId)->findOrFail($id);
     }
 
     public function create(array $data): BomAlternative
@@ -48,6 +61,11 @@ class BomAlternativeService
 
             return $alternative->fresh();
         });
+    }
+
+    public function delete(BomAlternative $alternative): void
+    {
+        $alternative->delete();
     }
 
     public function setDefault(BomAlternative $alternative): void

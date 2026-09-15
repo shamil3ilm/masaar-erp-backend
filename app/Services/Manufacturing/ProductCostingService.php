@@ -328,4 +328,33 @@ class ProductCostingService
             ]
         );
     }
+    /**
+     * The organization's cost variances, latest period first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateVariances(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return CostVariance::with(['workOrder', 'costingVersion'])
+            ->when($filters['period_year'] ?? null, fn ($q, $y) => $q->where('period_year', $y))
+            ->when($filters['period_month'] ?? null, fn ($q, $m) => $q->where('period_month', $m))
+            ->when($filters['work_order_id'] ?? null, fn ($q, $id) => $q->where('work_order_id', $id))
+            ->orderBy('period_year', 'desc')
+            ->orderBy('period_month', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * The organization's WIP valuations, latest valuation date first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateWipValuations(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return WipValuation::with('workOrder')
+            ->when($filters['valuation_date'] ?? null, fn ($q, $d) => $q->where('valuation_date', $d))
+            ->when($filters['work_order_id'] ?? null, fn ($q, $id) => $q->where('work_order_id', $id))
+            ->orderBy('valuation_date', 'desc')
+            ->paginate($perPage);
+    }
 }

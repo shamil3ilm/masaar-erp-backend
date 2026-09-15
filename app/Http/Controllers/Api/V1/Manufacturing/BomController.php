@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Manufacturing\BomTemplateResource;
 use App\Models\Manufacturing\BomTemplate;
 use App\Services\Manufacturing\BomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class BomController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private BomService $bomService
     ) {
@@ -24,23 +26,12 @@ class BomController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = BomTemplate::with(['product', 'outputUnit', 'defaultWarehouse'])
-            ->withCount(['lines', 'operations', 'workOrders'])
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->product_id, fn($q, $id) => $q->forProduct($id))
-            ->when($request->effective === 'true', fn($q) => $q->effective())
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('bom_number', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at', 'status'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $boms = $query->paginate($request->integer('per_page', 15));
+        $boms = $this->bomService->paginate(
+            $request->only(['status', 'product_id', 'effective', 'search']),
+            $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at', 'status'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($boms, BomTemplateResource::class);
     }
@@ -54,36 +45,18 @@ class BomController extends Controller
             'bom_number' => 'nullable|string|max:50',
             'name' => 'required|string|max:200',
             'description' => 'nullable|string',
-            'product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'product_id' => ['required', $this->ownedBy('products')],
+            'variant_id' => ['nullable', $this->ownedVariant()],
             'output_quantity' => 'required|numeric|min:0.0001',
-            'output_unit_id' => 'nullable|exists:units_of_measure,id',
-            'default_warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'output_unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
+            'default_warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'estimated_hours' => 'nullable|numeric|min:0',
             'estimated_labor_cost' => 'nullable|numeric|min:0',
             'overhead_cost' => 'nullable|numeric|min:0',
             'effective_from' => 'nullable|date',
             'effective_to' => 'nullable|date|after_or_equal:effective_from',
             'notes' => 'nullable|string',
-            'lines' => 'required|array|min:1',
-            'lines.*.product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_cost' => 'nullable|numeric|min:0',
-            'lines.*.wastage_percentage' => 'nullable|numeric|min:0|max:100',
-            'lines.*.is_critical' => 'nullable|boolean',
-            'lines.*.warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'operations' => 'nullable|array',
-            'operations.*.name' => 'required|string|max:100',
-            'operations.*.description' => 'nullable|string',
-            'operations.*.instructions' => 'nullable|string',
-            'operations.*.estimated_minutes' => 'nullable|integer|min:0',
-            'operations.*.labor_cost_per_hour' => 'nullable|numeric|min:0',
-            'operations.*.workstation' => 'nullable|string|max:100',
-            'operations.*.required_skills' => 'nullable|array',
-            'operations.*.is_subcontracted' => 'nullable|boolean',
+            ...$this->lineAndOperationRules(required: true),
         ]);
 
         try {
@@ -120,33 +93,15 @@ class BomController extends Controller
             'name' => 'sometimes|string|max:200',
             'description' => 'nullable|string',
             'output_quantity' => 'sometimes|numeric|min:0.0001',
-            'output_unit_id' => 'nullable|exists:units_of_measure,id',
-            'default_warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'output_unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
+            'default_warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'estimated_hours' => 'nullable|numeric|min:0',
             'estimated_labor_cost' => 'nullable|numeric|min:0',
             'overhead_cost' => 'nullable|numeric|min:0',
             'effective_from' => 'nullable|date',
             'effective_to' => 'nullable|date|after_or_equal:effective_from',
             'notes' => 'nullable|string',
-            'lines' => 'sometimes|array|min:1',
-            'lines.*.product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.description' => 'nullable|string|max:500',
-            'lines.*.quantity' => 'required|numeric|min:0.0001',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
-            'lines.*.unit_cost' => 'nullable|numeric|min:0',
-            'lines.*.wastage_percentage' => 'nullable|numeric|min:0|max:100',
-            'lines.*.is_critical' => 'nullable|boolean',
-            'lines.*.warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'operations' => 'sometimes|array',
-            'operations.*.name' => 'required|string|max:100',
-            'operations.*.description' => 'nullable|string',
-            'operations.*.instructions' => 'nullable|string',
-            'operations.*.estimated_minutes' => 'nullable|integer|min:0',
-            'operations.*.labor_cost_per_hour' => 'nullable|numeric|min:0',
-            'operations.*.workstation' => 'nullable|string|max:100',
-            'operations.*.required_skills' => 'nullable|array',
-            'operations.*.is_subcontracted' => 'nullable|boolean',
+            ...$this->lineAndOperationRules(required: false),
         ]);
 
         return $this->tryAction(
@@ -165,20 +120,10 @@ class BomController extends Controller
      */
     public function destroy(BomTemplate $bom): JsonResponse
     {
-        if (!$bom->isDraft()) {
-            return $this->error('Only draft BOM templates can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        // Check if used in work orders
-        if ($bom->workOrders()->exists()) {
-            return $this->error('BOM template cannot be deleted. It has associated work orders.', 'VALIDATION_ERROR', 422);
-        }
-
-        $bom->lines()->delete();
-        $bom->operations()->delete();
-        $bom->delete();
-
-        return $this->success(null, 'BOM template deleted successfully.');
+        return $this->tryAction(
+            fn() => $this->bomService->delete($bom),
+            'BOM template deleted successfully.'
+        );
     }
 
     /**
@@ -204,7 +149,7 @@ class BomController extends Controller
     {
         $validated = $request->validate([
             'name' => 'nullable|string|max:200',
-            'product_id' => ['nullable', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'product_id' => ['nullable', $this->ownedBy('products')],
         ]);
 
         try {
@@ -239,7 +184,7 @@ class BomController extends Controller
     {
         $validated = $request->validate([
             'quantity' => 'required|numeric|min:0.0001',
-            'warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
         ]);
 
         $availability = $this->bomService->checkAvailability(
@@ -257,7 +202,7 @@ class BomController extends Controller
     public function forProduct(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'product_id' => ['required', $this->ownedBy('products')],
             'active_only' => 'nullable|boolean',
         ]);
 
@@ -267,5 +212,35 @@ class BomController extends Controller
         );
 
         return $this->success(BomTemplateResource::collection($boms));
+    }
+
+    /**
+     * Rules for a BOM's lines and operations; lines are required on create.
+     *
+     * @return array<string, mixed>
+     */
+    private function lineAndOperationRules(bool $required): array
+    {
+        return [
+            'lines' => ($required ? 'required' : 'sometimes').'|array|min:1',
+            'lines.*.product_id' => ['required', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', $this->ownedVariant()],
+            'lines.*.description' => 'nullable|string|max:500',
+            'lines.*.quantity' => 'required|numeric|min:0.0001',
+            'lines.*.unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
+            'lines.*.unit_cost' => 'nullable|numeric|min:0',
+            'lines.*.wastage_percentage' => 'nullable|numeric|min:0|max:100',
+            'lines.*.is_critical' => 'nullable|boolean',
+            'lines.*.warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
+            'operations' => ($required ? 'nullable' : 'sometimes').'|array',
+            'operations.*.name' => 'required|string|max:100',
+            'operations.*.description' => 'nullable|string',
+            'operations.*.instructions' => 'nullable|string',
+            'operations.*.estimated_minutes' => 'nullable|integer|min:0',
+            'operations.*.labor_cost_per_hour' => 'nullable|numeric|min:0',
+            'operations.*.workstation' => 'nullable|string|max:100',
+            'operations.*.required_skills' => 'nullable|array',
+            'operations.*.is_subcontracted' => 'nullable|boolean',
+        ];
     }
 }
