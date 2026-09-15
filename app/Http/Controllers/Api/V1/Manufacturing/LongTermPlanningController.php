@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\LongTermPlannedOrder;
-use App\Models\Manufacturing\PlanningSimulation;
 use App\Services\Manufacturing\LongTermPlanningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class LongTermPlanningController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly LongTermPlanningService $service,
     ) {}
@@ -22,14 +23,10 @@ class LongTermPlanningController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PlanningSimulation::with(['createdBy', 'mrpRun'])
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->search, fn($q, $v) => $q->where('name', 'like', "%{$v}%"))
-            ->orderByDesc('created_at');
-
-        $simulations = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($simulations);
+        return $this->paginated($this->service->paginate(
+            $request->only(['status', 'search']),
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -42,12 +39,10 @@ class LongTermPlanningController extends Controller
             'description'           => 'nullable|string',
             'planning_horizon_from' => 'required|date',
             'planning_horizon_to'   => 'required|date|after:planning_horizon_from',
-            'mrp_run_id'            => 'nullable|exists:mrp_runs,id',
+            'mrp_run_id'            => ['nullable', $this->ownedBy('mrp_runs')],
         ]);
 
-        $simulation = $this->service->create($validated);
-
-        return $this->created($simulation);
+        return $this->created($this->service->create($validated));
     }
 
     /**
@@ -55,9 +50,7 @@ class LongTermPlanningController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::with(['createdBy', 'mrpRun'])
-            ->withCount(['plannedOrders', 'capacityRequirements'])
-            ->find($id);
+        $simulation = $this->service->find($id, ['createdBy', 'mrpRun'], ['plannedOrders', 'capacityRequirements']);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -71,7 +64,7 @@ class LongTermPlanningController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
+        $simulation = $this->service->find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -86,12 +79,16 @@ class LongTermPlanningController extends Controller
             'description'           => 'nullable|string',
             'planning_horizon_from' => 'sometimes|date',
             'planning_horizon_to'   => 'sometimes|date',
-            'mrp_run_id'            => 'nullable|exists:mrp_runs,id',
+            'mrp_run_id'            => ['nullable', $this->ownedBy('mrp_runs')],
         ]);
 
-        $simulation->update($validated);
+        try {
+            $updated = $this->service->update($simulation, $validated);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422, []);
+        }
 
-        return $this->success($simulation->fresh(), 'Simulation updated.');
+        return $this->success($updated, 'Simulation updated.');
     }
 
     /**
@@ -99,13 +96,13 @@ class LongTermPlanningController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
+        $simulation = $this->service->find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
         }
 
-        $simulation->delete();
+        $this->service->delete($simulation);
 
         return $this->success(null, 'Simulation deleted.');
     }
@@ -115,7 +112,7 @@ class LongTermPlanningController extends Controller
      */
     public function run(int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
+        $simulation = $this->service->find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
@@ -131,15 +128,11 @@ class LongTermPlanningController extends Controller
      */
     public function capacity(int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
-
-        if ($simulation === null) {
+        if ($this->service->find($id) === null) {
             return $this->notFound('Simulation not found.');
         }
 
-        $capacity = $this->service->getCapacityOverview($id);
-
-        return $this->success($capacity);
+        return $this->success($this->service->getCapacityOverview($id));
     }
 
     /**
@@ -147,21 +140,17 @@ class LongTermPlanningController extends Controller
      */
     public function plannedOrders(Request $request, int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
+        $simulation = $this->service->find($id);
 
         if ($simulation === null) {
             return $this->notFound('Simulation not found.');
         }
 
-        $query = LongTermPlannedOrder::where('planning_simulation_id', $id)
-            ->with(['product', 'unit', 'productionVersion', 'vendor'])
-            ->when($request->product_id, fn($q, $v) => $q->where('product_id', $v))
-            ->when($request->order_type, fn($q, $v) => $q->where('planned_order_type', $v))
-            ->orderBy('planned_start');
-
-        $orders = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($orders);
+        return $this->paginated($this->service->paginatePlannedOrders(
+            $simulation,
+            $request->only(['product_id', 'order_type']),
+            $request->integer('per_page', 25),
+        ));
     }
 
     /**
@@ -169,14 +158,10 @@ class LongTermPlanningController extends Controller
      */
     public function compare(int $id): JsonResponse
     {
-        $simulation = PlanningSimulation::find($id);
-
-        if ($simulation === null) {
+        if ($this->service->find($id) === null) {
             return $this->notFound('Simulation not found.');
         }
 
-        $comparison = $this->service->compareWithOperativePlan($id);
-
-        return $this->success($comparison);
+        return $this->success($this->service->compareWithOperativePlan($id));
     }
 }

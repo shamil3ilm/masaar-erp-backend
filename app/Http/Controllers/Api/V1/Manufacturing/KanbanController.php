@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\KanbanCard;
 use App\Models\Manufacturing\KanbanControlCycle;
@@ -15,6 +16,8 @@ use Illuminate\Validation\Rule;
 
 class KanbanController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private KanbanService $kanbanService
     ) {}
@@ -26,14 +29,10 @@ class KanbanController extends Controller
      */
     public function indexSupplyAreas(Request $request): JsonResponse
     {
-        $areas = KanbanSupplyArea::with(['warehouse', 'location'])
-            ->when($request->search, fn($q, $s) => $q->where(function ($q) use ($s) {
-                $q->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%");
-            }))
-            ->orderBy('code')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($areas, null);
+        return $this->paginated(
+            $this->kanbanService->paginateSupplyAreas($request->search, $request->integer('per_page', 20)),
+            null
+        );
     }
 
     /**
@@ -48,50 +47,51 @@ class KanbanController extends Controller
                 Rule::unique('kanban_supply_areas')->where('organization_id', $orgId),
             ],
             'name'        => 'required|string|max:100',
-            'warehouse_id' => 'required|integer|exists:warehouses,id',
-            'location_id'  => 'nullable|integer|exists:warehouse_locations,id',
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
+            'location_id'  => ['nullable', 'integer', $this->ownedLocation()],
         ]);
 
-        $area = KanbanSupplyArea::create(array_merge($validated, ['organization_id' => $orgId]));
+        $area = $this->kanbanService->createSupplyArea(array_merge($validated, ['organization_id' => $orgId]));
 
-        return $this->success($area->load(['warehouse', 'location']), 'Supply area created.', 201);
+        return $this->success($area, 'Supply area created.', 201);
     }
 
     /**
-     * GET kanban/supply-areas/{supplyArea}
+     * GET kanban/supply-areas/{kanbanSupplyArea}
      */
-    public function showSupplyArea(KanbanSupplyArea $supplyArea): JsonResponse
+    public function showSupplyArea(KanbanSupplyArea $kanbanSupplyArea): JsonResponse
     {
-        return $this->success($supplyArea->load(['warehouse', 'location', 'controlCycles.product']));
+        return $this->success($kanbanSupplyArea->load(['warehouse', 'location', 'controlCycles.product']));
     }
 
     /**
-     * PUT kanban/supply-areas/{supplyArea}
+     * PUT kanban/supply-areas/{kanbanSupplyArea}
      */
-    public function updateSupplyArea(Request $request, KanbanSupplyArea $supplyArea): JsonResponse
+    public function updateSupplyArea(Request $request, KanbanSupplyArea $kanbanSupplyArea): JsonResponse
     {
         $orgId     = $this->organizationId($request);
         $validated = $request->validate([
             'code'        => [
                 'sometimes', 'string', 'max:20',
-                Rule::unique('kanban_supply_areas')->where('organization_id', $orgId)->ignore($supplyArea->id),
+                Rule::unique('kanban_supply_areas')->where('organization_id', $orgId)->ignore($kanbanSupplyArea->id),
             ],
             'name'        => 'sometimes|string|max:100',
-            'warehouse_id' => 'sometimes|integer|exists:warehouses,id',
-            'location_id'  => 'nullable|integer|exists:warehouse_locations,id',
+            'warehouse_id' => ['sometimes', 'integer', $this->ownedBy('warehouses')],
+            'location_id'  => ['nullable', 'integer', $this->ownedLocation()],
         ]);
 
-        $supplyArea->update($validated);
-
-        return $this->success($supplyArea->fresh(['warehouse', 'location']), 'Supply area updated.');
+        return $this->success(
+            $this->kanbanService->updateSupplyArea($kanbanSupplyArea, $validated),
+            'Supply area updated.'
+        );
     }
 
     /**
-     * DELETE kanban/supply-areas/{supplyArea}
+     * DELETE kanban/supply-areas/{kanbanSupplyArea}
      */
-    public function destroySupplyArea(KanbanSupplyArea $supplyArea): JsonResponse
+    public function destroySupplyArea(KanbanSupplyArea $kanbanSupplyArea): JsonResponse
     {
-        $supplyArea->delete();
+        $this->kanbanService->deleteSupplyArea($kanbanSupplyArea);
 
         return $this->success(null, 'Supply area deleted.');
     }
@@ -103,15 +103,17 @@ class KanbanController extends Controller
      */
     public function indexControlCycles(Request $request): JsonResponse
     {
-        $cycles = KanbanControlCycle::with(['product', 'supplyArea'])
-            ->withCount('cards')
-            ->when($request->boolean('active_only', true), fn($q) => $q->active())
-            ->when($request->product_id, fn($q, $id) => $q->where('product_id', $id))
-            ->when($request->supply_area_id, fn($q, $id) => $q->where('supply_area_id', $id))
-            ->orderBy('id')
-            ->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($cycles, null);
+        return $this->paginated(
+            $this->kanbanService->paginateControlCycles(
+                [
+                    'active_only' => $request->boolean('active_only', true),
+                    'product_id' => $request->product_id,
+                    'supply_area_id' => $request->supply_area_id,
+                ],
+                $request->integer('per_page', 20)
+            ),
+            null
+        );
     }
 
     /**
@@ -121,15 +123,15 @@ class KanbanController extends Controller
     {
         $orgId     = $this->organizationId($request);
         $validated = $request->validate([
-            'product_id'                   => 'required|integer|exists:products,id',
-            'supply_area_id'               => 'required|integer|exists:kanban_supply_areas,id',
+            'product_id'                   => ['required', 'integer', $this->ownedBy('products')],
+            'supply_area_id'               => ['required', 'integer', $this->ownedBy('kanban_supply_areas')],
             'replenishment_strategy'       => 'required|in:production,purchase,stock_transfer',
             'number_of_cards'              => 'required|integer|min:1|max:100',
             'replenishment_quantity'       => 'required|numeric|min:0.0001',
             'safety_stock_quantity'        => 'nullable|numeric|min:0',
             'replenishment_lead_time_days' => 'nullable|integer|min:1',
-            'source_vendor_id'             => 'nullable|integer|exists:contacts,id',
-            'source_warehouse_id'          => 'nullable|integer|exists:warehouses,id',
+            'source_vendor_id'             => ['nullable', 'integer', $this->ownedBy('contacts')],
+            'source_warehouse_id'          => ['nullable', 'integer', $this->ownedBy('warehouses')],
             'is_active'                    => 'nullable|boolean',
         ]);
 
@@ -145,39 +147,40 @@ class KanbanController extends Controller
     }
 
     /**
-     * GET kanban/control-cycles/{controlCycle}
+     * GET kanban/control-cycles/{kanbanControlCycle}
      */
-    public function showControlCycle(KanbanControlCycle $controlCycle): JsonResponse
+    public function showControlCycle(KanbanControlCycle $kanbanControlCycle): JsonResponse
     {
-        return $this->success($controlCycle->load(['product', 'supplyArea', 'cards']));
+        return $this->success($kanbanControlCycle->load(['product', 'supplyArea', 'cards']));
     }
 
     /**
-     * PUT kanban/control-cycles/{controlCycle}
+     * PUT kanban/control-cycles/{kanbanControlCycle}
      */
-    public function updateControlCycle(Request $request, KanbanControlCycle $controlCycle): JsonResponse
+    public function updateControlCycle(Request $request, KanbanControlCycle $kanbanControlCycle): JsonResponse
     {
         $validated = $request->validate([
             'replenishment_strategy'       => 'sometimes|in:production,purchase,stock_transfer',
             'replenishment_quantity'       => 'sometimes|numeric|min:0.0001',
             'safety_stock_quantity'        => 'nullable|numeric|min:0',
             'replenishment_lead_time_days' => 'nullable|integer|min:1',
-            'source_vendor_id'             => 'nullable|integer|exists:contacts,id',
-            'source_warehouse_id'          => 'nullable|integer|exists:warehouses,id',
+            'source_vendor_id'             => ['nullable', 'integer', $this->ownedBy('contacts')],
+            'source_warehouse_id'          => ['nullable', 'integer', $this->ownedBy('warehouses')],
             'is_active'                    => 'nullable|boolean',
         ]);
 
-        $controlCycle->update($validated);
-
-        return $this->success($controlCycle->fresh(['product', 'supplyArea']), 'Control cycle updated.');
+        return $this->success(
+            $this->kanbanService->updateControlCycle($kanbanControlCycle, $validated),
+            'Control cycle updated.'
+        );
     }
 
     /**
-     * DELETE kanban/control-cycles/{controlCycle}
+     * DELETE kanban/control-cycles/{kanbanControlCycle}
      */
-    public function destroyControlCycle(KanbanControlCycle $controlCycle): JsonResponse
+    public function destroyControlCycle(KanbanControlCycle $kanbanControlCycle): JsonResponse
     {
-        $controlCycle->delete();
+        $this->kanbanService->deleteControlCycle($kanbanControlCycle);
 
         return $this->success(null, 'Control cycle deleted.');
     }
@@ -185,15 +188,11 @@ class KanbanController extends Controller
     // ── Cards ─────────────────────────────────────────────────────────────────
 
     /**
-     * GET kanban/control-cycles/{controlCycle}/cards
+     * GET kanban/control-cycles/{kanbanControlCycle}/cards
      */
-    public function cards(KanbanControlCycle $controlCycle): JsonResponse
+    public function cards(KanbanControlCycle $kanbanControlCycle): JsonResponse
     {
-        $cards = $controlCycle->cards()
-            ->orderBy('card_number')
-            ->get();
-
-        return $this->success($cards);
+        return $this->success($kanbanControlCycle->cards()->orderBy('card_number')->get());
     }
 
     /**
@@ -201,17 +200,15 @@ class KanbanController extends Controller
      */
     public function signalEmpty(KanbanCard $kanbanCard): JsonResponse
     {
-        if (!$kanbanCard->canSignalEmpty()) {
-            return $this->error(
-                'INVALID_STATUS',
-                "Card must be in 'full' status to signal empty. Current: {$kanbanCard->status}.",
-                422
-            );
+        $card = $this->kanbanService->cardOfOrganization($kanbanCard);
+
+        try {
+            $this->kanbanService->signalEmpty($card);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
         }
 
-        $this->kanbanService->signalEmpty($kanbanCard);
-
-        return $this->success($kanbanCard->fresh(), 'Card signalled as empty; replenishment triggered.');
+        return $this->success($card->fresh(), 'Card signalled as empty; replenishment triggered.');
     }
 
     /**
@@ -220,21 +217,19 @@ class KanbanController extends Controller
      */
     public function signalFull(Request $request, KanbanCard $kanbanCard): JsonResponse
     {
+        $card = $this->kanbanService->cardOfOrganization($kanbanCard);
+
         $validated = $request->validate([
             'quantity' => 'required|numeric|min:0',
         ]);
 
-        if (!$kanbanCard->canSignalFull()) {
-            return $this->error(
-                'INVALID_STATUS',
-                "Card cannot be signalled full from status '{$kanbanCard->status}'.",
-                422
-            );
+        try {
+            $this->kanbanService->signalFull($card, (float) $validated['quantity']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
         }
 
-        $this->kanbanService->signalFull($kanbanCard, (float) $validated['quantity']);
-
-        return $this->success($kanbanCard->fresh(), 'Card signalled as full.');
+        return $this->success($card->fresh(), 'Card signalled as full.');
     }
 
     // ── Board View ────────────────────────────────────────────────────────────
@@ -247,7 +242,7 @@ class KanbanController extends Controller
         $orgId = $this->organizationId($request);
 
         if ($orgId === null) {
-            return $this->error('NO_ORGANIZATION', 'Organization context required.', 422);
+            return $this->error('Organization context required.', 'NO_ORGANIZATION', 422);
         }
 
         $board = $this->kanbanService->getBoardView($orgId);

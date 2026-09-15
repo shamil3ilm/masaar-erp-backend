@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\SchedulingBoard;
-use App\Models\Manufacturing\SchedulingOperation;
 use App\Services\Manufacturing\DetailedSchedulingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class DetailedSchedulingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly DetailedSchedulingService $service,
     ) {}
@@ -25,12 +25,7 @@ class DetailedSchedulingController extends Controller
      */
     public function boards(Request $request): JsonResponse
     {
-        $query = SchedulingBoard::withCount('operations')
-            ->orderBy('name');
-
-        $boards = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($boards);
+        return $this->paginated($this->service->paginateBoards($request->integer('per_page', 20)));
     }
 
     /**
@@ -42,12 +37,10 @@ class DetailedSchedulingController extends Controller
             'name'            => 'required|string|max:255',
             'horizon_days'    => 'nullable|integer|min:1|max:365',
             'work_center_ids' => 'nullable|array',
-            'work_center_ids.*' => ['integer', Rule::exists('work_centers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'work_center_ids.*' => ['integer', $this->ownedBy('work_centers')],
         ]);
 
-        $board = SchedulingBoard::create($validated);
-
-        return $this->created($board);
+        return $this->created($this->service->createBoard($validated));
     }
 
     /**
@@ -60,15 +53,11 @@ class DetailedSchedulingController extends Controller
             'date_to'   => 'required|date|after_or_equal:date_from',
         ]);
 
-        $board = SchedulingBoard::find($id);
-
-        if ($board === null) {
+        if ($this->service->findBoard($id) === null) {
             return $this->notFound('Scheduling board not found.');
         }
 
-        $data = $this->service->getBoardData($id, $validated['date_from'], $validated['date_to']);
-
-        return $this->success($data);
+        return $this->success($this->service->getBoardData($id, $validated['date_from'], $validated['date_to']));
     }
 
     // ── Operations ────────────────────────────────────────────────────────────
@@ -78,17 +67,10 @@ class DetailedSchedulingController extends Controller
      */
     public function operations(Request $request): JsonResponse
     {
-        $query = SchedulingOperation::with(['workCenter', 'workOrder', 'processOrder'])
-            ->when($request->work_center_id, fn($q, $v) => $q->forWorkCenter((int) $v))
-            ->when($request->board_id, fn($q, $v) => $q->forBoard((int) $v))
-            ->when($request->work_order_id, fn($q, $v) => $q->where('work_order_id', $v))
-            ->when($request->date_from && $request->date_to, fn($q) => $q->between($request->date_from, $request->date_to))
-            ->orderBy('work_center_id')
-            ->orderBy('planned_start');
-
-        $operations = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($operations);
+        return $this->paginated($this->service->paginateOperations(
+            $request->only(['work_center_id', 'board_id', 'work_order_id', 'date_from', 'date_to']),
+            $request->integer('per_page', 25),
+        ));
     }
 
     /**
@@ -97,10 +79,10 @@ class DetailedSchedulingController extends Controller
     public function storeOperation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'scheduling_board_id' => 'nullable|exists:scheduling_boards,id',
-            'work_order_id'       => 'nullable|exists:work_orders,id',
-            'process_order_id'    => 'nullable|exists:process_orders,id',
-            'work_center_id'      => ['required', Rule::exists('work_centers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'scheduling_board_id' => ['nullable', $this->ownedBy('scheduling_boards')],
+            'work_order_id'       => ['nullable', $this->ownedBy('work_orders')],
+            'process_order_id'    => ['nullable', $this->ownedBy('process_orders')],
+            'work_center_id'      => ['required', $this->ownedBy('work_centers')],
             'operation_number'    => 'required|integer|min:1',
             'description'         => 'required|string|max:255',
             'planned_start'       => 'required|date',
@@ -114,12 +96,7 @@ class DetailedSchedulingController extends Controller
             'sequence_number'     => 'nullable|integer|min:1',
         ]);
 
-        $operation = SchedulingOperation::create(array_merge(
-            $validated,
-            ['organization_id' => auth()->user()->organization_id]
-        ));
-
-        return $this->created($operation->load(['workCenter', 'workOrder', 'processOrder']));
+        return $this->created($this->service->createOperation($validated, auth()->user()->organization_id));
     }
 
     /**
@@ -127,15 +104,15 @@ class DetailedSchedulingController extends Controller
      */
     public function updateOperation(Request $request, int $id): JsonResponse
     {
-        $operation = SchedulingOperation::find($id);
+        $operation = $this->service->findOperation($id);
 
         if ($operation === null) {
             return $this->notFound('Operation not found.');
         }
 
         $validated = $request->validate([
-            'scheduling_board_id' => 'nullable|exists:scheduling_boards,id',
-            'work_center_id'      => ['sometimes', Rule::exists('work_centers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'scheduling_board_id' => ['nullable', $this->ownedBy('scheduling_boards')],
+            'work_center_id'      => ['sometimes', $this->ownedBy('work_centers')],
             'operation_number'    => 'sometimes|integer|min:1',
             'description'         => 'sometimes|string|max:255',
             'planned_start'       => 'sometimes|date',
@@ -149,9 +126,7 @@ class DetailedSchedulingController extends Controller
             'sequence_number'     => 'nullable|integer|min:1',
         ]);
 
-        $operation->update($validated);
-
-        return $this->success($operation->fresh(['workCenter', 'workOrder', 'processOrder']));
+        return $this->success($this->service->updateOperation($operation, $validated));
     }
 
     /**
@@ -159,7 +134,7 @@ class DetailedSchedulingController extends Controller
      */
     public function reschedule(Request $request, int $id): JsonResponse
     {
-        $operation = SchedulingOperation::find($id);
+        $operation = $this->service->findOperation($id);
 
         if ($operation === null) {
             return $this->notFound('Operation not found.');
@@ -180,13 +155,11 @@ class DetailedSchedulingController extends Controller
     public function optimize(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'work_center_id' => ['required', Rule::exists('work_centers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'work_center_id' => ['required', $this->ownedBy('work_centers')],
             'date'           => 'required|date',
         ]);
 
-        $sequence = $this->service->optimizeSequence((int) $validated['work_center_id'], $validated['date']);
-
-        return $this->success($sequence);
+        return $this->success($this->service->optimizeSequence((int) $validated['work_center_id'], $validated['date']));
     }
 
     /**
@@ -195,7 +168,7 @@ class DetailedSchedulingController extends Controller
     public function conflicts(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'work_center_id' => ['required', Rule::exists('work_centers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'work_center_id' => ['required', $this->ownedBy('work_centers')],
             'date_from'      => 'required|date',
             'date_to'        => 'required|date|after_or_equal:date_from',
         ]);
