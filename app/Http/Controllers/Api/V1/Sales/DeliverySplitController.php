@@ -4,25 +4,32 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\DeliverySplitRule;
-use App\Models\Sales\SalesOrder;
+use App\Services\Sales\DeliverySplitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DeliverySplitController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(
+        private readonly DeliverySplitService $deliverySplitService
+    ) {}
+
     /**
      * GET /api/v1/sales/delivery-split-rules
      * List all delivery split rules.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = DeliverySplitRule::latest()
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->has('split_criteria'), fn($q) => $q->where('split_criteria', $request->string('split_criteria')));
-
-        $rules = $query->paginate($request->integer('per_page', 15));
+        $rules = $this->deliverySplitService->list(
+            $request->boolean('active_only'),
+            $request->has('split_criteria') ? (string) $request->string('split_criteria') : null,
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($rules);
     }
@@ -43,9 +50,7 @@ class DeliverySplitController extends Controller
             'is_active'                      => 'nullable|boolean',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
-
-        $rule = DeliverySplitRule::create($validated);
+        $rule = $this->deliverySplitService->create((int) $this->organizationId($request), $validated);
 
         return $this->success($rule, 'Delivery split rule created.', 201);
     }
@@ -73,9 +78,10 @@ class DeliverySplitController extends Controller
             'is_active'                      => 'nullable|boolean',
         ]);
 
-        $deliverySplitRule->update($validated);
-
-        return $this->success($deliverySplitRule->fresh(), 'Delivery split rule updated.');
+        return $this->success(
+            $this->deliverySplitService->update($deliverySplitRule, $validated),
+            'Delivery split rule updated.'
+        );
     }
 
     /**
@@ -83,7 +89,7 @@ class DeliverySplitController extends Controller
      */
     public function destroy(DeliverySplitRule $deliverySplitRule): JsonResponse
     {
-        $deliverySplitRule->delete();
+        $this->deliverySplitService->delete($deliverySplitRule);
 
         return $this->success(null, 'Delivery split rule deleted.');
     }
@@ -97,48 +103,32 @@ class DeliverySplitController extends Controller
     public function apply(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'source_type'   => 'required|in:sales_order,shipment',
-            'source_id'     => 'required|integer',
-            'customer_id'   => 'required|integer|exists:contacts,id',
+            'source_type'       => 'required|in:sales_order,shipment',
+            'source_id'         => 'required|integer',
+            'customer_id'       => ['required', 'integer', $this->ownedBy('contacts')],
             'customer_group_id' => 'nullable|integer',
         ]);
 
-        $orgId       = (int) $this->organizationId($request);
-        $customerId  = (int) $validated['customer_id'];
-        $customerGroupId = isset($validated['customer_group_id'])
-            ? (int) $validated['customer_group_id']
-            : null;
+        $rules = $this->deliverySplitService->applicableRules(
+            (int) $this->organizationId($request),
+            (int) $validated['customer_id'],
+            isset($validated['customer_group_id']) ? (int) $validated['customer_group_id'] : null
+        );
 
-        // Load active rules applicable to this customer
-        $rules = DeliverySplitRule::active()
-            ->where('organization_id', $orgId)
-            ->get()
-            ->filter(fn ($rule) => $rule->appliesTo($customerId, $customerGroupId))
-            ->values();
-
-        if ($rules->isEmpty()) {
+        if ($rules === []) {
             return $this->success([
-                'source_type'     => $validated['source_type'],
-                'source_id'       => $validated['source_id'],
+                'source_type'      => $validated['source_type'],
+                'source_id'        => $validated['source_id'],
                 'applicable_rules' => [],
                 'split_required'   => false,
                 'message'          => 'No applicable delivery split rules found.',
             ]);
         }
 
-        // Build the applied-rules response
-        $appliedRules = $rules->map(fn ($rule) => [
-            'rule_id'                       => $rule->id,
-            'rule_name'                     => $rule->rule_name,
-            'split_criteria'                => $rule->split_criteria,
-            'allow_partial_delivery'        => $rule->allow_partial_delivery,
-            'minimum_delivery_quantity_pct' => (float) $rule->minimum_delivery_quantity_pct,
-        ])->all();
-
         return $this->success([
             'source_type'      => $validated['source_type'],
             'source_id'        => $validated['source_id'],
-            'applicable_rules' => $appliedRules,
+            'applicable_rules' => $rules,
             'split_required'   => true,
         ], 'Delivery split rules applied.');
     }
