@@ -121,7 +121,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Maintenance/EquipmentHierarchyController.php' => 5,
         'Api/V1/Maintenance/FaultAnalysisController.php' => 4,
         'Api/V1/Maintenance/FleetController.php' => 15,
-        'Api/V1/Maintenance/MaintenanceController.php' => 7,
         'Api/V1/Maintenance/MaintenancePermitController.php' => 9,
         'Api/V1/Maintenance/MaintenanceTaskListController.php' => 2,
         'Api/V1/Maintenance/ServiceOrderController.php' => 2,
