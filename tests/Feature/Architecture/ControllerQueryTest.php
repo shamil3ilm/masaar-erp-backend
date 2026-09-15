@@ -61,8 +61,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Billing/SubscriptionController.php' => 6,
         'Api/V1/Billing/SubscriptionPlanController.php' => 2,
         'Api/V1/Billing/UsageController.php' => 3,
-        'Api/V1/Budget/BudgetController.php' => 16,
-        'Api/V1/Budget/BudgetTransferController.php' => 3,
         'Api/V1/CRM/ActivityController.php' => 5,
         'Api/V1/CRM/LeadController.php' => 1,
         'Api/V1/CRM/OpportunityController.php' => 2,
