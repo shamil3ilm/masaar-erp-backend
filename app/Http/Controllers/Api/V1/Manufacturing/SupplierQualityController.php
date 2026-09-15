@@ -4,29 +4,27 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\ApprovedVendorList;
-use App\Models\Manufacturing\SupplierNcrRecord;
-use App\Models\Manufacturing\SupplierQualityRating;
+use App\Services\Manufacturing\SupplierQualityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class SupplierQualityController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly SupplierQualityService $service) {}
+
     public function ratings(Request $request): JsonResponse
     {
-        $ratings = SupplierQualityRating::where('organization_id', $request->user()->organization_id)
-            ->with('supplier')
-            ->paginate(20);
-
-        return $this->paginated($ratings);
+        return $this->paginated($this->service->listRatings($request->user()->organization_id));
     }
 
     public function storeRating(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'supplier_id'          => 'required|integer|exists:contacts,id',
+            'supplier_id'          => ['required', 'integer', $this->ownedBy('contacts')],
             'rating_period_start'  => 'required|date',
             'rating_period_end'    => 'required|date|after_or_equal:rating_period_start',
             'quality_score'        => 'nullable|numeric|min:0|max:100',
@@ -37,83 +35,56 @@ class SupplierQualityController extends Controller
             'notes'                => 'nullable|string',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['evaluated_by_id'] = $request->user()->id;
+        $rating = $this->service->createRating($request->user()->organization_id, $request->user()->id, $data);
 
-        $rating = SupplierQualityRating::create($data);
-
-        return $this->created($rating->load('supplier'));
+        return $this->created($rating);
     }
 
     public function avl(Request $request): JsonResponse
     {
-        $avl = ApprovedVendorList::where('organization_id', $request->user()->organization_id)
-            ->with(['supplier', 'product'])
-            ->paginate(20);
-
-        return $this->paginated($avl);
+        return $this->paginated($this->service->listApprovedVendors($request->user()->organization_id));
     }
 
     public function storeAvl(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'supplier_id'           => 'required|integer|exists:contacts,id',
-            'product_id'            => 'nullable|integer|exists:products,id',
+            'supplier_id'           => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id'            => ['nullable', 'integer', $this->ownedBy('products')],
             'approved_date'         => 'required|date',
             'expiry_date'           => 'nullable|date|after:approved_date',
             'approval_conditions'   => 'nullable|string',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $avl = ApprovedVendorList::create($data);
-
-        return $this->created($avl->load(['supplier', 'product']));
+        return $this->created($this->service->approveVendor($request->user()->organization_id, $data));
     }
 
     public function ncrs(Request $request): JsonResponse
     {
-        $ncrs = SupplierNcrRecord::where('organization_id', $request->user()->organization_id)
-            ->with(['supplier', 'product'])
-            ->paginate(20);
-
-        return $this->paginated($ncrs);
+        return $this->paginated($this->service->listNcrs($request->user()->organization_id));
     }
 
     public function storeNcr(Request $request): JsonResponse
     {
         $data = $request->validate([
             'ncr_number'                    => 'required|string|max:50|unique:supplier_ncr_records',
-            'supplier_id'                   => 'required|integer|exists:contacts,id',
-            'product_id'                    => 'nullable|integer|exists:products,id',
+            'supplier_id'                   => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id'                    => ['nullable', 'integer', $this->ownedBy('products')],
             'po_number'                     => 'nullable|string|max:50',
             'nonconformance_description'    => 'required|string',
             'severity'                      => 'required|in:critical,major,minor',
             'detected_date'                 => 'required|date',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $ncr = SupplierNcrRecord::create($data);
-
-        return $this->created($ncr->load(['supplier', 'product']));
+        return $this->created($this->service->createNcr($request->user()->organization_id, $data));
     }
 
     public function closeNcr(Request $request, int $id): JsonResponse
     {
-        $ncr  = SupplierNcrRecord::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $ncr  = $this->service->findNcr($request->user()->organization_id, $id);
         $data = $request->validate([
             'disposition' => 'required|in:use_as_is,rework,repair,return_to_supplier,scrap',
         ]);
 
-        $ncr->update(array_merge($data, [
-            'status'      => 'closed',
-            'closed_date' => now()->toDateString(),
-        ]));
-
-        return $this->success($ncr, 'NCR closed');
+        return $this->success($this->service->closeNcr($ncr, $data['disposition']), 'NCR closed');
     }
 }
