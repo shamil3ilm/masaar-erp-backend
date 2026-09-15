@@ -5,37 +5,35 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Admin\PlatformSetting;
+use App\Services\Admin\PlatformSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PlatformSettingsController extends Controller
 {
+    public function __construct(private readonly PlatformSettingsService $settings) {}
+
     public function index(): JsonResponse
     {
-        return $this->success(PlatformSetting::all());
+        return $this->success($this->settings->all());
     }
 
     public function show(string $key): JsonResponse
     {
-        $setting = PlatformSetting::where('key', $key)->firstOrFail();
-        return $this->success($setting);
+        return $this->success($this->settings->find($key));
     }
 
     public function update(Request $request, string $key): JsonResponse
     {
-        $setting = PlatformSetting::updateOrCreate(
-            ['key' => $key],
-            ['value' => $request->input('value'), 'group' => $request->input('group', 'general')]
+        return $this->success(
+            $this->settings->put($key, $request->input('value'), $request->input('group', 'general'))
         );
-        return $this->success($setting);
     }
 
     public function bulkUpdate(Request $request): JsonResponse
     {
-        foreach ($request->input('settings', []) as $key => $value) {
-            PlatformSetting::updateOrCreate(['key' => $key], ['value' => $value]);
-        }
+        $this->settings->putMany($request->input('settings', []));
+
         return $this->success(['message' => 'Settings updated']);
     }
 }
