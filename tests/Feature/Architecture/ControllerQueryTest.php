@@ -76,8 +76,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Compliance/DeniedPartyScreeningController.php' => 13,
         'Api/V1/Compliance/OnboardingController.php' => 4,
         'Api/V1/Compliance/ZatcaWebhookController.php' => 1,
-        'Api/V1/Core/ActivityLogController.php' => 1,
-        'Api/V1/Core/BusinessPartnerController.php' => 1,
         'Api/V1/Core/ChangeTransportController.php' => 9,
         'Api/V1/Core/ClassificationController.php' => 6,
         'Api/V1/Core/DashboardController.php' => 13,

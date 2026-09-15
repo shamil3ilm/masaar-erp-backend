@@ -52,6 +52,14 @@ class UserService
     }
 
     /**
+     * Whether a user with this id exists in any organization.
+     */
+    public function exists(int $userId): bool
+    {
+        return User::whereKey($userId)->exists();
+    }
+
+    /**
      * A user of the organization by id; another organization's user is not found.
      */
     public function findInOrganization(int $organizationId, int $userId): User
