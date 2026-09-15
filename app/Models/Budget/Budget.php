@@ -7,6 +7,7 @@ namespace App\Models\Budget;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,6 +21,7 @@ class Budget extends Model
     use BelongsToOrganization;
     use HasFactory;
     use HasUuid;
+    use LocksForTransition;
     use SoftDeletes;
 
     protected $table = 'budgets';
