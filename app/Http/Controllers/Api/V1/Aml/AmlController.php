@@ -4,21 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Aml;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Jobs\RunAmlScreeningJob;
-use App\Models\Aml\AmlRiskScore;
-use App\Models\Aml\AmlSuspiciousActivity;
-use App\Models\Aml\AmlTransactionFlag;
-use App\Models\Sales\Contact;
+use App\Services\Aml\AmlCaseService;
 use App\Services\Aml\AmlMonitoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class AmlController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly AmlMonitoringService $amlService,
+        private readonly AmlCaseService $cases,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -30,16 +31,15 @@ class AmlController extends Controller
      */
     public function riskScores(Request $request): JsonResponse
     {
-        $query = AmlRiskScore::with('contact')
-            ->where('organization_id', Auth::user()->organization_id)
-            ->orderByDesc('score')
-            ->when($request->filled('risk_level'), fn($q) => $q->where('risk_level', $request->input('risk_level')))
-            ->when($request->boolean('sanctions_only'), fn($q) => $q->where('sanctions_hit', true))
-            ->when($request->boolean('pep_only'), fn($q) => $q->where('pep_hit', true));
+        $filters = $this->filledFilters($request, ['risk_level']);
+        $filters['sanctions_only'] = $request->boolean('sanctions_only');
+        $filters['pep_only'] = $request->boolean('pep_only');
 
-        $scores = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($scores);
+        return $this->paginated($this->cases->paginateRiskScores(
+            Auth::user()->organization_id,
+            $filters,
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -47,12 +47,7 @@ class AmlController extends Controller
      */
     public function contactRisk(int $contactId): JsonResponse
     {
-        $score = AmlRiskScore::with('contact')
-            ->where('organization_id', Auth::user()->organization_id)
-            ->where('contact_id', $contactId)
-            ->firstOrFail();
-
-        return $this->success($score);
+        return $this->success($this->cases->contactRisk(Auth::user()->organization_id, $contactId));
     }
 
     // -------------------------------------------------------------------------
@@ -64,17 +59,17 @@ class AmlController extends Controller
      */
     public function transactionFlags(Request $request): JsonResponse
     {
-        $query = AmlTransactionFlag::with('contact')
-            ->where('organization_id', Auth::user()->organization_id)
-            ->orderByDesc('created_at')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->filled('flag_reason'), fn($q) => $q->where('flag_reason', $request->input('flag_reason')))
-            ->when($request->filled('transaction_type'), fn($q) => $q->where('transaction_type', $request->input('transaction_type')))
-            ->when($request->filled('contact_id'), fn($q) => $q->where('contact_id', $request->integer('contact_id')));
+        $filters = $this->filledFilters($request, ['status', 'flag_reason', 'transaction_type']);
 
-        $flags = $query->paginate($request->integer('per_page', 20));
+        if ($request->filled('contact_id')) {
+            $filters['contact_id'] = $request->integer('contact_id');
+        }
 
-        return $this->paginated($flags);
+        return $this->paginated($this->cases->paginateTransactionFlags(
+            Auth::user()->organization_id,
+            $filters,
+            $request->integer('per_page', 20),
+        ));
     }
 
     // -------------------------------------------------------------------------
@@ -86,16 +81,11 @@ class AmlController extends Controller
      */
     public function suspiciousActivities(Request $request): JsonResponse
     {
-        $query = AmlSuspiciousActivity::with(['contact', 'creator'])
-            ->where('organization_id', Auth::user()->organization_id)
-            ->orderByDesc('created_at')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->filled('report_type'), fn($q) => $q->where('report_type', $request->input('report_type')))
-            ->when($request->filled('activity_type'), fn($q) => $q->where('activity_type', $request->input('activity_type')));
-
-        $sars = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($sars);
+        return $this->paginated($this->cases->paginateSuspiciousActivities(
+            Auth::user()->organization_id,
+            $this->filledFilters($request, ['status', 'report_type', 'activity_type']),
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -104,7 +94,7 @@ class AmlController extends Controller
     public function createSar(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'      => 'required|integer|exists:contacts,id',
+            'contact_id'      => ['required', 'integer', $this->ownedBy('contacts')],
             'activity_type'   => 'required|in:structuring,smurfing,layering,unusual_pattern,sanctions_hit',
             'transaction_ids' => 'required|array',
             'transaction_ids.*' => 'integer',
@@ -119,13 +109,10 @@ class AmlController extends Controller
             transactionIds: $validated['transaction_ids'],
             description:    $validated['description'],
             createdBy:      Auth::id(),
+            reportType:     $validated['report_type'] ?? null,
         );
 
-        if (isset($validated['report_type'])) {
-            $sar->update(['report_type' => $validated['report_type']]);
-        }
-
-        return $this->created($sar->load('contact', 'creator'), 'SAR created successfully.');
+        return $this->created($this->cases->presentSuspiciousActivity($sar), 'SAR created successfully.');
     }
 
     // -------------------------------------------------------------------------
@@ -137,15 +124,36 @@ class AmlController extends Controller
      */
     public function screenContact(int $contactId): JsonResponse
     {
-        $contact = Contact::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($contactId);
+        $contact = $this->cases->findContact(Auth::user()->organization_id, $contactId);
 
         try {
-            RunAmlScreeningJob::dispatch($contact->id, $contact->organization_id);
+            $this->cases->dispatchScreening($contact);
         } catch (\Throwable $e) {
-            return $this->error('Failed to dispatch screening job: ' . $e->getMessage(), 'DISPATCH_FAILED', 500);
+            // The cause can name queue hosts or credentials; it goes to the log only.
+            Log::error('AML screening dispatch failed', ['contact_id' => $contact->id, 'error' => $e->getMessage()]);
+
+            return $this->error('Failed to dispatch screening job.', 'DISPATCH_FAILED', 500);
         }
 
         return $this->success(null, 'AML screening dispatched for contact.');
+    }
+
+    /**
+     * The given query parameters the request fills, by name.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    private function filledFilters(Request $request, array $keys): array
+    {
+        $filters = [];
+
+        foreach ($keys as $key) {
+            if ($request->filled($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        return $filters;
     }
 }
