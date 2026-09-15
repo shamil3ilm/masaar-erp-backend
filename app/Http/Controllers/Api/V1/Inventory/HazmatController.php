@@ -4,11 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\HazmatClassification;
-use App\Models\Inventory\HazmatStorageClass;
-use App\Models\Inventory\HazmatTransportRegulation;
-use App\Models\Inventory\SafetyDataSheet;
 use App\Services\Inventory\HazmatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class HazmatController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private HazmatService $service,
     ) {}
@@ -25,13 +24,10 @@ class HazmatController extends Controller
      */
     public function classifications(Request $request): JsonResponse
     {
-        $query = HazmatClassification::query()
-            ->when($request->system, fn($q, $s) => $q->bySystem($s))
-            ->when($request->active_only, fn($q) => $q->active())
-            ->orderBy('classification_system')
-            ->orderBy('code');
-
-        $classifications = $query->paginate($request->integer('per_page', 50));
+        $classifications = $this->service->paginateClassifications(
+            ['system' => $request->input('system'), 'active_only' => $request->input('active_only')],
+            $request->integer('per_page', 50)
+        );
 
         return $this->paginated($classifications);
     }
@@ -51,9 +47,7 @@ class HazmatController extends Controller
             'is_active'             => ['boolean'],
         ]);
 
-        $classification = HazmatClassification::create($validated);
-
-        return $this->created($classification);
+        return $this->created($this->service->createClassification($validated));
     }
 
     /**
@@ -61,12 +55,7 @@ class HazmatController extends Controller
      */
     public function storageClasses(Request $request): JsonResponse
     {
-        $query = HazmatStorageClass::query()
-            ->orderBy('code');
-
-        $classes = $query->paginate($request->integer('per_page', 50));
-
-        return $this->paginated($classes);
+        return $this->paginated($this->service->paginateStorageClasses($request->integer('per_page', 50)));
     }
 
     /**
@@ -84,9 +73,7 @@ class HazmatController extends Controller
             'fire_resistance_class' => ['nullable', 'string', 'max:10'],
         ]);
 
-        $storageClass = HazmatStorageClass::create($validated);
-
-        return $this->created($storageClass);
+        return $this->created($this->service->createStorageClass($validated));
     }
 
     /**
@@ -96,8 +83,8 @@ class HazmatController extends Controller
     public function compatibilityCheck(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'storage_class_a_id' => ['required', 'exists:hazmat_storage_classes,id'],
-            'storage_class_b_id' => ['required', 'exists:hazmat_storage_classes,id'],
+            'storage_class_a_id' => ['required', $this->ownedBy('hazmat_storage_classes')],
+            'storage_class_b_id' => ['required', $this->ownedBy('hazmat_storage_classes')],
         ]);
 
         $compatible = $this->service->checkStorageCompatibility(
@@ -117,13 +104,10 @@ class HazmatController extends Controller
      */
     public function sdsIndex(Request $request): JsonResponse
     {
-        $query = SafetyDataSheet::with(['product'])
-            ->when($request->product_id, fn($q, $id) => $q->forProduct((int) $id))
-            ->when($request->language, fn($q, $lang) => $q->forLanguage($lang))
-            ->when($request->current_only, fn($q) => $q->current())
-            ->orderByDesc('revision_date');
-
-        $sheets = $query->paginate($request->integer('per_page', 25));
+        $sheets = $this->service->paginateSafetyDataSheets(
+            $request->only(['product_id', 'language', 'current_only']),
+            $request->integer('per_page', 25)
+        );
 
         return $this->paginated($sheets);
     }
@@ -133,9 +117,7 @@ class HazmatController extends Controller
      */
     public function sdsShow(int $id): JsonResponse
     {
-        $sds = SafetyDataSheet::with('sections')->findOrFail($id);
-
-        return $this->success($sds);
+        return $this->success($this->service->findSafetyDataSheetOrFail($id));
     }
 
     /**
@@ -146,10 +128,7 @@ class HazmatController extends Controller
         $organizationId = auth()->user()->organization_id;
 
         $validated = $request->validate([
-            'product_id'     => [
-                'required',
-                Rule::exists('products', 'id')->where('organization_id', $organizationId),
-            ],
+            'product_id'     => ['required', $this->ownedBy('products')],
             'sds_number'     => ['required', 'string', 'max:50'],
             'version'        => ['required', 'string', 'max:20'],
             'revision_date'  => ['required', 'date'],
@@ -192,11 +171,7 @@ class HazmatController extends Controller
     {
         $mode = $request->string('mode')->value() ?: null;
 
-        $regulations = HazmatTransportRegulation::forProduct($productId)
-            ->when($mode, fn($q, $m) => $q->forMode($m))
-            ->get();
-
-        return $this->success($regulations);
+        return $this->success($this->service->listTransportRegulations($productId, $mode));
     }
 
     /**
@@ -207,10 +182,7 @@ class HazmatController extends Controller
         $organizationId = auth()->user()->organization_id;
 
         $validated = $request->validate([
-            'product_id'           => [
-                'required',
-                Rule::exists('products', 'id')->where('organization_id', $organizationId),
-            ],
+            'product_id'           => ['required', $this->ownedBy('products')],
             'un_number'            => ['nullable', 'string', 'max:10'],
             'proper_shipping_name' => ['nullable', 'string', 'max:200'],
             'hazard_class'         => ['nullable', 'string', 'max:20'],
@@ -222,28 +194,19 @@ class HazmatController extends Controller
 
         $validated['organization_id'] = $organizationId;
 
-        $regulation = HazmatTransportRegulation::create($validated);
-
-        return $this->created($regulation);
+        return $this->created($this->service->createTransportRegulation($validated));
     }
 
     /**
-     * Assign hazmat classifications to a product.
+     * Assign hazmat classifications to a product of the organization; another
+     * organization's product is not found.
      */
     public function classifyProduct(Request $request, int $productId): JsonResponse
     {
-        $organizationId = auth()->user()->organization_id;
-
         $request->validate([
             'classifications'                           => ['required', 'array', 'min:1'],
-            'classifications.*.hazmat_classification_id' => [
-                'required',
-                Rule::exists('hazmat_classifications', 'id')->where('organization_id', $organizationId),
-            ],
-            'classifications.*.storage_class_id'       => [
-                'nullable',
-                Rule::exists('hazmat_storage_classes', 'id')->where('organization_id', $organizationId),
-            ],
+            'classifications.*.hazmat_classification_id' => ['required', $this->ownedBy('hazmat_classifications')],
+            'classifications.*.storage_class_id'       => ['nullable', $this->ownedBy('hazmat_storage_classes')],
             'classifications.*.is_primary'             => ['boolean'],
         ]);
 
