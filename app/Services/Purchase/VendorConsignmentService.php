@@ -12,6 +12,7 @@ use App\Models\Purchase\VendorConsignmentSettlement;
 use App\Models\Purchase\VendorConsignmentStock;
 use App\Models\Purchase\VendorConsignmentWithdrawal;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -22,8 +23,58 @@ class VendorConsignmentService
     ) {}
 
     /**
+     * A page of consignment stock records, most recently moved first.
+     *
+     * @param  array<string, mixed>  $filters  vendor_id, product_id, warehouse_id, active_only
+     */
+    public function listStocks(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VendorConsignmentStock::with(['vendor', 'product', 'warehouse', 'unit'])
+            ->when($filters['vendor_id'] ?? null, fn ($q, $id) => $q->forVendor((int) $id))
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct((int) $id))
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $id) => $q->where('warehouse_id', (int) $id))
+            ->when($filters['active_only'] ?? null, fn ($q) => $q->active())
+            ->orderByDesc('last_movement_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A consignment stock record with its vendor, product, receipts and withdrawals.
+     */
+    public function findStock(int $id): VendorConsignmentStock
+    {
+        return VendorConsignmentStock::with([
+            'vendor', 'product', 'warehouse', 'unit', 'receipts', 'withdrawals',
+        ])->findOrFail($id);
+    }
+
+    /**
+     * A page of settlements, latest period first.
+     *
+     * @param  array<string, mixed>  $filters  vendor_id, status, from, to
+     */
+    public function listSettlements(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VendorConsignmentSettlement::with(['vendor', 'bill'])
+            ->when($filters['vendor_id'] ?? null, fn ($q, $id) => $q->where('vendor_id', (int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['from'] ?? null, fn ($q, $date) => $q->where('settlement_period_from', '>=', $date))
+            ->when($filters['to'] ?? null, fn ($q, $date) => $q->where('settlement_period_to', '<=', $date))
+            ->orderByDesc('settlement_period_from')
+            ->paginate($perPage);
+    }
+
+    public function findSettlement(int $id): VendorConsignmentSettlement
+    {
+        return VendorConsignmentSettlement::findOrFail($id);
+    }
+
+    /**
      * Receive vendor-owned consignment stock into a warehouse.
+     *
      * Creates or updates the stock record and records the receipt movement.
+     * An existing stock record is locked while its quantity is read and
+     * written, so a withdrawal or receipt at the same time is not lost.
      */
     public function receiveConsignmentStock(array $data): VendorConsignmentReceipt
     {
@@ -35,6 +86,7 @@ class VendorConsignmentService
                 ->where('vendor_id', $data['vendor_id'])
                 ->where('product_id', $data['product_id'])
                 ->where('warehouse_id', $data['warehouse_id'])
+                ->lockForUpdate()
                 ->first();
 
             if ($stock === null) {
@@ -141,25 +193,23 @@ class VendorConsignmentService
 
     /**
      * Create a consignment settlement covering all withdrawals within a period for a vendor.
+     *
+     * The vendor's stock records are read once and each withdrawal is valued
+     * at its record's vendor price.
      */
     public function createSettlement(int $vendorId, string $periodFrom, string $periodTo): VendorConsignmentSettlement
     {
         return DB::transaction(function () use ($vendorId, $periodFrom, $periodTo): VendorConsignmentSettlement {
             $organizationId = auth()->user()->organization_id;
 
-            // Collect all consignment stock records for this vendor.
-            $stockIds = VendorConsignmentStock::withoutGlobalScope('organization')
-                ->where('organization_id', $organizationId)
-                ->where('vendor_id', $vendorId)
-                ->pluck('id');
+            $stocks = $this->stocksOfVendor($organizationId, $vendorId);
 
-            if ($stockIds->isEmpty()) {
+            if ($stocks->isEmpty()) {
                 throw new \InvalidArgumentException('No consignment stock found for this vendor.');
             }
 
-            // Aggregate withdrawals in the period.
             $withdrawals = VendorConsignmentWithdrawal::withoutGlobalScope('organization')
-                ->whereIn('vendor_consignment_stock_id', $stockIds)
+                ->whereIn('vendor_consignment_stock_id', $stocks->keys())
                 ->whereBetween('withdrawal_date', [$periodFrom, $periodTo])
                 ->get();
 
@@ -167,37 +217,14 @@ class VendorConsignmentService
                 throw new \InvalidArgumentException('No withdrawals found in the specified period.');
             }
 
-            $totalQuantity = $withdrawals->sum('quantity_withdrawn');
-
-            // Calculate total value by joining with stock's vendor_price.
-            $totalValue = (string) '0';
-            foreach ($withdrawals as $withdrawal) {
-                $stock = VendorConsignmentStock::withoutGlobalScope('organization')
-                    ->find($withdrawal->vendor_consignment_stock_id);
-                if ($stock !== null) {
-                    $lineValue = bcmul(
-                        (string) $withdrawal->quantity_withdrawn,
-                        (string) $stock->vendor_price,
-                        4
-                    );
-                    $totalValue = bcadd($totalValue, $lineValue, 4);
-                }
-            }
-
-            // Determine currency from first stock record.
-            $firstStock = VendorConsignmentStock::withoutGlobalScope('organization')
-                ->where('organization_id', $organizationId)
-                ->where('vendor_id', $vendorId)
-                ->first();
-
             $settlement = VendorConsignmentSettlement::create([
                 'organization_id'       => $organizationId,
                 'vendor_id'             => $vendorId,
                 'settlement_period_from' => $periodFrom,
                 'settlement_period_to'  => $periodTo,
-                'total_quantity'        => $totalQuantity,
-                'total_value'           => $totalValue,
-                'currency_code'         => $firstStock?->currency_code ?? 'SAR',
+                'total_quantity'        => $withdrawals->sum('quantity_withdrawn'),
+                'total_value'           => $this->valueOf($withdrawals, $stocks),
+                'currency_code'         => $stocks->first()?->currency_code ?? 'SAR',
                 'status'                => VendorConsignmentSettlement::STATUS_DRAFT,
             ]);
 
@@ -207,11 +234,14 @@ class VendorConsignmentService
 
     /**
      * Submit a draft settlement, creating a vendor bill for the total value.
+     *
+     * The status is checked on the locked settlement: submitting a stale copy
+     * of one submitted meanwhile would bill the vendor a second time.
      */
-    public function submitSettlement(VendorConsignmentSettlement $settlement): void
+    public function submitSettlement(VendorConsignmentSettlement $settlement): VendorConsignmentSettlement
     {
-        DB::transaction(function () use ($settlement): void {
-            if (!$settlement->isDraft()) {
+        return $settlement->lockForTransition(function (VendorConsignmentSettlement $settlement): VendorConsignmentSettlement {
+            if (! $settlement->isDraft()) {
                 throw new \InvalidArgumentException('Only draft settlements can be submitted.');
             }
 
@@ -237,6 +267,8 @@ class VendorConsignmentService
                 'settled_at' => now(),
                 'settled_by' => auth()->id(),
             ]);
+
+            return $settlement->fresh(['vendor', 'bill']);
         });
     }
 
@@ -265,38 +297,50 @@ class VendorConsignmentService
      */
     public function getPendingSettlementValue(int $vendorId): float
     {
-        $organizationId = auth()->user()->organization_id;
+        $stocks = $this->stocksOfVendor(auth()->user()->organization_id, $vendorId);
 
-        $stockIds = VendorConsignmentStock::withoutGlobalScope('organization')
-            ->where('organization_id', $organizationId)
-            ->where('vendor_id', $vendorId)
-            ->pluck('id', 'id');
-
-        if ($stockIds->isEmpty()) {
+        if ($stocks->isEmpty()) {
             return 0.0;
         }
 
         $withdrawals = VendorConsignmentWithdrawal::withoutGlobalScope('organization')
-            ->whereIn('vendor_consignment_stock_id', $stockIds->keys())
+            ->whereIn('vendor_consignment_stock_id', $stocks->keys())
             ->unsettled()
             ->get();
 
-        $total = '0';
-        foreach ($withdrawals as $withdrawal) {
-            $stock = $stockIds->has($withdrawal->vendor_consignment_stock_id)
-                ? VendorConsignmentStock::withoutGlobalScope('organization')
-                    ->find($withdrawal->vendor_consignment_stock_id)
-                : null;
+        return (float) $this->valueOf($withdrawals, $stocks);
+    }
 
-            if ($stock !== null) {
-                $total = bcadd(
-                    $total,
-                    bcmul((string) $withdrawal->quantity_withdrawn, (string) $stock->vendor_price, 4),
-                    4
-                );
+    /**
+     * The organization's consignment stock records for a vendor, keyed by id.
+     *
+     * @return Collection<int, VendorConsignmentStock>
+     */
+    private function stocksOfVendor(int $organizationId, int $vendorId): Collection
+    {
+        return VendorConsignmentStock::withoutGlobalScope('organization')
+            ->where('organization_id', $organizationId)
+            ->where('vendor_id', $vendorId)
+            ->get()
+            ->keyBy('id');
+    }
+
+    /**
+     * Total value of withdrawals at the vendor price of their stock records.
+     *
+     * @param  Collection<int, VendorConsignmentWithdrawal>  $withdrawals
+     * @param  Collection<int, VendorConsignmentStock>  $stocksById
+     */
+    private function valueOf(Collection $withdrawals, Collection $stocksById): string
+    {
+        return $withdrawals->reduce(function (string $total, VendorConsignmentWithdrawal $withdrawal) use ($stocksById): string {
+            $stock = $stocksById->get($withdrawal->vendor_consignment_stock_id);
+
+            if ($stock === null) {
+                return $total;
             }
-        }
 
-        return (float) $total;
+            return bcadd($total, bcmul((string) $withdrawal->quantity_withdrawn, (string) $stock->vendor_price, 4), 4);
+        }, '0');
     }
 }

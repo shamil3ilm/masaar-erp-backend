@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Purchase;
 
-use App\Models\Core\Organization;
 use App\Models\Purchase\VendorContract;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -16,6 +16,32 @@ class VendorContractService
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * A page of the organization's vendor contracts, newest first.
+     *
+     * @param  array<string, mixed>  $filters  status, contact_id
+     */
+    public function list(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VendorContract::where('organization_id', $organizationId)
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['contact_id'] ?? null, fn ($q, $contactId) => $q->where('contact_id', $contactId))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A vendor contract of the organization, with the given relations loaded.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $organizationId, int $id, array $with = []): VendorContract
+    {
+        return VendorContract::where('organization_id', $organizationId)
+            ->with($with)
+            ->findOrFail($id);
+    }
 
     /**
      * Create a new vendor contract with optional line items.
@@ -35,12 +61,13 @@ class VendorContractService
 
             $data['status'] = VendorContract::STATUS_DRAFT;
 
+            $items = $data['items'] ?? [];
+            unset($data['items']);
+
             $contract = VendorContract::create($data);
 
-            if (!empty($data['items'])) {
-                foreach ($data['items'] as $item) {
-                    $contract->items()->create($item);
-                }
+            foreach ($items as $item) {
+                $contract->items()->create($item);
             }
 
             return $contract->load('items');
@@ -48,47 +75,53 @@ class VendorContractService
     }
 
     /**
-     * Activate a contract (move from draft to active).
+     * Activate a draft contract, checked on the locked row.
      */
     public function activate(VendorContract $contract): VendorContract
     {
-        if ($contract->status !== VendorContract::STATUS_DRAFT) {
-            throw new RuntimeException(
-                "Only draft contracts can be activated. Current status: {$contract->status}."
-            );
-        }
+        return $contract->lockForTransition(function (VendorContract $contract): VendorContract {
+            if ($contract->status !== VendorContract::STATUS_DRAFT) {
+                throw new RuntimeException(
+                    "Only draft contracts can be activated. Current status: {$contract->status}."
+                );
+            }
 
-        $contract->update(['status' => VendorContract::STATUS_ACTIVE]);
+            $contract->update(['status' => VendorContract::STATUS_ACTIVE]);
 
-        return $contract->refresh();
+            return $contract->refresh();
+        });
     }
 
     /**
-     * Terminate an active contract with a reason.
+     * Terminate an active contract with a reason, checked on the locked row.
+     *
+     * Vendor contracts have no column for the reason, so it is appended to the notes.
      */
     public function terminate(VendorContract $contract, string $reason): VendorContract
     {
-        if ($contract->status !== VendorContract::STATUS_ACTIVE) {
-            throw new RuntimeException(
-                "Only active contracts can be terminated. Current status: {$contract->status}."
-            );
-        }
+        return $contract->lockForTransition(function (VendorContract $contract) use ($reason): VendorContract {
+            if ($contract->status !== VendorContract::STATUS_ACTIVE) {
+                throw new RuntimeException(
+                    "Only active contracts can be terminated. Current status: {$contract->status}."
+                );
+            }
 
-        $contract->update([
-            'status'               => VendorContract::STATUS_TERMINATED,
-            'terminated_at'        => now()->toDateString(),
-            'termination_reason'   => $reason,
-        ]);
+            $contract->update([
+                'status'        => VendorContract::STATUS_TERMINATED,
+                'terminated_at' => now()->toDateString(),
+                'notes'         => trim(($contract->notes ?? '')."\n\nTerminated: {$reason}"),
+            ]);
 
-        return $contract->refresh();
+            return $contract->refresh();
+        });
     }
 
     /**
      * Return contracts for an organization that expire within $days days.
      */
-    public function getExpiringContracts(Organization $org, int $days = 30): Collection
+    public function getExpiringContracts(int $organizationId, int $days = 30): Collection
     {
-        return VendorContract::where('organization_id', $org->id)
+        return VendorContract::where('organization_id', $organizationId)
             ->where('status', VendorContract::STATUS_ACTIVE)
             ->whereNotNull('end_date')
             ->where('end_date', '>=', now()->toDateString())

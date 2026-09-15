@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Carbon\Carbon;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class VendorContract extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_DRAFT      = 'draft';
     public const STATUS_ACTIVE     = 'active';

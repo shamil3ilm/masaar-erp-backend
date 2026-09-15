@@ -8,6 +8,7 @@ use App\Models\Purchase\OutlineAgreement;
 use App\Models\Purchase\OutlineAgreementItem;
 use App\Models\Purchase\OutlineAgreementRelease;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 
 class OutlineAgreementService
@@ -32,6 +33,18 @@ class OutlineAgreementService
         return $query->orderByDesc('created_at')->paginate($filters['per_page'] ?? 20);
     }
 
+    /**
+     * An outline agreement of the organization, with the given relations loaded.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $orgId, int $id, array $with = []): OutlineAgreement
+    {
+        return OutlineAgreement::where('organization_id', $orgId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
     public function create(int $orgId, array $data): OutlineAgreement
     {
         return OutlineAgreement::create(array_merge($data, [
@@ -47,12 +60,25 @@ class OutlineAgreementService
         return $agreement->fresh();
     }
 
+    public function delete(OutlineAgreement $agreement): void
+    {
+        $agreement->delete();
+    }
+
     public function addItem(OutlineAgreement $agreement, array $data): OutlineAgreementItem
     {
         return OutlineAgreementItem::create(array_merge($data, [
             'organization_id'      => $agreement->organization_id,
             'outline_agreement_id' => $agreement->id,
         ]));
+    }
+
+    /**
+     * One of the agreement's items.
+     */
+    public function findItem(OutlineAgreement $agreement, int $itemId): OutlineAgreementItem
+    {
+        return $agreement->items()->findOrFail($itemId);
     }
 
     public function updateItem(OutlineAgreementItem $item, array $data): OutlineAgreementItem
@@ -62,37 +88,59 @@ class OutlineAgreementService
         return $item->fresh();
     }
 
+    /**
+     * Record a release and add its quantity and value to the agreement and item totals.
+     *
+     * The agreement and item are locked while their totals are read and
+     * written, so two releases at once both count, and the release row and
+     * the totals are written together or not at all.
+     */
     public function createRelease(OutlineAgreement $agreement, array $data): OutlineAgreementRelease
     {
-        $release = OutlineAgreementRelease::create(array_merge($data, [
-            'organization_id'      => $agreement->organization_id,
-            'outline_agreement_id' => $agreement->id,
-        ]));
+        return $agreement->lockForTransition(function (OutlineAgreement $agreement) use ($data): OutlineAgreementRelease {
+            $item = empty($data['outline_agreement_item_id'])
+                ? null
+                : $agreement->items()->lockForUpdate()->findOrFail($data['outline_agreement_item_id']);
 
-        // Update released totals on agreement
-        $releasedQty = (string) ($data['release_quantity'] ?? '0');
-        $releasedVal = (string) ($data['release_value'] ?? '0');
+            $release = OutlineAgreementRelease::create(array_merge($data, [
+                'organization_id'      => $agreement->organization_id,
+                'outline_agreement_id' => $agreement->id,
+            ]));
 
-        $agreement->increment('released_quantity', (float) $releasedQty);
-        $agreement->increment('released_value', (float) $releasedVal);
+            $quantity = (string) ($data['release_quantity'] ?? '0');
+            $value = (string) ($data['release_value'] ?? '0');
 
-        // Update item if specified
-        if (!empty($data['outline_agreement_item_id'])) {
-            $item = OutlineAgreementItem::find($data['outline_agreement_item_id']);
-            if ($item) {
-                $item->increment('released_quantity', (float) $releasedQty);
-                $item->increment('released_value', (float) $releasedVal);
-            }
-        }
+            $agreement->update($this->addedToReleased($agreement, $quantity, $value));
+            $item?->update($this->addedToReleased($item, $quantity, $value));
 
-        return $release;
+            return $release;
+        });
     }
 
+    /**
+     * The agreement's releases with their item product and purchase order.
+     *
+     * @return Collection<int, OutlineAgreementRelease>
+     */
+    public function releasesOf(OutlineAgreement $agreement): Collection
+    {
+        return $agreement->releases()->with(['item.product', 'purchaseOrder'])->get();
+    }
+
+    /**
+     * Activate a draft agreement, checked on the locked row.
+     */
     public function activate(OutlineAgreement $agreement): OutlineAgreement
     {
-        $agreement->update(['status' => OutlineAgreement::STATUS_ACTIVE]);
+        return $agreement->lockForTransition(function (OutlineAgreement $agreement): OutlineAgreement {
+            if ($agreement->status !== OutlineAgreement::STATUS_DRAFT) {
+                throw new \InvalidArgumentException('Only draft outline agreements can be activated.');
+            }
 
-        return $agreement->fresh();
+            $agreement->update(['status' => OutlineAgreement::STATUS_ACTIVE]);
+
+            return $agreement->fresh();
+        });
     }
 
     public function expire(OutlineAgreement $agreement): OutlineAgreement
@@ -102,10 +150,32 @@ class OutlineAgreementService
         return $agreement->fresh();
     }
 
+    /**
+     * Cancel a draft or active agreement, checked on the locked row.
+     */
     public function cancel(OutlineAgreement $agreement): OutlineAgreement
     {
-        $agreement->update(['status' => OutlineAgreement::STATUS_CANCELLED]);
+        return $agreement->lockForTransition(function (OutlineAgreement $agreement): OutlineAgreement {
+            if (! in_array($agreement->status, [OutlineAgreement::STATUS_DRAFT, OutlineAgreement::STATUS_ACTIVE], true)) {
+                throw new \InvalidArgumentException('Only draft or active outline agreements can be cancelled.');
+            }
 
-        return $agreement->fresh();
+            $agreement->update(['status' => OutlineAgreement::STATUS_CANCELLED]);
+
+            return $agreement->fresh();
+        });
+    }
+
+    /**
+     * Released quantity and value after adding a release to a row that tracks them.
+     *
+     * @return array{released_quantity: string, released_value: string}
+     */
+    private function addedToReleased(OutlineAgreement|OutlineAgreementItem $row, string $quantity, string $value): array
+    {
+        return [
+            'released_quantity' => bcadd((string) ($row->released_quantity ?? '0'), $quantity, 4),
+            'released_value'    => bcadd((string) ($row->released_value ?? '0'), $value, 4),
+        ];
     }
 }

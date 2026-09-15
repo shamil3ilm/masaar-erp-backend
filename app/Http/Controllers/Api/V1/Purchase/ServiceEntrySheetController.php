@@ -4,31 +4,34 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\ServiceEntrySheet;
+use App\Http\Resources\Purchase\ServiceEntrySheetResource;
+use App\Services\Purchase\ServiceProcurementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ServiceEntrySheetController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(
+        private readonly ServiceProcurementService $service,
+    ) {}
+
     /**
      * List service entry sheets with filters.
      * SAP equivalent: ML81N (Service Entry Sheet list)
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ServiceEntrySheet::with(['vendor', 'servicePurchaseOrder', 'submittedBy', 'approvedBy'])
-            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
-            ->when($request->vendor_id, fn ($q, $id) => $q->where('vendor_id', $id))
-            ->when($request->service_purchase_order_id, fn ($q, $id) => $q->where('service_purchase_order_id', $id))
-            ->when($request->search, fn ($q, $search) => $q->where('ses_number', 'like', "%{$search}%"))
-            ->when($request->from_date, fn ($q, $date) => $q->where('service_period_from', '>=', $date))
-            ->when($request->to_date, fn ($q, $date) => $q->where('service_period_to', '<=', $date))
-            ->orderByDesc('created_at');
-
-        return $this->paginated(
-            $query->paginate($request->integer('per_page', 15))
+        $sheets = $this->service->listEntrySheets(
+            $request->only(['status', 'vendor_id', 'service_purchase_order_id', 'search', 'from_date', 'to_date']),
+            $request->integer('per_page', 15),
         );
+
+        return $this->paginated($sheets, ServiceEntrySheetResource::class);
     }
 
     /**
@@ -37,56 +40,37 @@ class ServiceEntrySheetController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'service_purchase_order_id' => ['required', 'integer', 'exists:service_purchase_orders,id'],
-            'vendor_id'                 => ['required', 'integer'],
+            'service_purchase_order_id' => ['required', 'integer', $this->ownedBy('service_purchase_orders')],
+            'vendor_id'                 => ['required', 'integer', $this->ownedBy('contacts')],
             'service_period_from'       => ['required', 'date'],
             'service_period_to'         => ['required', 'date', 'after_or_equal:service_period_from'],
             'description'               => ['nullable', 'string', 'max:1000'],
             'lines'                     => ['required', 'array', 'min:1'],
-            'lines.*.service_po_line_id' => ['required', 'integer'],
+            // Order lines carry no organization column; a line of the caller's order is the caller's.
+            'lines.*.service_po_line_id' => [
+                'required',
+                'integer',
+                Rule::exists('service_po_lines', 'id')
+                    ->where('service_purchase_order_id', $request->integer('service_purchase_order_id')),
+            ],
             'lines.*.quantity'           => ['required', 'numeric', 'min:0.0001'],
             'lines.*.unit_price'         => ['required', 'numeric', 'min:0'],
             'lines.*.description'        => ['nullable', 'string', 'max:500'],
         ]);
 
-        $sheet = ServiceEntrySheet::create([
-            'organization_id'           => $request->user()->organization_id,
-            'service_purchase_order_id' => $validated['service_purchase_order_id'],
-            'vendor_id'                 => $validated['vendor_id'],
-            'service_period_from'       => $validated['service_period_from'],
-            'service_period_to'         => $validated['service_period_to'],
-            'description'               => $validated['description'] ?? null,
-            'status'                    => ServiceEntrySheet::STATUS_DRAFT,
-            'submitted_by'              => null,
-        ]);
+        $validated['organization_id'] = $request->user()->organization_id;
 
-        if (method_exists($sheet, 'lines') && isset($validated['lines'])) {
-            foreach ($validated['lines'] as $line) {
-                $sheet->lines()->create([
-                    'service_po_line_id' => $line['service_po_line_id'],
-                    'quantity'           => $line['quantity'],
-                    'unit_price'         => $line['unit_price'],
-                    'description'        => $line['description'] ?? null,
-                    'total_amount'       => $line['quantity'] * $line['unit_price'],
-                ]);
-            }
-        }
-
-        $sheet->load(['vendor', 'servicePurchaseOrder', 'lines']);
-
-        return $this->created($sheet);
+        return $this->created(new ServiceEntrySheetResource($this->service->createDraftSES($validated)));
     }
 
     /**
      * Get a single service entry sheet by UUID.
      */
-    public function show(Request $request, string $uuid): JsonResponse
+    public function show(string $uuid): JsonResponse
     {
-        $sheet = ServiceEntrySheet::with(['vendor', 'servicePurchaseOrder', 'lines', 'submittedBy', 'approvedBy'])
-            ->where('uuid', $uuid)
-            ->firstOrFail();
+        $sheet = $this->service->findEntrySheet($uuid, ['vendor', 'servicePurchaseOrder', 'lines', 'submitter', 'approver']);
 
-        return $this->success($sheet);
+        return $this->success(new ServiceEntrySheetResource($sheet));
     }
 
     /**
@@ -94,11 +78,7 @@ class ServiceEntrySheetController extends Controller
      */
     public function update(Request $request, string $uuid): JsonResponse
     {
-        $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
-
-        if ($sheet->status !== ServiceEntrySheet::STATUS_DRAFT) {
-            return $this->error('Only draft service entry sheets can be updated.', 'INVALID_STATUS', 422);
-        }
+        $sheet = $this->service->findEntrySheet($uuid);
 
         $validated = $request->validate([
             'service_period_from' => ['sometimes', 'date'],
@@ -106,9 +86,11 @@ class ServiceEntrySheetController extends Controller
             'description'         => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $sheet->update($validated);
-
-        return $this->success($sheet->fresh(['vendor', 'servicePurchaseOrder', 'lines']));
+        return $this->tryAction(
+            fn () => new ServiceEntrySheetResource($this->service->updateDraftSES($sheet, $validated)),
+            'Success',
+            'INVALID_STATUS'
+        );
     }
 
     /**
@@ -117,20 +99,12 @@ class ServiceEntrySheetController extends Controller
      */
     public function submit(Request $request, string $uuid): JsonResponse
     {
-        $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
+        $sheet = $this->service->findEntrySheet($uuid);
 
-        if ($sheet->status !== ServiceEntrySheet::STATUS_DRAFT) {
-            return $this->error('Only draft service entry sheets can be submitted.', 'INVALID_STATUS', 422);
-        }
-
-        $sheet->update([
-            'status'       => ServiceEntrySheet::STATUS_SUBMITTED,
-            'submitted_by' => $request->user()->id,
-        ]);
-
-        return $this->success(
-            $sheet->fresh(),
-            'Service entry sheet submitted for approval.'
+        return $this->tryAction(
+            fn () => new ServiceEntrySheetResource($this->service->submitDraftSES($sheet, (int) $request->user()->id)),
+            'Service entry sheet submitted for approval.',
+            'INVALID_STATUS'
         );
     }
 
@@ -140,11 +114,7 @@ class ServiceEntrySheetController extends Controller
      */
     public function review(Request $request, string $uuid): JsonResponse
     {
-        $sheet = ServiceEntrySheet::where('uuid', $uuid)->firstOrFail();
-
-        if ($sheet->status !== ServiceEntrySheet::STATUS_SUBMITTED) {
-            return $this->error('Only submitted service entry sheets can be reviewed.', 'INVALID_STATUS', 422);
-        }
+        $sheet = $this->service->findEntrySheet($uuid);
 
         $validated = $request->validate([
             'action'           => ['required', 'in:accept,reject'],
@@ -152,18 +122,17 @@ class ServiceEntrySheetController extends Controller
         ]);
 
         if ($validated['action'] === 'accept') {
-            $sheet->update([
-                'status'      => ServiceEntrySheet::STATUS_APPROVED,
-                'approved_by' => $request->user()->id,
-                'approved_at' => now(),
-            ]);
-            return $this->success($sheet->fresh(), 'Service entry sheet accepted.');
+            return $this->tryAction(
+                fn () => new ServiceEntrySheetResource($this->service->approveSES($sheet)),
+                'Service entry sheet accepted.',
+                'INVALID_STATUS'
+            );
         }
 
-        $sheet->update([
-            'status'           => ServiceEntrySheet::STATUS_REJECTED,
-            'rejection_reason' => $validated['rejection_reason'] ?? null,
-        ]);
-        return $this->success($sheet->fresh(), 'Service entry sheet rejected.');
+        return $this->tryAction(
+            fn () => new ServiceEntrySheetResource($this->service->rejectSES($sheet)),
+            'Service entry sheet rejected.',
+            'INVALID_STATUS'
+        );
     }
 }

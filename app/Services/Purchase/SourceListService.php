@@ -8,6 +8,7 @@ use App\Models\Purchase\PurchaseRequisitionLine;
 use App\Models\Purchase\VendorProductPricing;
 use App\Models\Purchase\VendorSourceList;
 use App\Models\Sales\Contact;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -137,6 +138,86 @@ class SourceListService
     // -------------------------------------------------------------------------
     // CRUD helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * A page of pricing records, newest first, with vendor and product loaded.
+     *
+     * @param  array<string, mixed>  $filters  product_id, vendor_id, preferred_only, valid_only
+     */
+    public function listPricingRecords(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VendorProductPricing::with(['vendor', 'product:id,name,sku'])
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct((int) $id))
+            ->when($filters['vendor_id'] ?? null, fn ($q, $id) => $q->forVendor((int) $id))
+            ->when(($filters['preferred_only'] ?? null) === 'true', fn ($q) => $q->preferredVendors())
+            ->when(($filters['valid_only'] ?? null) === 'true', fn ($q) => $q->valid())
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * A pricing record of the organization, or null when there is none with that id.
+     *
+     * @param  list<string>  $with
+     */
+    public function findPricingRecord(int $id, array $with = []): ?VendorProductPricing
+    {
+        return VendorProductPricing::with($with)->find($id);
+    }
+
+    /**
+     * The product's valid pricing records, preferred vendors first, then cheapest.
+     *
+     * @return Collection<int, VendorProductPricing>
+     */
+    public function validPricingRecordsForProduct(int $productId): Collection
+    {
+        return VendorProductPricing::forProduct($productId)
+            ->valid()
+            ->with(['vendor'])
+            ->orderByDesc('is_preferred_vendor')
+            ->orderBy('unit_price')
+            ->get();
+    }
+
+    public function deletePricingRecord(VendorProductPricing $record): void
+    {
+        $record->delete();
+    }
+
+    /**
+     * A page of source list entries by priority, with vendor, product and pricing loaded.
+     *
+     * @param  array<string, mixed>  $filters  product_id, vendor_id, active_only
+     */
+    public function listSourceListEntries(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return VendorSourceList::with([
+            'vendor',
+            'product:id,name,sku',
+            'pricingRecord:id,uuid,unit_price,currency_code,lead_time_days',
+        ])
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct((int) $id))
+            ->when($filters['vendor_id'] ?? null, fn ($q, $id) => $q->where('vendor_id', (int) $id))
+            ->when(($filters['active_only'] ?? null) === 'true', fn ($q) => $q->active())
+            ->byPriority()
+            ->paginate($perPage);
+    }
+
+    /**
+     * A source list entry of the organization, or null when there is none with that id.
+     *
+     * @param  list<string>  $with
+     */
+    public function findSourceListEntry(int $id, array $with = []): ?VendorSourceList
+    {
+        return VendorSourceList::with($with)->find($id);
+    }
+
+    public function deleteSourceListEntry(VendorSourceList $entry): void
+    {
+        $entry->delete();
+    }
 
     public function createPricingRecord(array $data): VendorProductPricing
     {

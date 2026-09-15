@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
 use App\Models\Sales\IntercompanyBillingDocument;
 use App\Models\Sales\IntercompanyPurchaseOrderLink;
@@ -13,8 +14,19 @@ use App\Services\Accounting\AccountResolver;
 use App\Services\Accounting\JournalService;
 use App\Support\TaxMath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Intercompany sales orders between a selling and a buying organization.
+ *
+ * An order has no single organization column, so no global scope protects it.
+ * Every read goes through ordersVisibleTo(), which admits only orders where
+ * the caller's organization is the seller or the buyer. Every status change
+ * runs against the locked order or billing document and re-checks the guard
+ * there.
+ */
 class IntercompanySalesService
 {
     public function __construct(
@@ -23,22 +35,23 @@ class IntercompanySalesService
     ) {}
 
     /**
-     * List intercompany sales orders with optional filters.
+     * List intercompany sales orders of the organization, as seller or buyer,
+     * latest order date first, narrowed by the filters that are set.
      *
      * @param  array{selling_organization_id?:int, buying_organization_id?:int, status?:string}  $filters
      */
-    public function list(array $filters, int $perPage = 20): LengthAwarePaginator
+    public function list(int $organizationId, array $filters, int $perPage = 20): LengthAwarePaginator
     {
-        $query = IntercompanySalesOrder::query()
+        $query = $this->ordersVisibleTo($organizationId)
             ->with(['sellingOrganization', 'buyingOrganization', 'createdBy'])
             ->latest('order_date');
 
         if (! empty($filters['selling_organization_id'])) {
-            $query->scopeForSellingOrg($query, (int) $filters['selling_organization_id']);
+            $query->forSellingOrg((int) $filters['selling_organization_id']);
         }
 
         if (! empty($filters['buying_organization_id'])) {
-            $query->scopeForBuyingOrg($query, (int) $filters['buying_organization_id']);
+            $query->forBuyingOrg((int) $filters['buying_organization_id']);
         }
 
         if (! empty($filters['status'])) {
@@ -46,6 +59,46 @@ class IntercompanySalesService
         }
 
         return $query->paginate($perPage);
+    }
+
+    /**
+     * An order the organization sells or buys.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function orderFor(int $organizationId, int|string $id): IntercompanySalesOrder
+    {
+        return $this->ordersVisibleTo($organizationId)->findOrFail($id);
+    }
+
+    /**
+     * An order the organization sells or buys, with its lines, purchase order
+     * link, billing documents, organizations and creator.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function orderDetails(int $organizationId, int|string $id): IntercompanySalesOrder
+    {
+        return $this->ordersVisibleTo($organizationId)
+            ->with([
+                'lines.product',
+                'purchaseOrderLink',
+                'billingDocuments',
+                'sellingOrganization',
+                'buyingOrganization',
+                'createdBy',
+            ])
+            ->findOrFail($id);
+    }
+
+    /**
+     * A billing document of the order.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function billingDocumentOf(IntercompanySalesOrder $order, int|string $billingDocId): IntercompanyBillingDocument
+    {
+        return IntercompanyBillingDocument::where('intercompany_sales_order_id', $order->id)->findOrFail($billingDocId);
     }
 
     /**
@@ -123,48 +176,71 @@ class IntercompanySalesService
 
     /**
      * Transition a draft order to confirmed.
+     *
+     * @throws BusinessRuleException when the order is no longer a draft
      */
     public function confirm(IntercompanySalesOrder $order): IntercompanySalesOrder
     {
-        if (! $order->canConfirm()) {
-            throw new \RuntimeException("Order [{$order->order_number}] cannot be confirmed from status [{$order->status}].");
-        }
+        return DB::transaction(function () use ($order): IntercompanySalesOrder {
+            $order = $this->lockedOrder($order);
 
-        $order->update(['status' => IntercompanySalesOrder::STATUS_CONFIRMED]);
+            if (! $order->canConfirm()) {
+                throw new BusinessRuleException(
+                    "Order [{$order->order_number}] cannot be confirmed from status [{$order->status}].",
+                    'INVALID_STATUS'
+                );
+            }
 
-        return $order->fresh();
+            $order->update(['status' => IntercompanySalesOrder::STATUS_CONFIRMED]);
+
+            return $order->fresh();
+        });
     }
 
     /**
-     * Link the buying org's purchase order to this IC sales order.
+     * Link the buying organization's purchase order to this order. The
+     * caller has checked that the purchase order belongs to the buyer.
      */
     public function linkPurchaseOrder(IntercompanySalesOrder $order, int $purchaseOrderId): IntercompanyPurchaseOrderLink
     {
-        $link = $order->purchaseOrderLink ?? IntercompanyPurchaseOrderLink::firstOrNew([
-            'intercompany_sales_order_id' => $order->id,
-        ]);
+        return DB::transaction(function () use ($order, $purchaseOrderId): IntercompanyPurchaseOrderLink {
+            $order = $this->lockedOrder($order);
 
-        $link->fill([
-            'purchase_order_id' => $purchaseOrderId,
-            'buying_organization_id' => $order->buying_organization_id,
-            'status' => 'linked',
-        ])->save();
+            $link = IntercompanyPurchaseOrderLink::firstOrNew([
+                'intercompany_sales_order_id' => $order->id,
+            ]);
 
-        return $link->fresh();
+            $link->fill([
+                'purchase_order_id' => $purchaseOrderId,
+                'buying_organization_id' => $order->buying_organization_id,
+                'status' => 'linked',
+            ])->save();
+
+            return $link->fresh();
+        });
     }
 
     /**
      * Transition a confirmed order to in_delivery.
+     *
+     * @throws BusinessRuleException when the order is not confirmed
      */
     public function startDelivery(IntercompanySalesOrder $order): IntercompanySalesOrder
     {
-        if ($order->status !== IntercompanySalesOrder::STATUS_CONFIRMED) {
-            throw new \RuntimeException("Order [{$order->order_number}] must be confirmed before starting delivery.");
-        }
+        return DB::transaction(function () use ($order): IntercompanySalesOrder {
+            $order = $this->lockedOrder($order);
 
-        $order->update(['status' => IntercompanySalesOrder::STATUS_IN_DELIVERY]);
+            if ($order->status !== IntercompanySalesOrder::STATUS_CONFIRMED) {
+                throw new BusinessRuleException(
+                    "Order [{$order->order_number}] must be confirmed before starting delivery.",
+                    'INVALID_STATUS'
+                );
+            }
 
-        return $order->fresh();
+            $order->update(['status' => IntercompanySalesOrder::STATUS_IN_DELIVERY]);
+
+            return $order->fresh();
+        });
     }
 
     /**
@@ -179,31 +255,49 @@ class IntercompanySalesService
      *     total_amount: float|string,
      *     notes?: string|null,
      * }  $data
+     *
+     * @throws BusinessRuleException when the order is not billable
      */
     public function createBillingDocument(IntercompanySalesOrder $order, array $data): IntercompanyBillingDocument
     {
-        if (! $order->canBill()) {
-            throw new \RuntimeException("Order [{$order->order_number}] is not in a billable status.");
-        }
+        return DB::transaction(function () use ($order, $data): IntercompanyBillingDocument {
+            $order = $this->lockedOrder($order);
 
-        return IntercompanyBillingDocument::create(array_merge($data, [
-            'intercompany_sales_order_id' => $order->id,
-            'selling_organization_id' => $order->selling_organization_id,
-            'buying_organization_id' => $order->buying_organization_id,
-            'status' => IntercompanyBillingDocument::STATUS_DRAFT,
-        ]));
+            if (! $order->canBill()) {
+                throw new BusinessRuleException(
+                    "Order [{$order->order_number}] is not in a billable status.",
+                    'INVALID_STATUS'
+                );
+            }
+
+            return IntercompanyBillingDocument::create(array_merge($data, [
+                'intercompany_sales_order_id' => $order->id,
+                'selling_organization_id' => $order->selling_organization_id,
+                'buying_organization_id' => $order->buying_organization_id,
+                'status' => IntercompanyBillingDocument::STATUS_DRAFT,
+            ]));
+        });
     }
 
     /**
-     * Post a draft billing document (set status = posted, record posted_at timestamp).
+     * Post a draft billing document, post its AR and AP entries and mark the
+     * order billed, all in one transaction. The document is re-read under a
+     * lock, so it is posted once.
+     *
+     * @throws BusinessRuleException when the document is no longer a draft
      */
     public function postBillingDocument(IntercompanyBillingDocument $doc): IntercompanyBillingDocument
     {
-        if (! $doc->canPost()) {
-            throw new \RuntimeException("Billing document [{$doc->document_number}] cannot be posted from status [{$doc->status}].");
-        }
-
         return DB::transaction(function () use ($doc): IntercompanyBillingDocument {
+            $doc = IntercompanyBillingDocument::query()->lockForUpdate()->findOrFail($doc->id);
+
+            if (! $doc->canPost()) {
+                throw new BusinessRuleException(
+                    "Billing document [{$doc->document_number}] cannot be posted from status [{$doc->status}].",
+                    'INVALID_STATUS'
+                );
+            }
+
             $doc->update([
                 'status' => IntercompanyBillingDocument::STATUS_POSTED,
                 'posted_at' => now(),
@@ -217,7 +311,7 @@ class IntercompanySalesService
             }
 
             // Transition the parent order to billed when at least one document is posted
-            $order = $doc->intercompanySalesOrder;
+            $order = IntercompanySalesOrder::query()->lockForUpdate()->find($doc->intercompany_sales_order_id);
             if ($order && $order->status !== IntercompanySalesOrder::STATUS_BILLED) {
                 $order->update(['status' => IntercompanySalesOrder::STATUS_BILLED]);
             }
@@ -289,22 +383,50 @@ class IntercompanySalesService
     }
 
     /**
-     * Cancel a draft or confirmed intercompany sales order.
+     * Cancel a draft or confirmed intercompany sales order and its purchase
+     * order link.
+     *
+     * @throws BusinessRuleException when the order can no longer be cancelled
      */
     public function cancel(IntercompanySalesOrder $order): IntercompanySalesOrder
     {
-        if (! $order->canCancel()) {
-            throw new \RuntimeException("Order [{$order->order_number}] cannot be cancelled from status [{$order->status}].");
-        }
+        return DB::transaction(function () use ($order): IntercompanySalesOrder {
+            $order = $this->lockedOrder($order);
 
-        DB::transaction(function () use ($order): void {
+            if (! $order->canCancel()) {
+                throw new BusinessRuleException(
+                    "Order [{$order->order_number}] cannot be cancelled from status [{$order->status}].",
+                    'INVALID_STATUS'
+                );
+            }
+
             $order->update(['status' => IntercompanySalesOrder::STATUS_CANCELLED]);
 
-            if ($link = $order->purchaseOrderLink) {
-                $link->update(['status' => 'cancelled']);
-            }
-        });
+            IntercompanyPurchaseOrderLink::where('intercompany_sales_order_id', $order->id)
+                ->update(['status' => 'cancelled']);
 
-        return $order->fresh();
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Orders in which the organization is the seller or the buyer.
+     *
+     * @return Builder<IntercompanySalesOrder>
+     */
+    private function ordersVisibleTo(int $organizationId): Builder
+    {
+        return IntercompanySalesOrder::query()->where(
+            fn (Builder $query) => $query->where('selling_organization_id', $organizationId)
+                ->orWhere('buying_organization_id', $organizationId)
+        );
+    }
+
+    /**
+     * The order re-read and locked until the surrounding transaction ends.
+     */
+    private function lockedOrder(IntercompanySalesOrder $order): IntercompanySalesOrder
+    {
+        return IntercompanySalesOrder::query()->lockForUpdate()->findOrFail($order->id);
     }
 }

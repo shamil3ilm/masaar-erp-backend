@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\QuickSaleTemplate;
 use App\Services\Sales\QuickSaleService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class QuickSaleTemplateController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private QuickSaleService $quickSaleService
     ) {}
@@ -45,12 +48,12 @@ class QuickSaleTemplateController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
             'default_items' => 'nullable|array',
-            'default_items.*.product_id' => 'nullable|integer|exists:products,id',
+            'default_items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
             'default_items.*.description' => 'required|string|max:500',
             'default_items.*.quantity' => 'required|numeric|gt:0',
             'default_items.*.unit_price' => 'required|numeric|min:0',
             'default_items.*.tax_rate' => 'nullable|numeric|min:0|max:100',
-            'default_customer_id' => 'nullable|integer|exists:contacts,id',
+            'default_customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'default_payment_method' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);
@@ -79,12 +82,12 @@ class QuickSaleTemplateController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string|max:2000',
             'default_items' => 'nullable|array',
-            'default_items.*.product_id' => 'nullable|integer|exists:products,id',
+            'default_items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
             'default_items.*.description' => 'required|string|max:500',
             'default_items.*.quantity' => 'required|numeric|gt:0',
             'default_items.*.unit_price' => 'required|numeric|min:0',
             'default_items.*.tax_rate' => 'nullable|numeric|min:0|max:100',
-            'default_customer_id' => 'nullable|integer|exists:contacts,id',
+            'default_customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'default_payment_method' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);

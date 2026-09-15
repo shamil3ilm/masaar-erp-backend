@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\QuotaArrangementItemResource;
 use App\Http\Resources\Purchase\QuotaArrangementResource;
-use App\Models\Purchase\QuotaArrangement;
-use App\Models\Purchase\QuotaArrangementItem;
 use App\Services\Purchase\QuotaArrangementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class QuotaArrangementController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    /** Relations an arrangement is returned with. */
+    private const WITH = ['product', 'warehouse', 'items.vendor'];
+
     public function __construct(
         private readonly QuotaArrangementService $service
     ) {}
@@ -39,16 +43,16 @@ class QuotaArrangementController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'   => 'required|exists:products,id',
-            'warehouse_id' => 'nullable|exists:warehouses,id',
+            'product_id'   => ['required', $this->ownedBy('products')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'valid_from'   => 'required|date',
             'valid_to'     => 'nullable|date|after_or_equal:valid_from',
             'is_active'    => 'sometimes|boolean',
             'notes'        => 'nullable|string',
 
             'items'                              => 'sometimes|array|min:1',
-            'items.*.vendor_id'                  => 'required|exists:contacts,id',
-            'items.*.purchasing_info_record_id'  => 'nullable|exists:purchasing_info_records,id',
+            'items.*.vendor_id'                  => ['required', $this->ownedBy('contacts')],
+            'items.*.purchasing_info_record_id'  => ['nullable', $this->ownedBy('purchasing_info_records')],
             'items.*.quota_percentage'           => 'required|numeric|min:0.01|max:100',
             'items.*.min_lot_size'               => 'nullable|numeric|min:0',
             'items.*.max_lot_size'               => 'nullable|numeric|min:0',
@@ -69,10 +73,7 @@ class QuotaArrangementController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $arrangement = QuotaArrangement::with(['product', 'warehouse', 'items.vendor'])
-            ->findOrFail($id);
-
-        return $this->success(new QuotaArrangementResource($arrangement));
+        return $this->success(new QuotaArrangementResource($this->service->find((int) $id, self::WITH)));
     }
 
     /**
@@ -80,11 +81,11 @@ class QuotaArrangementController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        $arrangement = QuotaArrangement::findOrFail($id);
+        $arrangement = $this->service->find((int) $id);
 
         $validated = $request->validate([
-            'product_id'   => 'sometimes|exists:products,id',
-            'warehouse_id' => 'sometimes|nullable|exists:warehouses,id',
+            'product_id'   => ['sometimes', $this->ownedBy('products')],
+            'warehouse_id' => ['sometimes', 'nullable', $this->ownedBy('warehouses')],
             'valid_from'   => 'sometimes|date',
             'valid_to'     => 'sometimes|nullable|date|after_or_equal:valid_from',
             'is_active'    => 'sometimes|boolean',
@@ -92,9 +93,8 @@ class QuotaArrangementController extends Controller
         ]);
 
         $arrangement = $this->service->update($arrangement, $validated);
-        $arrangement->load(['product', 'warehouse', 'items.vendor']);
 
-        return $this->success(new QuotaArrangementResource($arrangement));
+        return $this->success(new QuotaArrangementResource($arrangement->load(self::WITH)));
     }
 
     /**
@@ -102,7 +102,7 @@ class QuotaArrangementController extends Controller
      */
     public function destroy(string $id): JsonResponse
     {
-        QuotaArrangement::findOrFail($id)->delete();
+        $this->service->delete($this->service->find((int) $id));
 
         return $this->noContent();
     }
@@ -112,11 +112,11 @@ class QuotaArrangementController extends Controller
      */
     public function addItem(Request $request, string $id): JsonResponse
     {
-        $arrangement = QuotaArrangement::findOrFail($id);
+        $arrangement = $this->service->find((int) $id);
 
         $validated = $request->validate([
-            'vendor_id'                 => 'required|exists:contacts,id',
-            'purchasing_info_record_id' => 'nullable|exists:purchasing_info_records,id',
+            'vendor_id'                 => ['required', $this->ownedBy('contacts')],
+            'purchasing_info_record_id' => ['nullable', $this->ownedBy('purchasing_info_records')],
             'quota_percentage'          => 'required|numeric|min:0.01|max:100',
             'min_lot_size'              => 'nullable|numeric|min:0',
             'max_lot_size'              => 'nullable|numeric|min:0',
@@ -137,12 +137,11 @@ class QuotaArrangementController extends Controller
      */
     public function updateItem(Request $request, string $id, string $itemId): JsonResponse
     {
-        $item = QuotaArrangementItem::where('quota_arrangement_id', $id)
-            ->findOrFail($itemId);
+        $item = $this->service->findItem($this->service->find((int) $id), (int) $itemId);
 
         $validated = $request->validate([
-            'vendor_id'                 => 'sometimes|exists:contacts,id',
-            'purchasing_info_record_id' => 'sometimes|nullable|exists:purchasing_info_records,id',
+            'vendor_id'                 => ['sometimes', $this->ownedBy('contacts')],
+            'purchasing_info_record_id' => ['sometimes', 'nullable', $this->ownedBy('purchasing_info_records')],
             'quota_percentage'          => 'sometimes|numeric|min:0.01|max:100',
             'min_lot_size'              => 'sometimes|nullable|numeric|min:0',
             'max_lot_size'              => 'sometimes|nullable|numeric|min:0',
@@ -163,8 +162,7 @@ class QuotaArrangementController extends Controller
      */
     public function removeItem(string $id, string $itemId): JsonResponse
     {
-        $item = QuotaArrangementItem::where('quota_arrangement_id', $id)
-            ->findOrFail($itemId);
+        $item = $this->service->findItem($this->service->find((int) $id), (int) $itemId);
 
         try {
             $this->service->removeItem($item);
@@ -205,8 +203,7 @@ class QuotaArrangementController extends Controller
      */
     public function resetAllocations(string $id): JsonResponse
     {
-        $arrangement = QuotaArrangement::findOrFail($id);
-        $this->service->resetAllocations($arrangement);
+        $this->service->resetAllocations($this->service->find((int) $id));
 
         return $this->success(null, 'Allocations reset successfully.');
     }

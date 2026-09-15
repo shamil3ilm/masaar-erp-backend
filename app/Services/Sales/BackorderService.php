@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Sales\BackorderRecord;
 use App\Services\Inventory\StockService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 class BackorderService
 {
+    private const QUANTITY_SCALE = 4;
+
     public function __construct(
         private StockService $stockService,
     ) {}
@@ -39,7 +43,25 @@ class BackorderService
 
     public function create(array $data): BackorderRecord
     {
-        return BackorderRecord::create($data);
+        return BackorderRecord::create($data)->load(['salesOrder', 'product']);
+    }
+
+    /**
+     * A backorder of the current organization.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function recordOf(int $id): BackorderRecord
+    {
+        return BackorderRecord::findOrFail($id);
+    }
+
+    /**
+     * @throws ModelNotFoundException
+     */
+    public function recordDetails(int $id): BackorderRecord
+    {
+        return BackorderRecord::with(['salesOrder', 'salesOrderLine', 'product'])->findOrFail($id);
     }
 
     public function reschedule(BackorderRecord $record, string $newDate, ?string $reason = null): BackorderRecord
@@ -54,21 +76,40 @@ class BackorderService
         return $record->fresh();
     }
 
+    /**
+     * Fulfil part or all of an open backorder, never beyond the backordered
+     * quantity.
+     *
+     * The record is re-read under a lock, so two concurrent fulfilments add up
+     * instead of one overwriting the other, and a backorder that is cancelled
+     * or already fulfilled is refused.
+     *
+     * @throws BusinessRuleException when the backorder is no longer open
+     */
     public function fulfill(BackorderRecord $record, float $quantity): BackorderRecord
     {
         return DB::transaction(function () use ($record, $quantity): BackorderRecord {
-            $newFulfilled = (float) $record->fulfilled_quantity + $quantity;
-            $backordered = (float) $record->backordered_quantity;
+            $record = BackorderRecord::query()->lockForUpdate()->findOrFail($record->id);
 
-            $newFulfilled = min($newFulfilled, $backordered);
+            if (! in_array($record->status, [BackorderRecord::STATUS_OPEN, BackorderRecord::STATUS_PARTIALLY_FULFILLED], true)) {
+                throw new BusinessRuleException(
+                    "A {$record->status} backorder cannot be fulfilled.",
+                    'INVALID_STATUS'
+                );
+            }
 
-            $status = $newFulfilled >= $backordered
-                ? BackorderRecord::STATUS_FULFILLED
-                : BackorderRecord::STATUS_PARTIALLY_FULFILLED;
+            $backordered = (string) $record->backordered_quantity;
+            $fulfilled = bcadd((string) $record->fulfilled_quantity, (string) $quantity, self::QUANTITY_SCALE);
+
+            if (bccomp($fulfilled, $backordered, self::QUANTITY_SCALE) > 0) {
+                $fulfilled = $backordered;
+            }
 
             $record->update([
-                'fulfilled_quantity' => $newFulfilled,
-                'status' => $status,
+                'fulfilled_quantity' => $fulfilled,
+                'status' => bccomp($fulfilled, $backordered, self::QUANTITY_SCALE) >= 0
+                    ? BackorderRecord::STATUS_FULFILLED
+                    : BackorderRecord::STATUS_PARTIALLY_FULFILLED,
             ]);
 
             return $record->fresh();

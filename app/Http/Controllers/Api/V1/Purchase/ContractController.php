@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\ContractResource;
 use App\Models\Purchase\Contract;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class ContractController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ContractService $contractService
     ) {}
@@ -22,23 +25,14 @@ class ContractController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Contract::with(['contact', 'creator'])
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->contract_type, fn($q, $t) => $q->where('contract_type', $t))
-            ->when($request->contact_id, fn($q, $id) => $q->where('contact_id', $id))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('contract_number', 'like', "%{$search}%")
-                        ->orWhere('title', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->expiring_in_days, fn($q, $days) => $q->expiringSoon((int) $days))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['contract_number', 'title', 'start_date', 'end_date', 'status', 'total_value', 'created_at'], 'created_at'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
+        $contracts = $this->contractService->list(
+            $request->only(['status', 'contract_type', 'contact_id', 'search', 'expiring_in_days']),
+            $this->safeSortBy($request->sort_by, ['contract_number', 'title', 'start_date', 'end_date', 'status', 'total_value', 'created_at'], 'created_at'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            $request->integer('per_page', 15),
+        );
 
-        return $this->paginated($query->paginate($request->integer('per_page', 15)), ContractResource::class);
+        return $this->paginated($contracts, ContractResource::class);
     }
 
     /**
@@ -49,7 +43,7 @@ class ContractController extends Controller
         $validated = $request->validate([
             'contract_number' => 'nullable|string|max:30',
             'contract_type' => 'required|in:sales,purchase,service,maintenance',
-            'contact_id' => 'required|exists:contacts,id',
+            'contact_id' => ['required', $this->ownedBy('contacts')],
             'title' => 'required|string|max:200',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
@@ -59,15 +53,15 @@ class ContractController extends Controller
             'total_value' => 'nullable|numeric|min:0',
             'signed_date' => 'nullable|date',
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
-            'parent_contract_id' => 'nullable|exists:contracts,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
+            'parent_contract_id' => ['nullable', $this->ownedBy('contracts')],
             'lines' => 'nullable|array',
-            'lines.*.product_id' => 'nullable|exists:products,id',
+            'lines.*.product_id' => ['nullable', $this->ownedBy('products')],
             'lines.*.description' => 'required|string|max:500',
             'lines.*.quantity' => 'nullable|numeric|min:0',
             'lines.*.unit_price' => 'nullable|numeric|min:0',
             'lines.*.line_total' => 'nullable|numeric|min:0',
-            'lines.*.unit_id' => 'nullable|exists:units_of_measure,id',
+            'lines.*.unit_id' => ['nullable', $this->ownedBy('units_of_measure')],
             'lines.*.delivery_schedule' => 'nullable|array',
             'lines.*.sort_order' => 'nullable|integer',
             'milestones' => 'nullable|array',
@@ -105,10 +99,6 @@ class ContractController extends Controller
      */
     public function update(Request $request, Contract $contract): JsonResponse
     {
-        if ($contract->status !== Contract::STATUS_DRAFT) {
-            return $this->error('Only draft contracts can be updated.', 'VALIDATION_ERROR', 422);
-        }
-
         $validated = $request->validate([
             'title' => 'sometimes|string|max:200',
             'start_date' => 'sometimes|date',
@@ -119,12 +109,13 @@ class ContractController extends Controller
             'total_value' => 'nullable|numeric|min:0',
             'signed_date' => 'nullable|date',
             'notes' => 'nullable|string',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
         ]);
 
-        $contract->update($validated);
-
-        return $this->success(new ContractResource($contract->fresh(['contact', 'lines'])), 'Contract updated successfully.');
+        return $this->tryAction(
+            fn () => new ContractResource($this->contractService->update($contract, $validated)),
+            'Contract updated successfully.'
+        );
     }
 
     /**
@@ -132,15 +123,10 @@ class ContractController extends Controller
      */
     public function destroy(Contract $contract): JsonResponse
     {
-        if ($contract->status !== Contract::STATUS_DRAFT) {
-            return $this->error('Only draft contracts can be deleted.', 'VALIDATION_ERROR', 422);
-        }
-
-        $contract->lines()->delete();
-        $contract->milestones()->delete();
-        $contract->delete();
-
-        return $this->success(null, 'Contract deleted successfully.');
+        return $this->tryAction(
+            fn () => $this->contractService->delete($contract),
+            'Contract deleted successfully.'
+        );
     }
 
     /**
@@ -149,7 +135,7 @@ class ContractController extends Controller
     public function activate(Contract $contract): JsonResponse
     {
         return $this->tryAction(
-            fn() => new ContractResource($this->contractService->activateContract($contract)),
+            fn () => new ContractResource($this->contractService->activateContract($contract)),
             'Contract activated successfully.'
         );
     }
@@ -168,7 +154,7 @@ class ContractController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => $this->contractService->createRelease($contract, $validated)->toArray(),
+            fn () => $this->contractService->createRelease($contract, $validated)->toArray(),
             'Contract release created successfully.'
         );
     }
@@ -178,9 +164,7 @@ class ContractController extends Controller
      */
     public function indexReleases(Contract $contract): JsonResponse
     {
-        $releases = $contract->releases()->orderBy('release_date', 'desc')->get();
-
-        return $this->success($releases->toArray());
+        return $this->success($this->contractService->releasesOf($contract)->toArray());
     }
 
     /**
@@ -193,7 +177,7 @@ class ContractController extends Controller
         ]);
 
         return $this->tryAction(
-            fn() => new ContractResource($this->contractService->terminateContract($contract, $validated)),
+            fn () => new ContractResource($this->contractService->terminateContract($contract, $validated)),
             'Contract terminated successfully.'
         );
     }
