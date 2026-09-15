@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Inventory\StockAdjustmentResource;
 use App\Models\Inventory\StockAdjustment;
 use App\Services\Inventory\StockAdjustmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class StockAdjustmentController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private StockAdjustmentService $adjustmentService
     ) {
@@ -24,15 +26,10 @@ class StockAdjustmentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = StockAdjustment::with(['warehouse', 'lines.product', 'lines.variant', 'creator', 'poster'])
-            ->latest()
-            ->when($request->has('warehouse_id'), fn($q) => $q->inWarehouse($request->integer('warehouse_id')))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('reason'), fn($q) => $q->byReason($request->input('reason')))
-            ->when($request->has('from_date'), fn($q) => $q->where('adjustment_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('adjustment_date', '<=', $request->input('to_date')));
-
-        $adjustments = $query->paginate($request->integer('per_page', 15));
+        $adjustments = $this->adjustmentService->list(
+            $request->only(['warehouse_id', 'status', 'reason', 'from_date', 'to_date']),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($adjustments, StockAdjustmentResource::class);
     }
@@ -43,18 +40,12 @@ class StockAdjustmentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'adjustment_date' => 'required|date',
             'reason' => 'required|in:damage,theft,expiry,count_correction,opening_balance,other',
             'notes' => 'nullable|string|max:1000',
             'lines' => 'required|array|min:1',
-            'lines.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.location_id' => 'nullable|integer|exists:warehouse_locations,id',
-            'lines.*.actual_quantity' => 'required|numeric|min:0',
-            'lines.*.system_quantity' => 'nullable|numeric',
-            'lines.*.unit_cost' => 'nullable|numeric',
-            'lines.*.notes' => 'nullable|string|max:255',
+            ...$this->lineRules(),
         ]);
 
         try {
@@ -97,13 +88,7 @@ class StockAdjustmentController extends Controller
             'reason' => 'sometimes|in:damage,theft,expiry,count_correction,opening_balance,other',
             'notes' => 'nullable|string|max:1000',
             'lines' => 'nullable|array|min:1',
-            'lines.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.location_id' => 'nullable|integer|exists:warehouse_locations,id',
-            'lines.*.actual_quantity' => 'required|numeric|min:0',
-            'lines.*.system_quantity' => 'nullable|numeric',
-            'lines.*.unit_cost' => 'nullable|numeric',
-            'lines.*.notes' => 'nullable|string|max:255',
+            ...$this->lineRules(),
         ]);
 
         try {
@@ -174,13 +159,13 @@ class StockAdjustmentController extends Controller
     }
 
     /**
-     * Quick adjustment for a single product.
+     * Quick adjustment for a single product, created and posted together.
      */
     public function quickAdjust(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'actual_quantity' => 'required|numeric|min:0',
             'reason' => 'required|in:damage,theft,expiry,count_correction,opening_balance,other',
             'notes' => 'nullable|string|max:500',
@@ -196,12 +181,28 @@ class StockAdjustmentController extends Controller
                 $validated['notes'] ?? null
             );
 
-            // Auto-post quick adjustments
-            $this->adjustmentService->post($adjustment, auth()->id());
-
             return $this->success(new StockAdjustmentResource($adjustment->fresh()), 'Stock adjusted successfully.');
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
+    }
+
+    /**
+     * Rules for adjustment lines; every referenced row must belong to the
+     * caller's organization.
+     *
+     * @return array<string, mixed>
+     */
+    private function lineRules(): array
+    {
+        return [
+            'lines.*.product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', 'integer', $this->ownedVariant()],
+            'lines.*.location_id' => ['nullable', 'integer', $this->ownedLocation()],
+            'lines.*.actual_quantity' => 'required|numeric|min:0',
+            'lines.*.system_quantity' => 'nullable|numeric',
+            'lines.*.unit_cost' => 'nullable|numeric',
+            'lines.*.notes' => 'nullable|string|max:255',
+        ];
     }
 }

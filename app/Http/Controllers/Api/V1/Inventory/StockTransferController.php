@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Inventory\StockTransferResource;
 use App\Models\Inventory\StockTransfer;
 use App\Services\Inventory\StockTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class StockTransferController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private StockTransferService $transferService
     ) {
@@ -24,15 +26,10 @@ class StockTransferController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = StockTransfer::with(['fromWarehouse', 'toWarehouse', 'lines.product', 'lines.variant', 'creator'])
-            ->latest()
-            ->when($request->has('from_warehouse_id'), fn($q) => $q->fromWarehouse($request->integer('from_warehouse_id')))
-            ->when($request->has('to_warehouse_id'), fn($q) => $q->toWarehouse($request->integer('to_warehouse_id')))
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->has('from_date'), fn($q) => $q->where('transfer_date', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('transfer_date', '<=', $request->input('to_date')));
-
-        $transfers = $query->paginate($request->integer('per_page', 15));
+        $transfers = $this->transferService->list(
+            $request->only(['from_warehouse_id', 'to_warehouse_id', 'status', 'from_date', 'to_date']),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($transfers, StockTransferResource::class);
     }
@@ -43,14 +40,14 @@ class StockTransferController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'from_warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'to_warehouse_id' => ['required', 'integer', 'different:from_warehouse_id', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'from_warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
+            'to_warehouse_id' => ['required', 'integer', 'different:from_warehouse_id', $this->ownedBy('warehouses')],
             'transfer_date' => 'required|date',
             'expected_arrival_date' => 'nullable|date|after_or_equal:transfer_date',
             'notes' => 'nullable|string|max:1000',
             'lines' => 'required|array|min:1',
-            'lines.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'lines.*.product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', 'integer', $this->ownedVariant()],
             'lines.*.quantity_sent' => 'required_without:lines.*.quantity|numeric|gt:0',
             'lines.*.quantity' => 'required_without:lines.*.quantity_sent|numeric|gt:0',
             'lines.*.notes' => 'nullable|string|max:255',
@@ -96,14 +93,14 @@ class StockTransferController extends Controller
     public function update(Request $request, StockTransfer $stockTransfer): JsonResponse
     {
         $validated = $request->validate([
-            'from_warehouse_id' => ['sometimes', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'to_warehouse_id' => ['sometimes', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'from_warehouse_id' => ['sometimes', 'integer', $this->ownedBy('warehouses')],
+            'to_warehouse_id' => ['sometimes', 'integer', $this->ownedBy('warehouses')],
             'transfer_date' => 'sometimes|date',
             'expected_arrival_date' => 'nullable|date|after_or_equal:transfer_date',
             'notes' => 'nullable|string|max:1000',
             'lines' => 'nullable|array|min:1',
-            'lines.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'lines.*.variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'lines.*.product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'lines.*.variant_id' => ['nullable', 'integer', $this->ownedVariant()],
             'lines.*.quantity_sent' => 'required|numeric|gt:0',
             'lines.*.notes' => 'nullable|string|max:255',
         ]);
@@ -200,7 +197,7 @@ class StockTransferController extends Controller
     public function pending(Request $request): JsonResponse
     {
         $request->validate([
-            'warehouse_id' => ['nullable', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         if ($request->has('warehouse_id')) {
@@ -210,11 +207,7 @@ class StockTransferController extends Controller
             return $this->success($pending);
         }
 
-        // Return all pending transfers (draft + in_transit)
-        $pending = StockTransfer::with(['fromWarehouse', 'toWarehouse', 'lines.product', 'creator'])
-            ->whereIn('status', [StockTransfer::STATUS_DRAFT, StockTransfer::STATUS_IN_TRANSIT])
-            ->latest()
-            ->paginate($request->integer('per_page', 15));
+        $pending = $this->transferService->paginatePending($request->integer('per_page', 15));
 
         return $this->paginated($pending, StockTransferResource::class);
     }
