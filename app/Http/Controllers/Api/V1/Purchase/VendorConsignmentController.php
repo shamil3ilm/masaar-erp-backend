@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
+use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Purchase\VendorConsignmentSettlement;
-use App\Models\Purchase\VendorConsignmentStock;
+use App\Http\Resources\Purchase\VendorConsignmentSettlementResource;
+use App\Http\Resources\Purchase\VendorConsignmentStockResource;
 use App\Services\Purchase\VendorConsignmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class VendorConsignmentController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private VendorConsignmentService $service,
     ) {}
@@ -23,16 +26,12 @@ class VendorConsignmentController extends Controller
      */
     public function stockIndex(Request $request): JsonResponse
     {
-        $query = VendorConsignmentStock::with(['vendor', 'product', 'warehouse', 'unit'])
-            ->when($request->vendor_id, fn($q, $id) => $q->forVendor((int) $id))
-            ->when($request->product_id, fn($q, $id) => $q->forProduct((int) $id))
-            ->when($request->warehouse_id, fn($q, $id) => $q->where('warehouse_id', (int) $id))
-            ->when($request->active_only, fn($q) => $q->active())
-            ->orderByDesc('last_movement_at');
+        $stocks = $this->service->listStocks(
+            $request->only(['vendor_id', 'product_id', 'warehouse_id', 'active_only']),
+            $request->integer('per_page', 25),
+        );
 
-        $stocks = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($stocks);
+        return $this->paginated($stocks, VendorConsignmentStockResource::class);
     }
 
     /**
@@ -40,11 +39,7 @@ class VendorConsignmentController extends Controller
      */
     public function stockShow(int $id): JsonResponse
     {
-        $stock = VendorConsignmentStock::with([
-            'vendor', 'product', 'warehouse', 'unit', 'receipts', 'withdrawals',
-        ])->findOrFail($id);
-
-        return $this->success($stock);
+        return $this->success(new VendorConsignmentStockResource($this->service->findStock($id)));
     }
 
     /**
@@ -52,35 +47,26 @@ class VendorConsignmentController extends Controller
      */
     public function receive(Request $request): JsonResponse
     {
-        $organizationId = auth()->user()->organization_id;
-
         $validated = $request->validate([
-            'vendor_id'             => [
-                'required',
-                Rule::exists('contacts', 'id')->where('organization_id', $organizationId),
+            'vendor_id'             => ['required', $this->ownedBy('contacts')],
+            'product_id'            => ['required', $this->ownedBy('products')],
+            'warehouse_id'          => ['required', $this->ownedBy('warehouses')],
+            // Locations carry no organization column; one in the caller's warehouse is the caller's.
+            'warehouse_location_id' => [
+                'nullable',
+                Rule::exists('warehouse_locations', 'id')->where('warehouse_id', $request->input('warehouse_id')),
             ],
-            'product_id'            => [
-                'required',
-                Rule::exists('products', 'id')->where('organization_id', $organizationId),
-            ],
-            'warehouse_id'          => [
-                'required',
-                Rule::exists('warehouses', 'id')->where('organization_id', $organizationId),
-            ],
-            'warehouse_location_id' => ['nullable', 'exists:warehouse_locations,id'],
-            'purchase_order_id'     => ['nullable', 'exists:purchase_orders,id'],
+            'purchase_order_id'     => ['nullable', $this->ownedBy('purchase_orders')],
             'receipt_date'          => ['required', 'date'],
             'quantity_received'     => ['required', 'numeric', 'gt:0'],
             'vendor_price'          => ['required', 'numeric', 'min:0'],
             'currency_code'         => ['required', 'string', 'size:3'],
-            'unit_id'               => ['nullable', 'exists:units_of_measure,id'],
+            'unit_id'               => ['nullable', $this->ownedBy('units_of_measure')],
             'vendor_delivery_note'  => ['nullable', 'string', 'max:100'],
             'notes'                 => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $receipt = $this->service->receiveConsignmentStock($validated);
-
-        return $this->created($receipt);
+        return $this->created($this->service->receiveConsignmentStock($validated));
     }
 
     /**
@@ -89,7 +75,7 @@ class VendorConsignmentController extends Controller
     public function withdraw(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'vendor_consignment_stock_id' => ['required', 'exists:vendor_consignment_stocks,id'],
+            'vendor_consignment_stock_id' => ['required', $this->ownedBy('vendor_consignment_stocks')],
             'withdrawal_date'             => ['required', 'date'],
             'quantity_withdrawn'          => ['required', 'numeric', 'gt:0'],
             'withdrawal_type'             => [
@@ -98,13 +84,11 @@ class VendorConsignmentController extends Controller
             ],
             'reference_type' => ['nullable', 'string', 'max:50'],
             'reference_id'   => ['nullable', 'integer'],
-            'unit_id'        => ['nullable', 'exists:units_of_measure,id'],
+            'unit_id'        => ['nullable', $this->ownedBy('units_of_measure')],
             'notes'          => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $withdrawal = $this->service->withdrawConsignmentStock($validated);
-
-        return $this->created($withdrawal);
+        return $this->created($this->service->withdrawConsignmentStock($validated));
     }
 
     /**
@@ -112,16 +96,12 @@ class VendorConsignmentController extends Controller
      */
     public function settlements(Request $request): JsonResponse
     {
-        $query = VendorConsignmentSettlement::with(['vendor', 'bill'])
-            ->when($request->vendor_id, fn($q, $id) => $q->where('vendor_id', (int) $id))
-            ->when($request->status, fn($q, $s) => $q->where('status', $s))
-            ->when($request->from, fn($q, $d) => $q->where('settlement_period_from', '>=', $d))
-            ->when($request->to, fn($q, $d) => $q->where('settlement_period_to', '<=', $d))
-            ->orderByDesc('settlement_period_from');
+        $settlements = $this->service->listSettlements(
+            $request->only(['vendor_id', 'status', 'from', 'to']),
+            $request->integer('per_page', 25),
+        );
 
-        $settlements = $query->paginate($request->integer('per_page', 25));
-
-        return $this->paginated($settlements);
+        return $this->paginated($settlements, VendorConsignmentSettlementResource::class);
     }
 
     /**
@@ -129,13 +109,8 @@ class VendorConsignmentController extends Controller
      */
     public function createSettlement(Request $request): JsonResponse
     {
-        $organizationId = auth()->user()->organization_id;
-
         $validated = $request->validate([
-            'vendor_id'   => [
-                'required',
-                Rule::exists('contacts', 'id')->where('organization_id', $organizationId),
-            ],
+            'vendor_id'   => ['required', $this->ownedBy('contacts')],
             'period_from' => ['required', 'date'],
             'period_to'   => ['required', 'date', 'after_or_equal:period_from'],
         ]);
@@ -146,7 +121,7 @@ class VendorConsignmentController extends Controller
             $validated['period_to']
         );
 
-        return $this->created($settlement);
+        return $this->created(new VendorConsignmentSettlementResource($settlement));
     }
 
     /**
@@ -154,10 +129,8 @@ class VendorConsignmentController extends Controller
      */
     public function submitSettlement(int $id): JsonResponse
     {
-        $settlement = VendorConsignmentSettlement::findOrFail($id);
+        $settlement = $this->service->submitSettlement($this->service->findSettlement($id));
 
-        $this->service->submitSettlement($settlement);
-
-        return $this->success($settlement->fresh(['vendor', 'bill']));
+        return $this->success(new VendorConsignmentSettlementResource($settlement));
     }
 }

@@ -7,6 +7,7 @@ namespace App\Services\Purchase;
 use App\Models\Purchase\SaDeliverySchedule;
 use App\Models\Purchase\SchedulingAgreement;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 
 class SchedulingAgreementService
 {
@@ -30,6 +31,18 @@ class SchedulingAgreementService
         return $query->orderByDesc('created_at')->paginate($filters['per_page'] ?? 20);
     }
 
+    /**
+     * A scheduling agreement of the organization, with the given relations loaded.
+     *
+     * @param  list<string>  $with
+     */
+    public function find(int $orgId, int $id, array $with = []): SchedulingAgreement
+    {
+        return SchedulingAgreement::where('organization_id', $orgId)
+            ->with($with)
+            ->findOrFail($id);
+    }
+
     public function create(int $orgId, array $data): SchedulingAgreement
     {
         return SchedulingAgreement::create(array_merge($data, [
@@ -44,12 +57,35 @@ class SchedulingAgreementService
         return $agreement->fresh();
     }
 
+    public function delete(SchedulingAgreement $agreement): void
+    {
+        $agreement->delete();
+    }
+
     public function addScheduleLine(SchedulingAgreement $agreement, array $data): SaDeliverySchedule
     {
         return SaDeliverySchedule::create(array_merge($data, [
             'organization_id'        => $agreement->organization_id,
             'scheduling_agreement_id' => $agreement->id,
         ]));
+    }
+
+    /**
+     * One of the agreement's schedule lines.
+     */
+    public function findScheduleLine(SchedulingAgreement $agreement, int $lineId): SaDeliverySchedule
+    {
+        return $agreement->schedules()->findOrFail($lineId);
+    }
+
+    /**
+     * The agreement's schedule lines, earliest date first.
+     *
+     * @return Collection<int, SaDeliverySchedule>
+     */
+    public function schedulesOf(SchedulingAgreement $agreement): Collection
+    {
+        return $agreement->schedules()->orderBy('schedule_date')->get();
     }
 
     public function updateScheduleLine(SaDeliverySchedule $line, array $data): SaDeliverySchedule
@@ -59,22 +95,33 @@ class SchedulingAgreementService
         return $line->fresh();
     }
 
-    public function receiveDelivery(SaDeliverySchedule $line, float $quantity): void
+    /**
+     * Count a delivery against a schedule line and its agreement.
+     *
+     * The line and the agreement are locked while their quantities are read
+     * and written: two deliveries counted from the same stale received
+     * quantity would otherwise lose one of them.
+     */
+    public function receiveDelivery(SaDeliverySchedule $line, float $quantity): SaDeliverySchedule
     {
-        $newReceived = bcadd((string) $line->received_quantity, (string) $quantity, 4);
-        $line->received_quantity = $newReceived;
+        return $line->lockForTransition(function (SaDeliverySchedule $line) use ($quantity): SaDeliverySchedule {
+            $received = bcadd((string) ($line->received_quantity ?? '0'), (string) $quantity, 4);
 
-        if (bccomp($newReceived, (string) $line->scheduled_quantity, 4) >= 0) {
-            $line->status = SaDeliverySchedule::STATUS_COMPLETE;
-        } else {
-            $line->status = SaDeliverySchedule::STATUS_PARTIAL;
-        }
+            $line->update([
+                'received_quantity' => $received,
+                'status' => bccomp($received, (string) $line->scheduled_quantity, 4) >= 0
+                    ? SaDeliverySchedule::STATUS_COMPLETE
+                    : SaDeliverySchedule::STATUS_PARTIAL,
+            ]);
 
-        $line->save();
+            $agreement = SchedulingAgreement::query()->lockForUpdate()->findOrFail($line->scheduling_agreement_id);
 
-        // Update agreement released_quantity
-        $agreement = $line->schedulingAgreement;
-        $agreement->increment('released_quantity', $quantity);
+            $agreement->update([
+                'released_quantity' => bcadd((string) ($agreement->released_quantity ?? '0'), (string) $quantity, 4),
+            ]);
+
+            return $line->fresh();
+        });
     }
 
     /**
