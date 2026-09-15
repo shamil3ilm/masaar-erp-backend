@@ -4,55 +4,45 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\CycleCountLine;
-use App\Models\Inventory\CycleCountPlan;
-use App\Models\Inventory\CycleCountSession;
 use App\Services\Inventory\CycleCountService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class CycleCountController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly CycleCountService $service) {}
 
     public function plans(Request $request): JsonResponse
     {
-        $plans = CycleCountPlan::where('organization_id', $request->user()->organization_id)
-            ->with('warehouse')
-            ->paginate(20);
-
-        return $this->paginated($plans);
+        return $this->paginated($this->service->paginatePlans($request->user()->organization_id, 20));
     }
 
     public function storePlan(Request $request): JsonResponse
     {
         $data = $request->validate([
             'plan_name'        => 'required|string|max:255',
-            'warehouse_id'     => 'required|integer|exists:warehouses,id',
+            'warehouse_id'     => ['required', 'integer', $this->ownedBy('warehouses')],
             'count_frequency'  => 'required|in:A,B,C,custom',
             'products_per_day' => 'nullable|integer|min:1',
             'scheduled_date'   => 'nullable|date',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $plan = CycleCountPlan::create($data);
-
-        return $this->created($plan);
+        return $this->created($this->service->createPlan($request->user()->organization_id, $data));
     }
 
     public function createSession(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'plan_id'      => 'required|integer|exists:cycle_count_plans,id',
+            'plan_id'      => ['required', 'integer', $this->ownedBy('cycle_count_plans')],
             'session_date' => 'required|date',
         ]);
 
-        $plan    = CycleCountPlan::where('organization_id', $request->user()->organization_id)->findOrFail($data['plan_id']);
+        $plan    = $this->service->findPlanOrFail($request->user()->organization_id, (int) $data['plan_id']);
         $session = $this->service->createSession($plan, $request->user()->id, Carbon::parse($data['session_date']));
 
         return $this->created($session, 'Cycle count session created with ' . $session->lines->count() . ' lines');
@@ -60,9 +50,11 @@ class CycleCountController extends Controller
 
     public function showSession(Request $request, int $id): JsonResponse
     {
-        $session = CycleCountSession::where('organization_id', $request->user()->organization_id)
-            ->with(['lines.product', 'lines.warehouseLocation'])
-            ->findOrFail($id);
+        $session = $this->service->findSessionOrFail(
+            $request->user()->organization_id,
+            $id,
+            ['lines.product', 'lines.warehouseLocation']
+        );
 
         return $this->success($session);
     }
@@ -70,20 +62,26 @@ class CycleCountController extends Controller
     public function recordCount(Request $request, int $sessionId, int $lineId): JsonResponse
     {
         $data    = $request->validate(['counted_quantity' => 'required|numeric|min:0']);
-        $session = CycleCountSession::where('organization_id', $request->user()->organization_id)->findOrFail($sessionId);
-        $line    = CycleCountLine::where('cycle_count_session_id', $session->id)->findOrFail($lineId);
+        $session = $this->service->findSessionOrFail($request->user()->organization_id, $sessionId);
 
-        $this->service->recordCount($line, (float) $data['counted_quantity']);
+        try {
+            $line = $this->service->recordCountInSession($session, $lineId, (float) $data['counted_quantity']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
+        }
 
-        return $this->success($line->fresh(), 'Count recorded');
+        return $this->success($line, 'Count recorded');
     }
 
     public function postAdjustments(Request $request, int $id): JsonResponse
     {
-        $session = CycleCountSession::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $variances = $this->service->calculateVariances($session);
+        $session = $this->service->findSessionOrFail($request->user()->organization_id, $id);
 
-        $session->update(['status' => 'posted', 'completed_at' => now()]);
+        try {
+            $variances = $this->service->postSession($session);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_STATUS', 422);
+        }
 
         return $this->success([
             'variances' => $variances,

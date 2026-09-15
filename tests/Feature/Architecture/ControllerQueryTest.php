@@ -121,7 +121,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Inventory/BatchWhereUsedController.php' => 2,
         'Api/V1/Inventory/CategoryController.php' => 4,
         'Api/V1/Inventory/CrossDockingController.php' => 7,
-        'Api/V1/Inventory/CycleCountController.php' => 7,
         'Api/V1/Inventory/EwmController.php' => 3,
         'Api/V1/Inventory/HazmatController.php' => 7,
         'Api/V1/Inventory/MaterialValuationController.php' => 1,
