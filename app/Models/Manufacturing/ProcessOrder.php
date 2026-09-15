@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\UnitOfMeasure;
 use App\Models\User;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProcessOrder extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_CREATED     = 'created';
     public const STATUS_RELEASED    = 'released';

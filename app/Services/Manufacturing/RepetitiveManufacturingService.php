@@ -4,18 +4,74 @@ declare(strict_types=1);
 
 namespace App\Services\Manufacturing;
 
+use App\Models\Inventory\StockMovement;
+use App\Models\Manufacturing\ProductionLine;
 use App\Models\Manufacturing\RepetitiveMfgBackflush;
 use App\Models\Manufacturing\RepetitiveMfgSchedule;
 use App\Models\Manufacturing\RepetitiveMfgScheduleLine;
 use App\Services\Inventory\StockService;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Repetitive manufacturing: production lines, rate schedules, confirmations
+ * and backflushes.
+ *
+ * Schedule lines carry no organization column; they are found only through a
+ * schedule of the caller's organization. A confirmation adds to the locked line
+ * and the locked schedule, so concurrent confirmations both count. A backflush
+ * issues its components through the stock service in the same transaction.
+ */
 class RepetitiveManufacturingService
 {
     public function __construct(
         private readonly StockService $stockService,
     ) {}
+
+    public function paginateLines(bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return ProductionLine::with(['workCenter', 'unit'])
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->orderBy('code')
+            ->paginate($perPage);
+    }
+
+    public function createLine(array $data): ProductionLine
+    {
+        return ProductionLine::create($data)->load(['workCenter', 'unit']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateSchedules(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return RepetitiveMfgSchedule::with(['product', 'productionLine', 'productionVersion'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->where('product_id', $v))
+            ->when($filters['line_id'] ?? null, fn ($q, $v) => $q->where('production_line_id', $v))
+            ->orderByDesc('schedule_date_from')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's schedules, or null.
+     *
+     * @param  list<string>  $with
+     */
+    public function findSchedule(int $id, array $with = []): ?RepetitiveMfgSchedule
+    {
+        return RepetitiveMfgSchedule::with($with)->find($id);
+    }
+
+    /**
+     * A line of one of the organization's schedules, or null.
+     */
+    public function findScheduleLine(int $id): ?RepetitiveMfgScheduleLine
+    {
+        return RepetitiveMfgScheduleLine::whereHas('schedule')->find($id);
+    }
 
     /**
      * Create a new repetitive manufacturing schedule along with
@@ -44,12 +100,19 @@ class RepetitiveManufacturingService
     }
 
     /**
-     * Confirm a quantity against a schedule line, updating line and header totals.
+     * Confirm a quantity against a schedule line, adding it to the line and the schedule totals.
      */
     public function confirmScheduleLine(RepetitiveMfgScheduleLine $line, float $quantity): void
     {
-        DB::transaction(function () use ($line, $quantity): void {
-            $newConfirmed = (float) $line->confirmed_quantity + $quantity;
+        $schedule = RepetitiveMfgSchedule::findOrFail($line->repetitive_mfg_schedule_id);
+
+        $schedule->lockForTransition(function (RepetitiveMfgSchedule $schedule) use ($line, $quantity): void {
+            $line = RepetitiveMfgScheduleLine::whereKey($line->id)
+                ->where('repetitive_mfg_schedule_id', $schedule->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $newConfirmed = (float) bcadd((string) $line->confirmed_quantity, (string) $quantity, 4);
 
             $status = match (true) {
                 $newConfirmed >= (float) $line->planned_quantity => RepetitiveMfgScheduleLine::STATUS_CONFIRMED,
@@ -62,23 +125,22 @@ class RepetitiveManufacturingService
                 'status'             => $status,
             ]);
 
-            // Roll up confirmed total on the parent schedule
-            $schedule = $line->schedule;
-            $schedule->increment('total_confirmed_quantity', $quantity);
-            $schedule->refresh();
+            $schedule->update([
+                'total_confirmed_quantity' => bcadd((string) $schedule->total_confirmed_quantity, (string) $quantity, 4),
+            ]);
 
             $this->updateScheduleStatus($schedule);
         });
     }
 
     /**
-     * Record a backflush (production confirmation) against a schedule.
-     * Creates stock movements for consumed components via StockService.
+     * Record a backflush (production confirmation) against a schedule and issue
+     * each consumed component from its warehouse.
      */
     public function performBackflush(array $data): RepetitiveMfgBackflush
     {
         return DB::transaction(function () use ($data): RepetitiveMfgBackflush {
-            $schedule = RepetitiveMfgSchedule::findOrFail($data['repetitive_mfg_schedule_id']);
+            $schedule = RepetitiveMfgSchedule::lockForUpdate()->findOrFail($data['repetitive_mfg_schedule_id']);
 
             $backflush = RepetitiveMfgBackflush::create([
                 'organization_id'             => auth()->user()->organization_id,
@@ -91,17 +153,17 @@ class RepetitiveManufacturingService
                 'created_by'                  => auth()->id(),
             ]);
 
-            // Record component stock movements when movements data is provided
-            if (!empty($data['component_movements'])) {
-                foreach ($data['component_movements'] as $movement) {
-                    $this->stockService->issueStock([
-                        'product_id'      => $movement['product_id'],
-                        'quantity'        => $movement['quantity'],
-                        'warehouse_id'    => $movement['warehouse_id'] ?? null,
-                        'reference_type'  => RepetitiveMfgBackflush::class,
-                        'reference_id'    => $backflush->id,
-                    ]);
-                }
+            foreach ($data['component_movements'] ?? [] as $movement) {
+                $this->stockService->recordMovement(
+                    productId: (int) $movement['product_id'],
+                    warehouseId: (int) $movement['warehouse_id'],
+                    movementType: StockMovement::TYPE_MATERIAL_ISSUE,
+                    direction: StockMovement::DIRECTION_OUT,
+                    quantity: (float) $movement['quantity'],
+                    referenceType: RepetitiveMfgBackflush::class,
+                    referenceId: $backflush->id,
+                    notes: "Backflush for repetitive schedule {$schedule->id}",
+                );
             }
 
             return $backflush;
