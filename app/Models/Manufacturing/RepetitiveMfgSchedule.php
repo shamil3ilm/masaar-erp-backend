@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RepetitiveMfgSchedule extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition, SoftDeletes;
 
     public const STATUS_PLANNED     = 'planned';
     public const STATUS_IN_PROGRESS = 'in_progress';

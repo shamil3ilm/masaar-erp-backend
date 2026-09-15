@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\ScrapReport;
 use App\Services\Manufacturing\ScrapReportingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class ScrapReportingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ScrapReportingService $service
     ) {}
@@ -35,12 +36,10 @@ class ScrapReportingController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
         $validated = $request->validate([
-            'work_order_id' => ['nullable', Rule::exists('work_orders', 'id')->where('organization_id', $orgId)],
-            'product_id' => ['required', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-            'warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', $orgId)],
+            'work_order_id' => ['nullable', $this->ownedBy('work_orders')],
+            'product_id' => ['required', $this->ownedBy('products')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'scrap_date' => 'required|date',
             'scrap_quantity' => 'required|numeric|min:0.0001',
             'unit_of_measure' => 'nullable|string|max:20',
@@ -50,7 +49,7 @@ class ScrapReportingController extends Controller
             'estimated_value' => 'nullable|numeric|min:0',
             'is_recoverable' => 'boolean',
             'recovery_value' => 'nullable|numeric|min:0',
-            'reported_by' => 'nullable|exists:users,id',
+            'reported_by' => ['nullable', $this->ownedBy('users')],
         ]);
 
         $validated['reported_by'] = $validated['reported_by'] ?? auth()->id();
@@ -62,21 +61,17 @@ class ScrapReportingController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $report = ScrapReport::with(['product', 'workOrder', 'warehouse', 'reportedBy'])
-            ->findOrFail($id);
-
-        return $this->success($report);
+        return $this->success($this->service->findOrFail($id, ['product', 'workOrder', 'warehouse', 'reportedBy']));
     }
 
     public function update(int $id, Request $request): JsonResponse
     {
-        $report = ScrapReport::findOrFail($id);
-        $orgId = auth()->user()->organization_id;
+        $report = $this->service->findOrFail($id);
 
         $validated = $request->validate([
-            'work_order_id' => ['nullable', Rule::exists('work_orders', 'id')->where('organization_id', $orgId)],
-            'product_id' => ['sometimes', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-            'warehouse_id' => ['nullable', Rule::exists('warehouses', 'id')->where('organization_id', $orgId)],
+            'work_order_id' => ['nullable', $this->ownedBy('work_orders')],
+            'product_id' => ['sometimes', $this->ownedBy('products')],
+            'warehouse_id' => ['nullable', $this->ownedBy('warehouses')],
             'scrap_date' => 'sometimes|date',
             'scrap_quantity' => 'sometimes|numeric|min:0.0001',
             'unit_of_measure' => 'nullable|string|max:20',
@@ -88,28 +83,23 @@ class ScrapReportingController extends Controller
             'recovery_value' => 'nullable|numeric|min:0',
         ]);
 
-        $updated = $this->service->update($report, $validated);
-
-        return $this->success($updated, 'Scrap report updated successfully.');
+        return $this->success($this->service->update($report, $validated), 'Scrap report updated successfully.');
     }
 
     public function destroy(int $id): JsonResponse
     {
-        $report = ScrapReport::findOrFail($id);
-
-        if ($report->gl_posted) {
-            return $this->error('Cannot delete a scrap report that has been posted to GL.', 'VALIDATION_ERROR', 422);
+        try {
+            $this->service->delete($this->service->findOrFail($id));
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
-
-        $report->delete();
 
         return $this->noContent();
     }
 
     public function postToGL(int $id): JsonResponse
     {
-        $report = ScrapReport::findOrFail($id);
-        $updated = $this->service->postToGL($report);
+        $updated = $this->service->postToGL($this->service->findOrFail($id));
 
         return $this->success($updated, 'Scrap report posted to GL successfully.');
     }

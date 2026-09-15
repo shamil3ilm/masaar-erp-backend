@@ -7,9 +7,15 @@ namespace App\Services\Manufacturing;
 use App\Models\Manufacturing\ProductionResourceTool;
 use App\Models\Manufacturing\ToolOperationAssignment;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Production resources and tools and their assignment to work orders and
+ * routing operations.
+ *
+ * Assigning and releasing run on the locked tool, so units in use are counted
+ * from the current row and an assignment gives its units back once.
+ */
 class ProductionResourceToolService
 {
     public function list(array $filters = []): Collection
@@ -27,6 +33,24 @@ class ProductionResourceToolService
             ->get();
     }
 
+    /**
+     * One of the organization's tools.
+     *
+     * @param  list<string>  $with
+     */
+    public function findOrFail(int $id, array $with = []): ProductionResourceTool
+    {
+        return ProductionResourceTool::with($with)->findOrFail($id);
+    }
+
+    /**
+     * An assignment of the given tool.
+     */
+    public function findAssignmentOrFail(ProductionResourceTool $prt, int $assignmentId): ToolOperationAssignment
+    {
+        return ToolOperationAssignment::where('production_resource_tool_id', $prt->id)->findOrFail($assignmentId);
+    }
+
     public function create(array $data): ProductionResourceTool
     {
         return ProductionResourceTool::create($data);
@@ -39,9 +63,17 @@ class ProductionResourceToolService
         return $prt->fresh();
     }
 
+    public function delete(ProductionResourceTool $prt): void
+    {
+        $prt->delete();
+    }
+
+    /**
+     * Assign units of an available tool, counting units in use on the locked tool.
+     */
     public function assign(ProductionResourceTool $prt, array $data): ToolOperationAssignment
     {
-        return DB::transaction(function () use ($prt, $data): ToolOperationAssignment {
+        return $prt->lockForTransition(function (ProductionResourceTool $prt) use ($data): ToolOperationAssignment {
             $quantityRequired = (int) ($data['quantity_required'] ?? 1);
 
             if (!$prt->isAvailable()) {
@@ -72,10 +104,25 @@ class ProductionResourceToolService
         });
     }
 
+    /**
+     * Release an assignment and give its units back to the tool; an assignment
+     * already released is refused.
+     */
     public function release(ToolOperationAssignment $assignment): void
     {
-        DB::transaction(function () use ($assignment): void {
-            $prt = $assignment->productionResourceTool;
+        $prt = ProductionResourceTool::findOrFail($assignment->production_resource_tool_id);
+
+        $prt->lockForTransition(function (ProductionResourceTool $prt) use ($assignment): void {
+            $assignment = ToolOperationAssignment::whereKey($assignment->id)
+                ->where('production_resource_tool_id', $prt->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($assignment->status === 'released') {
+                throw ValidationException::withMessages([
+                    'status' => 'This tool assignment has already been released.',
+                ]);
+            }
 
             $assignment->update([
                 'status' => 'released',

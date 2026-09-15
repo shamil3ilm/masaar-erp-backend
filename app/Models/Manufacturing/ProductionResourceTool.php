@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProductionResourceTool extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid, SoftDeletes;
+    use BelongsToOrganization, LocksForTransition, HasFactory, HasUuid, SoftDeletes;
 
     public const STATUS_AVAILABLE = 'available';
     public const STATUS_IN_USE = 'in_use';

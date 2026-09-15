@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\ProductionResourceTool;
-use App\Models\Manufacturing\ToolOperationAssignment;
 use App\Services\Manufacturing\ProductionResourceToolService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class ProductionResourceToolController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ProductionResourceToolService $service
     ) {}
@@ -28,14 +29,12 @@ class ProductionResourceToolController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
         $validated = $request->validate([
             'prt_number' => [
                 'required',
                 'string',
                 'max:50',
-                Rule::unique('production_resource_tools')->where('organization_id', $orgId),
+                Rule::unique('production_resource_tools')->where('organization_id', auth()->user()->organization_id),
             ],
             'prt_name' => 'required|string|max:100',
             'prt_type' => 'nullable|in:tool,fixture,jig,test_equipment,document,program',
@@ -54,15 +53,12 @@ class ProductionResourceToolController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $tool = ProductionResourceTool::with('assignments')->findOrFail($id);
-
-        return $this->success($tool);
+        return $this->success($this->service->findOrFail($id, ['assignments']));
     }
 
     public function update(int $id, Request $request): JsonResponse
     {
-        $tool = ProductionResourceTool::findOrFail($id);
-        $orgId = auth()->user()->organization_id;
+        $tool = $this->service->findOrFail($id);
 
         $validated = $request->validate([
             'prt_number' => [
@@ -70,7 +66,7 @@ class ProductionResourceToolController extends Controller
                 'required',
                 'string',
                 'max:50',
-                Rule::unique('production_resource_tools')->where('organization_id', $orgId)->ignore($tool->id),
+                Rule::unique('production_resource_tools')->where('organization_id', auth()->user()->organization_id)->ignore($tool->id),
             ],
             'prt_name' => 'sometimes|required|string|max:100',
             'prt_type' => 'nullable|in:tool,fixture,jig,test_equipment,document,program',
@@ -89,19 +85,18 @@ class ProductionResourceToolController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $tool = ProductionResourceTool::findOrFail($id);
-        $tool->delete();
+        $this->service->delete($this->service->findOrFail($id));
 
         return $this->noContent();
     }
 
     public function assign(int $id, Request $request): JsonResponse
     {
-        $tool = ProductionResourceTool::findOrFail($id);
+        $tool = $this->service->findOrFail($id);
 
         $validated = $request->validate([
-            'work_order_id' => 'nullable|exists:work_orders,id',
-            'routing_operation_id' => 'nullable|exists:routing_operations,id',
+            'work_order_id' => ['nullable', $this->ownedBy('work_orders')],
+            'routing_operation_id' => ['nullable', $this->ownedThrough('routing_operations', 'routing_id', 'routing_headers')],
             'usage_type' => 'nullable|in:required,optional',
             'quantity_required' => 'nullable|integer|min:1',
         ]);
@@ -113,9 +108,7 @@ class ProductionResourceToolController extends Controller
 
     public function release(int $id, int $assignmentId): JsonResponse
     {
-        ProductionResourceTool::findOrFail($id);
-        $assignment = ToolOperationAssignment::where('production_resource_tool_id', $id)
-            ->findOrFail($assignmentId);
+        $assignment = $this->service->findAssignmentOrFail($this->service->findOrFail($id), $assignmentId);
 
         $this->service->release($assignment);
 
