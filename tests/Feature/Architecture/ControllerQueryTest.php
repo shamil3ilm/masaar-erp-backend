@@ -54,7 +54,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Admin/SystemAnnouncementController.php' => 2,
         'Api/V1/Aml/AmlController.php' => 5,
         'Api/V1/Analytics/UserAnalyticsController.php' => 7,
-        'Api/V1/Auth/AuthController.php' => 14,
         'Api/V1/Automation/AutomationEmailTemplateController.php' => 2,
         'Api/V1/Automation/AutomationRuleController.php' => 1,
         'Api/V1/Automation/WorkflowController.php' => 9,
