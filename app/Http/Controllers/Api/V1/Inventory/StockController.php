@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\StockLevel;
-use App\Models\Inventory\StockMovement;
 use App\Services\Inventory\ReorderPointService;
 use App\Services\Inventory\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class StockController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private StockService $stockService,
         private ReorderPointService $reorderPointService
@@ -25,13 +25,14 @@ class StockController extends Controller
      */
     public function levels(Request $request): JsonResponse
     {
-        $query = StockLevel::with(['product', 'variant', 'warehouse', 'location'])
-            ->when($request->has('product_id'), fn($q) => $q->where('product_id', $request->integer('product_id')))
-            ->when($request->has('warehouse_id'), fn($q) => $q->inWarehouse($request->integer('warehouse_id')))
-            ->when($request->boolean('low_stock_only'), fn($q) => $q->lowStock())
-            ->when($request->boolean('in_stock_only'), fn($q) => $q->hasStock());
-
-        $levels = $query->paginate($request->integer('per_page', 25));
+        $levels = $this->stockService->paginateLevels(
+            [
+                ...$request->only(['product_id', 'warehouse_id']),
+                'low_stock_only' => $request->boolean('low_stock_only'),
+                'in_stock_only' => $request->boolean('in_stock_only'),
+            ],
+            $request->integer('per_page', 25)
+        );
 
         return $this->paginated($levels);
     }
@@ -41,16 +42,10 @@ class StockController extends Controller
      */
     public function movements(Request $request): JsonResponse
     {
-        $query = StockMovement::with(['product', 'variant', 'warehouse', 'creator'])
-            ->latest()
-            ->when($request->has('product_id'), fn($q) => $q->forProduct($request->integer('product_id')))
-            ->when($request->has('warehouse_id'), fn($q) => $q->inWarehouse($request->integer('warehouse_id')))
-            ->when($request->has('movement_type'), fn($q) => $q->byType($request->input('movement_type')))
-            ->when($request->has('direction'), fn($q) => $request->input('direction') === 'in' ? $q->incoming() : $q->outgoing())
-            ->when($request->has('from_date'), fn($q) => $q->where('created_at', '>=', $request->input('from_date')))
-            ->when($request->has('to_date'), fn($q) => $q->where('created_at', '<=', $request->input('to_date')));
-
-        $movements = $query->paginate($request->integer('per_page', 25));
+        $movements = $this->stockService->paginateMovements(
+            $request->only(['product_id', 'warehouse_id', 'movement_type', 'direction', 'from_date', 'to_date']),
+            $request->integer('per_page', 25)
+        );
 
         return $this->paginated($movements);
     }
@@ -96,23 +91,21 @@ class StockController extends Controller
      */
     public function checkAvailability(Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
         // Support both flat format (product_id, quantity, warehouse_id) and items array format
         if ($request->has('items')) {
             $validated = $request->validate([
                 'items' => 'required|array|min:1',
-                'items.*.product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-                'items.*.variant_id' => 'nullable|integer|exists:product_variants,id',
-                'items.*.warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', $orgId)],
+                'items.*.product_id' => ['required', 'integer', $this->ownedBy('products')],
+                'items.*.variant_id' => ['nullable', 'integer', $this->ownedVariant()],
+                'items.*.warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
                 'items.*.quantity' => 'required|numeric|gt:0',
             ]);
             $items = $validated['items'];
         } else {
             $validated = $request->validate([
-                'product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', $orgId)],
-                'variant_id' => 'nullable|integer|exists:product_variants,id',
-                'warehouse_id' => ['nullable', 'integer', Rule::exists('warehouses', 'id')->where('organization_id', $orgId)],
+                'product_id' => ['required', 'integer', $this->ownedBy('products')],
+                'variant_id' => ['nullable', 'integer', $this->ownedVariant()],
+                'warehouse_id' => ['nullable', 'integer', $this->ownedBy('warehouses')],
                 'quantity' => 'required|numeric|gt:0',
             ]);
             $items = [$validated];
@@ -173,9 +166,9 @@ class StockController extends Controller
     public function reserve(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'variant_id' => 'nullable|integer|exists:product_variants,id',
-            'warehouse_id' => 'required|integer|exists:warehouses,id',
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'variant_id' => ['nullable', 'integer', $this->ownedVariant()],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'quantity' => 'required|numeric|gt:0',
         ]);
 
@@ -203,9 +196,9 @@ class StockController extends Controller
     public function release(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'variant_id' => 'nullable|integer|exists:product_variants,id',
-            'warehouse_id' => 'required|integer|exists:warehouses,id',
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
+            'variant_id' => ['nullable', 'integer', $this->ownedVariant()],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'quantity' => 'required|numeric|gt:0',
         ]);
 
