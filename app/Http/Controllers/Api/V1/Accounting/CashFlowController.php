@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CashFlowForecast;
 use App\Models\Accounting\CashFlowScenario;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class CashFlowController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CashFlowForecastService $forecastService
     ) {}
@@ -26,7 +29,7 @@ class CashFlowController extends Controller
         $validated = $request->validate([
             'horizon_days'  => 'nullable|integer|in:30,60,90',
             'currency_code' => 'nullable|string|size:3',
-            'scenario_id'   => 'nullable|exists:cash_flow_scenarios,id',
+            'scenario_id'   => ['nullable', $this->ownedBy('cash_flow_scenarios')],
         ]);
 
         $organization = $this->organization($request);

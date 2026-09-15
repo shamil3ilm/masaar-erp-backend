@@ -146,7 +146,7 @@ class PaymentFileBehaviourTest extends TestCase
         $this->assertSame(PaymentFile::STATUS_GENERATED, $file->fresh()->status);
     }
 
-    public function test_another_organizations_file_or_run_is_not_found(): void
+    public function test_another_organizations_file_is_not_found_and_its_run_is_rejected(): void
     {
         $otherOrganization = Organization::factory()->create();
         $file = $this->makeFile(['organization_id' => $otherOrganization->id]);
@@ -162,7 +162,7 @@ class PaymentFileBehaviourTest extends TestCase
         $this->withToken($this->token)->postJson('/api/v1/payment-files/generate', [
             'payment_run_id' => $file->payment_run_id,
             'file_format'    => PaymentFile::FORMAT_SEPA_CT,
-        ])->assertStatus(404);
+        ])->assertStatus(422)->assertJsonValidationErrors('payment_run_id');
 
         $this->assertSame(PaymentFile::STATUS_GENERATED, $file->fresh()->status);
     }

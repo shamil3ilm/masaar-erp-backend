@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\PaymentRun;
 use App\Models\Accounting\PaymentRunItem;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class PaymentRunController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PaymentRunService $service
     ) {}
@@ -47,7 +50,7 @@ class PaymentRunController extends Controller
             'payment_methods.*' => ['string'],
             'minimum_payment'   => ['nullable', 'numeric', 'min:0'],
             'currency_code'     => ['nullable', 'string', 'size:3'],
-            'bank_account_id'   => ['nullable', 'exists:bank_accounts,id'],
+            'bank_account_id'   => ['nullable', $this->ownedBy('bank_accounts')],
         ]);
 
         try {
@@ -77,7 +80,7 @@ class PaymentRunController extends Controller
             'due_date_from'   => ['nullable', 'date'],
             'due_date_to'     => ['nullable', 'date', 'after_or_equal:due_date_from'],
             'minimum_payment' => ['nullable', 'numeric', 'min:0'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
         ]);
 
         $paymentRun->update($validated);
