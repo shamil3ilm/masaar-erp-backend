@@ -10,6 +10,9 @@ use App\Models\Core\OrganizationModuleAccess;
 use App\Models\Core\RoleMenuItem;
 use App\Models\Core\RoleModulePermission;
 use App\Models\Core\UserModuleOverride;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class ModuleAccessService
@@ -51,12 +54,69 @@ class ModuleAccessService
         return RoleModulePermission::where('role_id', $roleId)->with('module')->get();
     }
 
+    /**
+     * Sets a role's permissions on a module. The role and module come only
+     * from the arguments; the same keys among $permissions are ignored so the
+     * row cannot be moved to another role or module.
+     */
     public function setRolePermission(int $roleId, int $moduleId, array $permissions): RoleModulePermission
     {
         return RoleModulePermission::updateOrCreate(
             ['role_id' => $roleId, 'module_id' => $moduleId],
-            $permissions
+            Arr::except($permissions, ['role_id', 'module_id'])
         );
+    }
+
+    public function findModule(int $moduleId): ?ModuleDefinition
+    {
+        return ModuleDefinition::find($moduleId);
+    }
+
+    /**
+     * @return Collection<int, UserModuleOverride>
+     */
+    public function getUserOverrides(int $userId): Collection
+    {
+        return UserModuleOverride::where('user_id', $userId)->with('module')->get();
+    }
+
+    /**
+     * Creates or replaces a user's override on a module, recording who granted
+     * it. The user, module and grantor come only from the arguments; the same
+     * keys among $values are ignored.
+     */
+    public function setUserOverride(int $userId, int $moduleId, array $values, int $grantedBy): UserModuleOverride
+    {
+        return UserModuleOverride::updateOrCreate(
+            ['user_id' => $userId, 'module_id' => $moduleId],
+            array_merge(Arr::except($values, ['user_id', 'module_id', 'granted_by']), ['granted_by' => $grantedBy])
+        );
+    }
+
+    /**
+     * Removes a user's override on a module; false when there was none.
+     */
+    public function removeUserOverride(int $userId, int $moduleId): bool
+    {
+        $override = UserModuleOverride::where('user_id', $userId)->where('module_id', $moduleId)->first();
+
+        if (! $override) {
+            return false;
+        }
+
+        $override->delete();
+
+        return true;
+    }
+
+    /**
+     * Access log entries with their user and module, latest first.
+     */
+    public function getAccessLogs(int $perPage): LengthAwarePaginator
+    {
+        return ModuleAccessLog::with('user', 'module')
+            ->orderByDesc('accessed_at')
+            ->paginate($perPage);
     }
 
     public function getUserEffectivePermissions(int $userId, int $moduleId): array

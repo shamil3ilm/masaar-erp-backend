@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\ModuleAccessLog;
 use App\Models\Core\Role;
-use App\Models\Core\UserModuleOverride;
 use App\Models\User;
 use App\Services\Core\ModuleAccessService;
 use Illuminate\Http\JsonResponse;
@@ -31,8 +29,7 @@ class ModuleAccessController extends Controller
     {
         $request->validate(['active' => 'required|boolean']);
 
-        $module = \App\Models\Core\ModuleDefinition::find($moduleId);
-        if (!$module) {
+        if (! $this->service->findModule($moduleId)) {
             return $this->notFound('Module not found.');
         }
 
@@ -58,28 +55,21 @@ class ModuleAccessController extends Controller
 
     public function userOverrides(User $user): JsonResponse
     {
-        $overrides = UserModuleOverride::where('user_id', $user->id)->with('module')->get();
-        return $this->success($overrides);
+        return $this->success($this->service->getUserOverrides($user->id));
     }
 
     public function setUserOverride(Request $request, User $user, int $moduleId): JsonResponse
     {
-        $override = UserModuleOverride::updateOrCreate(
-            ['user_id' => $user->id, 'module_id' => $moduleId],
-            array_merge($request->all(), ['granted_by' => auth()->id()])
-        );
+        $override = $this->service->setUserOverride($user->id, $moduleId, $request->all(), auth()->id());
         return $this->success($override);
     }
 
     public function removeUserOverride(User $user, int $moduleId): JsonResponse
     {
-        $override = UserModuleOverride::where('user_id', $user->id)->where('module_id', $moduleId)->first();
-
-        if (!$override) {
+        if (! $this->service->removeUserOverride($user->id, $moduleId)) {
             return $this->notFound('Override not found.');
         }
 
-        $override->delete();
         return $this->success(['message' => 'Override removed']);
     }
 
@@ -94,9 +84,6 @@ class ModuleAccessController extends Controller
 
     public function accessLogs(Request $request): JsonResponse
     {
-        $logs = ModuleAccessLog::with('user', 'module')
-            ->orderByDesc('accessed_at')
-            ->paginate($request->input('per_page', 50));
-        return $this->paginated($logs);
+        return $this->paginated($this->service->getAccessLogs($request->integer('per_page', 50)));
     }
 }
