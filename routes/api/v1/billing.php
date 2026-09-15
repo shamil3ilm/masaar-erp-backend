@@ -6,18 +6,20 @@ use App\Http\Controllers\Api\V1\Billing\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Billing\UsageController;
 use Illuminate\Support\Facades\Route;
 
-// Subscription Plans
+// Subscription Plans. The catalog is shared by every organization, so only a
+// platform administrator changes it; a tenant's own administrator role holds
+// the billing permissions too.
 Route::prefix('plans')->group(function () {
     Route::get('/', [SubscriptionPlanController::class, 'index'])
         ->middleware('check.permission:billing.plans.view');
     Route::post('/', [SubscriptionPlanController::class, 'store'])
-        ->middleware('check.permission:billing.plans.create');
+        ->middleware(['check.permission:billing.plans.create', 'super.admin']);
     Route::get('/{plan}', [SubscriptionPlanController::class, 'show'])
         ->middleware('check.permission:billing.plans.view');
     Route::put('/{plan}', [SubscriptionPlanController::class, 'update'])
-        ->middleware('check.permission:billing.plans.update');
+        ->middleware(['check.permission:billing.plans.update', 'super.admin']);
     Route::delete('/{plan}', [SubscriptionPlanController::class, 'destroy'])
-        ->middleware('check.permission:billing.plans.delete');
+        ->middleware(['check.permission:billing.plans.delete', 'super.admin']);
 });
 
 // Subscriptions
@@ -36,14 +38,15 @@ Route::prefix('subscriptions')->group(function () {
         ->middleware('check.permission:billing.subscriptions.update');
 });
 
-// Billing Invoices
+// Billing Invoices. Marking one paid records money the platform received, so
+// only a platform administrator does it; a tenant cannot settle its own bill.
 Route::prefix('invoices')->group(function () {
     Route::get('/', [BillingInvoiceController::class, 'index'])
         ->middleware('check.permission:billing.invoices.view');
     Route::get('/{invoice}', [BillingInvoiceController::class, 'show'])
         ->middleware('check.permission:billing.invoices.view');
     Route::post('/{invoice}/pay', [BillingInvoiceController::class, 'pay'])
-        ->middleware('check.permission:billing.invoices.pay');
+        ->middleware(['check.permission:billing.invoices.pay', 'super.admin']);
 });
 
 // Usage
