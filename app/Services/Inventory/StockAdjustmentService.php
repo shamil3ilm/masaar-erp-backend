@@ -9,6 +9,7 @@ use App\Models\Inventory\StockAdjustmentLine;
 use App\Models\Inventory\StockLevel;
 use App\Models\Inventory\StockMovement;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class StockAdjustmentService
@@ -17,6 +18,25 @@ class StockAdjustmentService
         private StockService $stockService,
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * Stock adjustments of the current organization with their warehouse,
+     * lines, creator and poster, newest first. Each filter applies when its
+     * key is present.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, reason?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return StockAdjustment::with(['warehouse', 'lines.product', 'lines.variant', 'creator', 'poster'])
+            ->latest()
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->inWarehouse((int) $filters['warehouse_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('reason', $filters), fn ($q) => $q->byReason($filters['reason']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('adjustment_date', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('adjustment_date', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new stock adjustment.
@@ -164,7 +184,11 @@ class StockAdjustmentService
     }
 
     /**
-     * Create a quick adjustment for a single product.
+     * Create and post an adjustment for a single product.
+     *
+     * Both run in one transaction, so an adjustment whose posting fails is not
+     * left behind as a draft. create() leaves the status to the column default,
+     * so the stored row is re-read before it is posted.
      */
     public function quickAdjust(
         int $productId,
@@ -174,21 +198,25 @@ class StockAdjustmentService
         int $userId,
         ?string $notes = null
     ): StockAdjustment {
-        return $this->create(
-            [
-                'warehouse_id' => $warehouseId,
-                'adjustment_date' => now()->toDateString(),
-                'reason' => $reason,
-                'notes' => $notes,
-                'created_by' => $userId,
-            ],
-            [
+        return DB::transaction(function () use ($productId, $warehouseId, $actualQuantity, $reason, $userId, $notes): StockAdjustment {
+            $adjustment = $this->create(
                 [
-                    'product_id' => $productId,
-                    'actual_quantity' => $actualQuantity,
+                    'warehouse_id' => $warehouseId,
+                    'adjustment_date' => now()->toDateString(),
+                    'reason' => $reason,
+                    'notes' => $notes,
+                    'created_by' => $userId,
                 ],
-            ]
-        );
+                [
+                    [
+                        'product_id' => $productId,
+                        'actual_quantity' => $actualQuantity,
+                    ],
+                ]
+            );
+
+            return $this->post($adjustment->fresh(), $userId);
+        });
     }
 
     /**

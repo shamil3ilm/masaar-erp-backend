@@ -13,6 +13,7 @@ use App\Models\Inventory\WarehouseLocation;
 use App\Models\Inventory\WavePlan;
 use App\Models\Inventory\WavePlanOrder;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class WaveManagementService
@@ -55,11 +56,13 @@ class WaveManagementService
      */
     public function releaseWave(WavePlan $wave, int $userId): WavePlan
     {
-        if (!$wave->isDraft()) {
-            throw new \InvalidArgumentException('Only draft wave plans can be released.');
-        }
+        // Checked again on the locked row: two releases of one draft would
+        // otherwise both generate picking lists.
+        return $wave->lockForTransition(function (WavePlan $wave) use ($userId): WavePlan {
+            if (!$wave->isDraft()) {
+                throw new \InvalidArgumentException('Only draft wave plans can be released.');
+            }
 
-        return DB::transaction(function () use ($wave, $userId) {
             $wave->release($userId);
             $this->generatePickingLists($wave, $userId);
 
@@ -98,11 +101,11 @@ class WaveManagementService
      */
     public function assignPicker(PickingList $list, int $pickerId, int $userId): PickingList
     {
-        if (!in_array($list->status, [PickingList::STATUS_PENDING, PickingList::STATUS_ASSIGNED], true)) {
-            throw new \InvalidArgumentException('Only pending or assigned lists can have a picker assigned.');
-        }
+        return $list->lockForTransition(function (PickingList $list) use ($pickerId, $userId): PickingList {
+            if (!in_array($list->status, [PickingList::STATUS_PENDING, PickingList::STATUS_ASSIGNED], true)) {
+                throw new \InvalidArgumentException('Only pending or assigned lists can have a picker assigned.');
+            }
 
-        return DB::transaction(function () use ($list, $pickerId, $userId) {
             $list->assign($pickerId, $userId);
             return $list->refresh();
         });
@@ -113,11 +116,11 @@ class WaveManagementService
      */
     public function startPicking(PickingList $list, int $userId): PickingList
     {
-        if ($list->status !== PickingList::STATUS_ASSIGNED) {
-            throw new \InvalidArgumentException('Only assigned lists can be started.');
-        }
+        return $list->lockForTransition(function (PickingList $list) use ($userId): PickingList {
+            if ($list->status !== PickingList::STATUS_ASSIGNED) {
+                throw new \InvalidArgumentException('Only assigned lists can be started.');
+            }
 
-        return DB::transaction(function () use ($list, $userId) {
             $list->start($userId);
             return $list->refresh();
         });
@@ -133,11 +136,13 @@ class WaveManagementService
             throw new \InvalidArgumentException('Pick quantity must be greater than zero.');
         }
 
-        if ($line->isCompleted()) {
-            throw new \InvalidArgumentException('This line has already been fully picked.');
-        }
+        // The completed check runs on the locked line, so two picks of the
+        // last units cannot both be recorded.
+        return $line->lockForTransition(function (PickingListLine $line) use ($quantity, $userId): PickingListLine {
+            if ($line->isCompleted()) {
+                throw new \InvalidArgumentException('This line has already been fully picked.');
+            }
 
-        return DB::transaction(function () use ($line, $quantity, $userId) {
             $line->pick($quantity, $userId);
 
             // Recalculate list picked_lines counter
@@ -153,11 +158,11 @@ class WaveManagementService
      */
     public function completePicking(PickingList $list, int $userId): PickingList
     {
-        if (!in_array($list->status, [PickingList::STATUS_IN_PROGRESS, PickingList::STATUS_ASSIGNED], true)) {
-            throw new \InvalidArgumentException('Only in-progress or assigned lists can be completed.');
-        }
+        return $list->lockForTransition(function (PickingList $list) use ($userId): PickingList {
+            if (!in_array($list->status, [PickingList::STATUS_IN_PROGRESS, PickingList::STATUS_ASSIGNED], true)) {
+                throw new \InvalidArgumentException('Only in-progress or assigned lists can be completed.');
+            }
 
-        return DB::transaction(function () use ($list, $userId) {
             $list->complete($userId);
             $this->checkWaveCompletion($list->wave_plan_id, $userId);
 
@@ -236,6 +241,138 @@ class WaveManagementService
             'avg_completion_minutes'   => $avgCompletionMinutes ? round((float) $avgCompletionMinutes, 1) : null,
             'period'                   => ['from' => $from, 'to' => $to],
         ];
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Lookups and lists
+    // -------------------------------------------------------------------------
+
+    /**
+     * Putaway rules of the current organization with their references, in
+     * priority order. warehouse_id applies when present; active_only when true.
+     *
+     * @param  array{warehouse_id?: int, active_only?: bool}  $filters
+     */
+    public function paginatePutawayRules(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PutawayRule::with(['warehouse', 'product', 'productCategory', 'preferredLocation'])
+            ->orderBy('priority')
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->where('warehouse_id', $filters['warehouse_id']))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->paginate($perPage);
+    }
+
+    public function findPutawayRuleOrFail(int $id): PutawayRule
+    {
+        return PutawayRule::findOrFail($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updatePutawayRule(PutawayRule $rule, array $data): PutawayRule
+    {
+        $rule->update($data);
+
+        return $rule->load(['warehouse', 'product', 'productCategory', 'preferredLocation']);
+    }
+
+    public function deletePutawayRule(PutawayRule $rule): void
+    {
+        $rule->delete();
+    }
+
+    /**
+     * Wave plans of the current organization with their warehouse and
+     * creator, newest first. Each filter applies when its key is present.
+     *
+     * @param  array{status?: string, warehouse_id?: int, wave_type?: string, from_date?: string, to_date?: string}  $filters
+     */
+    public function paginateWaves(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return WavePlan::with(['warehouse', 'creator'])
+            ->latest()
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->forWarehouse($filters['warehouse_id']))
+            ->when(array_key_exists('wave_type', $filters), fn ($q) => $q->where('wave_type', $filters['wave_type']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('planned_date', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('planned_date', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findWaveOrFail(int $id, array $with = []): WavePlan
+    {
+        return WavePlan::with($with)->findOrFail($id);
+    }
+
+    /**
+     * Complete a wave on its locked row; a wave already completed is returned
+     * as it is.
+     */
+    public function completeWave(WavePlan $wave, int $userId): WavePlan
+    {
+        return $wave->lockForTransition(function (WavePlan $wave) use ($userId): WavePlan {
+            if (! $wave->isCompleted()) {
+                $wave->complete($userId);
+            }
+
+            return $wave->refresh();
+        });
+    }
+
+    /**
+     * Picking lists of the current organization with their wave, warehouse and
+     * picker, newest first. Each filter applies when its key is present.
+     *
+     * @param  array{status?: string, warehouse_id?: int, picker_id?: int, wave_id?: int}  $filters
+     */
+    public function paginatePickingLists(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PickingList::with(['wave', 'warehouse', 'picker'])
+            ->latest()
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('warehouse_id', $filters), fn ($q) => $q->where('warehouse_id', $filters['warehouse_id']))
+            ->when(array_key_exists('picker_id', $filters), fn ($q) => $q->forPicker($filters['picker_id']))
+            ->when(array_key_exists('wave_id', $filters), fn ($q) => $q->where('wave_plan_id', $filters['wave_id']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $with
+     */
+    public function findPickingListOrFail(int $id, array $with = []): PickingList
+    {
+        return PickingList::with($with)->findOrFail($id);
+    }
+
+    /**
+     * A picking list line of the current organization. Lines carry no
+     * organization column, so the line is found through its picking list,
+     * which does.
+     */
+    public function findPickingLineOrFail(int $id): PickingListLine
+    {
+        return PickingListLine::whereHas('pickingList')->findOrFail($id);
+    }
+
+    /**
+     * Record a pick with optional notes; the notes and the pick are kept
+     * together or not at all.
+     */
+    public function recordPick(PickingListLine $line, float $quantity, ?string $notes, int $userId): PickingListLine
+    {
+        return DB::transaction(function () use ($line, $quantity, $notes, $userId): PickingListLine {
+            if (! empty($notes)) {
+                $line->notes = $notes;
+                $line->save();
+            }
+
+            return $this->pickLine($line, $quantity, $userId);
+        });
     }
 
     // -------------------------------------------------------------------------

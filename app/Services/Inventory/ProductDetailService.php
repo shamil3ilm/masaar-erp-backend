@@ -146,4 +146,73 @@ class ProductDetailService
         $data['product_id'] = $productId;
         return ProductCertification::create($data);
     }
+
+    /**
+     * Reviews of the product, newest first; one status only when given.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, ProductReview>
+     */
+    public function listReviews(int $productId, ?string $status): \Illuminate\Database\Eloquent\Collection
+    {
+        return ProductReview::where('product_id', $productId)
+            ->when($status, fn ($q, $s) => $q->where('status', $s))
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    // Images, documents, videos and certifications carry no organization
+    // column; they are reached by id and belong to whichever product their
+    // product_id names. Each change below first checks that the row belongs
+    // to the product in the URL, so another organization's rows are not found.
+
+    public function removeProductImage(Product $product, ProductImage $image): void
+    {
+        $this->assertBelongsTo($product, $image);
+        $this->removeImage($image->id);
+    }
+
+    public function removeProductDocument(Product $product, ProductDocument $document): void
+    {
+        $this->assertBelongsTo($product, $document);
+        $document->delete();
+    }
+
+    public function removeProductVideo(Product $product, ProductVideo $video): void
+    {
+        $this->assertBelongsTo($product, $video);
+        $video->delete();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateProductCertification(Product $product, ProductCertification $certification, array $data): ProductCertification
+    {
+        $this->assertBelongsTo($product, $certification);
+        $certification->update($data);
+
+        return $certification->fresh();
+    }
+
+    public function approveProductReview(Product $product, ProductReview $review, int $userId): ProductReview
+    {
+        $this->assertBelongsTo($product, $review);
+
+        return $this->approveReview($review->id, $userId);
+    }
+
+    public function rejectProductReview(Product $product, ProductReview $review): ProductReview
+    {
+        $this->assertBelongsTo($product, $review);
+        $review->update(['status' => 'rejected']);
+
+        return $review->fresh();
+    }
+
+    private function assertBelongsTo(Product $product, \Illuminate\Database\Eloquent\Model $child): void
+    {
+        if ((int) $child->getAttribute('product_id') !== (int) $product->id) {
+            throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel($child::class, [$child->getKey()]);
+        }
+    }
 }

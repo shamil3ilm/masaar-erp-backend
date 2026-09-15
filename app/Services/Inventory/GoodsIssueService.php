@@ -10,6 +10,7 @@ use App\Models\Inventory\GoodsIssueLine;
 use App\Models\Inventory\StockMovement;
 use App\Services\Accounting\JournalService;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -20,6 +21,25 @@ class GoodsIssueService
         private JournalService $journalService,
         private NumberGeneratorService $numberGenerator
     ) {}
+
+    /**
+     * Goods issues of the current organization with their warehouse, lines,
+     * creator and poster, latest issue date first. Each filter applies when
+     * its value is filled.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, movement_type?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return GoodsIssue::with(['warehouse', 'lines.product', 'creator', 'postedBy'])
+            ->latest('gi_date')
+            ->when(filled($filters['warehouse_id'] ?? null), fn ($q) => $q->inWarehouse((int) $filters['warehouse_id']))
+            ->when(filled($filters['status'] ?? null), fn ($q) => $q->where('status', $filters['status']))
+            ->when(filled($filters['movement_type'] ?? null), fn ($q) => $q->byMovementType($filters['movement_type']))
+            ->when(filled($filters['from_date'] ?? null), fn ($q) => $q->where('gi_date', '>=', $filters['from_date']))
+            ->when(filled($filters['to_date'] ?? null), fn ($q) => $q->where('gi_date', '<=', $filters['to_date']))
+            ->paginate($perPage);
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 

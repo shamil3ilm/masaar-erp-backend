@@ -4,22 +4,26 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\BatchWhereUsedRecord;
-use App\Models\Inventory\InventoryBatch;
 use App\Services\Inventory\BatchWhereUsedService;
+use App\Services\Inventory\InventoryBatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class BatchWhereUsedController extends Controller
 {
-    public function __construct(private readonly BatchWhereUsedService $service) {}
+    use ValidatesOwnedRows;
+
+    public function __construct(
+        private readonly BatchWhereUsedService $service,
+        private readonly InventoryBatchService $batches,
+    ) {}
 
     public function getForBatch(Request $request, string $batchId): JsonResponse
     {
-        $batch = InventoryBatch::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($batchId);
+        $batch = $this->batches->findOrFail((int) Auth::user()->organization_id, $batchId);
 
         $records = $this->service->getForBatch(
             $batch->id,
@@ -32,14 +36,14 @@ class BatchWhereUsedController extends Controller
     public function record(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'inventory_batch_id' => 'required|integer|exists:inventory_batches,id',
+            'inventory_batch_id' => ['required', 'integer', $this->ownedBy('inventory_batches')],
             'usage_type'         => 'required|in:work_order,process_order,sales_invoice,stock_transfer,adjustment',
             'reference_id'       => 'required|integer',
             'reference_number'   => 'nullable|string|max:100',
-            'product_id'         => 'nullable|integer|exists:products,id',
+            'product_id'         => ['nullable', 'integer', $this->ownedBy('products')],
             'quantity_used'      => 'required|numeric|min:0.0001',
             'used_at'            => 'nullable|date',
-            'warehouse_id'       => 'nullable|integer|exists:warehouses,id',
+            'warehouse_id'       => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $record = $this->service->record(array_merge($validated, [
@@ -51,8 +55,7 @@ class BatchWhereUsedController extends Controller
 
     public function whereUsedTree(string $batchId): JsonResponse
     {
-        $batch = InventoryBatch::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($batchId);
+        $batch = $this->batches->findOrFail((int) Auth::user()->organization_id, $batchId);
 
         $tree = $this->service->getWhereUsedTree($batch->id);
 

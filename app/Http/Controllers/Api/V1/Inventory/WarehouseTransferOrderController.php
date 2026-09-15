@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\WarehouseTransferOrder;
 use App\Services\Inventory\WarehouseTransferOrderService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class WarehouseTransferOrderController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private WarehouseTransferOrderService $transferOrderService
     ) {}
@@ -21,14 +24,10 @@ class WarehouseTransferOrderController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $orders = WarehouseTransferOrder::with(['warehouse', 'sourceLocation', 'destLocation', 'assignee'])
-            ->when($request->warehouse_id, fn($q, $v) => $q->forWarehouse((int) $v))
-            ->when($request->status, fn($q, $v) => $q->where('status', $v))
-            ->when($request->movement_type, fn($q, $v) => $q->where('movement_type', $v))
-            ->when($request->from_date, fn($q, $v) => $q->where('created_at', '>=', $v))
-            ->when($request->to_date, fn($q, $v) => $q->where('created_at', '<=', $v))
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->integer('per_page', 15));
+        $orders = $this->transferOrderService->list(
+            $request->only(['warehouse_id', 'status', 'movement_type', 'from_date', 'to_date']),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($orders);
     }
@@ -39,18 +38,18 @@ class WarehouseTransferOrderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'          => 'required|exists:warehouses,id',
+            'warehouse_id'          => ['required', $this->ownedBy('warehouses')],
             'movement_type'         => 'nullable|in:goods_receipt,goods_issue,internal_transfer,replenishment',
             'source_document_type'  => 'nullable|string|max:50',
             'source_document_ref'   => 'nullable|string|max:50',
-            'source_location_id'    => 'nullable|exists:warehouse_locations,id',
-            'dest_location_id'      => 'nullable|exists:warehouse_locations,id',
-            'assigned_to'           => 'nullable|exists:users,id',
+            'source_location_id'    => ['nullable', $this->ownedLocation()],
+            'dest_location_id'      => ['nullable', $this->ownedLocation()],
+            'assigned_to'           => ['nullable', $this->ownedBy('users')],
             'items'                 => 'required|array|min:1',
-            'items.*.product_id'    => 'required|exists:products,id',
-            'items.*.variant_id'    => 'nullable|exists:product_variants,id',
-            'items.*.source_location_id' => 'nullable|exists:warehouse_locations,id',
-            'items.*.dest_location_id'   => 'nullable|exists:warehouse_locations,id',
+            'items.*.product_id'    => ['required', $this->ownedBy('products')],
+            'items.*.variant_id'    => ['nullable', $this->ownedVariant()],
+            'items.*.source_location_id' => ['nullable', $this->ownedLocation()],
+            'items.*.dest_location_id'   => ['nullable', $this->ownedLocation()],
             'items.*.requested_quantity' => 'required|numeric|min:0.0001',
         ]);
 
@@ -89,14 +88,18 @@ class WarehouseTransferOrderController extends Controller
         $validated = $request->validate([
             'source_document_type' => 'nullable|string|max:50',
             'source_document_ref'  => 'nullable|string|max:50',
-            'source_location_id'   => 'nullable|exists:warehouse_locations,id',
-            'dest_location_id'     => 'nullable|exists:warehouse_locations,id',
-            'assigned_to'          => 'nullable|exists:users,id',
+            'source_location_id'   => ['nullable', $this->ownedLocation()],
+            'dest_location_id'     => ['nullable', $this->ownedLocation()],
+            'assigned_to'          => ['nullable', $this->ownedBy('users')],
         ]);
 
-        $warehouseTransferOrder->update($validated);
+        try {
+            $order = $this->transferOrderService->update($warehouseTransferOrder, $validated);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'STATE_ERROR', 422);
+        }
 
-        return $this->success($warehouseTransferOrder->fresh(), 'Transfer order updated.');
+        return $this->success($order, 'Transfer order updated.');
     }
 
     /**
@@ -104,15 +107,11 @@ class WarehouseTransferOrderController extends Controller
      */
     public function destroy(WarehouseTransferOrder $warehouseTransferOrder): JsonResponse
     {
-        if (!$warehouseTransferOrder->canCancel()) {
-            return $this->error(
-                'Only created or in-progress transfer orders can be deleted.',
-                'STATE_ERROR',
-                422
-            );
+        try {
+            $this->transferOrderService->delete($warehouseTransferOrder);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'STATE_ERROR', 422);
         }
-
-        $warehouseTransferOrder->delete();
 
         return $this->success(null, 'Transfer order deleted.');
     }

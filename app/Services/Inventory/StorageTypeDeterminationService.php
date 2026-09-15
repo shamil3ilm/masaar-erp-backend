@@ -34,6 +34,35 @@ class StorageTypeDeterminationService
     }
 
     /**
+     * A storage type of the current organization, or a not-found error.
+     *
+     * @param  list<string>  $with
+     */
+    public function findTypeOrFail(int $id, array $with = []): StorageType
+    {
+        return StorageType::with($with)->findOrFail($id);
+    }
+
+    public function deleteType(StorageType $storageType): void
+    {
+        $storageType->delete();
+    }
+
+    /**
+     * A determination rule of the given storage type; a rule of another
+     * storage type is not found.
+     */
+    public function findRuleOrFail(StorageType $storageType, int $ruleId): StorageTypeDeterminationRule
+    {
+        return StorageTypeDeterminationRule::where('storage_type_id', $storageType->id)->findOrFail($ruleId);
+    }
+
+    public function deleteRule(StorageTypeDeterminationRule $rule): void
+    {
+        $rule->delete();
+    }
+
+    /**
      * Create a new storage type.
      */
     public function createType(array $data): StorageType
