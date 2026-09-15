@@ -26,7 +26,9 @@ class CampaignService
      */
     public static function triggerEventAsync(string $event, int $userId, int $organizationId): void
     {
-        TriggerEventCampaignsJob::dispatch($event, $userId, $organizationId);
+        // Callers track events from inside document transactions; the job waits
+        // for the commit so it never acts on a change that is rolled back.
+        TriggerEventCampaignsJob::dispatch($event, $userId, $organizationId)->afterCommit();
     }
 
     /**
