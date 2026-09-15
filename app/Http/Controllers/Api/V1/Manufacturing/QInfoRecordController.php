@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\QInfoRecord;
 use App\Services\Manufacturing\QInfoRecordService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class QInfoRecordController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly QInfoRecordService $service) {}
 
     public function index(Request $request): JsonResponse
@@ -23,11 +25,11 @@ class QInfoRecordController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'vendor_id'                => 'nullable|integer|exists:contacts,id',
-            'product_id'               => 'required|integer|exists:products,id',
+            'vendor_id'                => ['nullable', 'integer', $this->ownedBy('contacts')],
+            'product_id'               => ['required', 'integer', $this->ownedBy('products')],
             'inspection_type'          => 'required|in:goods_receipt,in_process,final,delivery,returns',
-            'skip_lot_plan_id'         => 'nullable|integer|exists:skip_lot_sampling_plans,id',
-            'quality_plan_id'          => 'nullable|integer|exists:quality_plans,id',
+            'skip_lot_plan_id'         => ['nullable', 'integer', $this->ownedBy('skip_lot_sampling_plans')],
+            'quality_plan_id'          => ['nullable', 'integer', $this->ownedBy('quality_plans')],
             'is_active'                => 'boolean',
             'release_required'         => 'boolean',
             'cert_required'            => 'boolean',
@@ -44,22 +46,20 @@ class QInfoRecordController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $record = QInfoRecord::where('organization_id', $request->user()->organization_id)
-            ->with(['vendor', 'product', 'skipLotPlan', 'qualityPlan'])
-            ->findOrFail($id);
+        $record = $this->service->findForDisplay($request->user()->organization_id, $id);
         return $this->success($record, 'Q-Info record retrieved.');
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $record = QInfoRecord::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $record = $this->service->find($request->user()->organization_id, $id);
 
         $data = $request->validate([
-            'vendor_id'                => 'nullable|integer|exists:contacts,id',
-            'product_id'               => 'integer|exists:products,id',
+            'vendor_id'                => ['nullable', 'integer', $this->ownedBy('contacts')],
+            'product_id'               => ['integer', $this->ownedBy('products')],
             'inspection_type'          => 'in:goods_receipt,in_process,final,delivery,returns',
-            'skip_lot_plan_id'         => 'nullable|integer|exists:skip_lot_sampling_plans,id',
-            'quality_plan_id'          => 'nullable|integer|exists:quality_plans,id',
+            'skip_lot_plan_id'         => ['nullable', 'integer', $this->ownedBy('skip_lot_sampling_plans')],
+            'quality_plan_id'          => ['nullable', 'integer', $this->ownedBy('quality_plans')],
             'is_active'                => 'boolean',
             'release_required'         => 'boolean',
             'cert_required'            => 'boolean',
@@ -76,8 +76,7 @@ class QInfoRecordController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $record = QInfoRecord::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $record->delete();
+        $this->service->delete($this->service->find($request->user()->organization_id, $id));
         return $this->success(null, 'Q-Info record deleted.');
     }
 
