@@ -4,24 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\AuditChecklist;
-use App\Models\Manufacturing\AuditFinding;
-use App\Models\Manufacturing\AuditPlan;
-use App\Models\Manufacturing\AuditReport;
+use App\Services\Manufacturing\AuditManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class AuditManagementController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(private readonly AuditManagementService $service) {}
+
     public function index(Request $request): JsonResponse
     {
-        $plans = AuditPlan::where('organization_id', $request->user()->organization_id)
-            ->with('leadAuditor')
-            ->paginate(20);
-
-        return $this->paginated($plans);
+        return $this->paginated($this->service->list($request->user()->organization_id));
     }
 
     public function store(Request $request): JsonResponse
@@ -32,24 +29,17 @@ class AuditManagementController extends Controller
             'audit_type'       => 'required|in:internal,supplier,customer,regulatory,certification',
             'planned_start'    => 'required|date',
             'planned_end'      => 'required|date|after_or_equal:planned_start',
-            'lead_auditor_id'  => 'nullable|integer|exists:users,id',
+            'lead_auditor_id'  => ['nullable', 'integer', $this->ownedBy('users')],
             'scope'            => 'nullable|string',
             'objectives'       => 'nullable|string',
         ]);
 
-        $data['uuid']            = (string) Str::uuid();
-        $data['organization_id'] = $request->user()->organization_id;
-
-        $plan = AuditPlan::create($data);
-
-        return $this->created($plan);
+        return $this->created($this->service->create($request->user()->organization_id, $data));
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $plan = AuditPlan::where('organization_id', $request->user()->organization_id)
-            ->with(['leadAuditor', 'checklists', 'findings'])
-            ->findOrFail($id);
+        $plan = $this->service->find($request->user()->organization_id, $id, ['leadAuditor', 'checklists', 'findings']);
 
         return $this->success($plan);
     }
@@ -61,25 +51,22 @@ class AuditManagementController extends Controller
             'question'    => 'required|string',
         ]);
 
-        $plan     = AuditPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $checklist = $plan->checklists()->create(array_merge($data, ['uuid' => (string) Str::uuid()]));
+        $plan = $this->service->find($request->user()->organization_id, $planId);
 
-        return $this->created($checklist);
+        return $this->created($this->service->addChecklistItem($plan, $data));
     }
 
     public function updateChecklist(Request $request, int $planId, int $checklistId): JsonResponse
     {
-        $plan      = AuditPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $checklist = AuditChecklist::where('audit_plan_id', $plan->id)->findOrFail($checklistId);
+        $plan = $this->service->find($request->user()->organization_id, $planId);
+        $item = $this->service->findChecklistItem($plan, $checklistId);
 
         $data = $request->validate([
             'response' => 'required|in:yes,no,partial,na',
             'remarks'  => 'nullable|string',
         ]);
 
-        $checklist->update($data);
-
-        return $this->success($checklist, 'Checklist item updated');
+        return $this->success($this->service->answerChecklistItem($item, $data), 'Checklist item updated');
     }
 
     public function addFinding(Request $request, int $planId): JsonResponse
@@ -93,20 +80,16 @@ class AuditManagementController extends Controller
             'due_date'                => 'nullable|date',
         ]);
 
-        $plan    = AuditPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $finding = $plan->findings()->create(array_merge($data, ['uuid' => (string) Str::uuid()]));
+        $plan = $this->service->find($request->user()->organization_id, $planId);
 
-        return $this->created($finding);
+        return $this->created($this->service->addFinding($plan, $data));
     }
 
     public function closeFinding(Request $request, int $planId, int $findingId): JsonResponse
     {
-        $plan    = AuditPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $finding = AuditFinding::where('audit_plan_id', $plan->id)->findOrFail($findingId);
+        $plan = $this->service->find($request->user()->organization_id, $planId);
 
-        $finding->update(['status' => 'closed']);
-
-        return $this->success($finding, 'Finding closed');
+        return $this->success($this->service->closeFinding($plan, $findingId), 'Finding closed');
     }
 
     public function createReport(Request $request, int $planId): JsonResponse
@@ -118,14 +101,8 @@ class AuditManagementController extends Controller
             'overall_rating'    => 'nullable|in:satisfactory,needs_improvement,unsatisfactory',
         ]);
 
-        $plan   = AuditPlan::where('organization_id', $request->user()->organization_id)->findOrFail($planId);
-        $report = AuditReport::create(array_merge($data, [
-            'uuid'          => (string) Str::uuid(),
-            'audit_plan_id' => $plan->id,
-        ]));
+        $plan = $this->service->find($request->user()->organization_id, $planId);
 
-        $plan->update(['status' => 'completed']);
-
-        return $this->created($report);
+        return $this->created($this->service->createReport($plan, $data));
     }
 }
