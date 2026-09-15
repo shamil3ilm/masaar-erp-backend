@@ -40,6 +40,33 @@ class ClassificationService
     }
 
     /**
+     * A class of the current organization; another organization's class is not found.
+     */
+    public function findClass(int|string $id): ClassificationClass
+    {
+        return ClassificationClass::findOrFail($id);
+    }
+
+    /**
+     * A class of the current organization with its characteristics.
+     */
+    public function classDetails(int|string $id): ClassificationClass
+    {
+        return ClassificationClass::with(['characteristics'])->findOrFail($id);
+    }
+
+    /**
+     * A characteristic of a class of the current organization; a characteristic
+     * of another class, or of a class that is not found, is not found.
+     */
+    public function findCharacteristic(int|string $classId, int|string $characteristicId): ClassCharacteristic
+    {
+        $this->findClass($classId);
+
+        return ClassCharacteristic::where('classification_class_id', $classId)->findOrFail($characteristicId);
+    }
+
+    /**
      * Create a classification class.
      */
     public function createClass(array $data): ClassificationClass
@@ -55,6 +82,11 @@ class ClassificationService
         DB::transaction(static fn () => $class->update($data));
 
         return $class->fresh();
+    }
+
+    public function deleteClass(ClassificationClass $class): void
+    {
+        $class->delete();
     }
 
     /**
@@ -81,7 +113,7 @@ class ClassificationService
     }
 
     /**
-     * Assign a class to an object.
+     * Assign a class of the current organization to an object.
      */
     public function assignClassToObject(
         string $objectType,
@@ -89,6 +121,8 @@ class ClassificationService
         int $classId,
         int $orgId,
     ): ClassAssignment {
+        $this->findClass($classId);
+
         return DB::transaction(static function () use ($objectType, $objectId, $classId, $orgId): ClassAssignment {
             return ClassAssignment::firstOrCreate(
                 [
@@ -101,6 +135,32 @@ class ClassificationService
                     'assigned_at'     => now(),
                 ]
             );
+        });
+    }
+
+    /**
+     * Sets several characteristic values of an object in one transaction, so
+     * a value that fails leaves none of them changed.
+     *
+     * @param  list<array{characteristic_id: int|string, value: mixed}>  $values
+     * @return list<ClassCharacteristicValue>
+     */
+    public function setCharacteristicValues(string $objectType, int $objectId, array $values, int $orgId): array
+    {
+        return DB::transaction(function () use ($objectType, $objectId, $values, $orgId): array {
+            $saved = [];
+
+            foreach ($values as $item) {
+                $saved[] = $this->setCharacteristicValue(
+                    objectType: $objectType,
+                    objectId: $objectId,
+                    characteristicId: (int) $item['characteristic_id'],
+                    value: $item['value'],
+                    orgId: $orgId,
+                );
+            }
+
+            return $saved;
         });
     }
 
@@ -178,36 +238,42 @@ class ClassificationService
     }
 
     /**
-     * Search objects by characteristic criteria.
+     * Search objects of one type by characteristic criteria; an object matches
+     * when any criterion matches.
      *
      * Criteria format: [['characteristic_id' => 1, 'value' => 'something'], ...]
      */
     public function searchByCharacteristics(string $objectType, array $criteria): Collection
     {
-        $query = ClassCharacteristicValue::where('object_type', $objectType);
+        $characteristics = ClassCharacteristic::whereIn('id', array_column($criteria, 'characteristic_id'))
+            ->get()
+            ->keyBy('id');
 
-        foreach ($criteria as $criterion) {
-            $charId = $criterion['characteristic_id'];
-            $value = $criterion['value'];
+        // The criteria are grouped so the object type applies to every one of them.
+        $query = ClassCharacteristicValue::where('object_type', $objectType)
+            ->where(function ($matches) use ($criteria, $characteristics): void {
+                foreach ($criteria as $criterion) {
+                    $charId = $criterion['characteristic_id'];
+                    $value = $criterion['value'];
+                    $characteristic = $characteristics->get($charId);
 
-            $characteristic = ClassCharacteristic::find($charId);
+                    if ($characteristic === null) {
+                        continue;
+                    }
 
-            if ($characteristic === null) {
-                continue;
-            }
+                    $matches->orWhere(function ($q) use ($charId, $value, $characteristic): void {
+                        $q->where('class_characteristic_id', $charId);
 
-            $query->orWhere(function ($q) use ($charId, $value, $characteristic): void {
-                $q->where('class_characteristic_id', $charId);
-
-                match ($characteristic->data_type) {
-                    'text', 'list' => $q->where('text_value', 'like', "%{$value}%"),
-                    'numeric'      => $q->where('numeric_value', $value),
-                    'date'         => $q->where('date_value', $value),
-                    'boolean'      => $q->where('boolean_value', (bool) $value),
-                    default        => $q->where('text_value', $value),
-                };
+                        match ($characteristic->data_type) {
+                            'text', 'list' => $q->where('text_value', 'like', "%{$value}%"),
+                            'numeric'      => $q->where('numeric_value', $value),
+                            'date'         => $q->where('date_value', $value),
+                            'boolean'      => $q->where('boolean_value', (bool) $value),
+                            default        => $q->where('text_value', $value),
+                        };
+                    });
+                }
             });
-        }
 
         return $query->select('object_type', 'object_id')->distinct()->get();
     }
