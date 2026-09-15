@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Core;
 
+use App\Models\Core\ActivityLog;
 use App\Models\HR\Employee;
 use App\Models\Sales\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -162,8 +161,7 @@ class SensitiveRevealService
     private function recordActivity(User $user, string $action, string $entityType, string $entityId, ?string $ipAddress): void
     {
         try {
-            DB::table('activity_logs')->insert([
-                'uuid' => (string) Str::uuid(),
+            ActivityLog::create([
                 'organization_id' => $user->organization_id,
                 'user_id' => $user->id,
                 'action' => $action,
@@ -173,7 +171,6 @@ class SensitiveRevealService
                 'module' => 'core',
                 'severity' => 'warning',
                 'ip_address' => $ipAddress,
-                'created_at' => now(),
             ]);
         } catch (Throwable $e) {
             logger()->error('Activity log write failed for sensitive data access', [

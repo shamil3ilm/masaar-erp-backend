@@ -52,7 +52,7 @@ class UserEventService
      */
     public function summary(int $organizationId, ?int $onlyUserId): Collection
     {
-        return DB::table('user_events')
+        return UserEvent::query()
             ->select([
                 'event_type',
                 DB::raw('DATE(created_at) as date'),
