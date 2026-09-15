@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\OutputConditionRecord;
 use App\Models\Sales\OutputMessage;
 use App\Models\Sales\OutputType;
 use App\Services\Sales\OutputDeterminationService;
@@ -14,6 +16,8 @@ use Illuminate\Http\Request;
 
 class OutputDeterminationController extends Controller
 {
+    use ReportsBusinessRules, ValidatesOwnedRows;
+
     public function __construct(
         private OutputDeterminationService $outputDeterminationService
     ) {}
@@ -27,12 +31,11 @@ class OutputDeterminationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = OutputType::with(['conditionRecords'])
-            ->latest()
-            ->when($request->has('document_type'), fn($q) => $q->forDocumentType($request->string('document_type')))
-            ->when($request->has('active_only'), fn($q) => $q->active());
-
-        $types = $query->paginate($request->integer('per_page', 15));
+        $types = $this->outputDeterminationService->listTypes(
+            $request->has('document_type') ? (string) $request->string('document_type') : null,
+            $request->has('active_only'),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($types);
     }
@@ -53,27 +56,22 @@ class OutputDeterminationController extends Controller
             'is_active'       => 'nullable|boolean',
             'condition_records'                      => 'nullable|array',
             'condition_records.*.key_combination'    => 'required|in:customer,customer_group,all',
-            'condition_records.*.customer_id'        => 'nullable|integer',
-            'condition_records.*.customer_group_id'  => 'nullable|integer',
+            'condition_records.*.customer_id'        => ['nullable', 'integer', $this->ownedBy('contacts')],
+            'condition_records.*.customer_group_id'  => ['nullable', 'integer', $this->ownedBy('customer_groups')],
             'condition_records.*.valid_from'         => 'nullable|date',
             'condition_records.*.valid_to'           => 'nullable|date',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
-
-        $conditionRecordsData = $validated['condition_records'] ?? [];
+        $conditionRecords = $validated['condition_records'] ?? [];
         unset($validated['condition_records']);
 
-        $outputType = OutputType::create($validated);
+        $outputType = $this->outputDeterminationService->createType(
+            (int) $this->organizationId($request),
+            $validated,
+            $conditionRecords
+        );
 
-        foreach ($conditionRecordsData as $record) {
-            OutputConditionRecord::create(array_merge($record, [
-                'output_type_id' => $outputType->id,
-                'is_active'      => $record['is_active'] ?? true,
-            ]));
-        }
-
-        return $this->success($outputType->load('conditionRecords'), 'Output type created.', 201);
+        return $this->success($outputType, 'Output type created.', 201);
     }
 
     /**
@@ -81,7 +79,7 @@ class OutputDeterminationController extends Controller
      */
     public function show(OutputType $outputType): JsonResponse
     {
-        return $this->success($outputType->load('conditionRecords'));
+        return $this->success($this->outputDeterminationService->typeDetails($outputType));
     }
 
     /**
@@ -100,9 +98,10 @@ class OutputDeterminationController extends Controller
             'is_active'      => 'nullable|boolean',
         ]);
 
-        $outputType->update($validated);
-
-        return $this->success($outputType->fresh('conditionRecords'), 'Output type updated.');
+        return $this->success(
+            $this->outputDeterminationService->updateType($outputType, $validated),
+            'Output type updated.'
+        );
     }
 
     /**
@@ -110,7 +109,7 @@ class OutputDeterminationController extends Controller
      */
     public function destroy(OutputType $outputType): JsonResponse
     {
-        $outputType->delete();
+        $this->outputDeterminationService->deleteType($outputType);
 
         return $this->success(null, 'Output type deleted.');
     }
@@ -124,14 +123,12 @@ class OutputDeterminationController extends Controller
      */
     public function messages(Request $request): JsonResponse
     {
-        $query = OutputMessage::with(['outputType'])
-            ->latest()
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->string('status')))
-            ->when($request->has('document_type'), fn($q) => $q->where('document_type', $request->string('document_type')))
-            ->when($request->has('document_id'), fn($q) => $q->where('document_id', $request->integer('document_id')))
-            ->when($request->has('medium'), fn($q) => $q->where('medium', $request->string('medium')));
-
-        $messages = $query->paginate($request->integer('per_page', 15));
+        $messages = $this->outputDeterminationService->listMessages([
+            'status'        => $request->has('status') ? (string) $request->string('status') : null,
+            'document_type' => $request->has('document_type') ? (string) $request->string('document_type') : null,
+            'document_id'   => $request->has('document_id') ? $request->integer('document_id') : null,
+            'medium'        => $request->has('medium') ? (string) $request->string('medium') : null,
+        ], $request->integer('per_page', 15));
 
         return $this->paginated($messages);
     }
@@ -141,18 +138,12 @@ class OutputDeterminationController extends Controller
      */
     public function retryMessage(OutputMessage $outputMessage): JsonResponse
     {
-        if (!$outputMessage->canRetry()) {
-            return $this->error(
-                "Output message #{$outputMessage->id} cannot be retried (status: {$outputMessage->status}).",
-                'INVALID_STATUS',
-                422
-            );
+        try {
+            $message = $this->outputDeterminationService->retry($outputMessage);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        $outputMessage->update(['status' => OutputMessage::STATUS_PENDING]);
-
-        $this->outputDeterminationService->dispatch($outputMessage);
-
-        return $this->success($outputMessage->fresh(), 'Output message dispatched.');
+        return $this->success($message, 'Output message dispatched.');
     }
 }

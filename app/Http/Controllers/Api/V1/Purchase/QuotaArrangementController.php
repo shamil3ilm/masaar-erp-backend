@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Purchase;
 
-use App\Http\Controllers\Api\V1\Purchase\Concerns\ValidatesOwnedRows;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Purchase\QuotaArrangementItemResource;
 use App\Http\Resources\Purchase\QuotaArrangementResource;

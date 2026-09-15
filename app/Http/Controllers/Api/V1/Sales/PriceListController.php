@@ -4,19 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\Product;
-use App\Models\Sales\Contact;
 use App\Models\Sales\PriceList;
-use App\Models\Sales\PriceListAssignment;
-use App\Models\Sales\PriceListItem;
-use App\Models\Sales\PriceVolumeBreak;
 use App\Services\Sales\PriceListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PriceListController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PriceListService $priceListService
     ) {}
@@ -26,25 +24,12 @@ class PriceListController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PriceList::query()->latest()
-            ->when($request->has('is_active'), fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->has('currency_code'), fn($q) => $q->where('currency_code', $request->input('currency_code')))
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->input('search');
-                $q->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('code', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->boolean('valid_now'), function ($q) {
-                $today = now()->toDateString();
-                $q->where('valid_from', '<=', $today)
-                  ->where(function ($q) use ($today) {
-                      $q->whereNull('valid_to')->orWhere('valid_to', '>=', $today);
-                  });
-            });
-
-        $priceLists = $query->paginate($request->integer('per_page', 15));
+        $priceLists = $this->priceListService->list([
+            'is_active' => $request->has('is_active') ? $request->boolean('is_active') : null,
+            'currency_code' => $request->has('currency_code') ? $request->input('currency_code') : null,
+            'search' => $request->has('search') ? (string) $request->input('search') : null,
+            'valid_now' => $request->boolean('valid_now'),
+        ], $request->integer('per_page', 15));
 
         return $this->paginated($priceLists);
     }
@@ -54,7 +39,7 @@ class PriceListController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge([
             'name'          => 'required|string|max:100',
             'code'          => 'required|string|max:30',
             'currency_code' => 'required|string|size:3',
@@ -64,16 +49,9 @@ class PriceListController extends Controller
             'description'   => 'nullable|string|max:2000',
             'is_active'     => 'boolean',
             'items'         => 'nullable|array',
-            'items.*.product_id'   => 'required|integer|exists:products,id',
-            'items.*.variant_id'   => 'nullable|integer|exists:product_variants,id',
-            'items.*.unit_price'   => 'required|numeric|min:0',
-            'items.*.min_quantity' => 'nullable|numeric|min:0',
-            'items.*.discount_pct' => 'nullable|numeric|min:0|max:100',
-            'items.*.notes'        => 'nullable|string|max:200',
-        ]);
+        ], $this->itemRules()));
 
         $validated['organization_id'] = $this->organizationId($request);
-        $validated['created_by']      = auth()->id();
 
         $priceList = $this->priceListService->createPriceList($validated);
 
@@ -85,16 +63,7 @@ class PriceListController extends Controller
      */
     public function show(Request $request, PriceList $priceList): JsonResponse
     {
-        $items          = PriceListItem::where('price_list_id', $priceList->id)->get();
-        $assignments    = PriceListAssignment::where('price_list_id', $priceList->id)->get();
-        $volumeBreaks   = PriceVolumeBreak::where('price_list_id', $priceList->id)->get();
-
-        return $this->success([
-            'price_list'    => $priceList,
-            'items'         => $items,
-            'assignments'   => $assignments,
-            'volume_breaks' => $volumeBreaks,
-        ]);
+        return $this->success($this->priceListService->details($priceList));
     }
 
     /**
@@ -102,7 +71,7 @@ class PriceListController extends Controller
      */
     public function update(Request $request, PriceList $priceList): JsonResponse
     {
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge([
             'name'          => 'sometimes|string|max:100',
             'currency_code' => 'sometimes|string|size:3',
             'valid_from'    => 'sometimes|date',
@@ -111,13 +80,7 @@ class PriceListController extends Controller
             'description'   => 'nullable|string|max:2000',
             'is_active'     => 'boolean',
             'items'         => 'nullable|array',
-            'items.*.product_id'   => 'required|integer|exists:products,id',
-            'items.*.variant_id'   => 'nullable|integer|exists:product_variants,id',
-            'items.*.unit_price'   => 'required|numeric|min:0',
-            'items.*.min_quantity' => 'nullable|numeric|min:0',
-            'items.*.discount_pct' => 'nullable|numeric|min:0|max:100',
-            'items.*.notes'        => 'nullable|string|max:200',
-        ]);
+        ], $this->itemRules()));
 
         $priceList = $this->priceListService->updatePriceList($priceList, $validated);
 
@@ -125,7 +88,7 @@ class PriceListController extends Controller
     }
 
     /**
-     * Soft-delete a price list.
+     * Delete a price list.
      */
     public function destroy(PriceList $priceList): JsonResponse
     {
@@ -140,11 +103,10 @@ class PriceListController extends Controller
     public function assignToContact(Request $request, PriceList $priceList): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id' => 'required|integer|exists:contacts,id',
+            'contact_id' => ['required', 'integer', $this->ownedBy('contacts')],
         ]);
 
-        $contact    = Contact::findOrFail($validated['contact_id']);
-        $assignment = $this->priceListService->assignToContact($priceList, $contact);
+        $assignment = $this->priceListService->assignToContactId($priceList, (int) $validated['contact_id']);
 
         return $this->success($assignment, 'Price list assigned to contact.');
     }
@@ -156,18 +118,18 @@ class PriceListController extends Controller
     public function resolvePrice(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id' => 'required|integer|exists:contacts,id',
-            'product_id' => 'required|integer|exists:products,id',
+            'contact_id' => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
             'quantity'   => 'nullable|numeric|min:0',
             'currency'   => 'nullable|string|size:3',
         ]);
 
-        $contact  = Contact::findOrFail($validated['contact_id']);
-        $product  = Product::findOrFail($validated['product_id']);
-        $quantity = (float) ($validated['quantity'] ?? 1);
-        $currency = $validated['currency'] ?? null;
-
-        $result = $this->priceListService->resolvePrice($contact, $product, $quantity, $currency);
+        $result = $this->priceListService->resolvePriceFor(
+            (int) $validated['contact_id'],
+            (int) $validated['product_id'],
+            (float) ($validated['quantity'] ?? 1),
+            $validated['currency'] ?? null
+        );
 
         if ($result === null) {
             return $this->notFound('No applicable price list found for the given parameters.');
@@ -181,18 +143,30 @@ class PriceListController extends Controller
      */
     public function importItems(Request $request, PriceList $priceList): JsonResponse
     {
-        $validated = $request->validate([
-            'items'                => 'required|array|min:1',
-            'items.*.product_id'   => 'required|integer|exists:products,id',
-            'items.*.variant_id'   => 'nullable|integer|exists:product_variants,id',
-            'items.*.unit_price'   => 'required|numeric|min:0',
-            'items.*.min_quantity' => 'nullable|numeric|min:0',
-            'items.*.discount_pct' => 'nullable|numeric|min:0|max:100',
-            'items.*.notes'        => 'nullable|string|max:200',
-        ]);
+        $validated = $request->validate(array_merge([
+            'items' => 'required|array|min:1',
+        ], $this->itemRules()));
 
         $count = $this->priceListService->importItems($priceList, $validated['items']);
 
         return $this->success(['imported' => $count], "{$count} items imported.");
+    }
+
+    /**
+     * Rules for price list item rows. Products must belong to the caller's
+     * organization, and a variant to one of its products.
+     *
+     * @return array<string, mixed>
+     */
+    private function itemRules(): array
+    {
+        return [
+            'items.*.product_id'   => ['required', 'integer', $this->ownedBy('products')],
+            'items.*.variant_id'   => ['nullable', 'integer', $this->ownedThrough('product_variants', 'product_id', 'products')],
+            'items.*.unit_price'   => 'required|numeric|min:0',
+            'items.*.min_quantity' => 'nullable|numeric|min:0',
+            'items.*.discount_pct' => 'nullable|numeric|min:0|max:100',
+            'items.*.notes'        => 'nullable|string|max:200',
+        ];
     }
 }

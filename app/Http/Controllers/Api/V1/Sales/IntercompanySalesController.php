@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\IntercompanyBillingDocumentResource;
 use App\Http\Resources\Sales\IntercompanySalesOrderResource;
-use App\Models\Sales\IntercompanyBillingDocument;
-use App\Models\Sales\IntercompanySalesOrder;
 use App\Services\Sales\IntercompanySalesService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
+/**
+ * Intercompany sales orders. A user sees and acts on an order only when their
+ * organization is its seller or its buyer.
+ */
 class IntercompanySalesController extends Controller
 {
+    use ReportsBusinessRules;
+
     public function __construct(
         private IntercompanySalesService $service
     ) {}
@@ -28,27 +35,39 @@ class IntercompanySalesController extends Controller
         $filters = $request->only(['selling_organization_id', 'buying_organization_id', 'status']);
         $perPage = $request->integer('per_page', 20);
 
-        $paginator = $this->service->list($filters, $perPage);
+        $paginator = $this->service->list($this->callerOrganizationId(), $filters, $perPage);
 
         return $this->paginated($paginator, IntercompanySalesOrderResource::class);
     }
 
     /**
-     * Create a new intercompany sales order.
+     * Create a new intercompany sales order. The caller's organization must be
+     * the seller or the buyer; products and the transfer price version belong
+     * to the seller.
      */
     public function store(Request $request): JsonResponse
     {
+        $callerOrganizationId = $this->callerOrganizationId();
+        $sellerId = $request->integer('selling_organization_id');
+
         $validated = $request->validate([
-            'selling_organization_id'    => 'required|integer|exists:organizations,id',
+            'selling_organization_id'    => [
+                'required', 'integer', 'exists:organizations,id',
+                function (string $attribute, mixed $value, \Closure $fail) use ($request, $callerOrganizationId): void {
+                    if ((int) $value !== $callerOrganizationId && $request->integer('buying_organization_id') !== $callerOrganizationId) {
+                        $fail('Your organization must be the selling or the buying organization.');
+                    }
+                },
+            ],
             'buying_organization_id'     => 'required|integer|exists:organizations,id|different:selling_organization_id',
             'order_number'               => 'required|string|max:50',
             'order_date'                 => 'required|date',
             'requested_delivery_date'    => 'nullable|date|after_or_equal:order_date',
-            'transfer_price_version_id'  => 'nullable|integer|exists:transfer_price_versions,id',
+            'transfer_price_version_id'  => ['nullable', 'integer', Rule::exists('transfer_price_versions', 'id')->where('organization_id', $sellerId)],
             'currency_code'              => 'nullable|string|size:3',
             'notes'                      => 'nullable|string|max:5000',
             'lines'                      => 'required|array|min:1',
-            'lines.*.product_id'         => 'required|integer|exists:products,id',
+            'lines.*.product_id'         => ['required', 'integer', Rule::exists('products', 'id')->where('organization_id', $sellerId)],
             'lines.*.line_number'        => 'required|integer|min:1',
             'lines.*.description'        => 'nullable|string|max:500',
             'lines.*.quantity'           => 'required|numeric|min:0.0001',
@@ -70,14 +89,7 @@ class IntercompanySalesController extends Controller
      */
     public function show(int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::with([
-            'lines.product',
-            'purchaseOrderLink',
-            'billingDocuments',
-            'sellingOrganization',
-            'buyingOrganization',
-            'createdBy',
-        ])->findOrFail($id);
+        $order = $this->service->orderDetails($this->callerOrganizationId(), $id);
 
         return $this->success(new IntercompanySalesOrderResource($order));
     }
@@ -87,12 +99,15 @@ class IntercompanySalesController extends Controller
      */
     public function update(Request $request, int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
 
         $validated = $request->validate([
             'order_date'                 => 'sometimes|date',
             'requested_delivery_date'    => 'nullable|date',
-            'transfer_price_version_id'  => 'nullable|integer|exists:transfer_price_versions,id',
+            'transfer_price_version_id'  => [
+                'nullable', 'integer',
+                Rule::exists('transfer_price_versions', 'id')->where('organization_id', $order->selling_organization_id),
+            ],
             'currency_code'              => 'nullable|string|size:3',
             'notes'                      => 'nullable|string|max:5000',
         ]);
@@ -107,8 +122,13 @@ class IntercompanySalesController extends Controller
      */
     public function confirm(int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
-        $order = $this->service->confirm($order);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
+
+        try {
+            $order = $this->service->confirm($order);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success(new IntercompanySalesOrderResource($order), 'Intercompany sales order confirmed.');
     }
@@ -119,10 +139,13 @@ class IntercompanySalesController extends Controller
      */
     public function linkPurchaseOrder(Request $request, int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
 
         $validated = $request->validate([
-            'purchase_order_id' => 'required|integer|exists:purchase_orders,id',
+            'purchase_order_id' => [
+                'required', 'integer',
+                Rule::exists('purchase_orders', 'id')->where('organization_id', $order->buying_organization_id),
+            ],
         ]);
 
         $link = $this->service->linkPurchaseOrder($order, (int) $validated['purchase_order_id']);
@@ -135,8 +158,13 @@ class IntercompanySalesController extends Controller
      */
     public function startDelivery(int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
-        $order = $this->service->startDelivery($order);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
+
+        try {
+            $order = $this->service->startDelivery($order);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success(new IntercompanySalesOrderResource($order), 'Delivery started.');
     }
@@ -146,7 +174,7 @@ class IntercompanySalesController extends Controller
      */
     public function createBillingDocument(Request $request, int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
 
         $validated = $request->validate([
             'document_number' => 'required|string|max:50',
@@ -158,22 +186,28 @@ class IntercompanySalesController extends Controller
             'notes'           => 'nullable|string|max:5000',
         ]);
 
-        $doc = $this->service->createBillingDocument($order, $validated);
+        try {
+            $doc = $this->service->createBillingDocument($order, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success(new IntercompanyBillingDocumentResource($doc), 'Billing document created.', 201);
     }
 
     /**
-     * Post an intercompany billing document.
+     * Post an intercompany billing document of the order.
      */
     public function postBillingDocument(int|string $id, int|string $billingDocId): JsonResponse
     {
-        // Verify the billing document belongs to this order
-        $order = IntercompanySalesOrder::findOrFail($id);
-        $doc   = IntercompanyBillingDocument::where('intercompany_sales_order_id', $order->id)
-            ->findOrFail($billingDocId);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
+        $doc   = $this->service->billingDocumentOf($order, $billingDocId);
 
-        $doc = $this->service->postBillingDocument($doc);
+        try {
+            $doc = $this->service->postBillingDocument($doc);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success(new IntercompanyBillingDocumentResource($doc), 'Billing document posted.');
     }
@@ -183,9 +217,19 @@ class IntercompanySalesController extends Controller
      */
     public function cancel(int|string $id): JsonResponse
     {
-        $order = IntercompanySalesOrder::findOrFail($id);
-        $order = $this->service->cancel($order);
+        $order = $this->service->orderFor($this->callerOrganizationId(), $id);
+
+        try {
+            $order = $this->service->cancel($order);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success(new IntercompanySalesOrderResource($order), 'Intercompany sales order cancelled.');
+    }
+
+    private function callerOrganizationId(): int
+    {
+        return (int) auth()->user()->organization_id;
     }
 }
