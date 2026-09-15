@@ -6,28 +6,26 @@ namespace App\Http\Controllers\Api\V1\Automation;
 
 use App\Http\Controllers\Controller;
 use App\Models\Automation\AutomationEmailTemplate;
+use App\Services\Automation\AutomationEmailTemplateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AutomationEmailTemplateController extends Controller
 {
+    public function __construct(private readonly AutomationEmailTemplateService $templates) {}
+
     /**
      * List email templates with filtering.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = AutomationEmailTemplate::query()
-            ->when($request->category, fn($q, $category) => $q->forCategory($category))
-            ->when($request->is_active !== null, function ($q) use ($request) {
-                return $request->is_active === 'true' ? $q->active() : $q->inactive();
-            })
-            ->when($request->search, fn($q, $search) => $q->search($search))
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            );
-
-        $templates = $query->paginate((int) ($request->per_page ?? 15));
+        $templates = $this->templates->paginate(
+            $request->user()->organization_id,
+            $request->only(['category', 'is_active', 'search']),
+            $this->safeSortBy($request->sort_by, ['name', 'created_at', 'updated_at'], 'name'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            (int) ($request->per_page ?? 15)
+        );
 
         return $this->paginated($templates);
     }
@@ -48,9 +46,7 @@ class AutomationEmailTemplateController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $template = AutomationEmailTemplate::create($validated);
-
-        return $this->created($template);
+        return $this->created($this->templates->create($request->user()->organization_id, $validated));
     }
 
     /**
@@ -77,9 +73,10 @@ class AutomationEmailTemplateController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $automationEmailTemplate->update($validated);
-
-        return $this->success($automationEmailTemplate->fresh(), 'Email template updated successfully.');
+        return $this->success(
+            $this->templates->update($automationEmailTemplate, $validated),
+            'Email template updated successfully.'
+        );
     }
 
     /**
@@ -87,7 +84,7 @@ class AutomationEmailTemplateController extends Controller
      */
     public function destroy(AutomationEmailTemplate $automationEmailTemplate): JsonResponse
     {
-        $automationEmailTemplate->delete();
+        $this->templates->delete($automationEmailTemplate);
 
         return $this->success(null, 'Email template deleted successfully.');
     }

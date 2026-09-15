@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Automation;
 
 use App\Http\Controllers\Controller;
 use App\Models\Automation\AutomationRule;
-use App\Models\Automation\AutomationRuleLog;
 use App\Services\Automation\AutomationRuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,25 +21,13 @@ class AutomationRuleController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = AutomationRule::with(['creator'])
-            ->when($request->trigger_type, fn($q, $type) => $q->forTriggerType($type))
-            ->when($request->entity_type, fn($q, $type) => $q->forEntityType($type))
-            ->when($request->is_active !== null, function ($q) use ($request) {
-                return $request->is_active === 'true' ? $q->active() : $q->inactive();
-            })
-            ->when($request->trigger_event, fn($q, $event) => $q->forTriggerEvent($event))
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($query) use ($search) {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['name', 'priority', 'created_at', 'updated_at', 'is_active'], 'priority'),
-                $this->safeSortOrder($request->sort_order, 'desc')
-            );
-
-        $rules = $query->paginate((int) ($request->per_page ?? 15));
+        $rules = $this->ruleService->paginate(
+            $request->user()->organization_id,
+            $request->only(['trigger_type', 'entity_type', 'is_active', 'trigger_event', 'search']),
+            $this->safeSortBy($request->sort_by, ['name', 'priority', 'created_at', 'updated_at', 'is_active'], 'priority'),
+            $this->safeSortOrder($request->sort_order, 'desc'),
+            (int) ($request->per_page ?? 15)
+        );
 
         return $this->paginated($rules);
     }
@@ -111,9 +98,7 @@ class AutomationRuleController extends Controller
      */
     public function destroy(AutomationRule $automationRule): JsonResponse
     {
-        $automationRule->logs()->delete();
-        $automationRule->schedules()->delete();
-        $automationRule->delete();
+        $this->ruleService->delete($automationRule);
 
         return $this->success(null, 'Automation rule deleted successfully.');
     }
@@ -160,13 +145,13 @@ class AutomationRuleController extends Controller
 
         // If entity_type and entity_id are provided, resolve and evaluate against the real entity
         if ($entityType && $entityId) {
-            $entityClass = $this->resolveEntityClass($entityType);
+            $entityClass = $this->ruleService->entityClassFor($entityType);
 
             if (!$entityClass || !class_exists($entityClass)) {
                 return $this->error('Invalid entity type.', 'INVALID_ENTITY_TYPE', 422);
             }
 
-            $entity = $entityClass::find($entityId);
+            $entity = $this->ruleService->findEntity($request->user()->organization_id, $entityClass, (int) $entityId);
 
             if (!$entity) {
                 return $this->notFound('Entity not found.');
@@ -199,33 +184,11 @@ class AutomationRuleController extends Controller
      */
     public function logs(Request $request, AutomationRule $automationRule): JsonResponse
     {
-        $query = AutomationRuleLog::forRule($automationRule->id)
-            ->when($request->status, fn($q, $status) => $q->where('status', $status))
-            ->when($request->days, fn($q, $days) => $q->recent((int) $days))
-            ->orderBy('created_at', 'desc');
-
-        $logs = $query->paginate((int) ($request->per_page ?? 15));
-
-        return $this->paginated($logs);
-    }
-
-    /**
-     * Resolve entity class from entity type string.
-     */
-    protected function resolveEntityClass(string $entityType): ?string
-    {
-        $map = [
-            'invoice' => \App\Models\Sales\Invoice::class,
-            'customer' => \App\Models\Sales\Contact::class,
-            'payment' => \App\Models\Sales\PaymentReceived::class,
-            'quotation' => \App\Models\Sales\Quotation::class,
-            'purchase_order' => \App\Models\Purchase\PurchaseOrder::class,
-            'bill' => \App\Models\Purchase\Bill::class,
-            'lead' => \App\Models\CRM\Lead::class,
-            'opportunity' => \App\Models\CRM\Opportunity::class,
-            'employee' => \App\Models\HR\Employee::class,
-        ];
-
-        return $map[$entityType] ?? null;
+        return $this->paginated($this->ruleService->paginateLogs(
+            $automationRule,
+            $request->status,
+            $request->days ? (int) $request->days : null,
+            (int) ($request->per_page ?? 15)
+        ));
     }
 }

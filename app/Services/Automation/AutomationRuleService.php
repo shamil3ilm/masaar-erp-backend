@@ -6,12 +6,94 @@ namespace App\Services\Automation;
 
 use App\Models\Automation\AutomationRule;
 use App\Models\Automation\AutomationRuleLog;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class AutomationRuleService
 {
+    /**
+     * The records a rule can be tested against, by entity type.
+     *
+     * @var array<string, class-string<Model>>
+     */
+    private const TEST_ENTITIES = [
+        'invoice' => \App\Models\Sales\Invoice::class,
+        'customer' => \App\Models\Sales\Contact::class,
+        'payment' => \App\Models\Sales\PaymentReceived::class,
+        'quotation' => \App\Models\Sales\Quotation::class,
+        'purchase_order' => \App\Models\Purchase\PurchaseOrder::class,
+        'bill' => \App\Models\Purchase\Bill::class,
+        'lead' => \App\Models\CRM\Lead::class,
+        'opportunity' => \App\Models\CRM\Opportunity::class,
+        'employee' => \App\Models\HR\Employee::class,
+    ];
+
+    /**
+     * The organization's rules.
+     *
+     * @param  array{trigger_type?: ?string, entity_type?: ?string, is_active?: ?string, trigger_event?: ?string, search?: ?string}  $filters
+     */
+    public function paginate(int $organizationId, array $filters, string $sortBy, string $sortOrder, int $perPage): LengthAwarePaginator
+    {
+        return AutomationRule::with(['creator'])
+            ->where('organization_id', $organizationId)
+            ->when($filters['trigger_type'] ?? null, fn ($query, $type) => $query->forTriggerType($type))
+            ->when($filters['entity_type'] ?? null, fn ($query, $type) => $query->forEntityType($type))
+            ->when(($filters['is_active'] ?? null) !== null, fn ($query) => $filters['is_active'] === 'true'
+                ? $query->active()
+                : $query->inactive())
+            ->when($filters['trigger_event'] ?? null, fn ($query, $event) => $query->forTriggerEvent($event))
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->where(
+                fn ($inner) => $inner->where('name', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%")
+            ))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    /**
+     * Delete a rule together with its execution logs and schedules.
+     */
+    public function delete(AutomationRule $rule): void
+    {
+        DB::transaction(function () use ($rule) {
+            $rule->logs()->delete();
+            $rule->schedules()->delete();
+            $rule->delete();
+        });
+    }
+
+    /**
+     * @return class-string<Model>|null
+     */
+    public function entityClassFor(string $entityType): ?string
+    {
+        return self::TEST_ENTITIES[$entityType] ?? null;
+    }
+
+    /**
+     * The organization's record a rule is tested against, or null.
+     *
+     * @param  class-string<Model>  $entityClass
+     */
+    public function findEntity(int $organizationId, string $entityClass, int $entityId): ?Model
+    {
+        return $entityClass::query()->where('organization_id', $organizationId)->find($entityId);
+    }
+
+    /**
+     * The rule's execution logs, newest first.
+     */
+    public function paginateLogs(AutomationRule $rule, ?string $status, ?int $days, int $perPage): LengthAwarePaginator
+    {
+        return AutomationRuleLog::forRule($rule->id)
+            ->when($status, fn ($query, $value) => $query->where('status', $value))
+            ->when($days, fn ($query, $value) => $query->recent($value))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
     /**
      * Create a new automation rule.
      */
