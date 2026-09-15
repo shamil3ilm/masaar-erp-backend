@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\ModuleReadinessResult;
 use App\Services\Core\ModuleReadinessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,10 +64,7 @@ class ModuleReadinessController extends Controller
     {
         $orgId = $this->organizationId($request);
 
-        $results = ModuleReadinessResult::where('organization_id', $orgId)
-            ->where('module', $module)
-            ->latest('run_at')
-            ->paginate((int) $request->get('per_page', 15));
+        $results = $this->readinessService->listResults($orgId, $module, (int) $request->get('per_page', 15));
 
         return $this->paginated($results, null, 'Readiness results retrieved successfully.');
     }

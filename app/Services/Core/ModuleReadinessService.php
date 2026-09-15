@@ -56,6 +56,17 @@ class ModuleReadinessService
     }
 
     /**
+     * Results of an org + module, latest run first.
+     */
+    public function listResults(int $organizationId, string $module, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return ModuleReadinessResult::where('organization_id', $organizationId)
+            ->where('module', $module)
+            ->latest('run_at')
+            ->paginate($perPage);
+    }
+
+    /**
      * Get the most recent readiness result for an org + module.
      */
     public function getLastResult(int $organizationId, string $module): ?ModuleReadinessResult
