@@ -10,10 +10,62 @@ use App\Models\CRM\Territory;
 use App\Models\CRM\TerritoryAssignment;
 use App\Models\CRM\TerritoryRoutingRule;
 use App\Models\HR\Employee;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class TerritoryService
 {
+    // -------------------------------------------------------------------------
+    // Territories
+    // -------------------------------------------------------------------------
+
+    /**
+     * The organization's territories, newest first. A filter applies when its
+     * key is present, even with an empty value.
+     *
+     * @param  array{status?: mixed, territory_type?: mixed, parent_id?: mixed, country_code?: mixed, roots_only?: bool}  $filters
+     */
+    public function paginateTerritories(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return Territory::with(['parent', 'creator'])
+            ->where('organization_id', $organizationId)
+            ->latest()
+            ->when(array_key_exists('status', $filters), fn ($query) => $query->where('status', $filters['status']))
+            ->when(array_key_exists('territory_type', $filters), fn ($query) => $query->ofType($filters['territory_type']))
+            ->when(array_key_exists('parent_id', $filters), fn ($query) => $query->where('parent_id', (int) $filters['parent_id']))
+            ->when($filters['roots_only'] ?? false, fn ($query) => $query->roots())
+            ->when(array_key_exists('country_code', $filters), fn ($query) => $query->forCountry($filters['country_code']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * A territory of the organization.
+     *
+     * @param  list<string>  $with
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findTerritory(int $organizationId, int $territoryId, array $with = []): Territory
+    {
+        return Territory::with($with)
+            ->where('organization_id', $organizationId)
+            ->findOrFail($territoryId);
+    }
+
+    /**
+     * A territory with its hierarchy, assignments and routing rules.
+     */
+    public function findTerritoryDetail(int $organizationId, int $territoryId): Territory
+    {
+        return $this->findTerritory($organizationId, $territoryId, [
+            'parent',
+            'children',
+            'assignments.'.$this->employeeReference(),
+            'routingRules',
+            'creator',
+        ]);
+    }
+
     /**
      * Create a new territory.
      */
@@ -25,6 +77,34 @@ class TerritoryService
         });
     }
 
+    public function updateTerritory(Territory $territory, array $data): Territory
+    {
+        $territory->update($data);
+
+        return $territory->refresh()->load('parent');
+    }
+
+    public function deleteTerritory(Territory $territory): void
+    {
+        $territory->delete();
+    }
+
+    // -------------------------------------------------------------------------
+    // Assignments
+    // -------------------------------------------------------------------------
+
+    /**
+     * The territory's assignments, newest first.
+     */
+    public function paginateAssignments(Territory $territory, bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return $territory->assignments()
+            ->with($this->employeeReference())
+            ->latest()
+            ->when($activeOnly, fn ($query) => $query->active())
+            ->paginate($perPage);
+    }
+
     /**
      * Assign an employee to a territory with a given role.
      */
@@ -33,19 +113,32 @@ class TerritoryService
         int $employeeId,
         string $role,
         string $effectiveFrom,
-        int $userId
+        int $userId,
+        ?string $effectiveTo = null,
     ): TerritoryAssignment {
-        return DB::transaction(function () use ($territory, $employeeId, $role, $effectiveFrom, $userId) {
+        return DB::transaction(function () use ($territory, $employeeId, $role, $effectiveFrom, $userId, $effectiveTo) {
             return TerritoryAssignment::create([
                 'organization_id' => $territory->organization_id,
                 'territory_id'    => $territory->id,
                 'employee_id'     => $employeeId,
                 'role'            => $role,
                 'effective_from'  => $effectiveFrom,
-                'effective_to'    => null,
+                'effective_to'    => $effectiveTo,
                 'created_by'      => $userId,
-            ]);
+            ])->load($this->employeeReference());
         });
+    }
+
+    /**
+     * An assignment of the organization.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findAssignment(int $organizationId, int $assignmentId): TerritoryAssignment
+    {
+        return TerritoryAssignment::query()
+            ->where('organization_id', $organizationId)
+            ->findOrFail($assignmentId);
     }
 
     /**
@@ -59,6 +152,26 @@ class TerritoryService
         });
     }
 
+    // -------------------------------------------------------------------------
+    // Routing rules
+    // -------------------------------------------------------------------------
+
+    /**
+     * The organization's routing rules, highest priority first.
+     *
+     * @param  array{entity_type?: mixed, territory_id?: mixed, active_only?: bool}  $filters
+     */
+    public function paginateRoutingRules(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return TerritoryRoutingRule::with('territory')
+            ->where('organization_id', $organizationId)
+            ->orderBy('priority')
+            ->when(array_key_exists('entity_type', $filters), fn ($query) => $query->forEntityType($filters['entity_type']))
+            ->when(array_key_exists('territory_id', $filters), fn ($query) => $query->where('territory_id', (int) $filters['territory_id']))
+            ->when($filters['active_only'] ?? false, fn ($query) => $query->active())
+            ->paginate($perPage);
+    }
+
     /**
      * Create a territory routing rule.
      */
@@ -67,6 +180,30 @@ class TerritoryService
         return DB::transaction(function () use ($data, $userId) {
             return TerritoryRoutingRule::create(array_merge($data, ['created_by' => $userId]));
         });
+    }
+
+    /**
+     * A routing rule of the organization.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findRoutingRule(int $organizationId, int $ruleId): TerritoryRoutingRule
+    {
+        return TerritoryRoutingRule::query()
+            ->where('organization_id', $organizationId)
+            ->findOrFail($ruleId);
+    }
+
+    public function updateRoutingRule(TerritoryRoutingRule $rule, array $data): TerritoryRoutingRule
+    {
+        $rule->update($data);
+
+        return $rule->load('territory');
+    }
+
+    public function deleteRoutingRule(TerritoryRoutingRule $rule): void
+    {
+        $rule->delete();
     }
 
     /**
@@ -94,6 +231,20 @@ class TerritoryService
         }
 
         return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Actions
+    // -------------------------------------------------------------------------
+
+    /**
+     * A lead of the organization.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function findLead(int $organizationId, int $leadId): Lead
+    {
+        return Lead::query()->where('organization_id', $organizationId)->findOrFail($leadId);
     }
 
     /**
@@ -137,6 +288,7 @@ class TerritoryService
                 ->where('employee_id', $owner->id)
                 ->where('role', TerritoryAssignment::ROLE_OWNER)
                 ->active()
+                ->with(['territory', $this->employeeReference()])
                 ->latest('effective_from')
                 ->first();
         });
@@ -202,14 +354,37 @@ class TerritoryService
 
     /**
      * Return per-salesperson territory and pipeline workload for the organisation.
+     *
+     * Leads and opportunities are counted and summed per user in two grouped
+     * queries, so the query count does not grow with the size of the team.
      */
     public function getTeamWorkload(int $orgId): array
     {
         $assignments = TerritoryAssignment::where('organization_id', $orgId)
             ->active()
-            ->with(['employee', 'territory'])
+            ->with(['employee:id,user_id,first_name,last_name', 'territory'])
             ->get()
             ->groupBy('employee_id');
+
+        $userIds = $assignments
+            ->map(fn ($employeeAssignments) => $employeeAssignments->first()->employee?->user_id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $openLeads = Lead::where('organization_id', $orgId)
+            ->whereIn('assigned_to', $userIds)
+            ->open()
+            ->groupBy('assigned_to')
+            ->selectRaw('assigned_to, COUNT(*) as lead_count')
+            ->pluck('lead_count', 'assigned_to');
+
+        $opportunityTotals = Opportunity::where('organization_id', $orgId)
+            ->whereIn('assigned_to', $userIds)
+            ->groupBy('assigned_to', 'status')
+            ->selectRaw('assigned_to, status, COUNT(*) as opportunity_count, SUM(amount) as amount_total')
+            ->get()
+            ->groupBy('assigned_to');
 
         $result = [];
 
@@ -222,25 +397,14 @@ class TerritoryService
 
             $userId      = $employee->user_id;
             $territories = $employeeAssignments->pluck('territory')->filter();
+            $byStatus    = ($opportunityTotals->get($userId) ?? collect())->keyBy('status');
 
-            $openLeads = Lead::where('organization_id', $orgId)
-                ->where('assigned_to', $userId)
-                ->open()
-                ->count();
-
-            $openOpportunities = Opportunity::where('organization_id', $orgId)
-                ->where('assigned_to', $userId)
-                ->where('status', Opportunity::STATUS_OPEN)
-                ->get();
-
-            $wonOpportunities = Opportunity::where('organization_id', $orgId)
-                ->where('assigned_to', $userId)
-                ->where('status', Opportunity::STATUS_WON)
-                ->sum('amount');
-
-            $totalPipeline = Opportunity::where('organization_id', $orgId)
-                ->where('assigned_to', $userId)
-                ->sum('amount');
+            $open = $byStatus->get(Opportunity::STATUS_OPEN);
+            $wonOpportunities = $byStatus->get(Opportunity::STATUS_WON)?->amount_total ?? 0;
+            $totalPipeline = $byStatus->reduce(
+                fn (string $sum, $row) => bcadd($sum, (string) ($row->amount_total ?? 0), 4),
+                '0'
+            );
 
             $quotaAttainment = bccomp((string) $totalPipeline, '0', 4) > 0
                 ? bcmul(bcdiv((string) $wonOpportunities, (string) $totalPipeline, 6), '100', 4)
@@ -254,9 +418,9 @@ class TerritoryService
                     'name' => $t->name,
                     'code' => $t->code,
                 ])->values(),
-                'open_leads'         => $openLeads,
-                'open_opportunities' => $openOpportunities->count(),
-                'pipeline_value'     => (float) $openOpportunities->sum('amount'),
+                'open_leads'         => (int) ($openLeads->get($userId) ?? 0),
+                'open_opportunities' => (int) ($open?->opportunity_count ?? 0),
+                'pipeline_value'     => (float) ($open?->amount_total ?? 0),
                 'quota_attainment'   => $quotaAttainment,
             ];
         }
@@ -265,5 +429,14 @@ class TerritoryService
         usort($result, fn($a, $b) => $b['open_leads'] <=> $a['open_leads']);
 
         return $result;
+    }
+
+    /**
+     * The employee relation limited to reference columns: the full employee
+     * carries decrypted identity and bank numbers.
+     */
+    private function employeeReference(): string
+    {
+        return 'employee:'.implode(',', Employee::REFERENCE_COLUMNS);
     }
 }
