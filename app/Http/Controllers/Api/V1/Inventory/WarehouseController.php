@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Inventory\WarehouseResource;
 use App\Models\Inventory\Warehouse;
 use App\Services\Inventory\StockService;
+use App\Services\Inventory\WarehouseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Unique;
 
 class WarehouseController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
-        private StockService $stockService
+        private StockService $stockService,
+        private WarehouseService $warehouseService
     ) {
     }
 
@@ -23,11 +30,10 @@ class WarehouseController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Warehouse::with(['branch', 'manager'])
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->has('branch_id'), fn($q) => $q->where('branch_id', $request->input('branch_id')));
-
-        $warehouses = $query->get();
+        $warehouses = $this->warehouseService->list([
+            ...$request->only(['branch_id']),
+            'active_only' => $request->boolean('active_only'),
+        ]);
 
         return $this->success(WarehouseResource::collection($warehouses));
     }
@@ -38,26 +44,21 @@ class WarehouseController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'required|integer|exists:branches,id',
+            'branch_id' => ['required', 'integer', $this->ownedBy('branches')],
             'name' => 'required|string|max:100',
-            'code' => 'required|string|max:20|unique:warehouses,code',
+            'code' => ['required', 'string', 'max:20', $this->uniqueCode()],
             'address' => 'nullable|string|max:500',
             'city' => 'nullable|string|max:100',
             'country_code' => 'nullable|string|size:2',
             'phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:100',
-            'manager_id' => 'nullable|integer|exists:users,id',
+            'manager_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'is_default' => 'boolean',
             'is_active' => 'boolean',
             'allow_negative_stock' => 'boolean',
         ]);
 
-        // If setting as default, unset other defaults
-        if ($validated['is_default'] ?? false) {
-            Warehouse::where('is_default', true)->each(fn (Warehouse $w) => $w->update(['is_default' => false]));
-        }
-
-        $warehouse = Warehouse::create($validated);
+        $warehouse = $this->warehouseService->create($validated);
 
         return $this->created(new WarehouseResource($warehouse), 'Warehouse created successfully.');
     }
@@ -78,28 +79,23 @@ class WarehouseController extends Controller
     public function update(Request $request, Warehouse $warehouse): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'nullable|integer|exists:branches,id',
+            'branch_id' => ['nullable', 'integer', $this->ownedBy('branches')],
             'name' => 'sometimes|required|string|max:100',
-            'code' => 'sometimes|required|string|max:20|unique:warehouses,code,' . $warehouse->id,
+            'code' => ['sometimes', 'required', 'string', 'max:20', $this->uniqueCode()->ignore($warehouse->id)],
             'address' => 'nullable|string|max:500',
             'city' => 'nullable|string|max:100',
             'country_code' => 'nullable|string|size:2',
             'phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:100',
-            'manager_id' => 'nullable|integer|exists:users,id',
+            'manager_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'is_default' => 'boolean',
             'is_active' => 'boolean',
             'allow_negative_stock' => 'boolean',
         ]);
 
-        // If setting as default, unset other defaults
-        if (($validated['is_default'] ?? false) && !$warehouse->is_default) {
-            Warehouse::where('is_default', true)->each(fn (Warehouse $w) => $w->update(['is_default' => false]));
-        }
+        $warehouse = $this->warehouseService->update($warehouse, $validated);
 
-        $warehouse->update($validated);
-
-        return $this->success(new WarehouseResource($warehouse->fresh()), 'Warehouse updated successfully.');
+        return $this->success(new WarehouseResource($warehouse), 'Warehouse updated successfully.');
     }
 
     /**
@@ -107,12 +103,11 @@ class WarehouseController extends Controller
      */
     public function destroy(Warehouse $warehouse): JsonResponse
     {
-        // Check for stock
-        if ($warehouse->stockLevels()->where('quantity', '>', 0)->exists()) {
-            return $this->error('Cannot delete warehouse with existing stock.', 'VALIDATION_ERROR', 422);
+        try {
+            $this->warehouseService->delete($warehouse);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'VALIDATION_ERROR', 422);
         }
-
-        $warehouse->delete();
 
         return $this->success(null, 'Warehouse deleted successfully.');
     }
@@ -166,10 +161,17 @@ class WarehouseController extends Controller
      */
     public function setDefault(Warehouse $warehouse): JsonResponse
     {
-        Warehouse::where('is_default', true)
-            ->each(fn (Warehouse $w) => $w->update(['is_default' => false]));
-        $warehouse->update(['is_default' => true]);
+        $warehouse = $this->warehouseService->setDefault($warehouse);
 
-        return $this->success(new WarehouseResource($warehouse->fresh()), 'Default warehouse updated.');
+        return $this->success(new WarehouseResource($warehouse), 'Default warehouse updated.');
+    }
+
+    /**
+     * Warehouse codes are unique within an organization, as the database
+     * index is; another organization's codes neither block nor reveal.
+     */
+    private function uniqueCode(): Unique
+    {
+        return Rule::unique('warehouses', 'code')->where('organization_id', auth()->user()->organization_id);
     }
 }
