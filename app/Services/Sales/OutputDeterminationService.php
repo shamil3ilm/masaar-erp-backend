@@ -4,18 +4,139 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Sales\OutputConditionRecord;
 use App\Models\Sales\OutputMessage;
 use App\Models\Sales\OutputType;
 use App\Services\Core\EmailService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Output determination: which documents are printed, emailed or sent, and the
+ * messages that carry them.
+ *
+ * Output messages and condition records have no organization column. They
+ * belong to an output type, which is scoped to the current organization, so
+ * every read or change of a message goes through its type.
+ */
 class OutputDeterminationService
 {
     public function __construct(
         private EmailService $emailService
     ) {}
+
+    /**
+     * Output types of the current organization with their condition records,
+     * latest first, narrowed to a document type and to active types when set.
+     */
+    public function listTypes(?string $documentType, bool $activeOnly, int $perPage): LengthAwarePaginator
+    {
+        return OutputType::with(['conditionRecords'])
+            ->latest()
+            ->when($documentType !== null, fn ($q) => $q->forDocumentType($documentType))
+            ->when($activeOnly, fn ($q) => $q->active())
+            ->paginate($perPage);
+    }
+
+    /**
+     * Create an output type and its condition records in one transaction.
+     *
+     * @param  array<string, mixed>  $data  validated type fields
+     * @param  list<array<string, mixed>>  $conditionRecords  validated records
+     */
+    public function createType(int $organizationId, array $data, array $conditionRecords): OutputType
+    {
+        return DB::transaction(function () use ($organizationId, $data, $conditionRecords): OutputType {
+            $outputType = OutputType::create(array_merge($data, ['organization_id' => $organizationId]));
+
+            foreach ($conditionRecords as $record) {
+                OutputConditionRecord::create(array_merge($record, [
+                    'output_type_id' => $outputType->id,
+                    'is_active'      => $record['is_active'] ?? true,
+                ]));
+            }
+
+            return $outputType->load('conditionRecords');
+        });
+    }
+
+    public function typeDetails(OutputType $outputType): OutputType
+    {
+        return $outputType->load('conditionRecords');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  validated type fields
+     */
+    public function updateType(OutputType $outputType, array $data): OutputType
+    {
+        $outputType->update($data);
+
+        return $outputType->fresh('conditionRecords');
+    }
+
+    public function deleteType(OutputType $outputType): void
+    {
+        $outputType->delete();
+    }
+
+    /**
+     * Messages whose output type belongs to the current organization, latest
+     * first, narrowed by the filters that are set.
+     *
+     * @param  array{status?: ?string, document_type?: ?string, document_id?: ?int, medium?: ?string}  $filters
+     */
+    public function listMessages(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return OutputMessage::with(['outputType'])
+            ->whereHas('outputType')
+            ->latest()
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['document_type']), fn ($q) => $q->where('document_type', $filters['document_type']))
+            ->when(isset($filters['document_id']), fn ($q) => $q->where('document_id', $filters['document_id']))
+            ->when(isset($filters['medium']), fn ($q) => $q->where('medium', $filters['medium']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * Retry a failed message of the current organization.
+     *
+     * The message is claimed under a lock: its status is checked on the locked
+     * row and set back to pending before the transaction ends, so two retries
+     * cannot both send it. Sending happens after the commit, outside the
+     * transaction.
+     *
+     * @throws ModelNotFoundException when the message's type is not the organization's
+     * @throws BusinessRuleException when the message has not failed
+     */
+    public function retry(OutputMessage $message): OutputMessage
+    {
+        $claimed = DB::transaction(function () use ($message): OutputMessage {
+            $locked = OutputMessage::query()
+                ->whereHas('outputType')
+                ->lockForUpdate()
+                ->findOrFail($message->id);
+
+            if (! $locked->canRetry()) {
+                throw new BusinessRuleException(
+                    "Output message #{$locked->id} cannot be retried (status: {$locked->status}).",
+                    'INVALID_STATUS'
+                );
+            }
+
+            $locked->update(['status' => OutputMessage::STATUS_PENDING]);
+
+            return $locked;
+        });
+
+        $this->dispatch($claimed->load('outputType'));
+
+        return $claimed->fresh();
+    }
 
     /**
      * Determine which output messages should be created for a document event.

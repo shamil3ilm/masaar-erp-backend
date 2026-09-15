@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace App\Services\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Sales\PriceOverride;
 use App\Models\Sales\PriceOverridePolicy;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class PriceOverrideService
 {
+    private const PENDING = 'pending';
+
     public function getPolicies(int $organizationId): mixed
     {
         return PriceOverridePolicy::where('organization_id', $organizationId)
@@ -67,35 +71,78 @@ class PriceOverrideService
         ];
     }
 
-    public function recordOverride(array $data): PriceOverride
+    /**
+     * Overrides of the current organization with their product and creator,
+     * newest first.
+     */
+    public function list(int $perPage): LengthAwarePaginator
     {
-        return PriceOverride::create($data);
+        return PriceOverride::with('product', 'creator')
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
     }
 
-    public function approveOverride(int $overrideId, int $userId, ?string $notes = null): PriceOverride
+    /**
+     * Record a price override under its policy.
+     *
+     * The policy refuses a discount or markup it does not allow and a discount
+     * above its limit. The difference, discount percentage and total impact are
+     * derived from the prices, and the override waits for approval when the
+     * policy requires it.
+     *
+     * @param  array<string, mixed>  $data  validated override fields; policy_id names a policy of the organization
+     *
+     * @throws BusinessRuleException when the policy refuses the override
+     */
+    public function record(array $data, int $organizationId, int $userId): PriceOverride
     {
-        $override = PriceOverride::findOrFail($overrideId);
-        $override->update([
-            'approval_status' => 'approved',
-            'approved_by' => $userId,
-            'approved_at' => now(),
-            'approval_notes' => $notes,
-        ]);
+        $policy = PriceOverridePolicy::find($data['policy_id']);
 
-        return $override->fresh();
+        if ($policy !== null) {
+            $this->assertPolicyAllows($policy, (float) $data['original_price'], (float) $data['override_price']);
+        }
+
+        $original = (string) $data['original_price'];
+        $difference = bcsub($original, (string) $data['override_price'], 4);
+
+        return PriceOverride::create(array_merge($data, [
+            'price_difference' => $difference,
+            'discount_percent' => bccomp($original, '0', 4) > 0
+                ? $this->roundTo2(bcdiv(bcmul($difference, '100', 6), $original, 6))
+                : 0,
+            'total_impact' => $this->roundTo2(bcmul($difference, (string) $data['quantity'], 6)),
+            'organization_id' => $organizationId,
+            'created_by' => $userId,
+            'document_id' => $data['document_id'] ?? 0,
+            'line_item_id' => $data['line_item_id'] ?? 0,
+            'approval_status' => $policy?->requires_approval ? self::PENDING : 'auto_approved',
+        ]));
     }
 
-    public function rejectOverride(int $overrideId, int $userId, ?string $notes = null): PriceOverride
+    public function loadDetails(PriceOverride $override): PriceOverride
     {
-        $override = PriceOverride::findOrFail($overrideId);
-        $override->update([
-            'approval_status' => 'rejected',
-            'approved_by' => $userId,
-            'approved_at' => now(),
-            'approval_notes' => $notes,
-        ]);
+        return $override->load('product', 'creator', 'approver', 'policy');
+    }
 
-        return $override->fresh();
+    /**
+     * Approve a pending override. The status is checked on the locked row, so
+     * an override decided by a concurrent request is not decided again.
+     *
+     * @throws BusinessRuleException when the override is no longer pending
+     */
+    public function approve(PriceOverride $override, int $userId, ?string $notes): PriceOverride
+    {
+        return $this->decide($override, 'approved', $userId, $notes, 'Only pending overrides can be approved.');
+    }
+
+    /**
+     * Reject a pending override, checked on the locked row like approve().
+     *
+     * @throws BusinessRuleException when the override is no longer pending
+     */
+    public function reject(PriceOverride $override, int $userId, ?string $notes): PriceOverride
+    {
+        return $this->decide($override, 'rejected', $userId, $notes, 'Only pending overrides can be rejected.');
     }
 
     public function getOverrideReport(int $organizationId, array $filters = []): array
@@ -117,5 +164,62 @@ class PriceOverrideService
                 ->get()
                 ->toArray(),
         ];
+    }
+
+    /**
+     * @throws BusinessRuleException
+     */
+    private function assertPolicyAllows(PriceOverridePolicy $policy, float $originalPrice, float $overridePrice): void
+    {
+        $discountPercent = $originalPrice > 0
+            ? (($originalPrice - $overridePrice) / $originalPrice) * 100
+            : 0;
+
+        if ($discountPercent > 0 && ! $policy->allow_discount) {
+            throw new BusinessRuleException('Price discounts are not allowed by this policy.', 'POLICY_VIOLATION');
+        }
+
+        if ($discountPercent < 0 && ! $policy->allow_markup) {
+            throw new BusinessRuleException('Price markups are not allowed by this policy.', 'POLICY_VIOLATION');
+        }
+
+        if ($policy->max_discount_percent && $discountPercent > $policy->max_discount_percent) {
+            throw new BusinessRuleException(
+                "Discount of {$discountPercent}% exceeds maximum allowed {$policy->max_discount_percent}%.",
+                'EXCEEDS_LIMIT'
+            );
+        }
+    }
+
+    /**
+     * @throws BusinessRuleException
+     */
+    private function decide(PriceOverride $override, string $status, int $userId, ?string $notes, string $refusal): PriceOverride
+    {
+        return $override->lockForTransition(function (PriceOverride $locked) use ($status, $userId, $notes, $refusal): PriceOverride {
+            if ($locked->approval_status !== self::PENDING) {
+                throw new BusinessRuleException($refusal, 'INVALID_STATUS');
+            }
+
+            $locked->update([
+                'approval_status' => $status,
+                'approved_by' => $userId,
+                'approved_at' => now(),
+                'approval_notes' => $notes,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
+
+    /**
+     * Round a bcmath amount half away from zero to two decimals, as the
+     * percentage and impact columns store it.
+     */
+    private function roundTo2(string $amount): string
+    {
+        $half = bccomp($amount, '0', 6) < 0 ? '-0.005' : '0.005';
+
+        return bcadd(bcadd($amount, $half, 6), '0', 2);
     }
 }

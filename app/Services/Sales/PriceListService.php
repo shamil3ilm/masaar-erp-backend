@@ -10,25 +10,70 @@ use App\Models\Sales\PriceList;
 use App\Models\Sales\PriceListAssignment;
 use App\Models\Sales\PriceListItem;
 use App\Models\Sales\PriceVolumeBreak;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PriceListService
 {
     /**
+     * Price lists of the current organization, latest first, narrowed by the
+     * filters that are set. valid_now keeps lists in effect today.
+     *
+     * @param  array{is_active?: ?bool, currency_code?: ?string, search?: ?string, valid_now?: bool}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PriceList::query()->latest()
+            ->when(isset($filters['is_active']), fn ($q) => $q->where('is_active', $filters['is_active']))
+            ->when(isset($filters['currency_code']), fn ($q) => $q->where('currency_code', $filters['currency_code']))
+            ->when(isset($filters['search']), function ($q) use ($filters) {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%");
+                });
+            })
+            ->when($filters['valid_now'] ?? false, function ($q) {
+                $today = now()->toDateString();
+                $q->where('valid_from', '<=', $today)
+                    ->where(function ($q) use ($today) {
+                        $q->whereNull('valid_until')->orWhere('valid_until', '>=', $today);
+                    });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * A price list with its items, assignments and volume breaks.
+     *
+     * @return array{price_list: PriceList, items: Collection, assignments: Collection, volume_breaks: Collection}
+     */
+    public function details(PriceList $priceList): array
+    {
+        return [
+            'price_list' => $priceList,
+            'items' => PriceListItem::where('price_list_id', $priceList->id)->get(),
+            'assignments' => PriceListAssignment::where('price_list_id', $priceList->id)->get(),
+            'volume_breaks' => PriceVolumeBreak::where('price_list_id', $priceList->id)->get(),
+        ];
+    }
+
+    /**
      * Create a new price list together with optional line items.
      *
-     * @param  array{name:string,code:string,currency_code:string,valid_from:string,valid_to?:string,is_default?:bool,description?:string,is_active?:bool,created_by:int,organization_id:int,items?:array}  $data
+     * The request names the end date valid_to; it is stored as valid_until.
+     *
+     * @param  array<string, mixed>  $data  validated price list fields, with organization_id and optional items
      */
     public function createPriceList(array $data): PriceList
     {
         return DB::transaction(function () use ($data) {
-            $items = $data['items'] ?? [];
-            unset($data['items']);
+            $priceList = PriceList::create($this->headerAttributes($data));
 
-            $priceList = PriceList::create($data);
-
-            if (!empty($items)) {
-                $this->syncItems($priceList, $items);
+            if (! empty($data['items'])) {
+                $this->syncItems($priceList, $data['items']);
             }
 
             return $priceList->fresh();
@@ -36,24 +81,37 @@ class PriceListService
     }
 
     /**
-     * Update an existing price list and optionally replace its items.
+     * Update an existing price list and, when items are given, replace them.
      *
-     * @param  array{name?:string,currency_code?:string,valid_from?:string,valid_to?:string,is_default?:bool,description?:string,is_active?:bool,items?:array}  $data
+     * @param  array<string, mixed>  $data  validated price list fields with optional items
      */
     public function updatePriceList(PriceList $priceList, array $data): PriceList
     {
         return DB::transaction(function () use ($priceList, $data) {
-            $items = $data['items'] ?? null;
-            unset($data['items']);
+            $priceList->update($this->headerAttributes($data));
 
-            $priceList->update($data);
-
-            if ($items !== null) {
-                $this->syncItems($priceList, $items);
+            if (($data['items'] ?? null) !== null) {
+                $this->syncItems($priceList, $data['items']);
             }
 
             return $priceList->fresh();
         });
+    }
+
+    /**
+     * Resolve the effective price for a contact and product of the current
+     * organization.
+     *
+     * @return array{unit_price:float,discount_pct:float,effective_price:float,source:string,price_list_id:int}|null
+     */
+    public function resolvePriceFor(int $contactId, int $productId, float $quantity, ?string $currency): ?array
+    {
+        return $this->resolvePrice(
+            Contact::findOrFail($contactId),
+            Product::findOrFail($productId),
+            $quantity,
+            $currency
+        );
     }
 
     /**
@@ -78,7 +136,7 @@ class PriceListService
         $currency = $currency ?? $contact->currency_code ?? 'SAR';
         $today    = now()->toDateString();
 
-        // Retrieve all active, valid price lists for this organization in priority order.
+        // Retrieve all active price lists of the contact's organization in effect today.
         $assignmentRows = DB::table('price_list_assignments as pla')
             ->join('price_lists as pl', 'pl.id', '=', 'pla.price_list_id')
             ->where('pl.organization_id', $contact->organization_id)
@@ -86,9 +144,8 @@ class PriceListService
             ->where('pl.currency_code', $currency)
             ->where('pl.valid_from', '<=', $today)
             ->where(function ($q) use ($today) {
-                $q->whereNull('pl.valid_to')->orWhere('pl.valid_to', '>=', $today);
+                $q->whereNull('pl.valid_until')->orWhere('pl.valid_until', '>=', $today);
             })
-            ->whereNull('pl.deleted_at')
             ->select('pla.*', 'pl.id as pl_id')
             ->orderByDesc('pla.priority')
             ->get();
@@ -126,7 +183,7 @@ class PriceListService
             if ($item !== null) {
                 return $this->buildPriceResult(
                     (float) $item->unit_price,
-                    (float) ($item->discount_pct ?? $item->discount_percent ?? 0),
+                    (float) $item->discount_percent,
                     $listId,
                     $source
                 );
@@ -137,60 +194,62 @@ class PriceListService
     }
 
     /**
-     * Assign a price list to a specific contact (replaces any existing contact assignment).
+     * Assign a price list to a contact of the current organization.
      */
-    public function assignToContact(PriceList $priceList, Contact $contact): PriceListAssignment
+    public function assignToContactId(PriceList $priceList, int $contactId): PriceListAssignment
     {
-        // Remove existing contact-level assignment for this contact on any list in this org.
-        PriceListAssignment::whereIn(
-            'price_list_id',
-            PriceList::where('organization_id', $priceList->organization_id)->pluck('id')
-        )
-            ->where('assignment_type', PriceListAssignment::TYPE_CONTACT)
-            ->where('assignment_id', $contact->id)
-            ->delete();
-
-        return PriceListAssignment::create([
-            'price_list_id'   => $priceList->id,
-            'assignment_type' => PriceListAssignment::TYPE_CONTACT,
-            'assignment_id'   => $contact->id,
-            'priority'        => 100,
-        ]);
+        return $this->assignToContact($priceList, Contact::findOrFail($contactId));
     }
 
     /**
-     * Bulk-import price list items (upsert by product_id + variant_id + min_quantity).
+     * Assign a price list to a specific contact, replacing the contact's
+     * assignment to any other list of the organization. The removal and the
+     * new assignment happen in one transaction, so the contact is never left
+     * without its list.
+     */
+    public function assignToContact(PriceList $priceList, Contact $contact): PriceListAssignment
+    {
+        return DB::transaction(function () use ($priceList, $contact): PriceListAssignment {
+            PriceListAssignment::whereIn(
+                'price_list_id',
+                PriceList::where('organization_id', $priceList->organization_id)->pluck('id')
+            )
+                ->where('assignment_type', PriceListAssignment::TYPE_CONTACT)
+                ->where('assignment_id', $contact->id)
+                ->delete();
+
+            return PriceListAssignment::create([
+                'price_list_id'   => $priceList->id,
+                'assignment_type' => PriceListAssignment::TYPE_CONTACT,
+                'assignment_id'   => $contact->id,
+                'priority'        => 100,
+            ]);
+        });
+    }
+
+    /**
+     * Bulk-import price list items, upserted by product and minimum quantity.
      *
-     * @param  array<int,array{product_id:int,variant_id?:int,unit_price:float,min_quantity?:float,discount_pct?:float,notes?:string}>  $rows
+     * @param  array<int,array{product_id:int,unit_price:float,min_quantity?:float,discount_pct?:float}>  $rows
      */
     public function importItems(PriceList $priceList, array $rows): int
     {
-        $count = 0;
-        DB::transaction(function () use ($priceList, $rows, &$count) {
+        return DB::transaction(function () use ($priceList, $rows): int {
             foreach ($rows as $row) {
-                $discountPct = $row['discount_pct'] ?? 0;
-                if (bccomp((string) $discountPct, '0', 4) < 0 || bccomp((string) $discountPct, '100', 4) > 0) {
-                    throw new \InvalidArgumentException('Discount percentage must be between 0 and 100.');
-                }
+                $attributes = $this->itemAttributes($row);
 
                 PriceListItem::updateOrCreate(
                     [
                         'price_list_id' => $priceList->id,
-                        'product_id'    => $row['product_id'],
-                        'variant_id'    => $row['variant_id'] ?? null,
-                        'min_quantity'  => $row['min_quantity'] ?? 1,
+                        'product_id'    => $attributes['product_id'],
+                        'min_quantity'  => $attributes['min_quantity'],
                     ],
-                    [
-                        'unit_price'   => $row['unit_price'],
-                        'discount_pct' => $discountPct,
-                        'notes'        => $row['notes'] ?? null,
-                    ]
+                    Arr::only($attributes, ['unit_price', 'discount_percent'])
                 );
-                $count++;
             }
-        });
 
-        return $count;
+            return count($rows);
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -198,12 +257,50 @@ class PriceListService
     // ─────────────────────────────────────────────────────────────
 
     /**
+     * The price list columns from request fields: valid_to is stored as
+     * valid_until, and the items are saved separately.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function headerAttributes(array $data): array
+    {
+        if (array_key_exists('valid_to', $data)) {
+            $data['valid_until'] = $data['valid_to'];
+        }
+
+        return Arr::except($data, ['valid_to', 'items']);
+    }
+
+    /**
+     * The item columns from a request row. The request names the discount
+     * discount_pct; it is stored as discount_percent and must lie in 0..100.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{product_id: int, unit_price: mixed, min_quantity: mixed, discount_percent: mixed}
+     */
+    private function itemAttributes(array $row): array
+    {
+        $discountPct = $row['discount_pct'] ?? 0;
+        if (bccomp((string) $discountPct, '0', 4) < 0 || bccomp((string) $discountPct, '100', 4) > 0) {
+            throw new \InvalidArgumentException('Discount percentage must be between 0 and 100.');
+        }
+
+        return [
+            'product_id'       => (int) $row['product_id'],
+            'unit_price'       => $row['unit_price'],
+            'min_quantity'     => $row['min_quantity'] ?? 1,
+            'discount_percent' => $discountPct,
+        ];
+    }
+
+    /**
      * Rank candidate price list IDs by assignment priority for the contact.
      *
      * @return array<int,array{list_id:int,source:string}>
      */
     private function rankCandidateLists(
-        \Illuminate\Support\Collection $assignmentRows,
+        Collection $assignmentRows,
         Contact $contact
     ): array {
         $candidates = [];
@@ -237,25 +334,17 @@ class PriceListService
     }
 
     /**
-     * Sync price list items: delete removed items, upsert new / updated ones.
+     * Replace a price list's items with the given rows.
      *
-     * @param  array<int,array{product_id:int,variant_id?:int,unit_price:float,min_quantity?:float,discount_pct?:float,notes?:string}>  $items
+     * @param  array<int,array<string, mixed>>  $items
      */
     private function syncItems(PriceList $priceList, array $items): void
     {
-        // Delete existing items and recreate — simplest strategy for full replacement.
         PriceListItem::where('price_list_id', $priceList->id)->delete();
 
         foreach ($items as $item) {
-            $discountPct = $item['discount_pct'] ?? 0;
-            if (bccomp((string) $discountPct, '0', 4) < 0 || bccomp((string) $discountPct, '100', 4) > 0) {
-                throw new \InvalidArgumentException('Discount percentage must be between 0 and 100.');
-            }
-
-            PriceListItem::create(array_merge($item, [
+            PriceListItem::create(array_merge($this->itemAttributes($item), [
                 'price_list_id' => $priceList->id,
-                'min_quantity'  => $item['min_quantity'] ?? 1,
-                'discount_pct'  => $discountPct,
             ]));
         }
     }

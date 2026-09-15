@@ -7,6 +7,7 @@ namespace App\Services\Sales;
 use App\Models\Sales\SalesOrderCostEstimate;
 use App\Models\Sales\SalesOrderCostEstimateItem;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -26,9 +27,37 @@ class SalesOrderCostingService
         });
     }
 
+    /**
+     * An estimate of the current organization.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function estimateOf(int $id): SalesOrderCostEstimate
+    {
+        return SalesOrderCostEstimate::findOrFail($id);
+    }
+
+    /**
+     * An estimate with its items, their products and cost elements, its order
+     * and the name of the user who costed it.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function estimateDetails(int $id): SalesOrderCostEstimate
+    {
+        return SalesOrderCostEstimate::with(['items.product', 'items.costElement', 'salesOrder', 'costedBy:id,name'])
+            ->findOrFail($id);
+    }
+
+    /**
+     * Update an estimate. The released check runs on the locked row, so an
+     * estimate released by a concurrent request is not changed.
+     */
     public function update(SalesOrderCostEstimate $estimate, array $data): SalesOrderCostEstimate
     {
         return DB::transaction(function () use ($estimate, $data): SalesOrderCostEstimate {
+            $estimate = $this->locked($estimate);
+
             if ($estimate->isReleased()) {
                 throw new InvalidArgumentException('Cannot modify a released cost estimate.');
             }
@@ -43,9 +72,15 @@ class SalesOrderCostingService
     // Items
     // ----------------------------------------------------------------
 
+    /**
+     * Add a cost item and recalculate the estimate's totals, with the estimate
+     * locked so the released check and the totals see its current state.
+     */
     public function addItem(SalesOrderCostEstimate $estimate, array $data): SalesOrderCostEstimateItem
     {
         return DB::transaction(function () use ($estimate, $data): SalesOrderCostEstimateItem {
+            $estimate = $this->locked($estimate);
+
             if ($estimate->isReleased()) {
                 throw new InvalidArgumentException('Cannot add items to a released cost estimate.');
             }
@@ -61,7 +96,7 @@ class SalesOrderCostingService
                 'revenue'                      => $data['revenue'] ?? 0,
             ]));
 
-            $this->recalculate($estimate->fresh());
+            $this->recalculate($estimate);
 
             return $item->fresh();
         });
@@ -96,14 +131,20 @@ class SalesOrderCostingService
     // Release
     // ----------------------------------------------------------------
 
+    /**
+     * Release a draft estimate. The draft check runs on the locked row, so two
+     * requests cannot both release it.
+     */
     public function release(SalesOrderCostEstimate $estimate): SalesOrderCostEstimate
     {
         return DB::transaction(function () use ($estimate): SalesOrderCostEstimate {
+            $estimate = $this->locked($estimate);
+
             if (!$estimate->isDraft()) {
                 throw new InvalidArgumentException('Only draft estimates can be released.');
             }
 
-            $this->recalculate($estimate->fresh());
+            $this->recalculate($estimate);
 
             $estimate->update(['status' => SalesOrderCostEstimate::STATUS_RELEASED]);
 
@@ -133,5 +174,13 @@ class SalesOrderCostingService
         }
 
         return $query->paginate($perPage);
+    }
+
+    /**
+     * The estimate re-read and locked until the surrounding transaction ends.
+     */
+    private function locked(SalesOrderCostEstimate $estimate): SalesOrderCostEstimate
+    {
+        return SalesOrderCostEstimate::query()->lockForUpdate()->findOrFail($estimate->id);
     }
 }

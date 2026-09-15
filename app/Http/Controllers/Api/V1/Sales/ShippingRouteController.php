@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Sales\ShippingRoute;
-use App\Models\Sales\ShippingZone;
 use App\Services\Sales\ShippingRouteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ShippingRouteController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ShippingRouteService $shippingRouteService,
     ) {}
@@ -57,14 +58,12 @@ class ShippingRouteController extends Controller
 
     public function zoneShow(int $id): JsonResponse
     {
-        $zone = ShippingZone::findOrFail($id);
-
-        return $this->success($zone);
+        return $this->success($this->shippingRouteService->zoneOf($id));
     }
 
     public function zoneUpdate(Request $request, int $id): JsonResponse
     {
-        $zone = ShippingZone::findOrFail($id);
+        $zone = $this->shippingRouteService->zoneOf($id);
 
         $validator = Validator::make($request->all(), [
             'zone_code' => 'nullable|string|max:20',
@@ -86,7 +85,7 @@ class ShippingRouteController extends Controller
 
     public function zoneDestroy(int $id): JsonResponse
     {
-        ShippingZone::findOrFail($id)->delete();
+        $this->shippingRouteService->deleteZone($this->shippingRouteService->zoneOf($id));
 
         return $this->noContent();
     }
@@ -110,8 +109,8 @@ class ShippingRouteController extends Controller
         $validator = Validator::make($request->all(), [
             'route_code' => 'required|string|max:30',
             'route_name' => 'required|string|max:100',
-            'departure_zone_id' => 'required|exists:shipping_zones,id',
-            'destination_zone_id' => 'required|exists:shipping_zones,id',
+            'departure_zone_id' => ['required', $this->ownedBy('shipping_zones')],
+            'destination_zone_id' => ['required', $this->ownedBy('shipping_zones')],
             'transportation_mode' => 'required|in:road,air,sea,rail,courier',
             'transit_days' => 'nullable|integer|min:1',
             'carrier' => 'nullable|string|max:100',
@@ -128,25 +127,23 @@ class ShippingRouteController extends Controller
             ['organization_id' => $request->user()->organization_id]
         ));
 
-        return $this->created($route->load(['departureZone', 'destinationZone']));
+        return $this->created($route);
     }
 
     public function routeShow(int $id): JsonResponse
     {
-        $route = ShippingRoute::with(['departureZone', 'destinationZone'])->findOrFail($id);
-
-        return $this->success($route);
+        return $this->success($this->shippingRouteService->routeDetails($id));
     }
 
     public function routeUpdate(Request $request, int $id): JsonResponse
     {
-        $route = ShippingRoute::findOrFail($id);
+        $route = $this->shippingRouteService->routeOf($id);
 
         $validator = Validator::make($request->all(), [
             'route_code' => 'nullable|string|max:30',
             'route_name' => 'nullable|string|max:100',
-            'departure_zone_id' => 'nullable|exists:shipping_zones,id',
-            'destination_zone_id' => 'nullable|exists:shipping_zones,id',
+            'departure_zone_id' => ['nullable', $this->ownedBy('shipping_zones')],
+            'destination_zone_id' => ['nullable', $this->ownedBy('shipping_zones')],
             'transportation_mode' => 'nullable|in:road,air,sea,rail,courier',
             'transit_days' => 'nullable|integer|min:1',
             'carrier' => 'nullable|string|max:100',
@@ -165,7 +162,7 @@ class ShippingRouteController extends Controller
 
     public function routeDestroy(int $id): JsonResponse
     {
-        ShippingRoute::findOrFail($id)->delete();
+        $this->shippingRouteService->deleteRoute($this->shippingRouteService->routeOf($id));
 
         return $this->noContent();
     }
@@ -198,15 +195,13 @@ class ShippingRouteController extends Controller
             return $this->error('No matching shipping route found.', 'NOT_FOUND', 404);
         }
 
-        return $this->success($route->load(['departureZone', 'destinationZone']));
+        return $this->success($route);
     }
 
     public function determineForOrder(int $orderId): JsonResponse
     {
-        $determination = $this->shippingRouteService->determineForOrder($orderId);
-
         return $this->success(
-            $determination->load(['shippingRoute.departureZone', 'shippingRoute.destinationZone', 'departureZone', 'destinationZone']),
+            $this->shippingRouteService->determineForOrder($orderId),
             'Route determined successfully.'
         );
     }

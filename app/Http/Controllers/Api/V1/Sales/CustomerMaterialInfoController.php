@@ -4,33 +4,33 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\CustomerMaterialInfo;
+use App\Services\Sales\CustomerMaterialInfoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class CustomerMaterialInfoController extends Controller
 {
+    use ValidatesOwnedRows;
+
+    public function __construct(
+        private readonly CustomerMaterialInfoService $service
+    ) {}
+
     /**
      * GET /api/v1/sales/customer-material-infos
      * List customer material infos with optional filters.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CustomerMaterialInfo::with(['contact', 'product'])
-            ->latest()
-            ->when($request->has('contact_id'), fn($q) => $q->forContact($request->integer('contact_id')))
-            ->when($request->has('product_id'), fn($q) => $q->forProduct($request->integer('product_id')))
-            ->when($request->boolean('active_only'), fn($q) => $q->active())
-            ->when($request->has('search'), function ($q) use ($request) {
-                $term = $request->string('search');
-                $q->where(function ($q) use ($term) {
-                    $q->where('customer_material_number', 'like', "%{$term}%")
-                        ->orWhere('customer_material_description', 'like', "%{$term}%");
-                });
-            });
-
-        $items = $query->paginate($request->integer('per_page', 15));
+        $items = $this->service->list([
+            'contact_id'  => $request->has('contact_id') ? $request->integer('contact_id') : null,
+            'product_id'  => $request->has('product_id') ? $request->integer('product_id') : null,
+            'active_only' => $request->boolean('active_only'),
+            'search'      => $request->has('search') ? (string) $request->string('search') : null,
+        ], $request->integer('per_page', 15));
 
         return $this->paginated($items);
     }
@@ -42,8 +42,8 @@ class CustomerMaterialInfoController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'                    => 'required|integer|exists:contacts,id',
-            'product_id'                    => 'required|integer|exists:products,id',
+            'contact_id'                    => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id'                    => ['required', 'integer', $this->ownedBy('products')],
             'customer_material_number'      => 'nullable|string|max:100',
             'customer_material_description' => 'nullable|string|max:255',
             'delivery_lead_time_days'       => 'nullable|integer|min:0',
@@ -53,11 +53,9 @@ class CustomerMaterialInfoController extends Controller
             'is_active'                     => 'nullable|boolean',
         ]);
 
-        $validated['organization_id'] = $this->organizationId($request);
+        $info = $this->service->create((int) $this->organizationId($request), $validated);
 
-        $info = CustomerMaterialInfo::create($validated);
-
-        return $this->success($info->load(['contact', 'product']), 'Customer material info created.', 201);
+        return $this->success($info, 'Customer material info created.', 201);
     }
 
     /**
@@ -65,7 +63,7 @@ class CustomerMaterialInfoController extends Controller
      */
     public function show(CustomerMaterialInfo $customerMaterialInfo): JsonResponse
     {
-        return $this->success($customerMaterialInfo->load(['contact', 'product']));
+        return $this->success($this->service->details($customerMaterialInfo));
     }
 
     /**
@@ -83,9 +81,10 @@ class CustomerMaterialInfoController extends Controller
             'is_active'                     => 'nullable|boolean',
         ]);
 
-        $customerMaterialInfo->update($validated);
-
-        return $this->success($customerMaterialInfo->fresh(['contact', 'product']), 'Customer material info updated.');
+        return $this->success(
+            $this->service->update($customerMaterialInfo, $validated),
+            'Customer material info updated.'
+        );
     }
 
     /**
@@ -93,36 +92,28 @@ class CustomerMaterialInfoController extends Controller
      */
     public function destroy(CustomerMaterialInfo $customerMaterialInfo): JsonResponse
     {
-        $customerMaterialInfo->delete();
+        $this->service->delete($customerMaterialInfo);
 
         return $this->success(null, 'Customer material info deleted.');
     }
 
     /**
-     * GET /api/v1/sales/customer-material-infos/lookup?customer_id=&product_id=
+     * GET /api/v1/sales/customer-material-infos/lookup?contact_id=&product_id=
      * Cross-reference lookup — find internal product by customer material number or product_id.
      */
     public function lookup(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'               => 'required|integer|exists:contacts,id',
-            'product_id'               => 'nullable|integer|exists:products,id',
+            'contact_id'               => ['required', 'integer', $this->ownedBy('contacts')],
+            'product_id'               => ['nullable', 'integer', $this->ownedBy('products')],
             'customer_material_number' => 'nullable|string|max:100',
         ]);
 
-        $query = CustomerMaterialInfo::with(['product'])
-            ->forContact((int) $validated['contact_id'])
-            ->active();
-
-        if (!empty($validated['product_id'])) {
-            $query->forProduct((int) $validated['product_id']);
-        }
-
-        if (!empty($validated['customer_material_number'])) {
-            $query->where('customer_material_number', $validated['customer_material_number']);
-        }
-
-        $result = $query->first();
+        $result = $this->service->lookup(
+            (int) $validated['contact_id'],
+            ! empty($validated['product_id']) ? (int) $validated['product_id'] : null,
+            ! empty($validated['customer_material_number']) ? $validated['customer_material_number'] : null
+        );
 
         if ($result === null) {
             return $this->notFound('No customer material info found for the given criteria.');
