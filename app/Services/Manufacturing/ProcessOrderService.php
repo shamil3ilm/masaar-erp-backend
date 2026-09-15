@@ -6,16 +6,81 @@ namespace App\Services\Manufacturing;
 
 use App\Models\Manufacturing\ProcessOrder;
 use App\Models\Manufacturing\ProcessOrderPhase;
-use App\Models\Manufacturing\ProcessOrderResource;
 use App\Models\Manufacturing\Recipe;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Process manufacturing: recipes, process orders and their phases.
+ *
+ * Release, completion and phase changes run on the locked process order and
+ * re-check the status there. Phases carry no organization column, so they are
+ * found and locked only through an order of the caller's organization.
+ */
 class ProcessOrderService
 {
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * @param  array{product_id?: mixed, active_only?: bool}  $filters
+     */
+    public function paginateRecipes(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return Recipe::with(['product', 'baseUnit'])
+            ->withCount(['phases', 'resources'])
+            ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->forProduct((int) $v))
+            ->when($filters['active_only'] ?? false, fn ($q) => $q->active())
+            ->orderBy('recipe_code')
+            ->paginate($perPage);
+    }
+
+    public function createRecipe(array $data): Recipe
+    {
+        return Recipe::create($data)->load(['product', 'baseUnit']);
+    }
+
+    /**
+     * One of the organization's recipes with its phases and resources, or null.
+     */
+    public function findRecipe(int $id): ?Recipe
+    {
+        return Recipe::with(['product', 'baseUnit', 'phases.resources', 'resources.material', 'resources.unit'])->find($id);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateOrders(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ProcessOrder::with(['recipe', 'product', 'unit', 'productionVersion'])
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->forProduct((int) $v))
+            ->when($filters['recipe_id'] ?? null, fn ($q, $v) => $q->where('recipe_id', $v))
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('order_number', 'like', "%{$search}%"))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's process orders, or null.
+     *
+     * @param  list<string>  $with
+     */
+    public function findOrder(int $id, array $with = []): ?ProcessOrder
+    {
+        return ProcessOrder::with($with)->find($id);
+    }
+
+    /**
+     * A phase of one of the organization's process orders, or null.
+     */
+    public function findPhase(int $id): ?ProcessOrderPhase
+    {
+        return ProcessOrderPhase::whereHas('processOrder')->find($id);
+    }
 
     /**
      * Create a process order by exploding a recipe into phases and resources.
@@ -42,7 +107,6 @@ class ProcessOrderService
                 'created_by'            => auth()->id(),
             ]);
 
-            // Explode recipe phases into order phases
             foreach ($recipe->phases as $recipePhase) {
                 $order->phases()->create([
                     'recipe_phase_id' => $recipePhase->id,
@@ -52,7 +116,7 @@ class ProcessOrderService
                 ]);
             }
 
-            // Explode recipe resources, scaled to planned quantity
+            // Resource quantities scale from the recipe's base quantity to the planned quantity.
             foreach ($recipe->resources as $recipeResource) {
                 $order->resources()->create([
                     'recipe_resource_id' => $recipeResource->id,
@@ -67,80 +131,89 @@ class ProcessOrderService
     }
 
     /**
-     * Release a process order (makes it available for production).
+     * Release a created process order for production.
      */
     public function release(ProcessOrder $order): void
     {
-        if (!$order->canBeReleased()) {
-            throw new \LogicException("Process order {$order->order_number} cannot be released in its current status.");
-        }
+        $order->lockForTransition(function (ProcessOrder $order): void {
+            if (!$order->canBeReleased()) {
+                throw new \LogicException("Process order {$order->order_number} cannot be released in its current status.");
+            }
 
-        $order->update(['status' => ProcessOrder::STATUS_RELEASED]);
+            $order->update(['status' => ProcessOrder::STATUS_RELEASED]);
+        });
     }
 
     /**
-     * Start a single phase of a process order, recording actual parameters.
+     * Start a pending phase; the first phase started puts a released order in progress.
      *
      * @param array<string, mixed> $parameters
      */
     public function startPhase(ProcessOrderPhase $phase, array $parameters = []): void
     {
-        if (!$phase->isPending()) {
-            throw new \LogicException("Phase {$phase->phase_number} is not in pending status.");
-        }
+        $this->orderOf($phase)->lockForTransition(function (ProcessOrder $order) use ($phase): void {
+            $phase = $this->lockPhase($order, $phase->id);
 
-        $phase->update([
-            'status'     => ProcessOrderPhase::STATUS_IN_PROGRESS,
-            'started_at' => now(),
-        ]);
+            if (!$phase->isPending()) {
+                throw new \LogicException("Phase {$phase->phase_number} is not in pending status.");
+            }
 
-        // Transition the parent order to in_progress on first phase start
-        $order = $phase->processOrder;
-        if ($order->isReleased()) {
-            $order->update(['status' => ProcessOrder::STATUS_IN_PROGRESS, 'actual_start' => now()]);
-        }
+            $phase->update([
+                'status'     => ProcessOrderPhase::STATUS_IN_PROGRESS,
+                'started_at' => now(),
+            ]);
+
+            if ($order->isReleased()) {
+                $order->update(['status' => ProcessOrder::STATUS_IN_PROGRESS, 'actual_start' => now()]);
+            }
+        });
     }
 
     /**
-     * Complete a phase, recording actual measurement values.
+     * Complete a phase in progress, recording actual measurement values.
      *
      * @param array<string, mixed> $actuals
      */
     public function completePhase(ProcessOrderPhase $phase, array $actuals): void
     {
-        if (!$phase->isInProgress()) {
-            throw new \LogicException("Phase {$phase->phase_number} is not in progress.");
-        }
+        $this->orderOf($phase)->lockForTransition(function (ProcessOrder $order) use ($phase, $actuals): void {
+            $phase = $this->lockPhase($order, $phase->id);
 
-        $startedAt = $phase->started_at;
-        $actualDurationMinutes = $startedAt
-            ? (int) $startedAt->diffInMinutes(now())
-            : null;
+            if (!$phase->isInProgress()) {
+                throw new \LogicException("Phase {$phase->phase_number} is not in progress.");
+            }
 
-        $phase->update([
-            'status'                  => ProcessOrderPhase::STATUS_COMPLETED,
-            'completed_at'            => now(),
-            'actual_temperature'      => $actuals['actual_temperature'] ?? null,
-            'actual_pressure'         => $actuals['actual_pressure'] ?? null,
-            'actual_duration_minutes' => $actuals['actual_duration_minutes'] ?? $actualDurationMinutes,
-            'operator_notes'          => $actuals['operator_notes'] ?? null,
-        ]);
+            $actualDurationMinutes = $phase->started_at
+                ? (int) $phase->started_at->diffInMinutes(now())
+                : null;
+
+            $phase->update([
+                'status'                  => ProcessOrderPhase::STATUS_COMPLETED,
+                'completed_at'            => now(),
+                'actual_temperature'      => $actuals['actual_temperature'] ?? null,
+                'actual_pressure'         => $actuals['actual_pressure'] ?? null,
+                'actual_duration_minutes' => $actuals['actual_duration_minutes'] ?? $actualDurationMinutes,
+                'operator_notes'          => $actuals['operator_notes'] ?? null,
+            ]);
+        });
     }
 
     /**
-     * Complete the entire process order, recording the actual produced quantity.
+     * Complete a released or in-progress process order with its produced quantity.
      */
     public function complete(ProcessOrder $order, float $actualQuantity): void
     {
-        if (!$order->canBeCompleted()) {
-            throw new \LogicException("Process order {$order->order_number} cannot be completed in its current status.");
-        }
+        $order->lockForTransition(function (ProcessOrder $order) use ($actualQuantity): void {
+            if (!$order->canBeCompleted()) {
+                throw new \LogicException("Process order {$order->order_number} cannot be completed in its current status.");
+            }
 
-        $order->update([
-            'status'          => ProcessOrder::STATUS_COMPLETED,
-            'actual_quantity' => $actualQuantity,
-            'actual_finish'   => now(),
-        ]);
+            $order->update([
+                'status'          => ProcessOrder::STATUS_COMPLETED,
+                'actual_quantity' => $actualQuantity,
+                'actual_finish'   => now(),
+            ]);
+        });
     }
 
     /**
@@ -177,5 +250,24 @@ class ProcessOrderService
                 'completed_at' => $p->completed_at?->toIso8601String(),
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * The organization's order the phase belongs to.
+     */
+    private function orderOf(ProcessOrderPhase $phase): ProcessOrder
+    {
+        return ProcessOrder::findOrFail($phase->process_order_id);
+    }
+
+    /**
+     * The order's phase, locked until the transaction ends.
+     */
+    private function lockPhase(ProcessOrder $order, int $phaseId): ProcessOrderPhase
+    {
+        return ProcessOrderPhase::whereKey($phaseId)
+            ->where('process_order_id', $order->id)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 }
