@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\Warehouse;
 use App\Models\User;
@@ -17,7 +18,7 @@ use InvalidArgumentException;
 
 class ReturnsInspectionLot extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     // Status constants
     public const STATUS_OPEN = 'open';

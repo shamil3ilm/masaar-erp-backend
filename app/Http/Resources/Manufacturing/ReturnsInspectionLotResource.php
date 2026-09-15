@@ -39,7 +39,9 @@ class ReturnsInspectionLotResource extends JsonResource
             'stock_posted'    => (bool) $this->stock_posted,
             'stock_posted_at' => $this->stock_posted_at?->toIso8601String(),
 
-            'total_defects' => $this->getTotalDefectCount(),
+            // A list loads defects_count with the lots; a single lot has its defects loaded.
+            'total_defects' => $this->defects_count
+                ?? ($this->relationLoaded('defects') ? $this->defects->count() : $this->getTotalDefectCount()),
 
             'defects' => ReturnsInspectionDefectResource::collection(
                 $this->whenLoaded('defects')

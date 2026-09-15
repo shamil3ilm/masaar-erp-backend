@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Manufacturing\ReturnsInspectionDefectResource;
 use App\Http\Resources\Manufacturing\ReturnsInspectionLotResource;
 use App\Models\Manufacturing\ReturnsInspectionDefect;
-use App\Models\Manufacturing\ReturnsInspectionLot;
 use App\Services\Manufacturing\ReturnsInspectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +16,8 @@ use InvalidArgumentException;
 
 class ReturnsInspectionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ReturnsInspectionService $service,
     ) {}
@@ -47,14 +49,14 @@ class ReturnsInspectionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'rma_request_id'     => 'nullable|exists:rma_requests,id',
-            'sales_return_id'    => 'nullable|exists:sales_returns,id',
-            'purchase_return_id' => 'nullable|exists:purchase_returns,id',
-            'product_id'         => 'required|exists:products,id',
-            'warehouse_id'       => 'nullable|exists:warehouses,id',
+            'rma_request_id'     => ['nullable', $this->ownedBy('rma_requests')],
+            'sales_return_id'    => ['nullable', $this->ownedBy('sales_returns')],
+            'purchase_return_id' => ['nullable', $this->ownedBy('purchase_returns')],
+            'product_id'         => ['required', $this->ownedBy('products')],
+            'warehouse_id'       => ['nullable', $this->ownedBy('warehouses')],
             'return_type'        => 'nullable|in:customer_return,vendor_return,internal_return',
             'received_quantity'  => 'required|numeric|min:0.0001',
-            'quality_plan_id'    => 'nullable|exists:quality_plans,id',
+            'quality_plan_id'    => ['nullable', $this->ownedBy('quality_plans')],
         ]);
 
         $validated['created_by'] = auth()->id();
@@ -126,14 +128,7 @@ class ReturnsInspectionController extends Controller
      */
     public function updateDefect(Request $request, string $id, string $defectId): JsonResponse
     {
-        $defect = ReturnsInspectionDefect::where('returns_inspection_lot_id', function ($query) use ($id) {
-            $query->select('id')->from('returns_inspection_lots')
-                ->where('id', $id)
-                ->orWhere('uuid', $id)
-                ->limit(1);
-        })->where(function ($q) use ($defectId) {
-            $q->where('id', $defectId)->orWhere('uuid', $defectId);
-        })->first();
+        $defect = $this->defectOf($id, $defectId);
 
         if ($defect === null) {
             return $this->notFound('Defect record not found.');
@@ -159,14 +154,7 @@ class ReturnsInspectionController extends Controller
      */
     public function removeDefect(string $id, string $defectId): JsonResponse
     {
-        $defect = ReturnsInspectionDefect::where('returns_inspection_lot_id', function ($query) use ($id) {
-            $query->select('id')->from('returns_inspection_lots')
-                ->where('id', $id)
-                ->orWhere('uuid', $id)
-                ->limit(1);
-        })->where(function ($q) use ($defectId) {
-            $q->where('id', $defectId)->orWhere('uuid', $defectId);
-        })->first();
+        $defect = $this->defectOf($id, $defectId);
 
         if ($defect === null) {
             return $this->notFound('Defect record not found.');
@@ -235,5 +223,18 @@ class ReturnsInspectionController extends Controller
         }
 
         return $this->success(new ReturnsInspectionLotResource($lot));
+    }
+
+    /**
+     * The defect of the organization's lot named in the URL, or null when
+     * either is not found.
+     */
+    private function defectOf(string $id, string $defectId): ?ReturnsInspectionDefect
+    {
+        try {
+            return $this->service->findDefect($this->service->show($id), $defectId);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
     }
 }
