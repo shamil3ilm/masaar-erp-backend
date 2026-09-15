@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CalibrationOrder extends Model
 {
-    use BelongsToOrganization, HasUuid, SoftDeletes;
+    use BelongsToOrganization, HasUuid, LocksForTransition, SoftDeletes;
 
     /** Numbered by NumberGeneratorService per organization and year: CAL-2026-00001. */
     public const NUMBER_SEQUENCE = 'CAL';
@@ -88,6 +89,14 @@ class CalibrationOrder extends Model
                 $q->where('status', self::STATUS_PLANNED)
                     ->where('scheduled_date', '<', now()->toDateString());
             });
+    }
+
+    /**
+     * Only a planned or in-progress order can be completed.
+     */
+    public function canBeCompleted(): bool
+    {
+        return in_array($this->status, [self::STATUS_PLANNED, self::STATUS_IN_PROGRESS], true);
     }
 
     public function isOverdue(): bool
