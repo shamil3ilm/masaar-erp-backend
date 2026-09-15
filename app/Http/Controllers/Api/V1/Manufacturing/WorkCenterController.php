@@ -28,18 +28,12 @@ class WorkCenterController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $workCenters = WorkCenter::with(['exceptions', 'createdBy'])
-            ->when($request->search, fn ($q, $search) => $q->where(
-                fn ($inner) => $inner->where('name', 'like', "%{$search}%")
-                    ->orWhere('code', 'like', "%{$search}%")
-            ))
-            ->when($request->type, fn ($q, $type) => $q->ofType($type))
-            ->when($request->boolean('active_only'), fn ($q) => $q->active())
-            ->orderBy(
-                $this->safeSortBy($request->sort_by, ['code', 'name', 'work_center_type', 'created_at'], 'name'),
-                $this->safeSortOrder($request->sort_order, 'asc')
-            )
-            ->paginate($request->integer('per_page', 15));
+        $workCenters = $this->capacityService->paginateWorkCenters(
+            ['search' => $request->search, 'type' => $request->type, 'active_only' => $request->boolean('active_only')],
+            $this->safeSortBy($request->sort_by, CapacityPlanningService::WORK_CENTER_SORT_COLUMNS, 'name'),
+            $this->safeSortOrder($request->sort_order, 'asc'),
+            $request->integer('per_page', 15),
+        );
 
         return $this->paginated($workCenters, null);
     }
@@ -85,7 +79,7 @@ class WorkCenterController extends Controller
      */
     public function destroy(WorkCenter $workCenter): JsonResponse
     {
-        $workCenter->delete();
+        $this->capacityService->deleteWorkCenter($workCenter);
 
         return $this->success(null, 'Work center deleted successfully.');
     }

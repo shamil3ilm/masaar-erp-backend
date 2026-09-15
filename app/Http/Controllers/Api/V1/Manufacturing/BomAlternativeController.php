@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\BomAlternative;
 use App\Services\Manufacturing\BomAlternativeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class BomAlternativeController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly BomAlternativeService $service
     ) {}
@@ -27,19 +29,17 @@ class BomAlternativeController extends Controller
 
     public function store(int $productId, Request $request): JsonResponse
     {
-        $orgId = auth()->user()->organization_id;
-
         $validated = $request->validate([
             'alternative_number' => [
                 'required',
                 'integer',
                 'min:1',
                 Rule::unique('bom_alternatives')
-                    ->where('organization_id', $orgId)
+                    ->where('organization_id', auth()->user()->organization_id)
                     ->where('product_id', $productId),
             ],
             'alternative_name' => 'nullable|string|max:100',
-            'bom_template_id' => ['nullable', Rule::exists('bom_templates', 'id')->where('organization_id', $orgId)],
+            'bom_template_id' => ['nullable', $this->ownedBy('bom_templates')],
             'valid_from' => 'required|date',
             'valid_to' => 'nullable|date|after_or_equal:valid_from',
             'is_default' => 'boolean',
@@ -59,21 +59,16 @@ class BomAlternativeController extends Controller
 
     public function show(int $productId, int $id): JsonResponse
     {
-        $alternative = BomAlternative::with(['product', 'bomTemplate'])
-            ->forProduct($productId)
-            ->findOrFail($id);
-
-        return $this->success($alternative);
+        return $this->success($this->service->findOrFail($productId, $id, ['product', 'bomTemplate']));
     }
 
     public function update(int $productId, int $id, Request $request): JsonResponse
     {
-        $alternative = BomAlternative::forProduct($productId)->findOrFail($id);
-        $orgId = auth()->user()->organization_id;
+        $alternative = $this->service->findOrFail($productId, $id);
 
         $validated = $request->validate([
             'alternative_name' => 'nullable|string|max:100',
-            'bom_template_id' => ['nullable', Rule::exists('bom_templates', 'id')->where('organization_id', $orgId)],
+            'bom_template_id' => ['nullable', $this->ownedBy('bom_templates')],
             'valid_from' => 'sometimes|required|date',
             'valid_to' => 'nullable|date|after_or_equal:valid_from',
             'is_default' => 'boolean',
@@ -91,16 +86,14 @@ class BomAlternativeController extends Controller
 
     public function destroy(int $productId, int $id): JsonResponse
     {
-        $alternative = BomAlternative::forProduct($productId)->findOrFail($id);
-        $alternative->delete();
+        $this->service->delete($this->service->findOrFail($productId, $id));
 
         return $this->noContent();
     }
 
     public function setDefault(int $productId, int $id): JsonResponse
     {
-        $alternative = BomAlternative::forProduct($productId)->findOrFail($id);
-        $this->service->setDefault($alternative);
+        $this->service->setDefault($this->service->findOrFail($productId, $id));
 
         return $this->success(null, 'Default BOM alternative set successfully.');
     }
@@ -108,7 +101,7 @@ class BomAlternativeController extends Controller
     public function determine(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
+            'product_id' => ['required', 'integer', $this->ownedBy('products')],
             'quantity' => 'required|numeric|min:0.0001',
             'date' => 'nullable|date',
             'usage_type' => 'nullable|in:production,engineering,costing,plant_maintenance',
