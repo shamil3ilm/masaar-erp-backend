@@ -38,6 +38,14 @@ class EquipmentService
             ->paginate($perPage);
     }
 
+    /**
+     * The organization's equipment; another organization's id is not found.
+     */
+    public function findOrFail(int $organizationId, int $equipmentId): Equipment
+    {
+        return Equipment::forOrganization($organizationId)->findOrFail($equipmentId);
+    }
+
     public function create(array $data, int $userId): Equipment
     {
         return Equipment::create(array_merge($data, ['created_by' => $userId]))
