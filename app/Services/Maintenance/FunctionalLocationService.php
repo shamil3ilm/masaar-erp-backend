@@ -34,6 +34,14 @@ class FunctionalLocationService
             ->paginate($perPage);
     }
 
+    /**
+     * The organization's functional location; another organization's id is not found.
+     */
+    public function findOrFail(int $organizationId, int $locationId): FunctionalLocation
+    {
+        return FunctionalLocation::forOrganization($organizationId)->findOrFail($locationId);
+    }
+
     public function create(array $data): FunctionalLocation
     {
         return FunctionalLocation::create($data);
