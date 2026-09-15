@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Expense;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Expense\Expense;
 use App\Models\Expense\ExpenseReceipt;
 use App\Models\Expense\RecurringExpense;
@@ -16,6 +18,47 @@ class ExpenseService
     public function __construct(
         private readonly NumberGeneratorService $numberGenerator,
     ) {}
+
+    /**
+     * The organization's expenses, latest first.
+     *
+     * @param  array<string, mixed>  $filters  status, category_id, employee_id, start_date, end_date and
+     *                                         search apply when set; is_reimbursable applies when present
+     */
+    public function paginateExpenses(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return Expense::with(['category:id,name', 'createdBy:id,name'])
+            ->orderByDesc('expense_date')
+            ->orderByDesc('id')
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['category_id'] ?? null, fn ($q, $v) => $q->where('category_id', $v))
+            ->when($filters['employee_id'] ?? null, fn ($q, $v) => $q->where('employee_id', $v))
+            ->when($filters['start_date'] ?? null, fn ($q, $v) => $q->whereDate('expense_date', '>=', $v))
+            ->when($filters['end_date'] ?? null, fn ($q, $v) => $q->whereDate('expense_date', '<=', $v))
+            ->when(
+                array_key_exists('is_reimbursable', $filters),
+                fn ($q) => $q->where('is_reimbursable', $filters['is_reimbursable'])
+            )
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('expense_number', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('reference', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * The organization's recurring expense templates, newest first.
+     */
+    public function paginateRecurring(?bool $isActive, int $perPage): LengthAwarePaginator
+    {
+        return RecurringExpense::with(['category:id,name', 'createdBy:id,name'])
+            ->orderByDesc('created_at')
+            ->when($isActive !== null, fn ($q) => $q->where('is_active', $isActive))
+            ->paginate($perPage);
+    }
 
     /**
      * Create a new expense with optional line items.
@@ -76,11 +119,11 @@ class ExpenseService
      */
     public function update(Expense $expense, array $data): Expense
     {
-        if (!in_array($expense->status, [Expense::STATUS_DRAFT, Expense::STATUS_REJECTED])) {
-            throw new InvalidArgumentException('Only draft or rejected expenses can be updated.');
-        }
+        return $expense->lockForTransition(function (Expense $locked) use ($data): Expense {
+            if (!in_array($locked->status, [Expense::STATUS_DRAFT, Expense::STATUS_REJECTED])) {
+                throw new InvalidArgumentException('Only draft or rejected expenses can be updated.');
+            }
 
-        return DB::transaction(function () use ($expense, $data) {
             $updateData = collect($data)->only([
                 'category_id', 'expense_date', 'due_date', 'payment_method',
                 'reference', 'description', 'currency_code', 'exchange_rate',
@@ -91,18 +134,18 @@ class ExpenseService
 
             // Recalculate base amount if amounts changed
             if (isset($updateData['total_amount']) || isset($updateData['exchange_rate'])) {
-                $totalAmount = $updateData['total_amount'] ?? $expense->total_amount;
-                $exchangeRate = $updateData['exchange_rate'] ?? $expense->exchange_rate;
+                $totalAmount = $updateData['total_amount'] ?? $locked->total_amount;
+                $exchangeRate = $updateData['exchange_rate'] ?? $locked->exchange_rate;
                 $updateData['base_amount'] = $totalAmount * $exchangeRate;
             }
 
-            $expense->update($updateData);
+            $locked->update($updateData);
 
             // Update line items if provided
             if (isset($data['items'])) {
-                $expense->items()->delete();
+                $locked->items()->delete();
                 foreach ($data['items'] as $index => $item) {
-                    $expense->items()->create([
+                    $locked->items()->create([
                         'category_id' => $item['category_id'] ?? null,
                         'description' => $item['description'],
                         'amount' => $item['amount'],
@@ -116,30 +159,49 @@ class ExpenseService
             }
 
             // Reset status from rejected to draft if updated
-            if ($expense->status === Expense::STATUS_REJECTED) {
-                $expense->update(['status' => Expense::STATUS_DRAFT]);
+            if ($locked->status === Expense::STATUS_REJECTED) {
+                $locked->update(['status' => Expense::STATUS_DRAFT]);
             }
 
-            return $expense->fresh(['category', 'items', 'receipts']);
+            return $locked->fresh(['category', 'items', 'receipts']);
+        });
+    }
+
+    /**
+     * Deletes a draft expense, checked on the locked row.
+     *
+     * @throws BusinessRuleException when the expense is past draft
+     */
+    public function delete(Expense $expense): void
+    {
+        $expense->lockForTransition(function (Expense $locked): void {
+            if ($locked->status !== Expense::STATUS_DRAFT) {
+                throw new BusinessRuleException('Only draft expenses can be deleted', 'INVALID_STATUS', 400);
+            }
+
+            $locked->delete();
         });
     }
 
     /**
      * Submit an expense for approval.
+     *
+     * Each transition checks the status on the locked row, so an expense two
+     * requests act on at once moves its budget amounts once.
      */
     public function submit(Expense $expense): Expense
     {
-        if ($expense->status !== Expense::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft expenses can be submitted.');
-        }
+        return $expense->lockForTransition(function (Expense $locked): Expense {
+            if ($locked->status !== Expense::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft expenses can be submitted.');
+            }
 
-        return DB::transaction(function () use ($expense) {
-            $expense->update(['status' => Expense::STATUS_SUBMITTED]);
+            $locked->update(['status' => Expense::STATUS_SUBMITTED]);
 
             // Update budget committed amount
-            $this->updateBudgetCommitted($expense);
+            $this->updateBudgetCommitted($locked);
 
-            return $expense->fresh();
+            return $locked->fresh();
         });
     }
 
@@ -148,21 +210,21 @@ class ExpenseService
      */
     public function approve(Expense $expense, int $approverId): Expense
     {
-        if ($expense->status !== Expense::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted expenses can be approved.');
-        }
+        return $expense->lockForTransition(function (Expense $locked) use ($approverId): Expense {
+            if ($locked->status !== Expense::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted expenses can be approved.');
+            }
 
-        return DB::transaction(function () use ($expense, $approverId) {
-            $expense->update([
+            $locked->update([
                 'status' => Expense::STATUS_APPROVED,
                 'approved_by' => $approverId,
                 'approved_at' => now(),
             ]);
 
             // Move from committed to spent in budget
-            $this->updateBudgetSpent($expense);
+            $this->updateBudgetSpent($locked);
 
-            return $expense->fresh(['approvedBy']);
+            return $locked->fresh(['approvedBy']);
         });
     }
 
@@ -171,20 +233,20 @@ class ExpenseService
      */
     public function reject(Expense $expense, ?string $reason = null): Expense
     {
-        if ($expense->status !== Expense::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted expenses can be rejected.');
-        }
+        return $expense->lockForTransition(function (Expense $locked) use ($reason): Expense {
+            if ($locked->status !== Expense::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted expenses can be rejected.');
+            }
 
-        return DB::transaction(function () use ($expense, $reason) {
-            $expense->update([
+            $locked->update([
                 'status' => Expense::STATUS_REJECTED,
-                'notes' => $reason ? ($expense->notes ? $expense->notes . "\nRejection: " : "Rejection: ") . $reason : $expense->notes,
+                'notes' => $reason ? ($locked->notes ? $locked->notes . "\nRejection: " : "Rejection: ") . $reason : $locked->notes,
             ]);
 
             // Remove from budget committed amount
-            $this->revertBudgetCommitted($expense);
+            $this->revertBudgetCommitted($locked);
 
-            return $expense->fresh();
+            return $locked->fresh();
         });
     }
 

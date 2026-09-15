@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Expense;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Expense\ExpenseBudget;
 use App\Services\Expense\ExpenseBudgetService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ExpenseBudgetController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ExpenseBudgetService $budgetService
     ) {}
@@ -21,17 +24,21 @@ class ExpenseBudgetController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ExpenseBudget::with(['category:id,name,code'])
-            ->orderBy('year', 'desc')
-            ->orderBy('month', 'desc')
-            ->when($request->has('year'), fn($q) => $q->where('year', $request->integer('year')))
-            ->when($request->has('month'), fn($q) => $q->where('month', $request->integer('month')))
-            ->when($request->has('category_id'), fn($q) => $q->where('category_id', $request->category_id))
-            ->when($request->has('department_id'), fn($q) => $q->where('department_id', $request->department_id));
+        $filters = [];
 
-        $budgets = $query->paginate($request->integer('per_page', 20));
+        foreach (['year', 'month'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->integer($key);
+            }
+        }
 
-        return $this->paginated($budgets);
+        foreach (['category_id', 'department_id'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        return $this->paginated($this->budgetService->paginateBudgets($filters, $request->integer('per_page', 20)));
     }
 
     /**
@@ -40,8 +47,8 @@ class ExpenseBudgetController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'category_id' => ['nullable', 'exists:expense_categories,id'],
-            'department_id' => ['nullable', 'exists:departments,id'],
+            'category_id' => ['nullable', $this->ownedBy('expense_categories')],
+            'department_id' => ['nullable', $this->ownedBy('departments')],
             'year' => ['required', 'integer', 'min:2020', 'max:2099'],
             'month' => ['nullable', 'integer', 'min:1', 'max:12'],
             'budget_amount' => ['required', 'numeric', 'min:0'],
@@ -83,9 +90,7 @@ class ExpenseBudgetController extends Controller
             'alert_at_100' => ['nullable', 'boolean'],
         ]);
 
-        $expenseBudget->update($validated);
-
-        return $this->success($expenseBudget->fresh('category:id,name,code'), 'Budget updated successfully');
+        return $this->success($this->budgetService->update($expenseBudget, $validated), 'Budget updated successfully');
     }
 
     /**
@@ -93,7 +98,7 @@ class ExpenseBudgetController extends Controller
      */
     public function destroy(ExpenseBudget $expenseBudget): JsonResponse
     {
-        $expenseBudget->delete();
+        $this->budgetService->delete($expenseBudget);
 
         return $this->success(null, 'Budget deleted successfully');
     }
@@ -104,7 +109,7 @@ class ExpenseBudgetController extends Controller
     public function checkBudget(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'category_id' => ['required', 'exists:expense_categories,id'],
+            'category_id' => ['required', $this->ownedBy('expense_categories')],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'date' => ['nullable', 'date'],
         ]);
