@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Inventory\StorageType;
-use App\Models\Inventory\StorageTypeDeterminationRule;
 use App\Services\Inventory\StorageTypeDeterminationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class StorageTypeController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private StorageTypeDeterminationService $service
     ) {}
@@ -33,7 +34,7 @@ class StorageTypeController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'               => ['required', 'exists:warehouses,id'],
+            'warehouse_id'               => ['required', $this->ownedBy('warehouses')],
             'storage_type_code'          => ['required', 'string', 'max:20'],
             'storage_type_name'          => ['required', 'string', 'max:100'],
             'storage_class'              => ['required', 'in:bulk,rack,floor,refrigerated,hazmat,high_security,quarantine'],
@@ -55,15 +56,14 @@ class StorageTypeController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $type = StorageType::with(['warehouse:id,name', 'determinationRules'])
-            ->findOrFail($id);
+        $type = $this->service->findTypeOrFail($id, ['warehouse:id,name', 'determinationRules']);
 
         return $this->success($type);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $type = StorageType::findOrFail($id);
+        $type = $this->service->findTypeOrFail($id);
 
         $validated = $request->validate([
             'storage_type_name'           => ['sometimes', 'string', 'max:100'],
@@ -83,8 +83,7 @@ class StorageTypeController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $type = StorageType::findOrFail($id);
-        $type->delete();
+        $this->service->deleteType($this->service->findTypeOrFail($id));
 
         return $this->success(null, 'Storage type deleted successfully.');
     }
@@ -95,10 +94,10 @@ class StorageTypeController extends Controller
 
     public function addRule(Request $request, int $id): JsonResponse
     {
-        $storageType = StorageType::findOrFail($id);
+        $storageType = $this->service->findTypeOrFail($id);
 
         $validated = $request->validate([
-            'warehouse_id'         => ['sometimes', 'exists:warehouses,id'],
+            'warehouse_id'         => ['sometimes', $this->ownedBy('warehouses')],
             'movement_type'        => ['required', 'in:goods_receipt,goods_issue,transfer,returns'],
             'product_storage_class'=> ['nullable', 'string', 'max:50'],
             'max_weight_kg'        => ['nullable', 'numeric', 'min:0'],
@@ -113,9 +112,7 @@ class StorageTypeController extends Controller
 
     public function updateRule(Request $request, int $id, int $ruleId): JsonResponse
     {
-        StorageType::findOrFail($id);
-        $rule = StorageTypeDeterminationRule::where('storage_type_id', $id)
-            ->findOrFail($ruleId);
+        $rule = $this->service->findRuleOrFail($this->service->findTypeOrFail($id), $ruleId);
 
         $validated = $request->validate([
             'movement_type'         => ['sometimes', 'in:goods_receipt,goods_issue,transfer,returns'],
@@ -132,11 +129,9 @@ class StorageTypeController extends Controller
 
     public function removeRule(int $id, int $ruleId): JsonResponse
     {
-        StorageType::findOrFail($id);
-        $rule = StorageTypeDeterminationRule::where('storage_type_id', $id)
-            ->findOrFail($ruleId);
+        $rule = $this->service->findRuleOrFail($this->service->findTypeOrFail($id), $ruleId);
 
-        $rule->delete();
+        $this->service->deleteRule($rule);
 
         return $this->success(null, 'Determination rule removed successfully.');
     }
@@ -151,7 +146,7 @@ class StorageTypeController extends Controller
     public function determine(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'          => ['required', 'exists:warehouses,id'],
+            'warehouse_id'          => ['required', $this->ownedBy('warehouses')],
             'movement_type'         => ['required', 'in:goods_receipt,goods_issue,transfer,returns'],
             'product_storage_class' => ['nullable', 'string', 'max:50'],
             'weight'                => ['nullable', 'numeric', 'min:0'],

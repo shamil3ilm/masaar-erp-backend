@@ -44,7 +44,9 @@ trait BuildsOtherOrganizationInventory
 
     protected function foreignUnit(): UnitOfMeasure
     {
-        return UnitOfMeasure::firstOrCreate(
+        // Without the tenant scope: an authenticated test would otherwise not
+        // find the unit it created and insert a duplicate.
+        return UnitOfMeasure::withoutGlobalScopes()->firstOrCreate(
             ['organization_id' => $this->otherOrganization()->id, 'symbol' => 'pc'],
             ['name' => 'Piece', 'conversion_factor' => 1, 'is_active' => true],
         );

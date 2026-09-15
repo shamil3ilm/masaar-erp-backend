@@ -8,6 +8,7 @@ use App\Models\Inventory\StockLevel;
 use App\Models\Inventory\WarehouseTransferOrder;
 use App\Models\Inventory\WarehouseTransferOrderItem;
 use App\Services\Core\NumberGeneratorService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -57,35 +58,94 @@ class WarehouseTransferOrderService
     }
 
     /**
-     * Start a transfer order — transition to in_progress.
+     * Transfer orders of the current organization with their warehouse,
+     * locations and assignee, newest first. Each filter applies when its value
+     * is truthy.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, movement_type?: mixed, from_date?: mixed, to_date?: mixed}  $filters
+     */
+    public function list(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return WarehouseTransferOrder::with(['warehouse', 'sourceLocation', 'destLocation', 'assignee'])
+            ->when($filters['warehouse_id'] ?? null, fn ($q, $v) => $q->forWarehouse((int) $v))
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['movement_type'] ?? null, fn ($q, $v) => $q->where('movement_type', $v))
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', $v))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<=', $v))
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Change the header of an order still in created status, checked on the
+     * locked row.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function update(WarehouseTransferOrder $order, array $data): WarehouseTransferOrder
+    {
+        return $order->lockForTransition(function (WarehouseTransferOrder $order) use ($data): WarehouseTransferOrder {
+            if (! $order->isEditable()) {
+                throw new \InvalidArgumentException('Transfer order can only be edited when in created status.');
+            }
+
+            $order->update($data);
+
+            return $order->fresh();
+        });
+    }
+
+    /**
+     * Soft-delete an order that is created or in progress, checked on the
+     * locked row so a confirmed order is never removed.
+     */
+    public function delete(WarehouseTransferOrder $order): void
+    {
+        $order->lockForTransition(function (WarehouseTransferOrder $order): void {
+            if (! $order->canCancel()) {
+                throw new \InvalidArgumentException('Only created or in-progress transfer orders can be deleted.');
+            }
+
+            $order->delete();
+        });
+    }
+
+    /**
+     * Start a transfer order — transition to in_progress, checked on the
+     * locked row.
      */
     public function startTransfer(WarehouseTransferOrder $order): WarehouseTransferOrder
     {
-        if (!$order->canStart()) {
-            throw new \InvalidArgumentException(
-                "Cannot start transfer order with status '{$order->status}'."
-            );
-        }
+        return $order->lockForTransition(function (WarehouseTransferOrder $order): WarehouseTransferOrder {
+            if (!$order->canStart()) {
+                throw new \InvalidArgumentException(
+                    "Cannot start transfer order with status '{$order->status}'."
+                );
+            }
 
-        $order->update(['status' => WarehouseTransferOrder::STATUS_IN_PROGRESS]);
+            $order->update(['status' => WarehouseTransferOrder::STATUS_IN_PROGRESS]);
 
-        return $order->fresh();
+            return $order->fresh();
+        });
     }
 
     /**
      * Confirm actual quantities transferred, update stock_levels, and transition to confirmed.
      *
+     * Runs on the locked order: a second confirm waits, then finds the order
+     * confirmed and is refused, so stock is moved once.
+     *
      * @param  array<int, array{item_id: int, transferred_quantity: float}>  $quantities
      */
     public function confirmTransfer(WarehouseTransferOrder $order, array $quantities): WarehouseTransferOrder
     {
-        if (!$order->canConfirm()) {
-            throw new \InvalidArgumentException(
-                "Cannot confirm transfer order with status '{$order->status}'."
-            );
-        }
+        return $order->lockForTransition(function (WarehouseTransferOrder $order) use ($quantities): WarehouseTransferOrder {
+            if (!$order->canConfirm()) {
+                throw new \InvalidArgumentException(
+                    "Cannot confirm transfer order with status '{$order->status}'."
+                );
+            }
 
-        return DB::transaction(function () use ($order, $quantities): WarehouseTransferOrder {
             $quantityMap = collect($quantities)->keyBy('item_id');
 
             foreach ($order->items as $item) {
@@ -135,19 +195,21 @@ class WarehouseTransferOrderService
     }
 
     /**
-     * Cancel a transfer order.
+     * Cancel a transfer order, checked on the locked row.
      */
     public function cancel(WarehouseTransferOrder $order): WarehouseTransferOrder
     {
-        if (!$order->canCancel()) {
-            throw new \InvalidArgumentException(
-                "Cannot cancel transfer order with status '{$order->status}'."
-            );
-        }
+        return $order->lockForTransition(function (WarehouseTransferOrder $order): WarehouseTransferOrder {
+            if (!$order->canCancel()) {
+                throw new \InvalidArgumentException(
+                    "Cannot cancel transfer order with status '{$order->status}'."
+                );
+            }
 
-        $order->update(['status' => WarehouseTransferOrder::STATUS_CANCELLED]);
+            $order->update(['status' => WarehouseTransferOrder::STATUS_CANCELLED]);
 
-        return $order->fresh();
+            return $order->fresh();
+        });
     }
 
     // -------------------------------------------------------------------------
