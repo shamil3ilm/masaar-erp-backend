@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\CostSplittingRule;
 use App\Services\Accounting\CostSplittingService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class CostSplittingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CostSplittingService $service
     ) {}
@@ -30,8 +33,8 @@ class CostSplittingController extends Controller
         $orgId = $this->organizationId($request);
 
         $validated = $request->validate([
-            'cost_center_id'      => ['required', 'integer', 'exists:cost_centers,id'],
-            'cost_element_id'     => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'cost_center_id'      => ['required', 'integer', $this->ownedBy('cost_centers')],
+            'cost_element_id'     => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'fixed_percentage'    => ['required', 'numeric', 'min:0', 'max:100'],
             'variable_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
             'splitting_basis'     => ['nullable', Rule::in([CostSplittingRule::BASIS_ACTIVITY_QUANTITY, CostSplittingRule::BASIS_CAPACITY_UTILIZATION, CostSplittingRule::BASIS_MANUAL])],
@@ -55,7 +58,7 @@ class CostSplittingController extends Controller
         $rule = $this->service->find($id);
 
         $validated = $request->validate([
-            'cost_element_id'     => ['nullable', 'integer', 'exists:cost_elements,id'],
+            'cost_element_id'     => ['nullable', 'integer', $this->ownedBy('cost_elements')],
             'fixed_percentage'    => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'variable_percentage' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'splitting_basis'     => ['sometimes', Rule::in([CostSplittingRule::BASIS_ACTIVITY_QUANTITY, CostSplittingRule::BASIS_CAPACITY_UTILIZATION, CostSplittingRule::BASIS_MANUAL])],
