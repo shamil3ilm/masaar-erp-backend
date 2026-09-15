@@ -9,6 +9,7 @@ use App\Models\Sales\ShippingRoute;
 use App\Models\Sales\ShippingRouteDetermination;
 use App\Models\Sales\ShippingZone;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 class ShippingRouteService
@@ -29,10 +30,25 @@ class ShippingRouteService
         return ShippingZone::create($data);
     }
 
+    /**
+     * A shipping zone of the current organization.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function zoneOf(int $id): ShippingZone
+    {
+        return ShippingZone::findOrFail($id);
+    }
+
     public function updateZone(ShippingZone $zone, array $data): ShippingZone
     {
         $zone->update($data);
         return $zone->fresh();
+    }
+
+    public function deleteZone(ShippingZone $zone): void
+    {
+        $zone->delete();
     }
 
     public function listRoutes(array $filters = [], int $perPage = 20): LengthAwarePaginator
@@ -57,13 +73,36 @@ class ShippingRouteService
 
     public function createRoute(array $data): ShippingRoute
     {
-        return ShippingRoute::create($data);
+        return ShippingRoute::create($data)->load(['departureZone', 'destinationZone']);
+    }
+
+    /**
+     * A shipping route of the current organization.
+     *
+     * @throws ModelNotFoundException
+     */
+    public function routeOf(int $id): ShippingRoute
+    {
+        return ShippingRoute::findOrFail($id);
+    }
+
+    /**
+     * @throws ModelNotFoundException
+     */
+    public function routeDetails(int $id): ShippingRoute
+    {
+        return ShippingRoute::with(['departureZone', 'destinationZone'])->findOrFail($id);
     }
 
     public function updateRoute(ShippingRoute $route, array $data): ShippingRoute
     {
         $route->update($data);
         return $route->fresh(['departureZone', 'destinationZone']);
+    }
+
+    public function deleteRoute(ShippingRoute $route): void
+    {
+        $route->delete();
     }
 
     /**
@@ -98,12 +137,20 @@ class ShippingRouteService
             ->where('destination_zone_id', $destinationZone->id);
 
         if ($preference === 'fastest') {
-            return $routeQuery->orderBy('transit_days')->first();
+            $route = $routeQuery->orderBy('transit_days')->first();
+        } else {
+            $route = $routeQuery->orderBy('freight_cost')->first();
         }
 
-        return $routeQuery->orderBy('freight_cost')->first();
+        return $route?->load(['departureZone', 'destinationZone']);
     }
 
+    /**
+     * Determine and record the route for a sales order of the current
+     * organization, with the route and zones loaded for the response.
+     *
+     * @throws ModelNotFoundException when the order is not the organization's
+     */
     public function determineForOrder(int $salesOrderId): ShippingRouteDetermination
     {
         $order = SalesOrder::findOrFail($salesOrderId);
@@ -120,7 +167,7 @@ class ShippingRouteService
 
         $departureZone = $route ? $route->departureZone : null;
 
-        return DB::transaction(function () use ($order, $route, $departureZone, $destinationZone): ShippingRouteDetermination {
+        $determination = DB::transaction(function () use ($order, $route, $departureZone, $destinationZone): ShippingRouteDetermination {
             return ShippingRouteDetermination::create([
                 'organization_id' => $order->organization_id,
                 'sales_order_id' => $order->id,
@@ -130,6 +177,13 @@ class ShippingRouteService
                 'determined_at' => now(),
             ]);
         });
+
+        return $determination->load([
+            'shippingRoute.departureZone',
+            'shippingRoute.destinationZone',
+            'departureZone',
+            'destinationZone',
+        ]);
     }
 
     private function findMatchingZone(string $country, ?string $postalCode): ?ShippingZone
