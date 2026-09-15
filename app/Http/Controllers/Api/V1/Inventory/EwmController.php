@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Inventory;
 
+use App\Http\Controllers\Api\V1\Inventory\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Inventory\EwmBin;
 use App\Models\Inventory\EwmLaborTask;
@@ -16,6 +17,8 @@ use Illuminate\Validation\Rule;
 
 class EwmController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private EwmService $ewmService) {}
 
     // =========================================================================
@@ -29,7 +32,7 @@ class EwmController extends Controller
     public function indexStorageTypes(Request $request): JsonResponse
     {
         $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $orgId = $this->organizationId($request);
@@ -45,7 +48,7 @@ class EwmController extends Controller
     public function storeStorageType(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'          => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id'          => ['required', 'integer', $this->ownedBy('warehouses')],
             'code'                  => ['required', 'string', 'max:20'],
             'name'                  => ['required', 'string', 'max:100'],
             'type'                  => ['required', Rule::in([
@@ -105,9 +108,9 @@ class EwmController extends Controller
     public function storeBin(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'      => ['required', 'integer', 'exists:warehouses,id'],
-            'storage_type_id'   => ['required', 'integer', 'exists:ewm_storage_types,id'],
-            'storage_section_id' => ['nullable', 'integer', 'exists:ewm_storage_sections,id'],
+            'warehouse_id'      => ['required', 'integer', $this->ownedBy('warehouses')],
+            'storage_type_id'   => ['required', 'integer', $this->ownedBy('ewm_storage_types')],
+            'storage_section_id' => ['nullable', 'integer', $this->ownedBy('ewm_storage_sections')],
             'bin_code'          => ['required', 'string', 'max:50'],
             'aisle'             => ['nullable', 'string', 'max:10'],
             'row_number'        => ['nullable', 'string', 'max:10'],
@@ -134,12 +137,11 @@ class EwmController extends Controller
      */
     public function showBin(Request $request, string $uuid): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $bin = EwmBin::where('organization_id', $orgId)
-            ->where('uuid', $uuid)
-            ->with(['storageType', 'storageSection', 'currentProduct'])
-            ->firstOrFail();
+        $bin = $this->ewmService->findBinOrFail(
+            $this->organizationId($request),
+            $uuid,
+            ['storageType', 'storageSection', 'currentProduct']
+        );
 
         return $this->success($bin, 'Bin retrieved');
     }
@@ -170,8 +172,8 @@ class EwmController extends Controller
     public function findPutawayBin(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'product_id'   => ['required', 'integer', 'exists:products,id'],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
+            'product_id'   => ['required', 'integer', $this->ownedBy('products')],
             'qty'          => ['required', 'numeric', 'min:0.0001'],
         ]);
 
@@ -215,16 +217,11 @@ class EwmController extends Controller
             'per_page'       => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $orgId = $this->organizationId($request);
-
-        $query = EwmTransferOrder::where('organization_id', $orgId)
-            ->with(['sourceBin', 'destBin', 'product', 'assignedUser'])
-            ->latest()
-            ->when($request->filled('warehouse_id'), fn($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->filled('movement_type'), fn($q) => $q->where('movement_type', $request->input('movement_type')));
-
-        $orders = $query->paginate($request->integer('per_page', 15));
+        $orders = $this->ewmService->paginateTransferOrders(
+            $this->organizationId($request),
+            $request->only(['warehouse_id', 'status', 'movement_type']),
+            $request->integer('per_page', 15)
+        );
 
         return $this->paginated($orders);
     }
@@ -236,17 +233,17 @@ class EwmController extends Controller
     public function storeTransferOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'   => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id'   => ['required', 'integer', $this->ownedBy('warehouses')],
             'movement_type'  => ['required', Rule::in([
                 EwmTransferOrder::MOVEMENT_GOODS_RECEIPT, EwmTransferOrder::MOVEMENT_GOODS_ISSUE,
                 EwmTransferOrder::MOVEMENT_INTERNAL_MOVE, EwmTransferOrder::MOVEMENT_REPLENISHMENT,
                 EwmTransferOrder::MOVEMENT_STOCK_TRANSFER, EwmTransferOrder::MOVEMENT_PHYSICAL_INVENTORY,
             ])],
-            'source_bin_id'   => ['nullable', 'integer', 'exists:ewm_bins,id'],
+            'source_bin_id'   => ['nullable', 'integer', $this->ownedBy('ewm_bins')],
             'source_bin_code' => ['nullable', 'string', 'max:50'],
-            'dest_bin_id'     => ['nullable', 'integer', 'exists:ewm_bins,id'],
+            'dest_bin_id'     => ['nullable', 'integer', $this->ownedBy('ewm_bins')],
             'dest_bin_code'   => ['nullable', 'string', 'max:50'],
-            'product_id'      => ['required', 'integer', 'exists:products,id'],
+            'product_id'      => ['required', 'integer', $this->ownedBy('products')],
             'requested_qty'   => ['required', 'numeric', 'min:0.0001'],
             'unit_of_measure' => ['nullable', 'string', 'max:20'],
             'batch_number'    => ['nullable', 'string', 'max:50'],
@@ -271,12 +268,11 @@ class EwmController extends Controller
      */
     public function showTransferOrder(Request $request, string $uuid): JsonResponse
     {
-        $orgId = $this->organizationId($request);
-
-        $to = EwmTransferOrder::where('organization_id', $orgId)
-            ->where('uuid', $uuid)
-            ->with(['sourceBin', 'destBin', 'product', 'assignedUser', 'createdBy', 'laborTasks'])
-            ->firstOrFail();
+        $to = $this->ewmService->findTransferOrderOrFail(
+            $this->organizationId($request),
+            $uuid,
+            ['sourceBin', 'destBin', 'product', 'assignedUser', 'createdBy', 'laborTasks']
+        );
 
         return $this->success($to, 'Transfer order retrieved');
     }
@@ -325,7 +321,7 @@ class EwmController extends Controller
     public function laborDashboard(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
             'days'         => ['nullable', 'integer', 'min:1', 'max:365'],
         ]);
 
@@ -346,7 +342,7 @@ class EwmController extends Controller
     public function assignTask(Request $request, string $uuid): JsonResponse
     {
         $validated = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'user_id' => ['required', 'integer', $this->ownedBy('users')],
         ]);
 
         $orgId = $this->organizationId($request);
@@ -378,7 +374,7 @@ class EwmController extends Controller
     public function binUtilization(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $orgId = $this->organizationId($request);
@@ -394,7 +390,7 @@ class EwmController extends Controller
     public function putawayRules(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'warehouse_id' => ['required', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $orgId = $this->organizationId($request);
@@ -410,10 +406,10 @@ class EwmController extends Controller
     public function storePutawayRule(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'warehouse_id'    => ['required', 'integer', 'exists:warehouses,id'],
-            'storage_type_id' => ['nullable', 'integer', 'exists:ewm_storage_types,id'],
-            'product_id'      => ['nullable', 'integer', 'exists:products,id'],
-            'category_id'     => ['nullable', 'integer', 'exists:categories,id'],
+            'warehouse_id'    => ['required', 'integer', $this->ownedBy('warehouses')],
+            'storage_type_id' => ['nullable', 'integer', $this->ownedBy('ewm_storage_types')],
+            'product_id'      => ['nullable', 'integer', $this->ownedBy('products')],
+            'category_id'     => ['nullable', 'integer', $this->ownedBy('categories')],
             'priority'        => ['nullable', 'integer', 'min:1', 'max:999'],
             'strategy'        => ['required', Rule::in([
                 'fifo', 'fefo', 'lifo', 'nearest_bin', 'fixed_bin', 'max_fill',
