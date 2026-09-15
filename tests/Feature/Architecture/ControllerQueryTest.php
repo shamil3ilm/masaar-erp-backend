@@ -98,7 +98,6 @@ class ControllerQueryTest extends TestCase
         'Api/V1/Core/ModuleReadinessController.php' => 1,
         'Api/V1/Core/OnboardingController.php' => 1,
         'Api/V1/Core/PrintController.php' => 17,
-        'Api/V1/Core/RoleController.php' => 4,
         'Api/V1/Core/SensitiveAccessController.php' => 3,
         'Api/V1/Core/SettingsController.php' => 5,
         'Api/V1/Core/UserEventsController.php' => 2,
