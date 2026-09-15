@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\ProductionVersion;
 use App\Services\Manufacturing\ProductionVersionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class ProductionVersionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly ProductionVersionService $service,
     ) {}
@@ -22,16 +23,10 @@ class ProductionVersionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ProductionVersion::with(['product', 'bom', 'routing'])
-            ->when($request->product_id, fn($q, $id) => $q->forProduct((int) $id))
-            ->when($request->boolean('active_only', false), fn($q) => $q->active())
-            ->orderByDesc('is_default')
-            ->orderBy('product_id')
-            ->orderBy('version_code');
-
-        $versions = $query->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($versions);
+        return $this->paginated($this->service->paginate(
+            ['product_id' => $request->product_id, 'active_only' => $request->boolean('active_only', false)],
+            $request->integer('per_page', 15),
+        ));
     }
 
     /**
@@ -40,11 +35,11 @@ class ProductionVersionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'       => ['required', Rule::exists('products', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'product_id'       => ['required', $this->ownedBy('products')],
             'version_code'     => 'required|string|max:20',
             'description'      => 'nullable|string|max:255',
-            'bom_id'           => ['nullable', Rule::exists('bom_templates', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'routing_id'       => ['nullable', Rule::exists('routing_headers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'bom_id'           => ['nullable', $this->ownedBy('bom_templates')],
+            'routing_id'       => ['nullable', $this->ownedBy('routing_headers')],
             'lot_size_from'    => 'nullable|numeric|min:0',
             'lot_size_to'      => 'nullable|numeric|min:0|gte:lot_size_from',
             'valid_from'       => 'required|date',
@@ -64,7 +59,7 @@ class ProductionVersionController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $version = ProductionVersion::with(['product', 'bom', 'routing'])->find($id);
+        $version = $this->service->find($id, ['product', 'bom', 'routing']);
 
         if ($version === null) {
             return $this->notFound('Production version not found.');
@@ -78,7 +73,7 @@ class ProductionVersionController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $version = ProductionVersion::find($id);
+        $version = $this->service->find($id);
 
         if ($version === null) {
             return $this->notFound('Production version not found.');
@@ -87,8 +82,8 @@ class ProductionVersionController extends Controller
         $validated = $request->validate([
             'version_code'     => 'sometimes|string|max:20',
             'description'      => 'nullable|string|max:255',
-            'bom_id'           => ['nullable', Rule::exists('bom_templates', 'id')->where('organization_id', auth()->user()->organization_id)],
-            'routing_id'       => ['nullable', Rule::exists('routing_headers', 'id')->where('organization_id', auth()->user()->organization_id)],
+            'bom_id'           => ['nullable', $this->ownedBy('bom_templates')],
+            'routing_id'       => ['nullable', $this->ownedBy('routing_headers')],
             'lot_size_from'    => 'nullable|numeric|min:0',
             'lot_size_to'      => 'nullable|numeric|min:0',
             'valid_from'       => 'sometimes|date',
@@ -108,13 +103,13 @@ class ProductionVersionController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $version = ProductionVersion::find($id);
+        $version = $this->service->find($id);
 
         if ($version === null) {
             return $this->notFound('Production version not found.');
         }
 
-        $version->delete();
+        $this->service->delete($version);
 
         return $this->success(null, 'Production version deleted.');
     }
@@ -124,7 +119,7 @@ class ProductionVersionController extends Controller
      */
     public function setDefault(int $id): JsonResponse
     {
-        $version = ProductionVersion::find($id);
+        $version = $this->service->find($id);
 
         if ($version === null) {
             return $this->notFound('Production version not found.');
@@ -140,8 +135,6 @@ class ProductionVersionController extends Controller
      */
     public function forProduct(int $productId): JsonResponse
     {
-        $versions = $this->service->getVersionsForProduct($productId);
-
-        return $this->success($versions);
+        return $this->success($this->service->getVersionsForProduct($productId));
     }
 }

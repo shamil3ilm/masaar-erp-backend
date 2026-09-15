@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Manufacturing\EngineeringChange;
 use App\Services\Manufacturing\EngineeringChangeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class EngineeringChangeController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly EngineeringChangeService $service
     ) {}
@@ -35,7 +37,7 @@ class EngineeringChangeController extends Controller
             'reason' => 'nullable|string',
             'effectivity_date' => 'nullable|date',
             'priority' => 'nullable|in:low,normal,high,critical',
-            'requested_by' => 'nullable|exists:users,id',
+            'requested_by' => ['nullable', $this->ownedBy('users')],
         ]);
 
         $ec = $this->service->create($validated);
@@ -45,15 +47,12 @@ class EngineeringChangeController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $ec = EngineeringChange::with(['requestedBy', 'approvedBy', 'affectedObjects'])
-            ->findOrFail($id);
-
-        return $this->success($ec);
+        return $this->success($this->service->findOrFail($id, ['requestedBy', 'approvedBy', 'affectedObjects']));
     }
 
     public function update(int $id, Request $request): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
+        $ec = $this->service->findOrFail($id);
         $orgId = auth()->user()->organization_id;
 
         $validated = $request->validate([
@@ -72,33 +71,28 @@ class EngineeringChangeController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
-        $ec->delete();
+        $this->service->delete($this->service->findOrFail($id));
 
         return $this->noContent();
     }
 
     public function submit(int $id): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
-        $updated = $this->service->submit($ec);
+        $updated = $this->service->submit($this->service->findOrFail($id));
 
         return $this->success($updated, 'Engineering change submitted for approval.');
     }
 
     public function approve(int $id, Request $request): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
-        $approvedBy = auth()->id();
-
-        $updated = $this->service->approve($ec, $approvedBy);
+        $updated = $this->service->approve($this->service->findOrFail($id), auth()->id());
 
         return $this->success($updated, 'Engineering change approved.');
     }
 
     public function reject(int $id, Request $request): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
+        $ec = $this->service->findOrFail($id);
 
         $validated = $request->validate([
             'reason' => 'required|string',
@@ -111,15 +105,14 @@ class EngineeringChangeController extends Controller
 
     public function implement(int $id): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
-        $updated = $this->service->implement($ec);
+        $updated = $this->service->implement($this->service->findOrFail($id));
 
         return $this->success($updated, 'Engineering change implemented.');
     }
 
     public function addAffectedObject(int $id, Request $request): JsonResponse
     {
-        $ec = EngineeringChange::findOrFail($id);
+        $ec = $this->service->findOrFail($id);
 
         $validated = $request->validate([
             'object_type' => 'required|in:bom,routing,product,drawing',
