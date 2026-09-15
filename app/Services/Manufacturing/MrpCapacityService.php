@@ -260,4 +260,20 @@ class MrpCapacityService
 
         return array_values($grouped);
     }
+
+    /**
+     * The organization's planned and firmed orders starting within the window,
+     * optionally from one MRP run, for a capacity check.
+     */
+    public function plannedOrdersStartingBetween(int $orgId, string $fromDate, string $toDate, ?int $mrpRunId): Collection
+    {
+        return MrpPlannedOrder::withoutGlobalScope('organization')
+            ->where('organization_id', $orgId)
+            ->whereIn('status', [MrpPlannedOrder::STATUS_PLANNED, MrpPlannedOrder::STATUS_FIRMED])
+            ->whereDate('planned_start_date', '>=', $fromDate)
+            ->whereDate('planned_start_date', '<=', $toDate)
+            ->when($mrpRunId, fn ($q, $id) => $q->where('mrp_run_id', $id))
+            ->with('product:id,name,sku')
+            ->get();
+    }
 }

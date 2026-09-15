@@ -73,4 +73,41 @@ class DemandForecastService
             'by_product'       => $byProduct,
         ];
     }
+
+    /**
+     * The organization's forecasts, latest forecast date first.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginate(array $filters, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $from = $filters['from'] ?? null;
+        $to = $filters['to'] ?? null;
+
+        return DemandForecast::with(['product:id,name,sku', 'warehouse:id,name'])
+            ->when($filters['product_id'] ?? null, fn ($q, $id) => $q->forProduct((int) $id))
+            ->when($from && $to, fn ($q) => $q->forPeriod($from, $to))
+            ->orderByDesc('forecast_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * One of the organization's forecasts, or null.
+     */
+    public function find(int $id): ?DemandForecast
+    {
+        return DemandForecast::find($id);
+    }
+
+    public function update(DemandForecast $forecast, array $data): DemandForecast
+    {
+        $forecast->update($data);
+
+        return $forecast->fresh(['product:id,name,sku', 'warehouse:id,name']);
+    }
+
+    public function delete(DemandForecast $forecast): void
+    {
+        $forecast->delete();
+    }
 }

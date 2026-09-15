@@ -6,6 +6,7 @@ namespace App\Models\Manufacturing;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Product;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Purchase\PurchaseRequisition;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 class MrpPlannedOrder extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition;
 
     public const TYPE_PURCHASE = 'purchase';
     public const TYPE_PRODUCTION = 'production';
