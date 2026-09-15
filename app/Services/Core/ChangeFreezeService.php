@@ -54,6 +54,27 @@ class ChangeFreezeService
     }
 
     /**
+     * A freeze period of the organization by id; another organization's freeze is not found.
+     */
+    public function findForOrganization(int $organizationId, int $id): ChangeFreezeperiod
+    {
+        return ChangeFreezeperiod::withoutGlobalScope('organization')
+            ->where('organization_id', $organizationId)
+            ->findOrFail($id);
+    }
+
+    /**
+     * Soft-deletes a freeze period and drops the cached active freezes, so a
+     * deleted freeze stops blocking changes at once.
+     */
+    public function deleteFreeze(ChangeFreezeperiod $freeze): void
+    {
+        $freeze->delete();
+
+        $this->bustCache($freeze->organization_id);
+    }
+
+    /**
      * Create a new change freeze period.
      */
     public function createFreeze(array $data, int $createdBy): ChangeFreezeperiod

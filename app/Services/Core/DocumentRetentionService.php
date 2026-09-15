@@ -42,11 +42,40 @@ class DocumentRetentionService
     // ---------------------------------------------------------------
 
     /**
+     * Policies of the organization, by document type.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, RetentionPolicy>
+     */
+    public function listPolicies(int $orgId): \Illuminate\Database\Eloquent\Collection
+    {
+        return RetentionPolicy::where('organization_id', $orgId)
+            ->orderBy('document_type')
+            ->get();
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      */
     public function storePolicy(array $data): RetentionPolicy
     {
         return RetentionPolicy::create($data);
+    }
+
+    public function deletePolicy(RetentionPolicy $policy): void
+    {
+        $policy->delete();
+    }
+
+    /**
+     * Active legal holds of the organization with who placed them, latest first.
+     */
+    public function listActiveHolds(int $orgId, int $perPage): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return DocumentLegalHold::where('organization_id', $orgId)
+            ->where('is_active', true)
+            ->with('heldByUser')
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
     }
 
     /**

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Core;
 
 use App\Http\Controllers\Controller;
-use App\Models\Core\ChangeFreezeperiod;
 use App\Services\Core\ChangeFreezeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,11 +56,7 @@ class ChangeFreezeController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
-
-        $freeze = ChangeFreezeperiod::withoutGlobalScope('organization')
-            ->where('organization_id', $organizationId)
-            ->findOrFail($id);
+        $freeze = $this->changeFreezeService->findForOrganization($this->organizationId($request), $id);
 
         return $this->success($freeze);
     }
@@ -82,13 +77,9 @@ class ChangeFreezeController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $organizationId = $this->organizationId($request);
+        $freeze = $this->changeFreezeService->findForOrganization($this->organizationId($request), $id);
 
-        $freeze = ChangeFreezeperiod::withoutGlobalScope('organization')
-            ->where('organization_id', $organizationId)
-            ->findOrFail($id);
-
-        $freeze->delete();
+        $this->changeFreezeService->deleteFreeze($freeze);
 
         return $this->noContent();
     }
