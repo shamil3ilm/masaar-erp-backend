@@ -7,6 +7,9 @@ namespace App\Services\Inventory;
 use App\Models\Inventory\PriceCheckLog;
 use App\Models\Inventory\PriceCheckStation;
 use App\Models\Inventory\Product;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Str;
 
 class PriceCheckService
 {
@@ -237,5 +240,58 @@ class PriceCheckService
                 ->sortKeys()
                 ->values(),
         ];
+    }
+
+    /**
+     * Price check stations of the current organization with their branch,
+     * newest first. branch_id and status apply when present; online_only when
+     * true.
+     *
+     * @param  array{branch_id?: int, status?: string, online_only?: bool}  $filters
+     * @return Collection<int, PriceCheckStation>
+     */
+    public function listStations(array $filters): Collection
+    {
+        return PriceCheckStation::with(['branch'])
+            ->latest()
+            ->when(array_key_exists('branch_id', $filters), fn ($q) => $q->byBranch($filters['branch_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when($filters['online_only'] ?? false, fn ($q) => $q->online())
+            ->get();
+    }
+
+    /**
+     * Create an active station for the organization with a new device token.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createStation(int $organizationId, array $data): PriceCheckStation
+    {
+        return PriceCheckStation::create([
+            ...$data,
+            'organization_id' => $organizationId,
+            'api_token' => Str::random(64),
+            'status' => PriceCheckStation::STATUS_ACTIVE,
+        ]);
+    }
+
+    /**
+     * Scan logs of the current organization with their station and product,
+     * latest scan first. Each filter applies when its key is present.
+     *
+     * @param  array{station_id?: int, branch_id?: int, product_id?: int, scan_successful?: bool, error_type?: string, from_date?: string, to_date?: string}  $filters
+     */
+    public function listLogs(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return PriceCheckLog::with(['station', 'product'])
+            ->latest('scanned_at')
+            ->when(array_key_exists('station_id', $filters), fn ($q) => $q->byStation($filters['station_id']))
+            ->when(array_key_exists('branch_id', $filters), fn ($q) => $q->byBranch($filters['branch_id']))
+            ->when(array_key_exists('product_id', $filters), fn ($q) => $q->byProduct($filters['product_id']))
+            ->when(array_key_exists('scan_successful', $filters), fn ($q) => $filters['scan_successful'] ? $q->successful() : $q->failed())
+            ->when(array_key_exists('error_type', $filters), fn ($q) => $q->byErrorType($filters['error_type']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('scanned_at', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('scanned_at', '<=', $filters['to_date']))
+            ->paginate($perPage);
     }
 }

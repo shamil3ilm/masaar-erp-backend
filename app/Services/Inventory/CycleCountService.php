@@ -9,11 +9,49 @@ use App\Models\Inventory\CycleCountPlan;
 use App\Models\Inventory\CycleCountSession;
 use App\Models\Inventory\StockLevel;
 use Carbon\Carbon;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CycleCountService
 {
+    /**
+     * Cycle count plans of the given organization with their warehouse.
+     */
+    public function paginatePlans(int $organizationId, int $perPage): LengthAwarePaginator
+    {
+        return CycleCountPlan::where('organization_id', $organizationId)
+            ->with('warehouse')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  array{plan_name: string, warehouse_id: int, count_frequency: string, products_per_day?: int|null, scheduled_date?: string|null}  $data
+     */
+    public function createPlan(int $organizationId, array $data): CycleCountPlan
+    {
+        return CycleCountPlan::create([
+            ...$data,
+            'uuid' => (string) Str::uuid(),
+            'organization_id' => $organizationId,
+        ]);
+    }
+
+    public function findPlanOrFail(int $organizationId, int $planId): CycleCountPlan
+    {
+        return CycleCountPlan::where('organization_id', $organizationId)->findOrFail($planId);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findSessionOrFail(int $organizationId, int $sessionId, array $with = []): CycleCountSession
+    {
+        return CycleCountSession::where('organization_id', $organizationId)
+            ->with($with)
+            ->findOrFail($sessionId);
+    }
+
     /**
      * Creates a session with a line for each stock level in the plan's
      * warehouse, in one transaction, so a failure part way through leaves no
@@ -29,7 +67,7 @@ class CycleCountService
                 'warehouse_id' => $plan->warehouse_id,
                 'session_date' => $date->toDateString(),
                 'counted_by' => $counterId,
-                'status' => 'open',
+                'status' => CycleCountSession::STATUS_OPEN,
             ]);
 
             // Seed lines from current stock levels
@@ -49,6 +87,23 @@ class CycleCountService
         });
     }
 
+    /**
+     * Records a count on a line of the session. The session is locked while
+     * the line is written, so a count cannot land after the session is posted.
+     * A line that belongs to another session is not found.
+     */
+    public function recordCountInSession(CycleCountSession $session, int $lineId, float $quantity): CycleCountLine
+    {
+        return $session->lockForTransition(function (CycleCountSession $session) use ($lineId, $quantity): CycleCountLine {
+            $this->assertOpen($session);
+
+            $line = CycleCountLine::where('cycle_count_session_id', $session->id)->findOrFail($lineId);
+            $this->recordCount($line, $quantity);
+
+            return $line->fresh();
+        });
+    }
+
     public function recordCount(CycleCountLine $line, float $quantity): void
     {
         $variance = $quantity - (float) $line->system_quantity;
@@ -62,6 +117,24 @@ class CycleCountService
             'recount_required' => $variancePct > 5,
             'status' => 'counted',
         ]);
+    }
+
+    /**
+     * Marks the session posted and returns the variances of its counted lines.
+     * Runs on the locked session, so a second post waits and is then refused.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function postSession(CycleCountSession $session): array
+    {
+        return $session->lockForTransition(function (CycleCountSession $session): array {
+            $this->assertOpen($session);
+
+            $variances = $this->calculateVariances($session);
+            $session->update(['status' => CycleCountSession::STATUS_POSTED, 'completed_at' => now()]);
+
+            return $variances;
+        });
     }
 
     public function calculateVariances(CycleCountSession $session): array
@@ -93,5 +166,12 @@ class CycleCountService
                 'quantity' => $s->quantity,
             ])
             ->toArray();
+    }
+
+    private function assertOpen(CycleCountSession $session): void
+    {
+        if ($session->status === CycleCountSession::STATUS_POSTED) {
+            throw new \InvalidArgumentException('The cycle count session is already posted.');
+        }
     }
 }

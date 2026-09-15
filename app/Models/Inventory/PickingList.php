@@ -8,13 +8,14 @@ use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\LocksForTransition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PickingList extends Model
 {
-    use BelongsToOrganization, HasFactory, HasUuid;
+    use BelongsToOrganization, HasFactory, HasUuid, LocksForTransition;
 
     // Status constants
     public const STATUS_PENDING     = 'pending';

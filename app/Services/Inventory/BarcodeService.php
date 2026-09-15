@@ -7,6 +7,7 @@ namespace App\Services\Inventory;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\ProductBarcode;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Collection;
 
 class BarcodeService
 {
@@ -180,5 +181,56 @@ class BarcodeService
             'code128', 'code39' => sprintf('INT-%d-%06d', $organizationId, $productId),
             default => ProductBarcode::generateInternalBarcode($organizationId, $productId),
         };
+    }
+
+    /**
+     * Barcodes of the current organization with their product and variant,
+     * newest first. Each filter applies when its key is present.
+     *
+     * @param  array{product_id?: int, barcode_type?: string, usage?: string, is_primary?: bool, is_active?: bool}  $filters
+     * @return Collection<int, ProductBarcode>
+     */
+    public function list(array $filters): Collection
+    {
+        return ProductBarcode::with(['product', 'variant'])
+            ->latest()
+            ->when(array_key_exists('product_id', $filters), fn ($q) => $q->forProduct($filters['product_id']))
+            ->when(array_key_exists('barcode_type', $filters), fn ($q) => $q->byType($filters['barcode_type']))
+            ->when(array_key_exists('usage', $filters), fn ($q) => $q->byUsage($filters['usage']))
+            ->when(array_key_exists('is_primary', $filters), fn ($q) => $q->where('is_primary', $filters['is_primary']))
+            ->when(array_key_exists('is_active', $filters), fn ($q) => $q->where('is_active', $filters['is_active']))
+            ->get();
+    }
+
+    /**
+     * @return Collection<int, ProductBarcode>
+     */
+    public function listForProduct(int $productId): Collection
+    {
+        return ProductBarcode::where('product_id', $productId)
+            ->with(['product', 'variant'])
+            ->get();
+    }
+
+    /**
+     * Update a barcode. Making it primary clears the other primary barcodes of
+     * its product in the same transaction.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function update(ProductBarcode $barcode, array $data): ProductBarcode
+    {
+        return DB::transaction(function () use ($barcode, $data): ProductBarcode {
+            if (($data['is_primary'] ?? false) && ! $barcode->is_primary) {
+                ProductBarcode::where('product_id', $barcode->product_id)
+                    ->where('id', '!=', $barcode->id)
+                    ->where('is_primary', true)
+                    ->update(['is_primary' => false]);
+            }
+
+            $barcode->update($data);
+
+            return $barcode->fresh();
+        });
     }
 }

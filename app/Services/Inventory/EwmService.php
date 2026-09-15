@@ -165,6 +165,12 @@ class EwmService
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            // Checked on the locked order: confirming a confirmed or
+            // cancelled order would move its quantity through the bins again.
+            if (in_array($to->status, [EwmTransferOrder::STATUS_CONFIRMED, EwmTransferOrder::STATUS_CANCELLED], true)) {
+                throw new \InvalidArgumentException("Transfer order cannot be confirmed in status '{$to->status}'.");
+            }
+
             $durationMinutes = $to->started_at
                 ? (float) $to->started_at->diffInMinutes(now())
                 : null;
@@ -208,6 +214,11 @@ class EwmService
                 ->where('uuid', $uuid)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            // A confirmed order has already moved stock through its bins.
+            if ($to->status === EwmTransferOrder::STATUS_CONFIRMED) {
+                throw new \InvalidArgumentException('A confirmed transfer order cannot be cancelled.');
+            }
 
             $to->update(['status' => EwmTransferOrder::STATUS_CANCELLED]);
 
@@ -394,5 +405,48 @@ class EwmService
             EwmTransferOrder::MOVEMENT_REPLENISHMENT  => EwmLaborTask::TASK_TYPE_MOVE,
             default                                   => EwmLaborTask::TASK_TYPE_MOVE,
         };
+    }
+
+    // -------------------------------------------------------------------------
+    // Lookups
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findBinOrFail(int $organizationId, string $uuid, array $with = []): EwmBin
+    {
+        return EwmBin::where('organization_id', $organizationId)
+            ->where('uuid', $uuid)
+            ->with($with)
+            ->firstOrFail();
+    }
+
+    /**
+     * Transfer orders of the organization with their bins, product and
+     * assignee, newest first. Each filter applies when its value is filled.
+     *
+     * @param  array{warehouse_id?: mixed, status?: mixed, movement_type?: mixed}  $filters
+     */
+    public function paginateTransferOrders(int $organizationId, array $filters, int $perPage): LengthAwarePaginator
+    {
+        return EwmTransferOrder::where('organization_id', $organizationId)
+            ->with(['sourceBin', 'destBin', 'product', 'assignedUser'])
+            ->latest()
+            ->when(filled($filters['warehouse_id'] ?? null), fn ($q) => $q->where('warehouse_id', (int) $filters['warehouse_id']))
+            ->when(filled($filters['status'] ?? null), fn ($q) => $q->where('status', $filters['status']))
+            ->when(filled($filters['movement_type'] ?? null), fn ($q) => $q->where('movement_type', $filters['movement_type']))
+            ->paginate($perPage);
+    }
+
+    /**
+     * @param  list<string>  $with
+     */
+    public function findTransferOrderOrFail(int $organizationId, string $uuid, array $with = []): EwmTransferOrder
+    {
+        return EwmTransferOrder::where('organization_id', $organizationId)
+            ->where('uuid', $uuid)
+            ->with($with)
+            ->firstOrFail();
     }
 }
