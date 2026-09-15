@@ -4,25 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Core;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Core\GdprConsentRecord;
-use App\Models\Core\GdprDataSubjectRequest;
-use App\Models\Core\GdprProcessingActivity;
 use App\Services\Core\GdprService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class GdprController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(private readonly GdprService $service) {}
 
     public function requests(Request $request): JsonResponse
     {
-        $requests = GdprDataSubjectRequest::where('organization_id', $request->user()->organization_id)
-            ->orderBy('received_at', 'desc')
-            ->paginate(20);
-
-        return $this->paginated($requests);
+        return $this->paginated($this->service->listRequests($request->user()->organization_id));
     }
 
     public function submitRequest(Request $request): JsonResponse
@@ -43,15 +39,9 @@ class GdprController extends Controller
 
     public function processRequest(Request $request, int $id): JsonResponse
     {
-        $dsr = GdprDataSubjectRequest::where('organization_id', $request->user()->organization_id)->findOrFail($id);
+        $dsr = $this->service->findRequest($request->user()->organization_id, $id);
 
-        match ($dsr->request_type) {
-            'erasure'     => $this->service->processErasureRequest($dsr),
-            'portability' => $this->service->exportDataPortability($dsr),
-            default       => $dsr->update(['status' => 'completed', 'completed_at' => now()]),
-        };
-
-        return $this->success($dsr->fresh(), 'Request processed');
+        return $this->tryAction(fn () => $this->service->processRequest($dsr), 'Request processed');
     }
 
     public function processingRegister(Request $request): JsonResponse
@@ -72,18 +62,15 @@ class GdprController extends Controller
             'dpia_required'          => 'boolean',
         ]);
 
-        $data['uuid']            = (string) \Illuminate\Support\Str::uuid();
         $data['organization_id'] = $request->user()->organization_id;
 
-        $activity = GdprProcessingActivity::create($data);
-
-        return $this->created($activity);
+        return $this->created($this->service->createProcessingActivity($data));
     }
 
     public function recordConsent(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'contact_id'   => 'nullable|integer',
+            'contact_id'   => ['nullable', 'integer', $this->ownedBy('contacts')],
             'purpose'      => 'required|string|max:255',
             'consent_text' => 'nullable|string',
         ]);
@@ -98,9 +85,8 @@ class GdprController extends Controller
 
     public function withdrawConsent(Request $request, int $id): JsonResponse
     {
-        $record = GdprConsentRecord::where('organization_id', $request->user()->organization_id)->findOrFail($id);
-        $this->service->withdrawConsent($record);
+        $record = $this->service->findConsent($request->user()->organization_id, $id);
 
-        return $this->success($record->fresh(), 'Consent withdrawn');
+        return $this->tryAction(fn () => $this->service->withdrawConsent($record), 'Consent withdrawn');
     }
 }
