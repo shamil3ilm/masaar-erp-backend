@@ -103,25 +103,17 @@ class AutomationRuleService
                 // nothing about the trigger, so an entry left behind would run
                 // a rule that has stopped asking to be run.
                 $rule->schedules()->pending()->delete();
-            } elseif ($this->changesWhenTheRuleRuns($data)) {
+            } elseif ($rule->wasChanged(['trigger_schedule', 'trigger_type'])) {
+                // Only a rule told to run at a different time is re-booked. An
+                // edit that repeats the schedule it already has, as a form
+                // sending the whole rule back does, leaves the booked entry
+                // alone: re-booking one that has come due skips that run.
                 $rule->schedules()->pending()->delete();
                 $this->scheduleService->create($rule);
             }
 
             return $rule->fresh();
         });
-    }
-
-    /**
-     * Whether an update can move the rule's next run.
-     *
-     * Anything else about a rule may be edited without re-booking it, so an
-     * entry already due is still swept rather than being pushed to the next
-     * occurrence by a change of name.
-     */
-    private function changesWhenTheRuleRuns(array $data): bool
-    {
-        return array_key_exists('trigger_schedule', $data) || array_key_exists('trigger_type', $data);
     }
 
     /**
