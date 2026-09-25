@@ -107,6 +107,41 @@ class AutomationRuleTest extends TestCase
         $this->assertSame([$newer->id, $older->id], array_column($response->json('data'), 'id'));
     }
 
+    public function test_a_scheduled_rule_carries_a_pending_schedule_through_its_lifecycle(): void
+    {
+        $created = $this->apiPost('/automation/rules', [
+            'name' => 'Nightly overdue sweep',
+            'trigger_type' => 'schedule',
+            'trigger_schedule' => '0 2 * * *',
+            'entity_type' => 'invoice',
+            'conditions' => [['field' => 'status', 'operator' => '=', 'value' => 'overdue']],
+            'actions' => [['type' => 'send_email']],
+        ])->assertCreated();
+
+        $rule = AutomationRule::findOrFail($created->json('data.id'));
+        $this->assertSame('02:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
+
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", ['trigger_schedule' => '0 3 * * *'])->assertOk();
+        $this->assertSame('03:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
+
+        $this->apiPatch("/automation/rules/{$rule->getRouteKey()}/active", ['active' => false])->assertOk();
+        $this->assertSame(0, AutomationSchedule::where('rule_id', $rule->id)->count());
+
+        $this->apiPatch("/automation/rules/{$rule->getRouteKey()}/active", ['active' => true])->assertOk();
+        $this->assertSame('03:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
+    }
+
+    /**
+     * The rule's only pending schedule.
+     */
+    private function pendingSchedule(AutomationRule $rule): AutomationSchedule
+    {
+        $schedules = AutomationSchedule::where('rule_id', $rule->id)->pending()->get();
+        $this->assertCount(1, $schedules);
+
+        return $schedules->first();
+    }
+
     private function rule(array $attributes = []): AutomationRule
     {
         return AutomationRule::factory()->create([
