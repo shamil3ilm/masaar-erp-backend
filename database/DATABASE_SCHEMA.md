@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 52 migrations.
+978 tables across 53 migrations.
 
 ## Contents
 
@@ -60,6 +60,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0540_messaging_channel_default_marker.php`: changes to messaging_channels
 - `0550_organization_parent.php`: changes to organizations
 - `0560_accounting_numbers_per_organization.php`: changes to activity_confirmations, cost_center_budget_supplements, cost_reconciliation_runs, fx_forwards, intercompany_reconciliation_sessions, xbrl_taxonomies
+- `0570_budget_transfer_numbers_per_organization.php`: changes to budget_transfers
 
 ## 0010_accounting.php
 
@@ -875,6 +876,11 @@ Indexes:
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['from_budget_line_id'])`
 - `$table->index(['to_budget_line_id'])`
+
+Added by later migrations:
+
+- `0570_budget_transfer_numbers_per_organization.php`: `$table->dropUnique('budget_transfers_transfer_number_unique')`
+- `0570_budget_transfer_numbers_per_organization.php`: `$table->unique(['organization_id', 'transfer_number'], 'budget_transfers_org_number_unq')`
 
 ## 0030_core.php
 
@@ -25312,3 +25318,7 @@ Changes tables created earlier: `organizations`.
 ## 0560_accounting_numbers_per_organization.php
 
 Changes tables created earlier: `activity_confirmations`, `cost_center_budget_supplements`, `cost_reconciliation_runs`, `fx_forwards`, `intercompany_reconciliation_sessions`, `xbrl_taxonomies`.
+
+## 0570_budget_transfer_numbers_per_organization.php
+
+Changes tables created earlier: `budget_transfers`.
