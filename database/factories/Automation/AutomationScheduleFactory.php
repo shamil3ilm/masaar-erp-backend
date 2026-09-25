@@ -18,7 +18,7 @@ class AutomationScheduleFactory extends Factory
             'rule_id' => AutomationRule::factory(),
             'scheduled_for' => fake()->dateTimeBetween('now', '+1 month'),
             'executed_at' => null,
-            'status' => fake()->randomElement(['pending', 'executed', 'cancelled', 'failed']),
+            'status' => fake()->randomElement(AutomationSchedule::getStatuses()),
         ];
     }
 }
