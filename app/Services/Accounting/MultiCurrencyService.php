@@ -19,9 +19,13 @@ use InvalidArgumentException;
 
 class MultiCurrencyService
 {
+    /** The scale the revaluation amount columns hold. */
+    private const SCALE = 4;
+
     public function __construct(
         private readonly JournalService $journalService,
         private readonly NumberGeneratorService $numberGenerator,
+        private readonly AccountResolver $accountResolver,
     ) {}
     /**
      * Add a currency to an organization.
@@ -146,7 +150,19 @@ class MultiCurrencyService
     }
 
     /**
-     * Post a revaluation (create journal entries).
+     * Post a revaluation: record its sub-ledger entries and book the net
+     * unrealised gain or loss in the general ledger.
+     *
+     * The offset account is the one the caller names, or the account the
+     * organization mapped for the side the net says — fx_unrealised_gain_account_id
+     * or fx_unrealised_loss_account_id. Unrealised movement is reported apart
+     * from realised, so it has its own mapping rather than sharing the realised
+     * fx_gain_account_id / fx_loss_account_id. Without a mapping the offset
+     * would land wherever an account name happened to match, so nothing is
+     * posted at all.
+     *
+     * @throws InvalidArgumentException when the revaluation cannot be posted or
+     *                                  no offset account is configured
      */
     public function postRevaluation(CurrencyRevaluation $revaluation, ?int $gainLossAccountId = null): CurrencyRevaluation
     {
@@ -155,17 +171,9 @@ class MultiCurrencyService
         }
 
         return DB::transaction(function () use ($revaluation, $gainLossAccountId) {
-            if ($gainLossAccountId) {
-                $revaluation->gain_loss_account_id = $gainLossAccountId;
-            }
-
-            $revaluation->update([
-                'status' => CurrencyRevaluation::STATUS_POSTED,
-            ]);
-
             // Record forex gain/loss entries for each item (sub-ledger reporting)
             foreach ($revaluation->items as $item) {
-                if (bccomp((string) $item->gain_loss_amount, '0', 4) !== 0) {
+                if (bccomp((string) $item->gain_loss_amount, '0', self::SCALE) !== 0) {
                     ForexGainLossEntry::create([
                         'organization_id' => $revaluation->organization_id,
                         'entry_type' => ForexGainLossEntry::TYPE_UNREALIZED,
@@ -184,94 +192,115 @@ class MultiCurrencyService
                 }
             }
 
-            // Fix 1: Post a balanced GL journal entry for the revaluation.
-            // Skip entirely if the net gain/loss is zero (neutral revaluation).
-            $netGainLoss = bcadd('0.0000', '0.0000', 4);
-            foreach ($revaluation->items as $item) {
-                $netGainLoss = bcadd($netGainLoss, (string) $item->gain_loss_amount, 4);
+            $netGainLoss = $this->netGainLoss($revaluation);
+
+            $changes = ['status' => CurrencyRevaluation::STATUS_POSTED];
+
+            if ($gainLossAccountId !== null) {
+                $changes['gain_loss_account_id'] = $gainLossAccountId;
             }
 
-            if (bccomp($netGainLoss, '0.0000', 4) !== 0) {
-                $orgId = $revaluation->organization_id;
-
-                // Resolve the forex gain/loss offset account.
-                $offsetAccount = Account::withoutGlobalScopes()
-                    ->where('organization_id', $orgId)
-                    ->where(function ($q) {
-                        $q->where('account_type', 'forex_gain_loss')
-                          ->orWhere('name', 'like', '%Forex%')
-                          ->orWhere('name', 'like', '%Exchange%');
-                    })
-                    ->where('is_active', true)
-                    ->where('is_header', false)
-                    ->orderBy('id')
-                    ->first();
-
-                if ($offsetAccount === null) {
-                    // Fallback: use other_income for gains, other_expense for losses.
-                    $fallbackType = bccomp($netGainLoss, '0.0000', 4) > 0
-                        ? 'other_income'
-                        : 'other_expense';
-                    $offsetAccount = Account::withoutGlobalScopes()
-                        ->where('organization_id', $orgId)
-                        ->where('account_type', $fallbackType)
-                        ->where('is_active', true)
-                        ->where('is_header', false)
-                        ->orderBy('id')
-                        ->first();
-                }
-
-                if ($offsetAccount === null) {
-                    throw new \App\Exceptions\ApiException(
-                        'Forex gain/loss account not configured. Set up a foreign exchange account before posting revaluations.'
-                    );
-                }
-
-                if ($offsetAccount !== null) {
-                    $journalLines = [];
-                    foreach ($revaluation->items as $item) {
-                        $gainLoss = (float) $item->gain_loss_amount;
-                        if (abs($gainLoss) < 0.00005) {
-                            continue;
-                        }
-                        // Debit/credit the A/R or A/P account for the adjustment amount.
-                        $journalLines[] = [
-                            'account_id' => $item->account_id,
-                            'description' => "Forex revaluation: {$revaluation->currency_code}",
-                            'debit' => $gainLoss > 0 ? $gainLoss : 0,
-                            'credit' => $gainLoss < 0 ? abs($gainLoss) : 0,
-                            'line_order' => count($journalLines),
-                        ];
-                    }
-                    // Offset entry to the forex gain/loss account.
-                    $netFloat = (float) $netGainLoss;
-                    $journalLines[] = [
-                        'account_id' => $offsetAccount->id,
-                        'description' => "Forex revaluation offset: {$revaluation->currency_code}",
-                        'debit' => $netFloat < 0 ? abs($netFloat) : 0,
-                        'credit' => $netFloat > 0 ? $netFloat : 0,
-                        'line_order' => count($journalLines),
-                    ];
-
-                    $journalEntry = $this->journalService->createEntry(
-                        [
-                            'organization_id' => $orgId,
-                            'entry_date' => $revaluation->revaluation_date,
-                            'reference' => 'FOREX-REVAL-' . $revaluation->id,
-                            'description' => "Currency revaluation: {$revaluation->currency_code} "
-                                . "({$revaluation->old_rate} → {$revaluation->new_rate})",
-                            'source_type' => CurrencyRevaluation::class,
-                            'source_id' => $revaluation->id,
-                        ],
-                        $journalLines
-                    );
-
-                    $this->journalService->postEntry($journalEntry);
-                }
+            // A revaluation that nets to nothing moves no balance, so there is
+            // nothing to book and no offset account to find.
+            if (bccomp($netGainLoss, '0', self::SCALE) !== 0) {
+                $changes['journal_entry_id'] = $this->postRevaluationEntry(
+                    $revaluation,
+                    $netGainLoss,
+                    $gainLossAccountId ?? $revaluation->gain_loss_account_id,
+                )->id;
             }
+
+            $revaluation->update($changes);
 
             return $revaluation->fresh(['items']);
         });
+    }
+
+    /**
+     * The revaluation's net gain or loss, as the sum of its items.
+     */
+    private function netGainLoss(CurrencyRevaluation $revaluation): string
+    {
+        $net = bcadd('0', '0', self::SCALE);
+
+        foreach ($revaluation->items as $item) {
+            $net = bcadd($net, (string) $item->gain_loss_amount, self::SCALE);
+        }
+
+        return $net;
+    }
+
+    /**
+     * Book the revaluation in the general ledger: each item's adjustment
+     * against its own account, and the net against the unrealised offset.
+     *
+     * @throws InvalidArgumentException when no offset account is configured
+     */
+    private function postRevaluationEntry(
+        CurrencyRevaluation $revaluation,
+        string $netGainLoss,
+        ?int $offsetAccountId,
+    ): JournalEntry {
+        $organizationId = (int) $revaluation->organization_id;
+        $isGain = bccomp($netGainLoss, '0', self::SCALE) > 0;
+        $mappingKey = $isGain ? 'fx_unrealised_gain_account_id' : 'fx_unrealised_loss_account_id';
+
+        $offsetAccountId ??= $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
+
+        if ($offsetAccountId === null) {
+            throw new InvalidArgumentException(
+                "Revaluation {$revaluation->revaluation_number} nets to an unrealised "
+                . ($isGain ? 'gain' : 'loss') . ", but no {$mappingKey} is mapped in the "
+                . "organization's accounting settings."
+            );
+        }
+
+        $zero = bcadd('0', '0', self::SCALE);
+        $journalLines = [];
+
+        foreach ($revaluation->items as $item) {
+            $gainLoss = bcadd((string) $item->gain_loss_amount, '0', self::SCALE);
+
+            if (bccomp($gainLoss, '0', self::SCALE) === 0) {
+                continue;
+            }
+
+            // The item's own account carries the adjustment: a gain raises the
+            // balance and is debited there, a loss lowers it and is credited.
+            $itemIsGain = bccomp($gainLoss, '0', self::SCALE) > 0;
+            $amount = $itemIsGain ? $gainLoss : bcsub('0', $gainLoss, self::SCALE);
+
+            $journalLines[] = [
+                'account_id' => $item->account_id,
+                'description' => "Forex revaluation: {$revaluation->currency_code}",
+                'debit' => $itemIsGain ? $amount : $zero,
+                'credit' => $itemIsGain ? $zero : $amount,
+                'line_order' => count($journalLines),
+            ];
+        }
+
+        $netAmount = $isGain ? $netGainLoss : bcsub('0', $netGainLoss, self::SCALE);
+
+        $journalLines[] = [
+            'account_id' => $offsetAccountId,
+            'description' => "Forex revaluation offset: {$revaluation->currency_code}",
+            'debit' => $isGain ? $zero : $netAmount,
+            'credit' => $isGain ? $netAmount : $zero,
+            'line_order' => count($journalLines),
+        ];
+
+        return $this->journalService->createAndPost(
+            [
+                'organization_id' => $organizationId,
+                'entry_date' => $revaluation->revaluation_date,
+                'reference' => 'FOREX-REVAL-' . $revaluation->id,
+                'description' => "Currency revaluation: {$revaluation->currency_code} "
+                    . "({$revaluation->old_rate} → {$revaluation->new_rate})",
+                'source_type' => CurrencyRevaluation::class,
+                'source_id' => $revaluation->id,
+            ],
+            $journalLines
+        );
     }
 
     /**
