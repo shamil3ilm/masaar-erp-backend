@@ -14,7 +14,9 @@ use App\Services\Automation\AutomationRuleRunner;
 use App\Services\Automation\AutomationScheduleService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -197,6 +199,68 @@ class AutomationScheduleSweepTest extends TestCase
         $this->assertSame($entry->id, $booked?->id);
         $this->assertSame(1, AutomationSchedule::where('rule_id', $rule->id)->pending()->count());
     }
+
+    public function test_a_rule_booked_beneath_a_caller_keeps_the_one_entry_without_erroring(): void
+    {
+        [$rule, , $entry] = $this->dueScheduledRule();
+
+        // The rule holds nothing, as it does the moment a run completes.
+        $entry->delete();
+
+        // The window the read-then-write leaves open: another process writes
+        // the rule's next run after this one has looked and found none, and
+        // before its own write lands.
+        $raced = false;
+        Event::listen('eloquent.creating: ' . AutomationSchedule::class, function () use ($rule, &$raced): void {
+            if ($raced) {
+                return;
+            }
+
+            $raced = true;
+
+            AutomationSchedule::create([
+                'rule_id' => $rule->id,
+                'scheduled_for' => now()->addHour(),
+                'status' => AutomationSchedule::STATUS_PENDING,
+            ]);
+        });
+
+        $booked = app(AutomationScheduleService::class)->create($rule);
+
+        $this->assertTrue($raced, 'The competing booking never ran, so the race was not exercised.');
+        $this->assertNotNull($booked, 'Losing the race left the rule with no next run.');
+        $this->assertSame(1, AutomationSchedule::where('rule_id', $rule->id)->count(), 'The rule booked its next run twice.');
+        $this->assertSame($booked->id, AutomationSchedule::where('rule_id', $rule->id)->pending()->sole()->id);
+    }
+
+    public function test_the_database_refuses_a_second_pending_entry_for_one_rule(): void
+    {
+        [$rule, , ] = $this->dueScheduledRule();
+
+        // What the booking code's read cannot prevent on its own.
+        $this->expectException(UniqueConstraintViolationException::class);
+
+        AutomationSchedule::create([
+            'rule_id' => $rule->id,
+            'scheduled_for' => now()->addHour(),
+            'status' => AutomationSchedule::STATUS_PENDING,
+        ]);
+    }
+
+    public function test_an_entry_that_leaves_pending_frees_the_rule_to_book_its_next_run(): void
+    {
+        [$rule, , $entry] = $this->dueScheduledRule();
+
+        $entry->markAsCompleted();
+
+        $next = app(AutomationScheduleService::class)->create($rule);
+
+        $this->assertNotNull($next);
+        $this->assertNotSame($entry->id, $next->id, 'A completed entry was handed back as the next run.');
+        $this->assertNull($entry->fresh()->pending_rule_id, 'A completed entry still holds the rule on the pending marker.');
+        $this->assertSame($rule->id, (int) $next->pending_rule_id);
+    }
+
 
     public function test_the_sweep_is_registered_on_the_scheduler_every_minute(): void
     {

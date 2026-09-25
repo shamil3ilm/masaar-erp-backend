@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\FxForward;
 use App\Models\Accounting\FxHedgeRelation;
 use App\Models\Accounting\FxValuation;
+use App\Models\Accounting\JournalEntry;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,15 @@ use RuntimeException;
  */
 class FxDerivativeService
 {
+    /** The scale the rate columns hold. */
+    private const RATE_SCALE = 8;
+
+    /** The scale the fair-value and gain/loss columns hold. */
+    private const AMOUNT_SCALE = 4;
+
+    /** Nothing, at the amount scale. */
+    private const ZERO = '0.0000';
+
     public function __construct(
         private readonly JournalService $journalService,
         private readonly AccountResolver $accountResolver,
@@ -117,45 +127,61 @@ class FxDerivativeService
      * Fair value = (spot_rate - forward_rate) × notional  [simplified linear MTM]
      *
      * For cash-flow hedges: splits into effective/ineffective portions.
+     *
+     * The valuation and the entry that carries it are one act: a forward
+     * carried in the general ledger is journalled, and a mapping it needs and
+     * does not have refuses the valuation rather than recording a fair value
+     * the ledger never hears about.
      */
     public function recordValuation(
         FxForward $forward,
         Carbon $valuationDate,
-        float $spotRate,
+        float|string $spotRate,
     ): FxValuation {
         return DB::transaction(function () use ($forward, $valuationDate, $spotRate): FxValuation {
-            $fairValue = round(((float) $spotRate - (float) $forward->forward_rate) * (float) $forward->notional_amount, 4);
+            $spot = self::rate($spotRate);
+            $fairValue = self::amount(bcmul(
+                bcsub($spot, (string) $forward->forward_rate, self::RATE_SCALE),
+                (string) $forward->notional_amount,
+                self::AMOUNT_SCALE,
+            ));
 
             $previousValuation = $forward->valuations()->latest('valuation_date')->first();
-            $previousFairValue = $previousValuation ? (float) $previousValuation->fair_value : 0.0;
-            $fairValueChange   = round($fairValue - $previousFairValue, 4);
+            $previousFairValue = $previousValuation ? self::amount((string) $previousValuation->fair_value) : self::ZERO;
+            $fairValueChange   = bcsub($fairValue, $previousFairValue, self::AMOUNT_SCALE);
 
             // Hedge effectiveness split (simplified: ratio × change = effective)
-            $hedgeRelation     = $forward->hedgeRelation;
-            $effectivePortion  = 0.0;
+            $hedgeRelation      = $forward->hedgeRelation;
+            $effectivePortion   = self::ZERO;
             $ineffectivePortion = $fairValueChange;
 
             if ($hedgeRelation && $hedgeRelation->hedge_type === 'cash_flow') {
-                $effectivePortion   = round($fairValueChange * (float) $hedgeRelation->hedge_ratio, 4);
-                $ineffectivePortion = round($fairValueChange - $effectivePortion, 4);
+                $effectivePortion   = bcmul($fairValueChange, (string) $hedgeRelation->hedge_ratio, self::AMOUNT_SCALE);
+                $ineffectivePortion = bcsub($fairValueChange, $effectivePortion, self::AMOUNT_SCALE);
             }
 
             $valuation = FxValuation::create([
                 'fx_forward_id'       => $forward->id,
                 'valuation_date'      => $valuationDate,
-                'spot_rate'           => $spotRate,
+                'spot_rate'           => $spot,
                 'fair_value'          => $fairValue,
                 'fair_value_change'   => $fairValueChange,
                 'effective_portion'   => $effectivePortion,
                 'ineffective_portion' => $ineffectivePortion,
             ]);
 
-            // Post journal entry if accounts configured
-            if ($forward->derivative_asset_account_id && $forward->unrealised_gain_loss_account_id && $fairValueChange !== 0.0) {
-                $this->postValuationJournalEntry($forward, $valuation);
+            // A forward with no derivative balance account is not carried in
+            // the general ledger, so its valuation has nothing to book
+            // against; a fair value that did not move books nothing either.
+            if ($forward->derivative_asset_account_id === null
+                || bccomp($fairValueChange, self::ZERO, self::AMOUNT_SCALE) === 0) {
+                return $valuation;
             }
 
-            return $valuation;
+            $entry = $this->postValuationJournalEntry($forward, $valuation, $fairValueChange);
+            $valuation->update(['journal_entry_id' => $entry->id]);
+
+            return $valuation->fresh();
         });
     }
 
@@ -166,14 +192,19 @@ class FxDerivativeService
     /**
      * Settle a forward at maturity using the actual spot rate.
      */
-    public function settle(FxForward $forward, float $settlementRate, Carbon $settlementDate): FxForward
+    public function settle(FxForward $forward, float|string $settlementRate, Carbon $settlementDate): FxForward
     {
         return DB::transaction(function () use ($forward, $settlementRate, $settlementDate): FxForward {
-            $gainLoss = round(($settlementRate - (float) $forward->forward_rate) * (float) $forward->notional_amount, 4);
+            $rate = self::rate($settlementRate);
+            $gainLoss = self::amount(bcmul(
+                bcsub($rate, (string) $forward->forward_rate, self::RATE_SCALE),
+                (string) $forward->notional_amount,
+                self::AMOUNT_SCALE,
+            ));
 
             $forward->update([
                 'status'               => 'exercised',
-                'settlement_rate'      => $settlementRate,
+                'settlement_rate'      => $rate,
                 'settlement_gain_loss' => $gainLoss,
                 'settled_at'           => $settlementDate,
             ]);
@@ -181,7 +212,8 @@ class FxDerivativeService
             // A forward with no derivative balance account is not carried in
             // the general ledger, so its settlement has nothing to book
             // against. One that is carried there is always journalled.
-            if ($forward->derivative_asset_account_id && $gainLoss !== 0.0) {
+            if ($forward->derivative_asset_account_id !== null
+                && bccomp($gainLoss, self::ZERO, self::AMOUNT_SCALE) !== 0) {
                 $this->postRealisedGainLoss($forward, $gainLoss, $settlementDate);
             }
 
@@ -191,27 +223,59 @@ class FxDerivativeService
 
     // ----------------------------------------------------------------
 
-    private function postValuationJournalEntry(FxForward $forward, FxValuation $valuation): void
+    /**
+     * Book the period's fair-value movement against the derivative balance.
+     *
+     * The sign gives the direction: a rise raises the balance and is credited
+     * to the result account, a fall lowers it and is debited there. The result
+     * account is the one the contract names, or the account the organization
+     * mapped for that side — fx_unrealised_gain_account_id or
+     * fx_unrealised_loss_account_id. Without either the entry would be
+     * one-sided, so nothing is valued.
+     *
+     * @throws RuntimeException when no result account is configured
+     */
+    private function postValuationJournalEntry(FxForward $forward, FxValuation $valuation, string $fairValueChange): JournalEntry
     {
-        $amount = abs((float) $valuation->fair_value_change);
-        $isGain = (float) $valuation->fair_value_change >= 0;
+        $organizationId = (int) $forward->organization_id;
+        $isGain = bccomp($fairValueChange, self::ZERO, self::AMOUNT_SCALE) > 0;
+        $side = $isGain ? 'gain' : 'loss';
+        $mappingKey = "fx_unrealised_{$side}_account_id";
 
-        $this->journalService->createEntry([
-            'organization_id' => $forward->organization_id,
+        $resultAccountId = $forward->unrealised_gain_loss_account_id
+            ?? $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
+
+        if ($resultAccountId === null) {
+            throw new RuntimeException(
+                "FX forward {$forward->contract_number} was valued at an unrealised {$side}, but no "
+                . "{$mappingKey} is mapped in the organization's accounting settings."
+            );
+        }
+
+        $amount = $isGain ? $fairValueChange : bcsub(self::ZERO, $fairValueChange, self::AMOUNT_SCALE);
+        $zero = self::ZERO;
+
+        return $this->journalService->createAndPost([
+            'organization_id' => $organizationId,
             'entry_date'      => $valuation->valuation_date,
+            'reference'       => $forward->contract_number,
             'description'     => "FX forward MTM: {$forward->contract_number} @ {$valuation->valuation_date}",
             'source_type'     => FxValuation::class,
             'source_id'       => $valuation->id,
         ], [
             [
-                'account_id' => $forward->derivative_asset_account_id,
-                'debit'      => $isGain ? $amount : 0,
-                'credit'     => $isGain ? 0 : $amount,
+                'account_id'  => $forward->derivative_asset_account_id,
+                'debit'       => $isGain ? $amount : $zero,
+                'credit'      => $isGain ? $zero : $amount,
+                'description' => "FX forward mark-to-market — {$forward->contract_number}",
+                'line_order'  => 0,
             ],
             [
-                'account_id' => $forward->unrealised_gain_loss_account_id,
-                'debit'      => $isGain ? 0 : $amount,
-                'credit'     => $isGain ? $amount : 0,
+                'account_id'  => $resultAccountId,
+                'debit'       => $isGain ? $zero : $amount,
+                'credit'      => $isGain ? $amount : $zero,
+                'description' => "Unrealised FX {$side} — {$forward->contract_number}",
+                'line_order'  => 1,
             ],
         ]);
     }
@@ -227,10 +291,10 @@ class FxDerivativeService
      *
      * @throws RuntimeException when no result account is configured
      */
-    private function postRealisedGainLoss(FxForward $forward, float $gainLoss, Carbon $date): void
+    private function postRealisedGainLoss(FxForward $forward, string $gainLoss, Carbon $date): void
     {
         $organizationId = (int) $forward->organization_id;
-        $isGain = $gainLoss >= 0;
+        $isGain = bccomp($gainLoss, self::ZERO, self::AMOUNT_SCALE) > 0;
         $side = $isGain ? 'gain' : 'loss';
         $mappingKey = "fx_{$side}_account_id";
 
@@ -244,8 +308,8 @@ class FxDerivativeService
             );
         }
 
-        $amount = number_format(abs($gainLoss), 4, '.', '');
-        $zero = '0.0000';
+        $amount = $isGain ? $gainLoss : bcsub(self::ZERO, $gainLoss, self::AMOUNT_SCALE);
+        $zero = self::ZERO;
 
         $this->journalService->createAndPost([
             'organization_id' => $organizationId,
@@ -270,5 +334,27 @@ class FxDerivativeService
                 'line_order'  => 1,
             ],
         ]);
+    }
+
+    /**
+     * A rate as a decimal string at the scale the rate columns hold.
+     *
+     * A rate reaches the service as a request value, which is a float once a
+     * JSON body is decoded. A float is written out at that scale rather than
+     * cast, so an exponent form never reaches the arithmetic.
+     */
+    private static function rate(float|string $rate): string
+    {
+        if (is_string($rate) && preg_match('/^-?\d+(\.\d+)?$/', $rate) === 1) {
+            return bcadd($rate, '0', self::RATE_SCALE);
+        }
+
+        return number_format((float) $rate, self::RATE_SCALE, '.', '');
+    }
+
+    /** An amount at the scale the fair-value and gain/loss columns hold. */
+    private static function amount(string $amount): string
+    {
+        return bcadd($amount, '0', self::AMOUNT_SCALE);
     }
 }

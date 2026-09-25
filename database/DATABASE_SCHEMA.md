@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 63 migrations.
+978 tables across 64 migrations.
 
 ## Contents
 
@@ -71,6 +71,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0650_report_definition_codes_per_organization.php`: changes to report_definitions
 - `0660_sales_numbers_per_organization.php`: changes to cash_sales, commission_payments, customer_account_groups, delivery_documents, free_goods_conditions, material_account_groups, pick_documents
 - `0670_carrier_codes_per_organization.php`: changes to carriers
+- `0671_automation_schedule_pending_marker.php`: changes to automation_schedules
 
 ## 0010_accounting.php
 
@@ -6159,6 +6160,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['scheduled_for', 'status'])`
+
+Added by later migrations:
+
+- `0671_automation_schedule_pending_marker.php`: `$table->unsignedBigInteger('pending_rule_id')->nullable()->after('rule_id')`
+- `0671_automation_schedule_pending_marker.php`: `$table->unique('pending_rule_id', 'automation_schedules_pending_rule_unique')`
 
 ## 0100_billing.php
 
@@ -25572,3 +25578,7 @@ Changes tables created earlier: `cash_sales`, `commission_payments`, `customer_a
 ## 0670_carrier_codes_per_organization.php
 
 Changes tables created earlier: `carriers`.
+
+## 0671_automation_schedule_pending_marker.php
+
+Changes tables created earlier: `automation_schedules`.
