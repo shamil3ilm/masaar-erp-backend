@@ -21,6 +21,9 @@ class FxForward extends Model
 
     protected $guarded = ['id'];
 
+    /** The scale the notional and gain/loss columns hold. */
+    private const AMOUNT_SCALE = 4;
+
     protected function casts(): array
     {
         return [
@@ -55,10 +58,15 @@ class FxForward extends Model
     }
 
     /**
-     * Notional value in sell_currency (buy side notional × forward rate).
+     * Notional value in sell_currency (buy side notional × forward rate), as a
+     * decimal string at the scale the amount columns hold.
+     *
+     * The product is truncated, the way the valuation and the settlement
+     * truncate theirs, so the figure shown for a contract is the figure its
+     * posting books rather than a rounding above it.
      */
-    public function notionalInSellCurrency(): float
+    public function notionalInSellCurrency(): string
     {
-        return round((float) $this->notional_amount * (float) $this->forward_rate, 4);
+        return bcmul((string) $this->notional_amount, (string) $this->forward_rate, self::AMOUNT_SCALE);
     }
 }
