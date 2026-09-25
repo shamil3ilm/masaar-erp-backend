@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 52 migrations.
+978 tables across 51 migrations.
 
 ## Contents
 
@@ -59,7 +59,6 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0530_purchase_order_pending_approval_status.php`: changes to purchase_orders
 - `0540_messaging_channel_default_marker.php`: changes to messaging_channels
 - `0550_organization_parent.php`: changes to organizations
-- `0560_accounting_numbers_per_organization.php`: changes to activity_confirmations, cost_center_budget_supplements, cost_reconciliation_runs, fx_forwards, intercompany_reconciliation_sessions, xbrl_taxonomies
 
 ## 0010_accounting.php
 
@@ -121,11 +120,6 @@ Indexes:
 
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['source_type', 'source_id'])`
-
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('cost_reconciliation_runs_run_number_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'run_number'], 'cost_recon_runs_org_number_unq')`
 
 ### cost_reconciliation_entries
 
@@ -244,11 +238,6 @@ Indexes:
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['organization_id', 'maturity_date'])`
 
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('fx_forwards_contract_number_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'contract_number'], 'fx_forwards_org_contract_number_unq')`
-
 ### fx_hedge_relations
 
 | Column | Type | Details |
@@ -348,11 +337,6 @@ Indexes:
 Indexes:
 
 - `$table->index(['organization_id', 'fiscal_year', 'period'], 'ic_recon_sessions_org_fy_period_idx')`
-
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('intercompany_reconciliation_sessions_session_number_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'session_number'], 'icr_sessions_org_number_unq')`
 
 ### intercompany_reconciliation_items
 
@@ -5698,11 +5682,6 @@ Indexes:
 
 - `$table->index(['organization_id', 'is_active'])`
 
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('xbrl_taxonomies_namespace_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'namespace'], 'xbrl_taxonomies_org_namespace_unq')`
-
 ### xbrl_filings
 
 | Column | Type | Details |
@@ -10430,11 +10409,6 @@ Indexes:
 
 - `$table->index(['organization_id', 'status'], 'cc_bdgt_supp_org_status_idx')`
 - `$table->index(['cost_center_budget_id'], 'cc_bdgt_supp_budget_idx')`
-
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('cost_center_budget_supplements_supplement_number_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'supplement_number'], 'ccbs_org_supplement_number_unq')`
 
 ### costing_sheet_rows
 
@@ -23873,11 +23847,6 @@ Foreign keys:
 
 - `$table->foreign('reversal_id', 'co_act_conf_reversal_fk')->references('id')->on('activity_confirmations')->nullOnDelete()`
 
-Added by later migrations:
-
-- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('activity_confirmations_confirmation_number_unique')`
-- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'confirmation_number'], 'act_conf_org_number_unq')`
-
 ## 0420_tm.php
 
 ### carriers
@@ -25308,7 +25277,3 @@ Changes tables created earlier: `messaging_channels`.
 ## 0550_organization_parent.php
 
 Changes tables created earlier: `organizations`.
-
-## 0560_accounting_numbers_per_organization.php
-
-Changes tables created earlier: `activity_confirmations`, `cost_center_budget_supplements`, `cost_reconciliation_runs`, `fx_forwards`, `intercompany_reconciliation_sessions`, `xbrl_taxonomies`.

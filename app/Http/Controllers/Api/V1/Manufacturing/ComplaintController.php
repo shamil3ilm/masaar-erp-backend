@@ -9,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Services\Manufacturing\ComplaintService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class ComplaintController extends Controller
 {
@@ -25,7 +24,7 @@ class ComplaintController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'complaint_number'        => ['required', 'string', 'max:50', Rule::unique('complaints', 'complaint_number')->where('organization_id', $request->user()->organization_id)],
+            'complaint_number'        => 'required|string|max:50|unique:complaints',
             'complaint_source'        => 'required|in:customer,internal,regulatory,supplier',
             'contact_id'              => ['nullable', 'integer', $this->ownedBy('contacts')],
             'subject'                 => 'required|string|max:255',

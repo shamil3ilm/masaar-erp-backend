@@ -9,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Services\Manufacturing\SupplierQualityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class SupplierQualityController extends Controller
 {
@@ -67,7 +66,7 @@ class SupplierQualityController extends Controller
     public function storeNcr(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'ncr_number'                    => ['required', 'string', 'max:50', Rule::unique('supplier_ncr_records', 'ncr_number')->where('organization_id', $request->user()->organization_id)],
+            'ncr_number'                    => 'required|string|max:50|unique:supplier_ncr_records',
             'supplier_id'                   => ['required', 'integer', $this->ownedBy('contacts')],
             'product_id'                    => ['nullable', 'integer', $this->ownedBy('products')],
             'po_number'                     => 'nullable|string|max:50',

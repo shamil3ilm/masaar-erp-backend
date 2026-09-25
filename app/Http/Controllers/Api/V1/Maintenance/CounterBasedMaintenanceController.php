@@ -10,7 +10,6 @@ use App\Services\Maintenance\CounterBasedMaintenanceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class CounterBasedMaintenanceController extends Controller
 {
@@ -62,7 +61,7 @@ class CounterBasedMaintenanceController extends Controller
     public function storePlan(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'plan_number' => ['required', 'string', 'max:50', Rule::unique('counter_based_plans', 'plan_number')->where('organization_id', $request->user()->organization_id)],
+            'plan_number' => 'required|string|max:50|unique:counter_based_plans',
             'plan_type' => 'required|in:time_based,counter_based,condition_based',
             'floc_id' => ['nullable', 'integer', $this->ownedBy('functional_locations')],
             'counter_id' => ['nullable', 'integer', $this->ownedBy('equipment_counters')],
