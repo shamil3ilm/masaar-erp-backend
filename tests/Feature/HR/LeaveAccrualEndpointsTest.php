@@ -64,7 +64,8 @@ class LeaveAccrualEndpointsTest extends TestCase
         $this->balance($theirEmployee, $theirType);
 
         $this->apiGet("{$this->baseUrl}/accruals/history?employee_id={$theirEmployee->id}&leave_type_id={$theirType->id}&year=2026")
-            ->assertNotFound();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['employee_id', 'leave_type_id']);
     }
 
     public function test_adjustments_are_filtered_by_employee_and_paged_on_request(): void

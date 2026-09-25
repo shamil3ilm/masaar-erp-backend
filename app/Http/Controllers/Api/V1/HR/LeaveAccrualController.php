@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Leave\LeaveEncashment;
 use App\Services\HR\LeaveAccrualService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class LeaveAccrualController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private LeaveAccrualService $accrualService
     ) {}
@@ -43,8 +46,8 @@ class LeaveAccrualController extends Controller
     public function accrualHistory(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'leave_type_id' => 'required|exists:leave_types,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
+            'leave_type_id' => ['required', $this->ownedBy('leave_types')],
             'year' => 'nullable|integer|min:2000|max:2100',
         ]);
 
@@ -70,8 +73,8 @@ class LeaveAccrualController extends Controller
     public function adjustBalance(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'leave_type_id' => 'required|exists:leave_types,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
+            'leave_type_id' => ['required', $this->ownedBy('leave_types')],
             'adjustment_type' => 'required|in:add,deduct',
             'days' => 'required|numeric|min:0.01',
             'reason' => 'required|string|max:1000',
@@ -109,8 +112,8 @@ class LeaveAccrualController extends Controller
     public function encashLeave(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'leave_type_id' => 'required|exists:leave_types,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
+            'leave_type_id' => ['required', $this->ownedBy('leave_types')],
             'requested_days' => 'required|numeric|min:0.5',
             'daily_rate' => 'required|numeric|min:0',
             'notes' => 'nullable|string|max:1000',
@@ -170,8 +173,8 @@ class LeaveAccrualController extends Controller
     public function getBalance(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'leave_type_id' => 'required|exists:leave_types,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
+            'leave_type_id' => ['required', $this->ownedBy('leave_types')],
             'year' => 'nullable|integer|min:2000|max:2100',
         ]);
 

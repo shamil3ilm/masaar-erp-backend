@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Document;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Document\DigitalSignature;
 use App\Models\Document\Document;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Storage;
 
 class DocumentController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         protected DocumentVaultService $documentVaultService
     ) {
@@ -53,7 +56,7 @@ class DocumentController extends Controller
         $request->validate([
             'file' => 'required|file|max:51200', // 50MB max
             'name' => 'nullable|string|max:255',
-            'folder_id' => 'nullable|integer|exists:document_folders,id',
+            'folder_id' => ['nullable', 'integer', $this->ownedBy('document_folders')],
             'description' => 'nullable|string',
             'tags' => 'nullable|array',
             'tags.*' => 'string|max:50',
@@ -229,7 +232,7 @@ class DocumentController extends Controller
         $data = $request->validate([
             'signer_email' => 'required|email',
             'signer_name' => 'required|string|max:255',
-            'signer_id' => 'nullable|integer|exists:users,id',
+            'signer_id' => ['nullable', 'integer', $this->ownedBy('users')],
             'expires_at' => 'nullable|date|after:now',
         ]);
 
@@ -292,7 +295,7 @@ class DocumentController extends Controller
     public function move(Request $request, Document $document): JsonResponse
     {
         $data = $request->validate([
-            'folder_id' => 'nullable|integer|exists:document_folders,id',
+            'folder_id' => ['nullable', 'integer', $this->ownedBy('document_folders')],
         ]);
 
         $document = $this->documentVaultService->moveToFolder(
