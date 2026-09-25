@@ -23,7 +23,7 @@ class MessagingConfigurationFactory extends Factory
             'settings' => null,
             'sender_name' => fake()->company(),
             'sender_address' => fake()->safeEmail(),
-            'is_default' => true,
+            'default_for_type' => null,
             'is_active' => true,
         ];
     }
