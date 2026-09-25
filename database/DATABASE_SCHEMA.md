@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 54 migrations.
+978 tables across 55 migrations.
 
 ## Contents
 
@@ -62,6 +62,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0560_accounting_numbers_per_organization.php`: changes to activity_confirmations, cost_center_budget_supplements, cost_reconciliation_runs, fx_forwards, intercompany_reconciliation_sessions, xbrl_taxonomies
 - `0570_budget_transfer_numbers_per_organization.php`: changes to budget_transfers
 - `0580_core_codes_per_organization.php`: changes to business_partners, class_assignments, class_characteristic_values, class_characteristics, email_templates
+- `0590_crm_ticket_numbers_per_organization.php`: changes to service_tickets
 
 ## 0010_accounting.php
 
@@ -17021,6 +17022,11 @@ Foreign keys:
 - `$table->foreign('sla_policy_id')->references('id')->on('sla_policies')->onDelete('set null')`
 - `$table->foreign('created_by')->references('id')->on('users')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0590_crm_ticket_numbers_per_organization.php`: `$table->dropUnique('service_tickets_ticket_number_unique')`
+- `0590_crm_ticket_numbers_per_organization.php`: `$table->unique(['organization_id', 'ticket_number'], 'service_tickets_org_number_unq')`
+
 ### service_ticket_comments
 
 | Column | Type | Details |
@@ -25352,3 +25358,7 @@ Changes tables created earlier: `budget_transfers`.
 ## 0580_core_codes_per_organization.php
 
 Changes tables created earlier: `business_partners`, `class_assignments`, `class_characteristic_values`, `class_characteristics`, `email_templates`.
+
+## 0590_crm_ticket_numbers_per_organization.php
+
+Changes tables created earlier: `service_tickets`.
