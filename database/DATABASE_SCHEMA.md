@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 58 migrations.
+978 tables across 59 migrations.
 
 ## Contents
 
@@ -66,6 +66,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0600_hr_numbers_per_organization.php`: changes to manager_team_views, personnel_actions, travel_expense_reports
 - `0610_inventory_numbers_per_organization.php`: changes to ewm_transfer_orders, goods_issues, inventory_valuation_types, storage_types
 - `0620_maintenance_numbers_per_organization.php`: changes to counter_based_orders, counter_based_plans, maintenance_fault_codes, maintenance_notifications, maintenance_service_orders, maintenance_task_lists
+- `0630_manufacturing_numbers_per_organization.php`: changes to audit_plans, capa_8d, capa_records, complaints, production_confirmations, scheduling_runs, shop_floor_papers, staging_requests, supplier_ncr_records, usage_decisions
 
 ## 0010_accounting.php
 
@@ -12572,6 +12573,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('lead_auditor_id', 'audit_plan_auditor_fk')->references('id')->on('users')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('audit_plans_plan_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'plan_number'], 'audit_plans_org_plan_number_unq')`
+
 ### audit_checklists
 
 | Column | Type | Details |
@@ -12687,6 +12693,11 @@ Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('owner_id', 'capa_owner_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('capa_records_capa_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'capa_number'], 'capa_records_org_capa_number_unq')`
 
 ### capa_actions
 
@@ -13083,6 +13094,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['organization_id', 'status'])`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('capa_8d_capa_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'capa_number'], 'capa_8d_org_capa_number_unq')`
 
 ### dynamic_modification_rules
 
@@ -17471,6 +17487,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('contact_id', 'complaint_contact_fk')->references('id')->on('contacts')->nullOnDelete()`
 - `$table->foreign('assigned_to_id', 'complaint_assignee_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('complaints_complaint_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'complaint_number'], 'complaints_org_number_unq')`
 
 ### complaint_communications
 
@@ -21910,6 +21931,11 @@ Foreign keys:
 - `$table->foreign('supplier_id', 'sq_ncr_supplier_fk')->references('id')->on('contacts')->cascadeOnDelete()`
 - `$table->foreign('product_id', 'sq_ncr_product_fk')->references('id')->on('products')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('supplier_ncr_records_ncr_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'ncr_number'], 'supplier_ncr_records_org_number_unq')`
+
 ### usage_decisions
 
 | Column | Type | Details |
@@ -21932,6 +21958,11 @@ Foreign keys:
 Indexes:
 
 - `$table->index(['organization_id', 'inspection_lot_id'])`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('usage_decisions_decision_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'decision_number'], 'usage_decisions_org_number_unq')`
 
 ## 0390_purchase_3.php
 
@@ -24844,6 +24875,11 @@ Foreign keys:
 | updated_at | `timestamp` | nullable |
 | deleted_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('production_confirmations_confirmation_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'confirmation_number'], 'prod_confirmations_org_number_unq')`
+
 ### promotion_customers
 
 | Column | Type | Details |
@@ -24937,6 +24973,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('scheduling_runs_run_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'run_number'], 'scheduling_runs_org_number_unq')`
+
 ### sessions
 
 | Column | Type | Details |
@@ -24965,6 +25006,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('shop_floor_papers_paper_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'paper_number'], 'shop_floor_papers_org_number_unq')`
+
 ### staging_requests
 
 | Column | Type | Details |
@@ -24981,6 +25027,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 | deleted_at | `timestamp` | nullable |
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('staging_requests_request_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'request_number'], 'staging_requests_org_number_unq')`
 
 ### staging_request_lines
 
@@ -25442,3 +25493,7 @@ Changes tables created earlier: `ewm_transfer_orders`, `goods_issues`, `inventor
 ## 0620_maintenance_numbers_per_organization.php
 
 Changes tables created earlier: `counter_based_orders`, `counter_based_plans`, `maintenance_fault_codes`, `maintenance_notifications`, `maintenance_service_orders`, `maintenance_task_lists`.
+
+## 0630_manufacturing_numbers_per_organization.php
+
+Changes tables created earlier: `audit_plans`, `capa_8d`, `capa_records`, `complaints`, `production_confirmations`, `scheduling_runs`, `shop_floor_papers`, `staging_requests`, `supplier_ncr_records`, `usage_decisions`.
