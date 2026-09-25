@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 55 migrations.
+978 tables across 56 migrations.
 
 ## Contents
 
@@ -63,6 +63,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0570_budget_transfer_numbers_per_organization.php`: changes to budget_transfers
 - `0580_core_codes_per_organization.php`: changes to business_partners, class_assignments, class_characteristic_values, class_characteristics, email_templates
 - `0590_crm_ticket_numbers_per_organization.php`: changes to service_tickets
+- `0600_hr_numbers_per_organization.php`: changes to manager_team_views, personnel_actions, travel_expense_reports
 
 ## 0010_accounting.php
 
@@ -8587,6 +8588,11 @@ Indexes:
 
 - `$table->unique(['manager_id', 'employee_id'], 'mtv_manager_employee_unq')`
 
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('mtv_manager_employee_unq')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'manager_id', 'employee_id'], 'mtv_org_manager_employee_unq')`
+
 ### off_cycle_payroll_items
 
 | Column | Type | Details |
@@ -9045,6 +9051,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'employee_id'])`
 - `$table->index(['organization_id', 'status'])`
+
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('personnel_actions_action_number_unique')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'action_number'], 'personnel_actions_org_number_unq')`
 
 ### personnel_action_steps
 
@@ -10151,6 +10162,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'employee_id'])`
 - `$table->index(['organization_id', 'status'])`
+
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('travel_expense_reports_report_number_unique')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'report_number'], 'travel_exp_reports_org_number_unq')`
 
 ### travel_expense_report_lines
 
@@ -25362,3 +25378,7 @@ Changes tables created earlier: `business_partners`, `class_assignments`, `class
 ## 0590_crm_ticket_numbers_per_organization.php
 
 Changes tables created earlier: `service_tickets`.
+
+## 0600_hr_numbers_per_organization.php
+
+Changes tables created earlier: `manager_team_views`, `personnel_actions`, `travel_expense_reports`.
