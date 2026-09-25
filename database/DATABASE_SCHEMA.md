@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 59 migrations.
+978 tables across 60 migrations.
 
 ## Contents
 
@@ -67,6 +67,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0610_inventory_numbers_per_organization.php`: changes to ewm_transfer_orders, goods_issues, inventory_valuation_types, storage_types
 - `0620_maintenance_numbers_per_organization.php`: changes to counter_based_orders, counter_based_plans, maintenance_fault_codes, maintenance_notifications, maintenance_service_orders, maintenance_task_lists
 - `0630_manufacturing_numbers_per_organization.php`: changes to audit_plans, capa_8d, capa_records, complaints, production_confirmations, scheduling_runs, shop_floor_papers, staging_requests, supplier_ncr_records, usage_decisions
+- `0640_purchase_numbers_per_organization.php`: changes to service_entry_sheets, service_purchase_orders
 
 ## 0010_accounting.php
 
@@ -18147,6 +18148,11 @@ Foreign keys:
 - `$table->foreign('vendor_id')->references('id')->on('contacts')`
 - `$table->foreign('created_by')->references('id')->on('users')`
 
+Added by later migrations:
+
+- `0640_purchase_numbers_per_organization.php`: `$table->dropUnique('service_purchase_orders_po_number_unique')`
+- `0640_purchase_numbers_per_organization.php`: `$table->unique(['organization_id', 'po_number'], 'service_purchase_orders_org_number_unq')`
+
 ### service_entry_sheets
 
 | Column | Type | Details |
@@ -18176,6 +18182,11 @@ Foreign keys:
 - `$table->foreign('vendor_id')->references('id')->on('contacts')`
 - `$table->foreign('submitted_by')->references('id')->on('users')`
 - `$table->foreign('approved_by')->references('id')->on('users')`
+
+Added by later migrations:
+
+- `0640_purchase_numbers_per_organization.php`: `$table->dropUnique('service_entry_sheets_ses_number_unique')`
+- `0640_purchase_numbers_per_organization.php`: `$table->unique(['organization_id', 'ses_number'], 'service_entry_sheets_org_number_unq')`
 
 ### service_acceptances
 
@@ -25497,3 +25508,7 @@ Changes tables created earlier: `counter_based_orders`, `counter_based_plans`, `
 ## 0630_manufacturing_numbers_per_organization.php
 
 Changes tables created earlier: `audit_plans`, `capa_8d`, `capa_records`, `complaints`, `production_confirmations`, `scheduling_runs`, `shop_floor_papers`, `staging_requests`, `supplier_ncr_records`, `usage_decisions`.
+
+## 0640_purchase_numbers_per_organization.php
+
+Changes tables created earlier: `service_entry_sheets`, `service_purchase_orders`.
