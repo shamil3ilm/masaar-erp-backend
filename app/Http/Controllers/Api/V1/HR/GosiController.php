@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\HR\EmployeeService;
 use App\Services\HR\GosiService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class GosiController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private GosiService $gosiService,
         private EmployeeService $employeeService,
@@ -42,7 +45,7 @@ class GosiController extends Controller
     public function calculate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
             'year' => 'required|integer|min:2000|max:2100',
             'month' => 'required|integer|min:1|max:12',
         ]);

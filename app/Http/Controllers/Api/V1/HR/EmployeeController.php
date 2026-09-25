@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\HR;
 
 use App\Http\Concerns\SupportsAgGrid;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HR\EmployeeResource;
 use App\Models\HR\Employee;
@@ -16,6 +17,7 @@ use Illuminate\Validation\Rule;
 class EmployeeController extends Controller
 {
     use SupportsAgGrid;
+    use ValidatesOwnedRows;
     public function __construct(
         private EmployeeService $employeeService
     ) {
@@ -198,7 +200,7 @@ class EmployeeController extends Controller
     public function assignSalary(Request $request, Employee $employee): JsonResponse
     {
         $validated = $request->validate([
-            'salary_structure_id' => 'required|exists:salary_structures,id',
+            'salary_structure_id' => ['required', $this->ownedBy('salary_structures')],
             'effective_from' => 'required|date',
             'components' => 'required|array',
             'components.*' => 'required|numeric|min:0',

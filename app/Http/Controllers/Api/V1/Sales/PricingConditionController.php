@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\PricingConditionRecord;
 use App\Models\Sales\PricingConditionType;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 
 class PricingConditionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PricingConditionService $service
     ) {}
@@ -164,11 +167,11 @@ class PricingConditionController extends Controller
     public function storeConditionRecord(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'condition_type_id' => 'required|exists:pricing_condition_types,id',
+            'condition_type_id' => ['required', $this->ownedBy('pricing_condition_types')],
             'key_combination' => 'required|in:customer_material,customer,material,price_list,all',
-            'customer_id' => 'nullable|exists:contacts,id',
-            'product_id' => 'nullable|exists:products,id',
-            'price_list_id' => 'nullable|exists:price_lists,id',
+            'customer_id' => ['nullable', $this->ownedBy('contacts')],
+            'product_id' => ['nullable', $this->ownedBy('products')],
+            'price_list_id' => ['nullable', $this->ownedBy('price_lists')],
             'rate' => 'required|numeric',
             'currency_code' => 'required|string|size:3',
             'valid_from' => 'nullable|date',
@@ -224,8 +227,8 @@ class PricingConditionController extends Controller
     public function resolve(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'customer_id' => 'required|exists:contacts,id',
+            'product_id' => ['required', $this->ownedBy('products')],
+            'customer_id' => ['required', $this->ownedBy('contacts')],
             'quantity' => 'required|numeric|min:0.0001',
             'currency' => 'required|string|size:3',
         ]);

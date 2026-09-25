@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\EmployeeOnboarding;
 use App\Services\HR\HCMOnboardingService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class HCMOnboardingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly HCMOnboardingService $service,
     ) {}
@@ -29,7 +32,7 @@ class HCMOnboardingController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'            => 'required|integer|exists:employees,id',
+            'employee_id'            => ['required', 'integer', $this->ownedBy('employees')],
             'template_type'          => 'nullable|in:standard,probation,rehire,transfer_in',
             'started_date'           => 'nullable|date',
             'target_completion_date' => 'nullable|date|after_or_equal:started_date',
@@ -39,7 +42,7 @@ class HCMOnboardingController extends Controller
             'tasks.*.category'       => 'nullable|in:hr,it,manager,employee,legal,finance',
             'tasks.*.due_date'       => 'nullable|date',
             'tasks.*.is_required'    => 'nullable|boolean',
-            'tasks.*.assigned_to'    => 'nullable|integer|exists:users,id',
+            'tasks.*.assigned_to'    => ['nullable', 'integer', $this->ownedBy('users')],
         ]);
 
         $onboarding = $this->service->create($validated, $this->userId());
@@ -95,7 +98,7 @@ class HCMOnboardingController extends Controller
             'category'    => 'nullable|in:hr,it,manager,employee,legal,finance',
             'due_date'    => 'nullable|date',
             'is_required' => 'nullable|boolean',
-            'assigned_to' => 'nullable|integer|exists:users,id',
+            'assigned_to' => ['nullable', 'integer', $this->ownedBy('users')],
         ]);
 
         $task = $this->service->addTask($onboarding, $validated, $this->userId());

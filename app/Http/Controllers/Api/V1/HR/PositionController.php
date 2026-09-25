@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Position;
 use App\Services\HR\PositionService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class PositionController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private PositionService $positionService
     ) {}
@@ -35,10 +38,10 @@ class PositionController extends Controller
         $validated = $request->validate([
             'position_code'          => 'required|string|max:20',
             'position_title'         => 'required|string|max:150',
-            'department_id'          => 'nullable|exists:departments,id',
-            'designation_id'         => 'nullable|exists:designations,id',
-            'pay_grade_id'           => 'nullable|exists:pay_grades,id',
-            'reports_to_position_id' => 'nullable|exists:positions,id',
+            'department_id'          => ['nullable', $this->ownedBy('departments')],
+            'designation_id'         => ['nullable', $this->ownedBy('designations')],
+            'pay_grade_id'           => ['nullable', $this->ownedBy('pay_grades')],
+            'reports_to_position_id' => ['nullable', $this->ownedBy('positions')],
             'headcount_authorized'   => 'nullable|integer|min:1',
             'is_key_position'        => 'nullable|boolean',
         ]);
@@ -70,10 +73,10 @@ class PositionController extends Controller
         $validated = $request->validate([
             'position_code'          => 'sometimes|string|max:20',
             'position_title'         => 'sometimes|string|max:150',
-            'department_id'          => 'nullable|exists:departments,id',
-            'designation_id'         => 'nullable|exists:designations,id',
-            'pay_grade_id'           => 'nullable|exists:pay_grades,id',
-            'reports_to_position_id' => 'nullable|exists:positions,id',
+            'department_id'          => ['nullable', $this->ownedBy('departments')],
+            'designation_id'         => ['nullable', $this->ownedBy('designations')],
+            'pay_grade_id'           => ['nullable', $this->ownedBy('pay_grades')],
+            'reports_to_position_id' => ['nullable', $this->ownedBy('positions')],
             'headcount_authorized'   => 'sometimes|integer|min:1',
             'is_key_position'        => 'sometimes|boolean',
             'status'                 => 'sometimes|in:active,frozen,abolished',
@@ -123,7 +126,7 @@ class PositionController extends Controller
     public function assignEmployee(Request $request, Position $position): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
         ]);
 
         return $this->tryAction(
@@ -142,7 +145,7 @@ class PositionController extends Controller
     public function vacatePosition(Request $request, Position $position): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
         ]);
 
         return $this->tryAction(

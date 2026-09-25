@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\OrgUnit;
 use App\Services\HR\OrgUnitService;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class OrgUnitController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly OrgUnitService $orgUnitService
     ) {}
@@ -57,7 +60,7 @@ class OrgUnitController extends Controller
                 OrgUnit::TYPE_TEAM,
                 OrgUnit::TYPE_COST_CENTER_UNIT,
             ])],
-            'cost_center_id'      => 'nullable|exists:cost_centers,id',
+            'cost_center_id'      => ['nullable', $this->ownedBy('cost_centers')],
             'manager_position_id' => ['nullable', Rule::exists('positions', 'id')->where('organization_id', $orgId)],
             'head_count_plan'     => 'nullable|integer|min:0',
             'valid_from'          => 'required|date',
@@ -107,7 +110,7 @@ class OrgUnitController extends Controller
                 OrgUnit::TYPE_TEAM,
                 OrgUnit::TYPE_COST_CENTER_UNIT,
             ])],
-            'cost_center_id'      => 'nullable|exists:cost_centers,id',
+            'cost_center_id'      => ['nullable', $this->ownedBy('cost_centers')],
             'manager_position_id' => ['nullable', Rule::exists('positions', 'id')->where('organization_id', $orgId)],
             'head_count_plan'     => 'nullable|integer|min:0',
             'valid_from'          => 'sometimes|date',

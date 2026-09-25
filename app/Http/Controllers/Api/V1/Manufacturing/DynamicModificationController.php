@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Manufacturing\DynamicModificationService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class DynamicModificationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly DynamicModificationService $service,
     ) {}
@@ -63,7 +66,7 @@ class DynamicModificationController extends Controller
     public function evaluate(Request $request, string $uuid): JsonResponse
     {
         $data = $request->validate([
-            'product_id'  => 'required|integer|exists:products,id',
+            'product_id'  => ['required', 'integer', $this->ownedBy('products')],
             'supplier_id' => 'nullable|integer',
             'passed'      => 'required|boolean',
         ]);
