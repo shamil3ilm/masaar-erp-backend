@@ -7,6 +7,7 @@ namespace App\Services\Automation;
 use App\Models\Automation\AutomationRule;
 use App\Models\Automation\AutomationSchedule;
 use Cron\CronExpression;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,17 +21,41 @@ use Illuminate\Support\Facades\Log;
  */
 class AutomationScheduleService
 {
+    /**
+     * Records read at a time when a rule sweeps its entity set.
+     */
+    private const ENTITIES_PER_CHUNK = 200;
+
+    /**
+     * How long an entry may sit claimed before the sweep that took it is
+     * treated as gone. Long enough that a rule still working through a large
+     * entity set is not declared dead underneath itself.
+     */
+    private const ABANDONED_AFTER_MINUTES = 60;
+
     public function __construct(
         private AutomationRuleRunner $runner
     ) {}
 
     /**
-     * Create a new schedule entry for a rule.
+     * Book the rule's next run, or hand back the one it already holds.
+     *
+     * A rule has one next run. Two callers can arrive at once — a sweep
+     * finishing a run beside an operator switching the rule back on — and
+     * without this the rule would hold two entries and run its next occurrence
+     * twice. Callers that mean to move the next run clear the pending entry
+     * first.
      */
     public function create(AutomationRule $rule): ?AutomationSchedule
     {
         if (!$rule->isScheduled() || empty($rule->trigger_schedule)) {
             return null;
+        }
+
+        $booked = $rule->schedules()->pending()->first();
+
+        if ($booked) {
+            return $booked;
         }
 
         $nextRun = $this->getNextRun($rule->trigger_schedule);
@@ -47,35 +72,138 @@ class AutomationScheduleService
     }
 
     /**
-     * Process all scheduled rules that are due.
+     * Run every schedule whose time has come, in every organization.
+     *
+     * The sweep runs from the framework scheduler, outside any request, so
+     * there is no tenant to read it as: a schedule carries none of its own and
+     * each rule names the organization its records are read for.
+     *
+     * One rule failing is that rule's failure. The sweep records it against
+     * the schedule it belongs to and moves on to the next one.
+     *
+     * @return list<array<string, mixed>>
      */
     public function processScheduledRules(): array
     {
-        $results = [];
+        $results = $this->recoverAbandonedEntries();
 
-        $dueSchedules = AutomationSchedule::with('rule')
-            ->due()
-            ->get();
+        foreach (AutomationSchedule::due()->orderBy('scheduled_for')->get() as $schedule) {
+            try {
+                $result = $this->processSchedule($schedule);
+            } catch (\Throwable $e) {
+                // Taking an entry has its own ways of failing, before there is
+                // a claim to record anything against: a lock wait, a dropped
+                // connection. It is still one entry's failure.
+                Log::error('Scheduled automation could not be taken', [
+                    'schedule_id' => $schedule->id,
+                    'rule_id' => $schedule->rule_id,
+                    'error' => $e->getMessage(),
+                ]);
 
-        foreach ($dueSchedules as $schedule) {
-            $result = $this->processSchedule($schedule);
-            $results[] = $result;
+                $results[] = [
+                    'schedule_id' => $schedule->id,
+                    'rule_id' => $schedule->rule_id,
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                ];
+
+                continue;
+            }
+
+            if ($result !== null) {
+                $results[] = $result;
+            }
         }
 
         return $results;
     }
 
     /**
-     * Process a single scheduled rule.
+     * Put right the entries a sweep took and never came back to.
+     *
+     * A process killed between claiming an entry and recording its outcome
+     * leaves that entry running, and a running entry is one nothing looks at
+     * again: the rule would hold a claim nobody owns and never book another
+     * run. Such an entry is recorded as failed rather than run again, since
+     * the run it belonged to may already have sent half its email, and the
+     * rule is booked forward so it keeps its cadence.
+     *
+     * @return list<array<string, mixed>>
      */
-    protected function processSchedule(AutomationSchedule $schedule): array
+    private function recoverAbandonedEntries(): array
     {
-        $rule = $schedule->rule;
+        $abandonedSince = now()->subMinutes(self::ABANDONED_AFTER_MINUTES);
+        $results = [];
+
+        $abandoned = AutomationSchedule::running()
+            ->where('updated_at', '<=', $abandonedSince)
+            ->get();
+
+        foreach ($abandoned as $schedule) {
+            // Under the same lock the sweep claims with, so one recovery wins.
+            $recovered = DB::transaction(function () use ($schedule, $abandonedSince) {
+                $locked = AutomationSchedule::lockForUpdate()->find($schedule->getKey());
+
+                if (!$locked || !$locked->isRunning() || $locked->updated_at->gt($abandonedSince)) {
+                    return null;
+                }
+
+                $locked->markAsFailed();
+
+                return $locked;
+            });
+
+            if (!$recovered) {
+                continue;
+            }
+
+            Log::warning('Scheduled automation was abandoned mid-run', [
+                'schedule_id' => $recovered->id,
+                'rule_id' => $recovered->rule_id,
+            ]);
+
+            $rule = AutomationRule::withoutGlobalScope('organization')->find($recovered->rule_id);
+
+            if ($rule && $rule->isActive()) {
+                $this->create($rule);
+            }
+
+            $results[] = [
+                'schedule_id' => $recovered->id,
+                'rule_id' => $recovered->rule_id,
+                'status' => 'failed',
+                'error' => 'Abandoned mid-run and not run again',
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Run one due schedule, or nothing if another sweep already took it.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function processSchedule(AutomationSchedule $schedule): ?array
+    {
+        $claimed = $this->claim($schedule->getKey());
+
+        if (!$claimed) {
+            return null;
+        }
+
+        // Read without the tenant scope: the sweep has no authenticated user to
+        // scope by, and the rule's own organization is what the run belongs to.
+        $rule = AutomationRule::withoutGlobalScope('organization')->find($claimed->rule_id);
 
         if (!$rule || !$rule->isActive()) {
-            $schedule->update(['status' => AutomationSchedule::STATUS_FAILED]);
+            // Nothing will ever run this entry, and a rule that is switched off
+            // books no next run, so the entry goes rather than sitting behind
+            // every future sweep.
+            $claimed->delete();
+
             return [
-                'schedule_id' => $schedule->id,
+                'schedule_id' => $claimed->id,
                 'rule_id' => $rule?->id,
                 'status' => 'skipped',
                 'reason' => 'Rule not active or not found',
@@ -83,43 +211,60 @@ class AutomationScheduleService
         }
 
         try {
-            DB::transaction(function () use ($schedule, $rule) {
-                $schedule->markAsRunning();
+            $this->executeScheduledRule($rule);
 
-                // Execute the rule's actions without entity context for scheduled rules
-                // Scheduled rules typically operate on a query set
-                $this->executeScheduledRule($rule);
-
-                $schedule->markAsCompleted();
-
-                // Create the next schedule entry
-                $this->create($rule);
-            });
+            $claimed->markAsCompleted();
+            $this->create($rule);
 
             return [
-                'schedule_id' => $schedule->id,
+                'schedule_id' => $claimed->id,
                 'rule_id' => $rule->id,
                 'status' => 'completed',
             ];
         } catch (\Throwable $e) {
             Log::error('Scheduled automation failed', [
-                'schedule_id' => $schedule->id,
+                'schedule_id' => $claimed->id,
                 'rule_id' => $rule->id,
                 'error' => $e->getMessage(),
             ]);
 
-            $schedule->markAsFailed();
+            $claimed->markAsFailed();
 
-            // Still create the next schedule even if this one failed
+            // A run that failed is not a reason to stop running the rule.
             $this->create($rule);
 
             return [
-                'schedule_id' => $schedule->id,
+                'schedule_id' => $claimed->id,
                 'rule_id' => $rule->id,
                 'status' => 'failed',
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Take a due schedule for this sweep, or return null if it is already taken.
+     *
+     * Two sweeps overlapping on a cron tick read the same due entries, so the
+     * entry is re-read under a row lock and moved off pending before anything
+     * runs: whichever sweep wins the lock owns the run, and the other finds it
+     * no longer due. The claim is committed before the rule runs, so a rule
+     * that fails leaves the entry claimed rather than back in the queue for
+     * the next tick a minute later.
+     */
+    private function claim(int $scheduleId): ?AutomationSchedule
+    {
+        return DB::transaction(function () use ($scheduleId) {
+            $schedule = AutomationSchedule::lockForUpdate()->find($scheduleId);
+
+            if (!$schedule || !$schedule->isDue()) {
+                return null;
+            }
+
+            $schedule->markAsRunning();
+
+            return $schedule;
+        });
     }
 
     /**
@@ -137,22 +282,42 @@ class AutomationScheduleService
             return;
         }
 
-        $entities = $entityClass::query()
+        // The organization is the rule's own rather than an authenticated
+        // user's, and read in pages so the set a rule sweeps stays off the
+        // heap whole.
+        $entityClass::query()
+            ->withoutGlobalScope('organization')
             ->where('organization_id', $rule->organization_id)
-            ->get();
-
-        foreach ($entities as $entity) {
-            if ($this->runner->evaluate($rule, $entity)) {
-                try {
-                    $this->runner->executeActions($rule, $entity);
-                } catch (\Throwable $e) {
-                    Log::warning("Scheduled rule action failed for entity", [
-                        'rule_id' => $rule->id,
-                        'entity_id' => $entity->getKey(),
-                        'error' => $e->getMessage(),
-                    ]);
+            ->chunkById(self::ENTITIES_PER_CHUNK, function ($entities) use ($rule): void {
+                foreach ($entities as $entity) {
+                    $this->runAgainst($rule, $entity);
                 }
-            }
+            });
+    }
+
+    /**
+     * Run the rule against one record.
+     *
+     * A record whose actions fail is logged and stepped over: one bad record
+     * is not the rule's failure and must not cost the rest of the set their
+     * run. Conditions that cannot be evaluated are raised to the caller, which
+     * records the failure against the schedule — a rule that cannot be read is
+     * broken for every record, not this one.
+     */
+    private function runAgainst(AutomationRule $rule, Model $entity): void
+    {
+        if (!$this->runner->evaluate($rule, $entity)) {
+            return;
+        }
+
+        try {
+            $this->runner->executeActions($rule, $entity);
+        } catch (\Throwable $e) {
+            Log::warning("Scheduled rule action failed for entity", [
+                'rule_id' => $rule->id,
+                'entity_id' => $entity->getKey(),
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

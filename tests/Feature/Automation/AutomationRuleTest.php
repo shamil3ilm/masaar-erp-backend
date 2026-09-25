@@ -131,6 +131,46 @@ class AutomationRuleTest extends TestCase
         $this->assertSame('03:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
     }
 
+    public function test_a_rule_that_stops_running_on_a_schedule_leaves_no_pending_entry_behind(): void
+    {
+        $rule = $this->rule([
+            'trigger_type' => 'schedule',
+            'trigger_schedule' => '0 2 * * *',
+        ]);
+        AutomationSchedule::factory()->create([
+            'rule_id' => $rule->id,
+            'scheduled_for' => now()->addHour(),
+            'executed_at' => null,
+            'status' => AutomationSchedule::STATUS_PENDING,
+        ]);
+
+        // The sweep asks only whether the rule is active, so an entry left by a
+        // trigger the rule no longer has would still fire.
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", ['trigger_type' => 'manual'])->assertOk();
+        $this->assertSame(0, AutomationSchedule::where('rule_id', $rule->id)->pending()->count());
+
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", [
+            'trigger_type' => 'schedule',
+            'trigger_schedule' => '0 2 * * *',
+        ])->assertOk();
+        $this->assertSame('02:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
+
+        // An update that repeats what the rule already says moves nothing: the
+        // entry it is holding may be due, and re-booking it would skip that run.
+        $booked = $this->pendingSchedule($rule);
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", [
+            'name' => 'Renamed',
+            'trigger_type' => 'schedule',
+            'trigger_schedule' => '0 2 * * *',
+        ])->assertOk();
+        $this->assertSame($booked->id, $this->pendingSchedule($rule)->id);
+
+        // Nor may a switched-off rule gain one from a later edit.
+        $this->apiPatch("/automation/rules/{$rule->getRouteKey()}/active", ['active' => false])->assertOk();
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", ['trigger_schedule' => '0 5 * * *'])->assertOk();
+        $this->assertSame(0, AutomationSchedule::where('rule_id', $rule->id)->pending()->count());
+    }
+
     /**
      * The rule's only pending schedule.
      */
