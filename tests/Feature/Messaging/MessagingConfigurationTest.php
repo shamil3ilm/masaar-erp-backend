@@ -6,6 +6,7 @@ namespace Tests\Feature\Messaging;
 
 use App\Models\Core\Organization;
 use App\Models\Messaging\MessagingConfiguration;
+use App\Services\Messaging\MessagingConfigurationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
@@ -51,20 +52,38 @@ class MessagingConfigurationTest extends TestCase
             $this->apiPut("/messaging/configurations/{$id}", ['name' => 'Twilio main'])->json('data'),
         ] as $data) {
             $this->assertArrayNotHasKey('credentials', $data);
+            $this->assertArrayNotHasKey('default_for_type', $data);
             $this->assertStringNotContainsString('secret-token', json_encode($data));
         }
     }
 
-    public function test_a_new_default_replaces_the_previous_default_of_that_type_in_this_organization_only(): void
+    public function test_the_first_channel_of_a_type_is_the_default_only_when_the_request_asks(): void
     {
-        $previous = $this->configuration(['channel_type' => 'sms', 'is_default' => true]);
-        $email = $this->configuration(['channel_type' => 'email', 'is_default' => true]);
-        $theirs = MessagingConfiguration::factory()->create([
-            'organization_id' => $this->other->id,
+        $this->apiPost('/messaging/configurations', [
             'channel_type' => 'sms',
+            'name' => 'Twilio',
+            'provider' => 'twilio',
+            'credentials' => ['key' => 'k'],
+        ])->assertCreated()->assertJsonPath('data.is_default', false);
+
+        $this->assertSame(0, $this->defaults('sms'));
+
+        $this->apiPost('/messaging/configurations', [
+            'channel_type' => 'sms',
+            'name' => 'Vonage',
+            'provider' => 'vonage',
             'credentials' => ['key' => 'k'],
             'is_default' => true,
-        ]);
+        ])->assertCreated()->assertJsonPath('data.is_default', true);
+
+        $this->assertSame(1, $this->defaults('sms'));
+    }
+
+    public function test_a_new_default_replaces_the_previous_default_of_that_type_in_this_organization_only(): void
+    {
+        $previous = $this->configuration(['channel_type' => 'sms'], default: true);
+        $email = $this->configuration(['channel_type' => 'email'], default: true);
+        $theirs = $this->theirConfiguration();
 
         $this->apiPost('/messaging/configurations', [
             'channel_type' => 'sms',
@@ -77,14 +96,53 @@ class MessagingConfigurationTest extends TestCase
         $this->assertFalse($previous->fresh()->is_default);
         $this->assertTrue($email->fresh()->is_default);
         $this->assertTrue(MessagingConfiguration::withoutGlobalScopes()->findOrFail($theirs->id)->is_default);
-        $this->assertSame(1, MessagingConfiguration::where('channel_type', 'sms')->where('is_default', true)->count());
+        $this->assertSame(1, $this->defaults('sms'));
+    }
+
+    public function test_the_default_moves_between_two_channels_of_the_same_type(): void
+    {
+        $first = $this->configuration(['channel_type' => 'sms', 'name' => 'Twilio'], default: true);
+        $second = $this->configuration(['channel_type' => 'sms', 'name' => 'Vonage']);
+        $theirs = $this->theirConfiguration();
+
+        $this->apiPut("/messaging/configurations/{$second->id}", ['is_default' => true])
+            ->assertOk()
+            ->assertJsonPath('data.is_default', true);
+
+        $this->assertFalse($first->fresh()->is_default);
+        $this->assertSame(1, $this->defaults('sms'));
+        $this->assertTrue(MessagingConfiguration::withoutGlobalScopes()->findOrFail($theirs->id)->is_default);
+
+        $this->apiPut("/messaging/configurations/{$second->id}", ['is_default' => false])
+            ->assertOk()
+            ->assertJsonPath('data.is_default', false);
+
+        $this->assertSame(0, $this->defaults('sms'));
+    }
+
+    public function test_two_switches_started_from_the_same_state_leave_one_default(): void
+    {
+        $this->configuration(['channel_type' => 'sms', 'name' => 'Twilio'], default: true);
+        $second = $this->configuration(['channel_type' => 'sms', 'name' => 'Vonage']);
+        $third = $this->configuration(['channel_type' => 'sms', 'name' => 'Unifonic']);
+
+        // Each request reads its own channel before either switch is written.
+        $configurations = app(MessagingConfigurationService::class);
+        $staleSecond = MessagingConfiguration::findOrFail($second->id);
+        $staleThird = MessagingConfiguration::findOrFail($third->id);
+
+        $configurations->update($staleSecond, ['is_default' => true]);
+        $configurations->update($staleThird, ['is_default' => true]);
+
+        $this->assertSame(1, $this->defaults('sms'));
+        $this->assertTrue($third->fresh()->is_default);
     }
 
     public function test_index_orders_by_channel_type_and_the_default_channel_cannot_be_deleted(): void
     {
-        $whatsapp = $this->configuration(['channel_type' => 'whatsapp', 'name' => 'A', 'is_default' => false]);
-        $email = $this->configuration(['channel_type' => 'email', 'name' => 'Z', 'is_default' => true]);
-        $sms = $this->configuration(['channel_type' => 'sms', 'name' => 'B', 'is_default' => false]);
+        $whatsapp = $this->configuration(['channel_type' => 'whatsapp', 'name' => 'A']);
+        $email = $this->configuration(['channel_type' => 'email', 'name' => 'Z'], default: true);
+        $sms = $this->configuration(['channel_type' => 'sms', 'name' => 'B']);
         MessagingConfiguration::factory()->create(['organization_id' => $this->other->id, 'credentials' => ['key' => 'k']]);
 
         $response = $this->apiGet('/messaging/configurations?is_active=true');
@@ -98,13 +156,40 @@ class MessagingConfigurationTest extends TestCase
         $this->assertNull(MessagingConfiguration::find($sms->id));
     }
 
-    private function configuration(array $attributes = []): MessagingConfiguration
+    /**
+     * How many of the organization's channels are the default for a type.
+     */
+    private function defaults(string $channelType): int
     {
-        return MessagingConfiguration::factory()->create([
+        return MessagingConfiguration::where('default_for_type', $channelType)->count();
+    }
+
+    private function configuration(array $attributes = [], bool $default = false): MessagingConfiguration
+    {
+        $attributes = [
             'organization_id' => $this->organization->id,
+            'channel_type' => 'email',
             'provider' => 'twilio',
             'credentials' => ['key' => 'k'],
             ...$attributes,
+        ];
+
+        return MessagingConfiguration::factory()->create([
+            ...$attributes,
+            'default_for_type' => $default ? $attributes['channel_type'] : null,
+        ]);
+    }
+
+    /**
+     * Another organization's default SMS channel.
+     */
+    private function theirConfiguration(): MessagingConfiguration
+    {
+        return MessagingConfiguration::factory()->create([
+            'organization_id' => $this->other->id,
+            'channel_type' => 'sms',
+            'credentials' => ['key' => 'k'],
+            'default_for_type' => 'sms',
         ]);
     }
 }
