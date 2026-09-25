@@ -19,7 +19,7 @@ use Tests\Traits\TestHelpers;
 
 /**
  * Marking an FX forward to market books the period's fair-value movement as a
- * balanced entry.
+ * balanced entry, and works in decimal strings rather than floats.
  *
  * A forward carried in the general ledger is journalled or the valuation is
  * refused; a forward not carried there books nothing, which is the same way
@@ -50,7 +50,7 @@ class FxValuationPostingTest extends TestCase
 
         // (3.76 - 3.75) x 100,000 notional is an unrealised gain of 1,000.
         $valuation = app(FxDerivativeService::class)
-            ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), 3.76);
+            ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), '3.76000000');
 
         $entry = JournalEntry::withoutGlobalScopes()->with('lines')->sole();
         $this->assertSame(JournalEntry::STATUS_POSTED, $entry->status);
@@ -67,7 +67,7 @@ class FxValuationPostingTest extends TestCase
 
         // (3.74 - 3.75) x 100,000 notional is an unrealised loss of 1,000.
         app(FxDerivativeService::class)
-            ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), 3.74);
+            ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), '3.74000000');
 
         $entry = JournalEntry::withoutGlobalScopes()->with('lines')->sole();
         $this->assertSame(0, bccomp((string) $entry->lines->sum('debit'), (string) $entry->lines->sum('credit'), 4));
@@ -81,7 +81,7 @@ class FxValuationPostingTest extends TestCase
 
         try {
             app(FxDerivativeService::class)
-                ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), 3.76);
+                ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), '3.76000000');
         } catch (RuntimeException $e) {
             $refusal = $e;
         }
@@ -100,7 +100,7 @@ class FxValuationPostingTest extends TestCase
         $valuation = app(FxDerivativeService::class)->recordValuation(
             $this->forward(['derivative_asset_account_id' => null]),
             Carbon::parse('2025-03-31'),
-            3.76,
+            '3.76000000',
         );
 
         $this->assertSame(0, bccomp((string) $valuation->fair_value, '1000', 4));
@@ -115,11 +115,49 @@ class FxValuationPostingTest extends TestCase
         app(FxDerivativeService::class)->recordValuation(
             $this->forward(['unrealised_gain_loss_account_id' => $contractAccount->id]),
             Carbon::parse('2025-03-31'),
-            3.76,
+            '3.76000000',
         );
 
         $entry = JournalEntry::withoutGlobalScopes()->with('lines')->sole();
         $this->assertSame(0, bccomp((string) $entry->lines->firstWhere('account_id', $contractAccount->id)->credit, '1000', 4));
+    }
+
+    public function test_the_fair_value_is_decimal_arithmetic_not_float_arithmetic(): void
+    {
+        $gainAccount = $this->ledgerAccount('4920', 'Unrealised FX Gain', Account::TYPE_INCOME, Account::SUBTYPE_OTHER_INCOME);
+        Setting::set('accounting', 'fx_unrealised_gain_account_id', $gainAccount->id, null, $this->organization->id);
+
+        // 0.00000015 x 33,333,333.3333 is 4.999999999995, which is 4.9999 at
+        // the four decimals the fair-value column holds. Float arithmetic
+        // rounds it up to a five-thousandth more than the contract is worth.
+        $valuation = app(FxDerivativeService::class)->recordValuation(
+            $this->forward(['notional_amount' => '33333333.3333']),
+            Carbon::parse('2025-03-31'),
+            '3.75000015',
+        );
+
+        $this->assertSame('4.9999', (string) $valuation->fair_value);
+        $this->assertSame('4.9999', (string) $valuation->fair_value_change);
+
+        $entry = JournalEntry::withoutGlobalScopes()->with('lines')->sole();
+        $this->assertSame(0, bccomp((string) $entry->lines->firstWhere('account_id', $gainAccount->id)->credit, '4.9999', 4));
+    }
+
+    public function test_the_settlement_gain_is_decimal_arithmetic_not_float_arithmetic(): void
+    {
+        $gainAccount = $this->ledgerAccount('4910', 'Realised FX Gain', Account::TYPE_INCOME, Account::SUBTYPE_OTHER_INCOME);
+        Setting::set('accounting', 'fx_gain_account_id', $gainAccount->id, null, $this->organization->id);
+
+        $forward = app(FxDerivativeService::class)->settle(
+            $this->forward(['notional_amount' => '33333333.3333']),
+            '3.75000015',
+            Carbon::parse('2025-03-31'),
+        );
+
+        $this->assertSame('4.9999', (string) $forward->settlement_gain_loss);
+
+        $entry = JournalEntry::withoutGlobalScopes()->with('lines')->sole();
+        $this->assertSame(0, bccomp((string) $entry->lines->firstWhere('account_id', $gainAccount->id)->credit, '4.9999', 4));
     }
 
     public function test_a_second_valuation_books_only_the_movement_since_the_first(): void
@@ -130,8 +168,8 @@ class FxValuationPostingTest extends TestCase
         $service = app(FxDerivativeService::class);
         $forward = $this->forward();
 
-        $service->recordValuation($forward, Carbon::parse('2025-03-31'), 3.76);
-        $second = $service->recordValuation($forward->fresh(), Carbon::parse('2025-06-30'), 3.765);
+        $service->recordValuation($forward, Carbon::parse('2025-03-31'), '3.76000000');
+        $second = $service->recordValuation($forward->fresh(), Carbon::parse('2025-06-30'), '3.76500000');
 
         $this->assertSame(0, bccomp((string) $second->fair_value, '1500', 4));
         $this->assertSame(0, bccomp((string) $second->fair_value_change, '500', 4));
@@ -148,8 +186,8 @@ class FxValuationPostingTest extends TestCase
             'contract_number' => 'FWD-2025-0002',
             'buy_currency' => 'USD',
             'sell_currency' => 'SAR',
-            'notional_amount' => 100000.0000,
-            'forward_rate' => 3.75,
+            'notional_amount' => '100000.0000',
+            'forward_rate' => '3.75000000',
             'trade_date' => '2025-01-01',
             'maturity_date' => '2025-06-30',
             'purpose' => 'hedge',

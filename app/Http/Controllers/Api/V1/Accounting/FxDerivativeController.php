@@ -103,7 +103,7 @@ class FxDerivativeController extends Controller
         $valuation = $this->service->recordValuation(
             forward:        $fxForward,
             valuationDate:  Carbon::parse($data['valuation_date']),
-            spotRate:       (float) $data['spot_rate'],
+            spotRate:       (string) $data['spot_rate'],
         );
 
         return $this->success($valuation, 'MTM valuation recorded', 201);
@@ -119,7 +119,7 @@ class FxDerivativeController extends Controller
 
         $forward = $this->service->settle(
             forward:         $fxForward,
-            settlementRate:  (float) $data['settlement_rate'],
+            settlementRate:  (string) $data['settlement_rate'],
             settlementDate:  Carbon::parse($data['settlement_date']),
         );
 
