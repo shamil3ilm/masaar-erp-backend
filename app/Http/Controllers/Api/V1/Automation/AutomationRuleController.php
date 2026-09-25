@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Automation;
 
 use App\Http\Controllers\Controller;
 use App\Models\Automation\AutomationRule;
+use App\Services\Automation\AutomationRuleRunner;
 use App\Services\Automation\AutomationRuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,8 @@ use Illuminate\Http\Request;
 class AutomationRuleController extends Controller
 {
     public function __construct(
-        private AutomationRuleService $ruleService
+        private AutomationRuleService $ruleService,
+        private AutomationRuleRunner $runner
     ) {}
 
     /**
@@ -145,19 +147,19 @@ class AutomationRuleController extends Controller
 
         // If entity_type and entity_id are provided, resolve and evaluate against the real entity
         if ($entityType && $entityId) {
-            $entityClass = $this->ruleService->entityClassFor($entityType);
+            $entityClass = $this->runner->entityClassFor($entityType);
 
             if (!$entityClass || !class_exists($entityClass)) {
                 return $this->error('Invalid entity type.', 'INVALID_ENTITY_TYPE', 422);
             }
 
-            $entity = $this->ruleService->findEntity($request->user()->organization_id, $entityClass, (int) $entityId);
+            $entity = $this->runner->findEntity($request->user()->organization_id, $entityClass, (int) $entityId);
 
             if (!$entity) {
                 return $this->notFound('Entity not found.');
             }
 
-            $conditionsMet = $this->ruleService->evaluate($automationRule, $entity);
+            $conditionsMet = $this->runner->evaluate($automationRule, $entity);
 
             return $this->success([
                 'rule_id' => $automationRule->uuid,
