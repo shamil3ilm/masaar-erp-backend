@@ -7,11 +7,12 @@ namespace Tests\Feature\Manufacturing;
 use App\Models\Manufacturing\CapaRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Traits\BuildsTenantRows;
 use Tests\Traits\TestHelpers;
 
 class CapaTest extends TestCase
 {
-    use RefreshDatabase, TestHelpers;
+    use BuildsTenantRows, RefreshDatabase, TestHelpers;
 
     protected function setUp(): void
     {
@@ -127,6 +128,44 @@ class CapaTest extends TestCase
             'capa_record_id' => $capa->id,
             'action_number'  => 'ACT-001',
         ]);
+    }
+
+    // ─── number scope ─────────────────────────────────────────────────────────
+
+    public function test_store_accepts_a_capa_number_another_organization_uses(): void
+    {
+        $this->tenantRow('capa_records', $this->otherTenant()->id, ['capa_number' => 'CAPA-2026-900']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/capas',
+            [
+                'capa_number'       => 'CAPA-2026-900',
+                'capa_type'         => 'corrective',
+                'problem_statement' => 'Defects found on line 3',
+                'priority'          => 'high',
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertCreated();
+    }
+
+    public function test_store_refuses_a_capa_number_the_organization_already_uses(): void
+    {
+        $this->tenantRow('capa_records', $this->organization->id, ['capa_number' => 'CAPA-2026-901']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/capas',
+            [
+                'capa_number'       => 'CAPA-2026-901',
+                'capa_type'         => 'corrective',
+                'problem_statement' => 'Defects found on line 3',
+                'priority'          => 'high',
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['capa_number']);
     }
 
     // ─── auth guard ───────────────────────────────────────────────────────────

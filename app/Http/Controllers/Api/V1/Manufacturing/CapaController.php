@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Manufacturing\CapaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CapaController extends Controller
 {
@@ -24,7 +25,7 @@ class CapaController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'capa_number'       => 'required|string|max:50|unique:capa_records',
+            'capa_number'       => ['required', 'string', 'max:50', Rule::unique('capa_records', 'capa_number')->where('organization_id', $request->user()->organization_id)],
             'capa_type'         => 'required|in:corrective,preventive',
             'problem_statement' => 'required|string',
             'root_cause'        => 'nullable|string',
