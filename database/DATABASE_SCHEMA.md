@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 50 migrations.
+978 tables across 51 migrations.
 
 ## Contents
 
@@ -58,6 +58,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0520_continue_number_sequences_after_stored_numbers.php`: data only, no schema changes
 - `0530_purchase_order_pending_approval_status.php`: changes to purchase_orders
 - `0540_messaging_channel_default_marker.php`: changes to messaging_channels
+- `0550_organization_parent.php`: changes to organizations
 
 ## 0010_accounting.php
 
@@ -1171,6 +1172,11 @@ Indexes:
 - `$table->index('country_code')`
 - `$table->index('tax_scheme')`
 - `$table->index('is_active')`
+
+Added by later migrations:
+
+- `0550_organization_parent.php`: `$table->foreignId('parent_organization_id')->nullable()->after('slug')->constrained('organizations')->nullOnDelete()`
+- `0550_organization_parent.php`: `$table->index('parent_organization_id', 'organizations_parent_index')`
 
 ### api_call_logs
 
@@ -25267,3 +25273,7 @@ Changes tables created earlier: `purchase_orders`.
 ## 0540_messaging_channel_default_marker.php
 
 Changes tables created earlier: `messaging_channels`.
+
+## 0550_organization_parent.php
+
+Changes tables created earlier: `organizations`.
