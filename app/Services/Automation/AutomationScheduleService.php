@@ -8,6 +8,7 @@ use App\Models\Automation\AutomationRule;
 use App\Models\Automation\AutomationSchedule;
 use Cron\CronExpression;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -41,10 +42,12 @@ class AutomationScheduleService
      * Book the rule's next run, or hand back the one it already holds.
      *
      * A rule has one next run. Two callers can arrive at once — a sweep
-     * finishing a run beside an operator switching the rule back on — and
-     * without this the rule would hold two entries and run its next occurrence
-     * twice. Callers that mean to move the next run clear the pending entry
-     * first.
+     * finishing a run beside an operator switching the rule back on — and the
+     * read below cannot see an entry the other caller has not written yet, so
+     * the unique index on automation_schedules.pending_rule_id is what holds
+     * the rule to one entry. Losing that race is not a failure: the entry the
+     * winner wrote is the rule's next run just as this one would have been.
+     * Callers that mean to move the next run clear the pending entry first.
      */
     public function create(AutomationRule $rule): ?AutomationSchedule
     {
@@ -64,11 +67,15 @@ class AutomationScheduleService
             return null;
         }
 
-        return AutomationSchedule::create([
-            'rule_id' => $rule->id,
-            'scheduled_for' => $nextRun,
-            'status' => AutomationSchedule::STATUS_PENDING,
-        ]);
+        try {
+            return AutomationSchedule::create([
+                'rule_id' => $rule->id,
+                'scheduled_for' => $nextRun,
+                'status' => AutomationSchedule::STATUS_PENDING,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            return $rule->schedules()->pending()->first();
+        }
     }
 
     /**
