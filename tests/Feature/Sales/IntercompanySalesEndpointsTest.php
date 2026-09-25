@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Sales;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Core\Organization;
 use App\Models\Inventory\Product;
 use App\Models\Purchase\PurchaseOrder;
 use App\Models\Sales\Contact;
 use App\Models\Sales\IntercompanyBillingDocument;
 use App\Models\Sales\IntercompanySalesOrder;
+use App\Services\Sales\IntercompanySalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -22,8 +24,9 @@ use Tests\Traits\TestHelpers;
  *
  * An intercompany order belongs to two organizations and has no single
  * organization column. Only a user of the selling or the buying organization
- * may see or act on it, the order's products belong to the seller and the
- * linked purchase order to the buyer.
+ * may see or act on it, both sides belong to one parent-subsidiary group,
+ * the order's products belong to the seller and the linked purchase order to
+ * the buyer.
  */
 class IntercompanySalesEndpointsTest extends TestCase
 {
@@ -40,7 +43,7 @@ class IntercompanySalesEndpointsTest extends TestCase
         $this->setUpOrganization();
         $this->setUpAuthenticatedUser(['sales.intercompany-orders.view', 'sales.intercompany-orders.manage']);
 
-        $this->buyer = Organization::factory()->create();
+        $this->buyer = Organization::factory()->create(['parent_organization_id' => $this->organization->id]);
         $this->stranger = Organization::factory()->create();
         $this->product = Product::factory()->create(['organization_id' => $this->organization->id]);
     }
@@ -183,6 +186,74 @@ class IntercompanySalesEndpointsTest extends TestCase
         $refused = $this->send('POST', 'ic.sales-orders.link-po', ['id' => $id], ['purchase_order_id' => $strangersOrder->id]);
         $refused->assertStatus(422);
         $this->assertArrayHasKey('purchase_order_id', $refused->json('errors') ?? []);
+    }
+
+    public function test_an_order_outside_the_callers_group_is_refused_and_one_with_the_parent_is_accepted(): void
+    {
+        $outsideBuyer = $this->send('POST', 'ic.sales-orders.store', [], $this->payload([
+            'buying_organization_id' => $this->stranger->id,
+        ]));
+        $outsideBuyer->assertStatus(422);
+        $this->assertArrayHasKey('buying_organization_id', $outsideBuyer->json('errors') ?? []);
+
+        $outsideSeller = $this->send('POST', 'ic.sales-orders.store', [], $this->payload([
+            'selling_organization_id' => $this->stranger->id,
+            'buying_organization_id' => $this->organization->id,
+            'lines' => [$this->line(['product_id' => Product::factory()->create(['organization_id' => $this->stranger->id])->id])],
+        ]));
+        $outsideSeller->assertStatus(422);
+        $this->assertArrayHasKey('selling_organization_id', $outsideSeller->json('errors') ?? []);
+
+        $this->assertSame(0, IntercompanySalesOrder::count());
+
+        $parent = Organization::factory()->create();
+
+        $this->organization->parent_organization_id = $parent->id;
+        $this->organization->save();
+
+        $this->send('POST', 'ic.sales-orders.store', [], $this->payload([
+            'selling_organization_id' => $parent->id,
+            'buying_organization_id' => $this->organization->id,
+            'lines' => [$this->line(['product_id' => Product::factory()->create(['organization_id' => $parent->id])->id])],
+        ]))->assertStatus(201);
+
+        $this->assertSame(1, IntercompanySalesOrder::count());
+    }
+
+    /**
+     * The request rule is not the only guard: an order commits both ledgers,
+     * so the service refuses a counterparty outside the group when it is
+     * called directly, and again on the locked order at confirm.
+     */
+    public function test_the_service_refuses_a_counterparty_outside_the_group(): void
+    {
+        $service = app(IntercompanySalesService::class);
+
+        try {
+            $service->create([
+                'selling_organization_id' => $this->organization->id,
+                'buying_organization_id' => $this->stranger->id,
+                'order_number' => 'ICSO-X',
+                'order_date' => '2026-09-01',
+                'lines' => [$this->line()],
+            ]);
+            $this->fail('The service created an order outside the group.');
+        } catch (BusinessRuleException $e) {
+            $this->assertSame('ORGANIZATION_OUTSIDE_GROUP', $e->getErrorCode());
+        }
+
+        $this->assertSame(0, IntercompanySalesOrder::count());
+
+        $order = $this->order(['buying_organization_id' => $this->stranger->id]);
+
+        try {
+            $service->confirm($order);
+            $this->fail('The service confirmed an order outside the group.');
+        } catch (BusinessRuleException $e) {
+            $this->assertSame('ORGANIZATION_OUTSIDE_GROUP', $e->getErrorCode());
+        }
+
+        $this->assertSame(IntercompanySalesOrder::STATUS_DRAFT, $order->fresh()->status);
     }
 
     /**

@@ -38,6 +38,8 @@ Route::prefix('organizations')->group(function () {
     Route::get('/{organization}/users', [SuperAdminDashboardController::class, 'organizationUsers']);
     Route::post('/{organization}/suspend', [PlatformAdminController::class, 'suspendOrganization']);
     Route::post('/{organization}/activate', [PlatformAdminController::class, 'activateOrganization']);
+    Route::put('/{organization}/parent', [PlatformAdminController::class, 'setOrganizationParent'])
+        ->name('admin.organizations.parent');
 });
 
 // User management

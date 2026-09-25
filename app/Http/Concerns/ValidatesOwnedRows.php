@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Concerns;
 
+use App\Models\Core\Organization;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
@@ -16,6 +17,10 @@ use Illuminate\Validation\Rules\Exists;
  * id exists. These rules accept only a row of the caller's organization. Users
  * carry no tenant scope, so a user id is checked through ownedBy('users') like
  * any other table.
+ *
+ * A field that names another company is the one case where a foreign
+ * organization is the point, and inCallerGroup() bounds it to the caller's
+ * parent-subsidiary group instead.
  */
 trait ValidatesOwnedRows
 {
@@ -42,6 +47,21 @@ trait ValidatesOwnedRows
                 fn (Builder $parents) => $parents->select('id')->from($parentTable)->where('organization_id', $organizationId)
             )
         );
+    }
+
+    /**
+     * An exists rule for a field that names another company, such as the
+     * receiver of an asset transfer or a consolidation group's entity: it
+     * accepts only an organization of the caller's group, as
+     * Organization::groupIds() defines a group.
+     *
+     * A caller whose group is empty - an organization id that names no
+     * organization - matches nothing, so the rule refuses rather than opens.
+     */
+    protected function inCallerGroup(): Exists
+    {
+        return Rule::exists('organizations', 'id')
+            ->whereIn('id', Organization::groupIds((int) auth()->user()->organization_id));
     }
 
     /**
