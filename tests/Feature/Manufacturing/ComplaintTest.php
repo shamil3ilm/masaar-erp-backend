@@ -7,11 +7,12 @@ namespace Tests\Feature\Manufacturing;
 use App\Models\Manufacturing\Complaint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Traits\BuildsTenantRows;
 use Tests\Traits\TestHelpers;
 
 class ComplaintTest extends TestCase
 {
-    use RefreshDatabase, TestHelpers;
+    use BuildsTenantRows, RefreshDatabase, TestHelpers;
 
     protected function setUp(): void
     {
@@ -132,6 +133,48 @@ class ComplaintTest extends TestCase
         $this->assertDatabaseHas('complaint_communications', [
             'complaint_id' => $complaint->id,
         ]);
+    }
+
+    // ─── number scope ─────────────────────────────────────────────────────────
+
+    public function test_store_accepts_a_complaint_number_another_organization_uses(): void
+    {
+        $this->tenantRow('complaints', $this->otherTenant()->id, ['complaint_number' => 'CMP-2026-900']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/complaints',
+            [
+                'complaint_number' => 'CMP-2026-900',
+                'complaint_source' => 'customer',
+                'subject'          => 'Product quality issue',
+                'description'      => 'Customer reported defects in delivered batch',
+                'priority'         => 'high',
+                'received_date'    => now()->format('Y-m-d'),
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertCreated();
+    }
+
+    public function test_store_refuses_a_complaint_number_the_organization_already_uses(): void
+    {
+        $this->tenantRow('complaints', $this->organization->id, ['complaint_number' => 'CMP-2026-901']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/complaints',
+            [
+                'complaint_number' => 'CMP-2026-901',
+                'complaint_source' => 'customer',
+                'subject'          => 'Product quality issue',
+                'description'      => 'Customer reported defects in delivered batch',
+                'priority'         => 'high',
+                'received_date'    => now()->format('Y-m-d'),
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['complaint_number']);
     }
 
     // ─── auth guard ───────────────────────────────────────────────────────────
