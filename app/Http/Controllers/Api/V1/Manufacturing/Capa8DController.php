@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\CapaEightD;
 use App\Services\Manufacturing\CapaEightDService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class Capa8DController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CapaEightDService $service,
     ) {}
@@ -74,7 +77,7 @@ class Capa8DController extends Controller
             // D1
             'd1_team_members'  => 'nullable|array',
             'd1_team_members.*' => 'string',
-            'd1_champion_id'   => 'nullable|integer|exists:users,id',
+            'd1_champion_id'   => ['nullable', 'integer', $this->ownedBy('users')],
             // D2
             'd2_problem_description' => 'nullable|string',
             'd2_is_is_not'           => 'nullable|string',

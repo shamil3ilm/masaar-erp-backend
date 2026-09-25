@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\CompensationReview;
 use App\Services\HR\CompensationService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class CompensationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private CompensationService $compensationService
     ) {}
@@ -50,7 +53,7 @@ class CompensationController extends Controller
     public function addItem(Request $request, CompensationReview $compensationReview): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id'     => 'required|exists:employees,id',
+            'employee_id'     => ['required', $this->ownedBy('employees')],
             'current_salary'  => 'nullable|numeric|min:0',
             'proposed_salary' => 'nullable|numeric|min:0',
             'adjustment_type' => 'nullable|in:merit,promotion,market_adjustment,equity',

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\RoutingHeader;
 use App\Services\Manufacturing\RoutingService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class RoutingController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private RoutingService $routingService,
     ) {}
@@ -34,7 +37,7 @@ class RoutingController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'              => ['required', 'integer', 'exists:products,id'],
+            'product_id'              => ['required', 'integer', $this->ownedBy('products')],
             'routing_number'          => ['nullable', 'string', 'max:30'],
             'alternative'             => ['nullable', 'string', 'max:5'],
             'is_default'              => ['nullable', 'boolean'],
@@ -43,7 +46,7 @@ class RoutingController extends Controller
             'operations'              => ['nullable', 'array'],
             'operations.*.operation_code'  => ['required_with:operations', 'string', 'max:20'],
             'operations.*.description'     => ['required_with:operations', 'string', 'max:255'],
-            'operations.*.work_center_id'  => ['required_with:operations', 'integer', 'exists:work_centers,id'],
+            'operations.*.work_center_id'  => ['required_with:operations', 'integer', $this->ownedBy('work_centers')],
             'operations.*.sequence_number' => ['nullable', 'integer', 'min:1'],
             'operations.*.setup_time'      => ['nullable', 'numeric', 'min:0'],
             'operations.*.machine_time'    => ['nullable', 'numeric', 'min:0'],
@@ -102,7 +105,7 @@ class RoutingController extends Controller
         $validated = $request->validate([
             'operation_code'  => ['required', 'string', 'max:20'],
             'description'     => ['required', 'string', 'max:255'],
-            'work_center_id'  => ['required', 'integer', 'exists:work_centers,id'],
+            'work_center_id'  => ['required', 'integer', $this->ownedBy('work_centers')],
             'sequence_number' => ['nullable', 'integer', 'min:1'],
             'setup_time'      => ['nullable', 'numeric', 'min:0'],
             'machine_time'    => ['nullable', 'numeric', 'min:0'],

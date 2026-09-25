@@ -121,13 +121,13 @@ class ShiftEndpointsTest extends TestCase
             'employee_id' => $employee->id,
             'shift_id' => $this->shift([], $other)->id,
             'effective_from' => '2026-01-01',
-        ])->assertNotFound();
+        ])->assertUnprocessable()->assertJsonValidationErrors('shift_id');
 
         $this->apiPost("{$this->baseUrl}/assign", [
             'employee_id' => $this->employee($other)->id,
             'shift_id' => $this->shift()->id,
             'effective_from' => '2026-01-01',
-        ])->assertNotFound();
+        ])->assertUnprocessable()->assertJsonValidationErrors('employee_id');
 
         $this->assertSame(0, EmployeeShiftAssignment::withoutGlobalScopes()->count());
     }

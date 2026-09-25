@@ -52,7 +52,7 @@ class GosiEndpointsTest extends TestCase
             'employee_id' => $theirs->id,
             'year' => 2026,
             'month' => 3,
-        ])->assertNotFound();
+        ])->assertUnprocessable()->assertJsonValidationErrors('employee_id');
 
         $this->assertSame(0, GosiContribution::withoutGlobalScopes()->count());
     }

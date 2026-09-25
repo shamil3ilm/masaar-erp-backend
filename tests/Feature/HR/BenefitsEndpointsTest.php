@@ -79,9 +79,19 @@ class BenefitsEndpointsTest extends TestCase
         $this->apiPost("{$this->baseUrl}/employees/{$this->employee->id}/enroll", [
             'benefit_type_id' => $theirs->id,
             'start_date' => '2026-01-01',
-        ])->assertNotFound();
+        ])->assertUnprocessable()->assertJsonValidationErrors('benefit_type_id');
 
         $this->assertSame(0, EmployeeBenefit::withoutGlobalScopes()->count());
+    }
+
+    public function test_an_employee_is_enrolled_in_the_organizations_own_benefit_type(): void
+    {
+        $this->apiPost("{$this->baseUrl}/employees/{$this->employee->id}/enroll", [
+            'benefit_type_id' => $this->type()->id,
+            'start_date' => '2026-01-01',
+        ])->assertSuccessful();
+
+        $this->assertSame(1, EmployeeBenefit::withoutGlobalScopes()->count());
     }
 
     public function test_an_employees_benefits_are_filtered_by_status_latest_start_first(): void

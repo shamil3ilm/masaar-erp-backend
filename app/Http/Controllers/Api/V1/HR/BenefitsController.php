@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\HR\BenefitType;
 use App\Models\HR\Employee;
@@ -14,6 +15,8 @@ use Illuminate\Http\Request;
 
 class BenefitsController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private BenefitsService $benefitsService
     ) {}
@@ -106,7 +109,7 @@ class BenefitsController extends Controller
     public function enroll(Request $request, Employee $employee): JsonResponse
     {
         $validated = $request->validate([
-            'benefit_type_id' => 'required|exists:benefit_types,id',
+            'benefit_type_id' => ['required', $this->ownedBy('benefit_types')],
             'amount' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
             'end_date' => 'nullable|date|after:start_date',
