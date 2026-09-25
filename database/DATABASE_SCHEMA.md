@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 62 migrations.
+978 tables across 63 migrations.
 
 ## Contents
 
@@ -70,6 +70,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0640_purchase_numbers_per_organization.php`: changes to service_entry_sheets, service_purchase_orders
 - `0650_report_definition_codes_per_organization.php`: changes to report_definitions
 - `0660_sales_numbers_per_organization.php`: changes to cash_sales, commission_payments, customer_account_groups, delivery_documents, free_goods_conditions, material_account_groups, pick_documents
+- `0670_carrier_codes_per_organization.php`: changes to carriers
 
 ## 0010_accounting.php
 
@@ -24082,6 +24083,11 @@ Indexes:
 - `$table->index(['organization_id', 'status'], 'carriers_org_status_idx')`
 - `$table->index(['organization_id', 'type', 'status'], 'carriers_org_type_status_idx')`
 
+Added by later migrations:
+
+- `0670_carrier_codes_per_organization.php`: `$table->dropUnique('carriers_code_unique')`
+- `0670_carrier_codes_per_organization.php`: `$table->unique(['organization_id', 'code'], 'carriers_org_code_unq')`
+
 ### carrier_performance
 
 | Column | Type | Details |
@@ -25562,3 +25568,7 @@ Changes tables created earlier: `report_definitions`.
 ## 0660_sales_numbers_per_organization.php
 
 Changes tables created earlier: `cash_sales`, `commission_payments`, `customer_account_groups`, `delivery_documents`, `free_goods_conditions`, `material_account_groups`, `pick_documents`.
+
+## 0670_carrier_codes_per_organization.php
+
+Changes tables created earlier: `carriers`.
