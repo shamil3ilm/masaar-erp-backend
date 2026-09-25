@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 56 migrations.
+978 tables across 57 migrations.
 
 ## Contents
 
@@ -64,6 +64,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0580_core_codes_per_organization.php`: changes to business_partners, class_assignments, class_characteristic_values, class_characteristics, email_templates
 - `0590_crm_ticket_numbers_per_organization.php`: changes to service_tickets
 - `0600_hr_numbers_per_organization.php`: changes to manager_team_views, personnel_actions, travel_expense_reports
+- `0610_inventory_numbers_per_organization.php`: changes to ewm_transfer_orders, goods_issues, inventory_valuation_types, storage_types
 
 ## 0010_accounting.php
 
@@ -11248,6 +11249,11 @@ Indexes:
 - `$table->unique(['valuation_category_id', 'type_code'])`
 - `$table->index(['organization_id', 'valuation_category_id'], 'inv_val_types_org_cat_idx')`
 
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('inventory_valuation_types_valuation_category_id_type_code_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'valuation_category_id', 'type_code'], 'inv_val_types_org_category_code_unq')`
+
 ### qr_code_configs
 
 | Column | Type | Details |
@@ -11319,6 +11325,11 @@ Indexes:
 
 - `$table->unique(['warehouse_id', 'storage_type_code'], 'st_warehouse_code_unq')`
 - `$table->index(['organization_id', 'warehouse_id'], 'st_org_warehouse_idx')`
+
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('st_warehouse_code_unq')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'warehouse_id', 'storage_type_code'], 'st_org_warehouse_code_unq')`
 
 ### units_of_measure
 
@@ -11582,6 +11593,11 @@ Foreign keys:
 - `$table->foreign('reversed_by')->references('id')->on('users')->nullOnDelete()`
 - `$table->foreign('journal_entry_id')->references('id')->on('journal_entries')->nullOnDelete()`
 - `$table->foreign('created_by')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('goods_issues_gi_number_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'gi_number'], 'goods_issues_org_gi_number_unq')`
 
 ### physical_inventory_documents
 
@@ -19443,6 +19459,11 @@ Indexes:
 - `$table->index(['organization_id', 'movement_type', 'status'])`
 - `$table->index(['reference_type', 'reference_id'])`
 
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('ewm_transfer_orders_to_number_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'to_number'], 'ewm_transfer_orders_org_number_unq')`
+
 ### ewm_labor_tasks
 
 | Column | Type | Details |
@@ -25382,3 +25403,7 @@ Changes tables created earlier: `service_tickets`.
 ## 0600_hr_numbers_per_organization.php
 
 Changes tables created earlier: `manager_team_views`, `personnel_actions`, `travel_expense_reports`.
+
+## 0610_inventory_numbers_per_organization.php
+
+Changes tables created earlier: `ewm_transfer_orders`, `goods_issues`, `inventory_valuation_types`, `storage_types`.
