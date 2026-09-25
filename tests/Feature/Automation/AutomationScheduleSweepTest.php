@@ -133,6 +133,71 @@ class AutomationScheduleSweepTest extends TestCase
         $this->assertSame(0, $rule->fresh()->execution_count);
     }
 
+    public function test_an_entry_a_sweep_took_and_never_finished_is_failed_and_the_rule_booked_forward(): void
+    {
+        [$rule, $lead, $entry] = $this->dueScheduledRule();
+
+        // What a sweep killed mid-run leaves behind: taken, and never resolved.
+        $entry->forceFill([
+            'status' => AutomationSchedule::STATUS_RUNNING,
+            'updated_at' => now()->subHours(3),
+        ])->saveQuietly();
+
+        $this->artisan('automation:process-schedules')->assertExitCode(0);
+
+        $entry = $entry->fresh();
+        $this->assertSame(AutomationSchedule::STATUS_FAILED, $entry->status, 'An abandoned entry was left running forever.');
+
+        // The run it belonged to may have done half its work, so it is not run
+        // again; the rule only gets its cadence back.
+        $this->assertSame(Lead::STATUS_NEW, $lead->fresh()->status);
+        $this->assertTrue(AutomationSchedule::where('rule_id', $rule->id)->pending()->sole()->scheduled_for->isFuture());
+    }
+
+    public function test_an_entry_that_cannot_be_taken_does_not_stop_the_sweep(): void
+    {
+        [$broken, , $brokenEntry] = $this->dueScheduledRule();
+        [, $soundLead, $soundEntry] = $this->dueScheduledRule();
+
+        $brokenEntry->update(['scheduled_for' => now()->subMinutes(5)]);
+
+        // Taking an entry has its own way of failing: a lock wait, a dropped
+        // connection. It happens before anything can be recorded against the
+        // entry, and it is still one entry's problem.
+        $service = new class(app(AutomationRuleRunner::class), $broken->id) extends AutomationScheduleService
+        {
+            public function __construct(AutomationRuleRunner $runner, private int $unreachableRuleId)
+            {
+                parent::__construct($runner);
+            }
+
+            public function processSchedule(AutomationSchedule $schedule): ?array
+            {
+                if ($schedule->rule_id === $this->unreachableRuleId) {
+                    throw new RuntimeException('The entry could not be taken.');
+                }
+
+                return parent::processSchedule($schedule);
+            }
+        };
+
+        $results = $service->processScheduledRules();
+
+        $this->assertSame(AutomationSchedule::STATUS_COMPLETED, $soundEntry->fresh()->status, 'An entry that could not be taken stopped the sweep.');
+        $this->assertSame(Lead::STATUS_QUALIFIED, $soundLead->fresh()->status);
+        $this->assertSame(['failed', 'completed'], array_column($results, 'status'));
+    }
+
+    public function test_a_rule_that_already_holds_its_next_run_does_not_book_a_second(): void
+    {
+        [$rule, , $entry] = $this->dueScheduledRule();
+
+        $booked = app(AutomationScheduleService::class)->create($rule);
+
+        $this->assertSame($entry->id, $booked?->id);
+        $this->assertSame(1, AutomationSchedule::where('rule_id', $rule->id)->pending()->count());
+    }
+
     public function test_the_sweep_is_registered_on_the_scheduler_every_minute(): void
     {
         $events = array_values(array_filter(

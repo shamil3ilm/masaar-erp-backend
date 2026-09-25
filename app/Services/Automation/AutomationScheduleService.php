@@ -26,17 +26,36 @@ class AutomationScheduleService
      */
     private const ENTITIES_PER_CHUNK = 200;
 
+    /**
+     * How long an entry may sit claimed before the sweep that took it is
+     * treated as gone. Long enough that a rule still working through a large
+     * entity set is not declared dead underneath itself.
+     */
+    private const ABANDONED_AFTER_MINUTES = 60;
+
     public function __construct(
         private AutomationRuleRunner $runner
     ) {}
 
     /**
-     * Create a new schedule entry for a rule.
+     * Book the rule's next run, or hand back the one it already holds.
+     *
+     * A rule has one next run. Two callers can arrive at once — a sweep
+     * finishing a run beside an operator switching the rule back on — and
+     * without this the rule would hold two entries and run its next occurrence
+     * twice. Callers that mean to move the next run clear the pending entry
+     * first.
      */
     public function create(AutomationRule $rule): ?AutomationSchedule
     {
         if (!$rule->isScheduled() || empty($rule->trigger_schedule)) {
             return null;
+        }
+
+        $booked = $rule->schedules()->pending()->first();
+
+        if ($booked) {
+            return $booked;
         }
 
         $nextRun = $this->getNextRun($rule->trigger_schedule);
@@ -66,14 +85,95 @@ class AutomationScheduleService
      */
     public function processScheduledRules(): array
     {
-        $results = [];
+        $results = $this->recoverAbandonedEntries();
 
         foreach (AutomationSchedule::due()->orderBy('scheduled_for')->get() as $schedule) {
-            $result = $this->processSchedule($schedule);
+            try {
+                $result = $this->processSchedule($schedule);
+            } catch (\Throwable $e) {
+                // Taking an entry has its own ways of failing, before there is
+                // a claim to record anything against: a lock wait, a dropped
+                // connection. It is still one entry's failure.
+                Log::error('Scheduled automation could not be taken', [
+                    'schedule_id' => $schedule->id,
+                    'rule_id' => $schedule->rule_id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $results[] = [
+                    'schedule_id' => $schedule->id,
+                    'rule_id' => $schedule->rule_id,
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                ];
+
+                continue;
+            }
 
             if ($result !== null) {
                 $results[] = $result;
             }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Put right the entries a sweep took and never came back to.
+     *
+     * A process killed between claiming an entry and recording its outcome
+     * leaves that entry running, and a running entry is one nothing looks at
+     * again: the rule would hold a claim nobody owns and never book another
+     * run. Such an entry is recorded as failed rather than run again, since
+     * the run it belonged to may already have sent half its email, and the
+     * rule is booked forward so it keeps its cadence.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function recoverAbandonedEntries(): array
+    {
+        $abandonedSince = now()->subMinutes(self::ABANDONED_AFTER_MINUTES);
+        $results = [];
+
+        $abandoned = AutomationSchedule::running()
+            ->where('updated_at', '<=', $abandonedSince)
+            ->get();
+
+        foreach ($abandoned as $schedule) {
+            // Under the same lock the sweep claims with, so one recovery wins.
+            $recovered = DB::transaction(function () use ($schedule, $abandonedSince) {
+                $locked = AutomationSchedule::lockForUpdate()->find($schedule->getKey());
+
+                if (!$locked || !$locked->isRunning() || $locked->updated_at->gt($abandonedSince)) {
+                    return null;
+                }
+
+                $locked->markAsFailed();
+
+                return $locked;
+            });
+
+            if (!$recovered) {
+                continue;
+            }
+
+            Log::warning('Scheduled automation was abandoned mid-run', [
+                'schedule_id' => $recovered->id,
+                'rule_id' => $recovered->rule_id,
+            ]);
+
+            $rule = AutomationRule::withoutGlobalScope('organization')->find($recovered->rule_id);
+
+            if ($rule && $rule->isActive()) {
+                $this->create($rule);
+            }
+
+            $results[] = [
+                'schedule_id' => $recovered->id,
+                'rule_id' => $recovered->rule_id,
+                'status' => 'failed',
+                'error' => 'Abandoned mid-run and not run again',
+            ];
         }
 
         return $results;
