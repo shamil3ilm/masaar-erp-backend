@@ -49,6 +49,10 @@ class CustomerPortalController extends Controller
         ], 'Portal account created successfully.');
     }
 
+    /**
+     * The organization is not narrowed to a group: signing in is
+     * unauthenticated, so there is no caller whose group to read.
+     */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -85,6 +89,10 @@ class CustomerPortalController extends Controller
         return $this->success(null, 'Logged out successfully.');
     }
 
+    /**
+     * Unauthenticated like login(), so the organization cannot be narrowed to
+     * the caller's group either.
+     */
     public function forgotPassword(Request $request): JsonResponse
     {
         $validated = $request->validate([

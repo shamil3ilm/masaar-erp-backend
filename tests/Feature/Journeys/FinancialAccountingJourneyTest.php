@@ -735,18 +735,24 @@ class FinancialAccountingJourneyTest extends TestCase
     // FI-AA: Inter-Company Asset Transfers (SAP ABUMN)
     // =========================================================================
 
+    /**
+     * A second company under the test organisation, which a transfer may move
+     * an asset to: a receiver outside the group is refused.
+     */
+    private function subsidiary(string $name, string $slug): Organization
+    {
+        return Organization::factory()->create([
+            'name'                   => $name,
+            'slug'                   => $slug,
+            'country_code'           => 'SA',
+            'status'                 => 'active',
+            'parent_organization_id' => $this->organization->id,
+        ]);
+    }
+
     public function test_abumn_asset_transfer_full_lifecycle(): void
     {
-        // Create a second organisation to transfer to
-        $receivingOrg = Organization::withoutGlobalScopes()->where('id', '!=', $this->organization->id)->first();
-        if (!$receivingOrg) {
-            $receivingOrg = Organization::create([
-                'name'         => 'Receiving Corp',
-                'slug'         => 'receiving-corp',
-                'country_code' => 'SA',
-                'status'       => 'active',
-            ]);
-        }
+        $receivingOrg = $this->subsidiary('Receiving Corp', 'receiving-corp');
 
         // Create a fixed asset to transfer
         $category = AssetCategory::create([
@@ -802,11 +808,7 @@ class FinancialAccountingJourneyTest extends TestCase
 
     public function test_abumn_asset_transfer_cancel(): void
     {
-        $receivingOrg = Organization::withoutGlobalScopes()->where('id', '!=', $this->organization->id)->first()
-            ?? Organization::create([
-                'name' => 'Receiving Corp 2', 'slug' => 'receiving-corp-2',
-                'country_code' => 'SA', 'status' => 'active',
-            ]);
+        $receivingOrg = $this->subsidiary('Receiving Corp 2', 'receiving-corp-2');
 
         $category = AssetCategory::create([
             'organization_id'           => $this->organization->id,

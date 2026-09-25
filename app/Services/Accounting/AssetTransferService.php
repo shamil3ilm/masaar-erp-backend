@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\AssetTransaction;
 use App\Models\Accounting\AssetTransfer;
 use App\Models\Accounting\FixedAsset;
+use App\Models\Core\Organization;
 use App\Services\Core\NumberGeneratorService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -68,6 +69,8 @@ class AssetTransferService
             throw new InvalidArgumentException('Sending and receiving organisations must be different.');
         }
 
+        $this->assertSameGroup((int) $asset->organization_id, (int) $data['receiving_organization_id']);
+
         return DB::transaction(function () use ($asset, $data, $userId): AssetTransfer {
             $gross     = (float) $asset->acquisition_cost;
             $accum     = (float) $asset->accumulated_depreciation;
@@ -118,6 +121,11 @@ class AssetTransferService
         }
 
         return DB::transaction(function () use ($transfer, $journalMeta): AssetTransfer {
+            $this->assertSameGroup(
+                (int) $transfer->sending_organization_id,
+                (int) $transfer->receiving_organization_id,
+            );
+
             $sendingAsset = $transfer->fixedAsset;
             $effectiveValue = $transfer->effectiveTransferValue();
 
@@ -180,6 +188,24 @@ class AssetTransferService
     // =========================================================================
     // Internal helpers
     // =========================================================================
+
+    /**
+     * Refuses a receiving organisation outside the sender's group.
+     *
+     * Executing a transfer creates a fixed asset in the receiving
+     * organisation and posts journals in its ledger, so the request rule is
+     * not the only place this is checked: the transfer is stored before it is
+     * executed, and a caller reaching the service another way must not push
+     * an asset into a tenant that never agreed to it.
+     */
+    private function assertSameGroup(int $sendingOrganizationId, int $receivingOrganizationId): void
+    {
+        if (! in_array($receivingOrganizationId, Organization::groupIds($sendingOrganizationId), true)) {
+            throw new InvalidArgumentException(
+                "The receiving organisation is outside the sending organisation's group."
+            );
+        }
+    }
 
     private function postSendingJournal(
         AssetTransfer $transfer,

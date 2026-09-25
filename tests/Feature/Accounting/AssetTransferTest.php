@@ -8,7 +8,10 @@ use App\Models\Accounting\AssetCategory;
 use App\Models\Accounting\AssetTransfer;
 use App\Models\Accounting\FixedAsset;
 use App\Models\Core\Organization;
+use App\Services\Accounting\AssetTransferService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
+use InvalidArgumentException;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -96,10 +99,11 @@ class AssetTransferTest extends TestCase
     public function test_store_creates_pending_transfer(): void
     {
         $asset       = $this->makeAsset();
-        $receivingOrg = Organization::create([
-            'name'          => 'Receiving Org',
-            'country_code'  => 'SA',
-            'base_currency' => 'SAR',
+        $receivingOrg = Organization::factory()->create([
+            'name'                   => 'Receiving Org',
+            'country_code'           => 'SA',
+            'base_currency'          => 'SAR',
+            'parent_organization_id' => $this->organization->id,
         ]);
 
         $response = $this->withToken($this->token)
@@ -173,5 +177,74 @@ class AssetTransferTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         $this->getJson('/api/v1/asset-transfers')->assertStatus(401);
+    }
+    // -------------------------------------------------------------------------
+    // Organization group
+    // -------------------------------------------------------------------------
+
+    public function test_store_refuses_a_receiver_outside_the_group_and_accepts_the_parent_and_a_sibling(): void
+    {
+        $parent   = Organization::factory()->create();
+        $sibling  = Organization::factory()->create(['parent_organization_id' => $parent->id]);
+        $stranger = Organization::factory()->create();
+
+        $this->organization->parent_organization_id = $parent->id;
+        $this->organization->save();
+
+        $this->initiateTransfer($stranger)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('receiving_organization_id');
+
+        $this->initiateTransfer($parent)->assertStatus(201);
+        $this->initiateTransfer($sibling)->assertStatus(201);
+
+        $this->assertSame(2, AssetTransfer::count());
+    }
+
+    private function initiateTransfer(Organization $receiver): TestResponse
+    {
+        return $this->withToken($this->token)
+            ->postJson('/api/v1/assets/' . $this->makeAsset()->uuid . '/transfers', [
+                'receiving_organization_id' => $receiver->id,
+                'transfer_date'             => '2025-06-01',
+                'transfer_type'             => 'book_value',
+            ]);
+    }
+
+    /**
+     * The request rule is not the only guard: a caller reaching the service
+     * directly must not initiate or execute a transfer into a tenant outside
+     * the sending organisation's group.
+     */
+    public function test_the_service_refuses_an_organization_outside_the_group(): void
+    {
+        $stranger = Organization::factory()->create();
+        $service  = app(AssetTransferService::class);
+
+        try {
+            $service->create($this->makeAsset(), [
+                'receiving_organization_id' => $stranger->id,
+                'transfer_date'             => '2025-06-01',
+            ], $this->user->id);
+            $this->fail('The service initiated a transfer outside the group.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('outside', $e->getMessage());
+        }
+
+        $transfer = $this->makeTransfer($this->makeAsset(), ['receiving_organization_id' => $stranger->id]);
+
+        try {
+            $service->execute($transfer, [
+                'organization_id' => $this->organization->id,
+                'branch_id'       => $this->branch->id,
+                'entry_date'      => '2025-06-01',
+            ]);
+            $this->fail('The service executed a transfer outside the group.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('outside', $e->getMessage());
+        }
+
+        $this->assertSame(AssetTransfer::STATUS_PENDING, $transfer->fresh()->status);
+        $this->assertSame(0, FixedAsset::withoutGlobalScopes()->where('organization_id', $stranger->id)->count());
     }
 }
