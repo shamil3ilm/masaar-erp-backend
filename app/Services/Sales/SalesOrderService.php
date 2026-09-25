@@ -98,6 +98,11 @@ class SalesOrderService
     /**
      * Create the draft sales order for an accepted quotation, copying its
      * amounts and lines. Runs inside the caller's transaction.
+     *
+     * A line carries the figures the money follows from — quantity, unit,
+     * price, discount type and value, tax category and tax rate — and not the
+     * amounts they produce: SalesOrderLine recalculates those on save, so a
+     * line copied without its discount type is stored without its discount.
      */
     public function createFromQuotation(Quotation $quotation): SalesOrder
     {
@@ -140,12 +145,12 @@ class SalesOrderService
                 'quantity' => $line->quantity,
                 'quantity_delivered' => 0,
                 'quantity_invoiced' => 0,
+                'unit_id' => $line->unit_id,
                 'unit_price' => $line->unit_price,
-                'discount_amount' => $line->discount_amount,
+                'discount_type' => $line->discount_type,
+                'discount_value' => $line->discount_value,
+                'tax_category_id' => $line->tax_category_id,
                 'tax_rate' => $line->tax_rate,
-                'tax_amount' => $line->tax_amount,
-                'subtotal' => $line->subtotal,
-                'total' => $line->total,
                 'line_order' => $line->line_order,
             ]);
         }
