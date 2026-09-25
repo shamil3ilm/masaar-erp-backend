@@ -96,6 +96,29 @@ class PlatformAdminController extends Controller
         return $this->success($this->organizations->activate($organization));
     }
 
+    /**
+     * Set or clear an organization's parent.
+     *
+     * The link decides which other organizations an inter-company asset
+     * transfer, a consolidation entity or an intercompany sales order may
+     * name, so it is a platform-admin decision: the admin route group runs
+     * behind the super.admin middleware and no tenant user reaches it.
+     */
+    public function setOrganizationParent(Request $request, Organization $organization): JsonResponse
+    {
+        // A platform admin holds no organization of their own, so there is no
+        // caller group to narrow the choice of parent to.
+        $validated = $request->validate([
+            'parent_organization_id' => ['present', 'nullable', 'integer', 'exists:organizations,id'],
+        ]);
+
+        return $this->tryAction(
+            fn () => $this->organizations->setParent($organization, $validated['parent_organization_id']),
+            'Organization parent updated.',
+            'INVALID_PARENT',
+        );
+    }
+
     public function listUsers(Request $request): JsonResponse
     {
         if (!auth()->user()?->is_super_admin) {
