@@ -16,6 +16,13 @@ use Illuminate\Support\Facades\DB;
  *
  * Each method assembles the header and lines, then hands them to
  * InvoiceService::create() so every invoice is built the same way.
+ *
+ * A converted line carries every field the source charged on: its unit, its
+ * discount type and value, its tax category and its tax rate. The rate is
+ * what the tax calculator falls back to when the organization has no rate
+ * configured for the line's tax category, so a line that leaves it behind is
+ * invoiced without the tax the source quoted. The amounts are not copied:
+ * InvoiceService recalculates them from these figures.
  */
 class InvoiceConversionService
 {
@@ -102,6 +109,7 @@ class InvoiceConversionService
             'discount_type' => $line->discount_type,
             'discount_value' => $line->discount_value,
             'tax_category_id' => $line->tax_category_id,
+            'tax_rate' => $line->tax_rate,
         ])->toArray();
 
         $invoice = $this->invoices->create([
@@ -148,6 +156,7 @@ class InvoiceConversionService
                     'discount_type' => $line->discount_type,
                     'discount_value' => $line->discount_value,
                     'tax_category_id' => $line->tax_category_id,
+                    'tax_rate' => $line->tax_rate,
                     'warehouse_id' => $line->warehouse_id,
                 ];
             })->toArray();

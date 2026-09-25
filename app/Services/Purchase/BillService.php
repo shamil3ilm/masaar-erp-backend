@@ -10,6 +10,7 @@ use App\Exceptions\ErrorCodes;
 use App\Models\Core\Organization;
 use App\Models\Purchase\Bill;
 use App\Models\Purchase\PurchaseOrder;
+use App\Models\Purchase\PurchaseOrderLine;
 use App\Models\Sales\Contact;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
@@ -340,6 +341,10 @@ class BillService
      * The order is locked and what is left to bill is read from its current
      * lines, so two requests cannot bill the same received quantity. A
      * requested quantity above what is left to bill is refused.
+     *
+     * A billed line carries every field the order charged on: unit, discount
+     * type and value, tax category and tax rate. The amounts are not copied:
+     * create() recalculates them from these figures.
      */
     public function createFromPurchaseOrder(PurchaseOrder $order, ?array $lineQuantities = null): Bill
     {
@@ -370,6 +375,7 @@ class BillService
                         'discount_type' => $line->discount_type,
                         'discount_value' => $line->discount_value,
                         'tax_category_id' => $line->tax_category_id,
+                        'tax_rate' => $this->wholeTaxRate($line),
                         'warehouse_id' => $line->warehouse_id,
                     ];
                 })->toArray();
@@ -411,6 +417,23 @@ class BillService
 
             return $bill;
         });
+    }
+
+    /**
+     * The whole rate a purchase order line charges.
+     *
+     * A GST organization stores that rate split — IGST between states, CGST
+     * and SGST within one — and leaves tax_rate at zero, so adding the split
+     * back up is what carries an Indian order's tax onto its bill. The tax
+     * calculator splits it again for the bill's own place of supply.
+     */
+    private function wholeTaxRate(PurchaseOrderLine $line): string
+    {
+        $gstRate = bccomp((string) ($line->igst_rate ?? '0'), '0', 4) > 0
+            ? (string) $line->igst_rate
+            : bcadd((string) ($line->cgst_rate ?? '0'), (string) ($line->sgst_rate ?? '0'), 4);
+
+        return bccomp($gstRate, '0', 4) > 0 ? $gstRate : (string) $line->tax_rate;
     }
 
     /**
