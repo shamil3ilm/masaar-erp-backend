@@ -155,6 +155,16 @@ class AutomationRuleTest extends TestCase
         ])->assertOk();
         $this->assertSame('02:00', $this->pendingSchedule($rule)->scheduled_for->format('H:i'));
 
+        // An update that repeats what the rule already says moves nothing: the
+        // entry it is holding may be due, and re-booking it would skip that run.
+        $booked = $this->pendingSchedule($rule);
+        $this->apiPut("/automation/rules/{$rule->getRouteKey()}", [
+            'name' => 'Renamed',
+            'trigger_type' => 'schedule',
+            'trigger_schedule' => '0 2 * * *',
+        ])->assertOk();
+        $this->assertSame($booked->id, $this->pendingSchedule($rule)->id);
+
         // Nor may a switched-off rule gain one from a later edit.
         $this->apiPatch("/automation/rules/{$rule->getRouteKey()}/active", ['active' => false])->assertOk();
         $this->apiPut("/automation/rules/{$rule->getRouteKey()}", ['trigger_schedule' => '0 5 * * *'])->assertOk();
