@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\ConsolidatedBalance;
 use App\Models\Accounting\ConsolidationEntity;
@@ -13,6 +14,7 @@ use App\Models\Accounting\CopaLineItem;
 use App\Models\Accounting\EliminationEntry;
 use App\Models\Accounting\ExchangeRate;
 use App\Models\Accounting\InterCompanyTransfer;
+use App\Models\Core\Organization;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -190,6 +192,8 @@ class ConsolidationService
     public function addEntity(ConsolidationGroup $group, array $data, int $userId): ConsolidationEntity
     {
         return DB::transaction(function () use ($group, $data) {
+            $this->assertInGroupOf((int) $group->organization_id, (int) $data['entity_organization_id']);
+
             $entity = ConsolidationEntity::create([
                 'consolidation_group_id'   => $group->id,
                 'entity_organization_id'   => $data['entity_organization_id'],
@@ -222,6 +226,24 @@ class ConsolidationService
 
             return ConsolidationPeriod::create($data);
         });
+    }
+
+    /**
+     * Refuses an organization outside $organizationId's parent-subsidiary group.
+     *
+     * Consolidation reads an entity's ledger and reports it under the group's
+     * figures, so the request rule is not the only place membership is
+     * checked: a caller reaching the service another way must not pull a
+     * tenant outside the group into a consolidation.
+     */
+    private function assertInGroupOf(int $organizationId, int $candidateOrganizationId): void
+    {
+        if (! in_array($candidateOrganizationId, Organization::groupIds($organizationId), true)) {
+            throw new BusinessRuleException(
+                "That organization is outside this organization's group.",
+                'ORGANIZATION_OUTSIDE_GROUP'
+            );
+        }
     }
 
     /**

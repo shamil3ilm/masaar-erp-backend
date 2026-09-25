@@ -23,15 +23,16 @@ use Tests\TestCase;
  * methods chained onto it, however many lines that spans - names
  * organization_id in a where(), directly or inside a closure, and the helpers
  * in the ValidatesOwnedRows traits are scoped by definition. An unscoped
- * reference fails when its table carries an organization_id column. Tables
- * without that column are global, such as currencies, or are reached through
- * a parent that is scoped instead; organizations is named on purpose wherever
- * a field points at another company, as in intercompany sales and asset
- * transfers.
+ * reference fails when its table carries an organization_id column, and the
+ * organizations table counts as well: it carries no such column, but a field
+ * that names another company must stay inside the caller's parent-subsidiary
+ * group, which inCallerGroup() limits it to. The tables left over are global,
+ * such as currencies, or are reached through a parent that is scoped instead.
  *
- * UNSCOPED is exact, one entry per reference. A new unscoped reference on a
- * tenant-owned table fails until it is scoped or listed with a reason, and a
- * listed entry that has been scoped or removed fails until it is delisted.
+ * UNSCOPED is exact, carrying how many references each file holds. A new
+ * unscoped reference on a tenant-owned table fails until it is scoped or
+ * listed with a reason, and a listed entry that has been scoped or removed
+ * fails until it is delisted.
  */
 class OwnedReferenceRuleTest extends TestCase
 {
@@ -42,19 +43,32 @@ class OwnedReferenceRuleTest extends TestCase
     private const TENANT_COLUMN = 'organization_id';
 
     /**
-     * Tables an unscoped reference may name whatever columns they carry.
+     * The table of the tenants themselves.
      *
-     * A field that points at another company names organizations directly.
+     * A reference to it names another company, and inCallerGroup() is what
+     * holds that company inside the caller's parent-subsidiary group.
      */
-    private const GLOBAL_TABLES = ['organizations'];
+    private const ORGANIZATION_TABLE = 'organizations';
 
     /**
-     * References left unscoped, keyed by "<path under app/Http>:<table>".
+     * References left unscoped, keyed by "<path under app/Http>:<table>",
+     * with how many that file holds and why they cannot be narrowed.
      *
-     * @var array<string, string> reference => reason
+     * @var array<string, array{count: int, reason: string}>
      */
     private const UNSCOPED = [
-        'Requests/Auth/RegisterRequest.php:users' => 'Registration is unauthenticated, so there is no caller organization to scope the inviting user to.',
+        'Controllers/Api/V1/Admin/PlatformAdminController.php:organizations' => [
+            'count' => 1,
+            'reason' => 'A platform admin sets the parent of any tenant and holds no organization of their own, so there is no caller group to narrow the choice to.',
+        ],
+        'Controllers/Api/V1/Core/CustomerPortalController.php:organizations' => [
+            'count' => 2,
+            'reason' => 'Portal sign-in and password reset are unauthenticated, so there is no caller whose group would narrow the organization.',
+        ],
+        'Requests/Auth/RegisterRequest.php:users' => [
+            'count' => 1,
+            'reason' => 'Registration is unauthenticated, so there is no caller organization to scope the inviting user to.',
+        ],
     ];
 
     public function test_request_rules_scope_tenant_owned_references(): void
@@ -77,19 +91,21 @@ class OwnedReferenceRuleTest extends TestCase
             }
         }
 
-        $this->assertCountsMatch(array_map(fn () => 1, self::UNSCOPED), $found,
+        $this->assertCountsMatch(array_map(fn (array $entry) => $entry['count'], self::UNSCOPED), $found,
             "The unscoped references to tenant-owned tables have changed.\n"
             ."Replace the rule with \$this->ownedBy('<table>'), or with "
             ."\$this->ownedThrough('<table>', '<foreign key>', '<parent table>') when the row is "
-            ."reached through a parent that carries the organization, from "
+            ."reached through a parent that carries the organization, or with "
+            ."\$this->inCallerGroup() when the field names another company, from "
             ."App\\Http\\Concerns\\ValidatesOwnedRows.\n"
             .'When a reference genuinely cannot be scoped, list it in UNSCOPED with the reason.');
     }
 
     public function test_every_unscoped_reference_gives_a_reason(): void
     {
-        foreach (self::UNSCOPED as $reference => $reason) {
-            $this->assertNotSame('', trim($reason), "{$reference} is listed without a reason.");
+        foreach (self::UNSCOPED as $reference => $entry) {
+            $this->assertNotSame('', trim($entry['reason']), "{$reference} is listed without a reason.");
+            $this->assertGreaterThan(0, $entry['count'], "{$reference} is listed with no reference to exempt.");
         }
     }
 
@@ -275,8 +291,8 @@ class OwnedReferenceRuleTest extends TestCase
 
     private function isTenantOwned(string $table): bool
     {
-        return ! in_array($table, self::GLOBAL_TABLES, true)
-            && Schema::hasColumn($table, self::TENANT_COLUMN);
+        return $table === self::ORGANIZATION_TABLE
+            || Schema::hasColumn($table, self::TENANT_COLUMN);
     }
 
     /**
