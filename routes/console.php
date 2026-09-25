@@ -72,6 +72,10 @@ Schedule::command('reports:run-scheduled --schedule=quarterly')->quarterly()->at
 // Export cleanup
 Schedule::command('exports:cleanup')->daily()->at('02:00');
 
+// Scheduled automation rules - a rule's cron expression is minute-grained, so
+// the sweep has to tick every minute for a rule to run in the minute it is due
+Schedule::command('automation:process-schedules')->everyMinute()->withoutOverlapping();
+
 // Webhook processing
 Schedule::command('webhooks:process --retry')->everyFiveMinutes();
 Schedule::command('webhooks:process --cleanup --days=30')->daily()->at('03:30');
