@@ -92,7 +92,8 @@ class PurchaseOrder extends Model
     {
         return [
             self::STATUS_DRAFT            => [self::STATUS_PENDING_APPROVAL, self::STATUS_SENT, self::STATUS_CONFIRMED, self::STATUS_CANCELLED],
-            self::STATUS_PENDING_APPROVAL => [self::STATUS_DRAFT, self::STATUS_CONFIRMED, self::STATUS_CANCELLED],
+            // Not back to draft: a draft can be confirmed without approval.
+            self::STATUS_PENDING_APPROVAL => [self::STATUS_CONFIRMED, self::STATUS_CANCELLED],
             self::STATUS_SENT             => [self::STATUS_CONFIRMED, self::STATUS_CANCELLED],
             self::STATUS_CONFIRMED        => [self::STATUS_PARTIALLY_RECEIVED, self::STATUS_RECEIVED, self::STATUS_CANCELLED],
             self::STATUS_PARTIALLY_RECEIVED => [self::STATUS_RECEIVED, self::STATUS_BILLED],
@@ -108,11 +109,12 @@ class PurchaseOrder extends Model
     }
 
     /**
-     * Mark PO as pending approval (called by ApprovalWorkflowService via markPendingApproval hook).
+     * Mark the order as waiting for approval. ApprovalWorkflowService calls it
+     * when it submits the order to a workflow.
      */
     public function markPendingApproval(): void
     {
-        $this->update(['status' => self::STATUS_PENDING_APPROVAL]);
+        $this->transitionTo(self::STATUS_PENDING_APPROVAL);
     }
 
     public function branch(): BelongsTo

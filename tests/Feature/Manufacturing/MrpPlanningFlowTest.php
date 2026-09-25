@@ -157,6 +157,21 @@ class MrpPlanningFlowTest extends TestCase
         $this->assertSame(1, PurchaseOrder::withoutGlobalScopes()->count());
     }
 
+    public function test_a_purchase_planned_order_above_the_approval_threshold_converts_to_an_order_pending_approval(): void
+    {
+        config(['erp.po_approval_threshold' => 1000]);
+        $this->sourceListVendor();
+        $this->product->update(['purchase_price' => 5000]);
+        $order = $this->plannedOrder($this->organization->id, $this->product->id, MrpPlannedOrder::TYPE_PURCHASE);
+
+        $response = $this->apiPost("/manufacturing/mrp/planned-orders/{$order->id}/convert")->assertOk();
+
+        $purchaseOrder = PurchaseOrder::findOrFail($response->json('data.converted_to.id'));
+        $this->assertGreaterThan(1000, (float) $purchaseOrder->total);
+        $this->assertSame(PurchaseOrder::STATUS_PENDING_APPROVAL, $purchaseOrder->status);
+        $this->assertSame(MrpPlannedOrder::STATUS_CONVERTED, $order->fresh()->status);
+    }
+
     /**
      * A vendor on the product's source list. The product gets a low purchase
      * price so the planned quantity stays under the purchase order approval

@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 48 migrations.
+978 tables across 49 migrations.
 
 ## Contents
 
@@ -56,6 +56,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0500_stock_movement_material_types.php`: changes to stock_movements
 - `0510_recurring_profile_log_created_nullable.php`: changes to recurring_profile_logs
 - `0520_continue_number_sequences_after_stored_numbers.php`: data only, no schema changes
+- `0530_purchase_order_pending_approval_status.php`: changes to purchase_orders
 
 ## 0010_accounting.php
 
@@ -17814,6 +17815,11 @@ Indexes:
 - `$table->index(['organization_id', 'order_date'], 'po_org_order_date_idx')`
 - `$table->index(['organization_id', 'expected_delivery_date'], 'po_org_exp_delivery_idx')`
 
+Added by later migrations:
+
+- `0530_purchase_order_pending_approval_status.php`: `$table->enum('status', [...self::STATUSES, 'pending_approval'])->default('draft')->change()`
+- `0530_purchase_order_pending_approval_status.php`: `$table->enum('discount_type', ['percentage', 'fixed'])->nullable()->change()`
+
 ### bills
 
 | Column | Type | Details |
@@ -25245,3 +25251,7 @@ Changes tables created earlier: `recurring_profile_logs`.
 ## 0520_continue_number_sequences_after_stored_numbers.php
 
 Changes no table structure; it only reads or writes data.
+
+## 0530_purchase_order_pending_approval_status.php
+
+Changes tables created earlier: `purchase_orders`.
