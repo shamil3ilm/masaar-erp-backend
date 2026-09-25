@@ -97,14 +97,31 @@ class AutomationRuleService
         return DB::transaction(function () use ($rule, $data) {
             $rule->update($data);
 
-            // If the schedule changed, update scheduled jobs
-            if (isset($data['trigger_schedule']) && $rule->isScheduled()) {
+            if (!$rule->isScheduled() || !$rule->isActive()) {
+                // The rule no longer runs on a schedule. Its pending entries
+                // are the only thing the sweep looks at, and the sweep asks
+                // nothing about the trigger, so an entry left behind would run
+                // a rule that has stopped asking to be run.
+                $rule->schedules()->pending()->delete();
+            } elseif ($this->changesWhenTheRuleRuns($data)) {
                 $rule->schedules()->pending()->delete();
                 $this->scheduleService->create($rule);
             }
 
             return $rule->fresh();
         });
+    }
+
+    /**
+     * Whether an update can move the rule's next run.
+     *
+     * Anything else about a rule may be edited without re-booking it, so an
+     * entry already due is still swept rather than being pushed to the next
+     * occurrence by a change of name.
+     */
+    private function changesWhenTheRuleRuns(array $data): bool
+    {
+        return array_key_exists('trigger_schedule', $data) || array_key_exists('trigger_type', $data);
     }
 
     /**
@@ -115,8 +132,10 @@ class AutomationRuleService
         return DB::transaction(function () use ($rule) {
             $rule->update(['is_active' => true]);
 
-            // If it's a scheduled rule, create the next schedule
+            // One rule, one next run: clearing first keeps a rule switched on
+            // twice from holding two entries and running twice.
             if ($rule->isScheduled()) {
+                $rule->schedules()->pending()->delete();
                 $this->scheduleService->create($rule);
             }
 
