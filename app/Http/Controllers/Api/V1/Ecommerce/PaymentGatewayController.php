@@ -4,26 +4,34 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Ecommerce;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
 use App\Models\Ecommerce\PaymentGateway;
+use App\Services\Ecommerce\PaymentGatewayService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PaymentGatewayController extends Controller
 {
+    use ReportsBusinessRules;
+
+    public function __construct(
+        private readonly PaymentGatewayService $gateways
+    ) {}
+
     /**
      * List payment gateways.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PaymentGateway::query()->latest()
-            ->when($request->has('provider'), fn($q) => $q->byProvider($request->input('provider')))
-            ->when($request->has('is_active'), fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->has('mode'), fn($q) => $q->where('mode', $request->input('mode')));
+        $filters = $request->only(['provider', 'mode']);
 
-        $gateways = $query->paginate($request->integer('per_page', 15));
+        if ($request->has('is_active')) {
+            $filters['is_active'] = $request->boolean('is_active');
+        }
 
-        return $this->paginated($gateways);
+        return $this->paginated($this->gateways->paginate($filters, $request->integer('per_page', 15)));
     }
 
     /**
@@ -45,13 +53,7 @@ class PaymentGatewayController extends Controller
             'supported_methods.*' => 'string|max:30',
         ]);
 
-        $validated['organization_id'] = auth()->user()->organization_id;
-
-        $gateway = PaymentGateway::create($validated);
-
-        if ($validated['is_default'] ?? false) {
-            $gateway->setAsDefault();
-        }
+        $gateway = $this->gateways->create($validated, auth()->user()->organization_id);
 
         return $this->created($gateway, 'Payment gateway created successfully.');
     }
@@ -82,13 +84,7 @@ class PaymentGatewayController extends Controller
             'supported_methods.*' => 'string|max:30',
         ]);
 
-        $paymentGateway->update($validated);
-
-        if ($validated['is_default'] ?? false) {
-            $paymentGateway->setAsDefault();
-        }
-
-        return $this->success($paymentGateway->fresh(), 'Payment gateway updated successfully.');
+        return $this->success($this->gateways->update($paymentGateway, $validated), 'Payment gateway updated successfully.');
     }
 
     /**
@@ -96,15 +92,11 @@ class PaymentGatewayController extends Controller
      */
     public function destroy(PaymentGateway $paymentGateway): JsonResponse
     {
-        if ($paymentGateway->payments()->exists()) {
-            return $this->error(
-                'Cannot delete gateway with existing payments.',
-                'VALIDATION_ERROR',
-                422
-            );
+        try {
+            $this->gateways->delete($paymentGateway);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $paymentGateway->delete();
 
         return $this->success(null, 'Payment gateway deleted successfully.');
     }

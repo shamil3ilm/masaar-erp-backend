@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Budget;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Budget\BudgetTransfer;
 use App\Services\Budget\BudgetTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rules\Exists;
 
 /**
  * Budget Transfer Controller — SAP FM budget transfer (T-code FM2S).
@@ -21,6 +22,8 @@ use Illuminate\Http\Request;
  */
 class BudgetTransferController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly BudgetTransferService $service,
     ) {}
@@ -38,8 +41,8 @@ class BudgetTransferController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'from_budget_line_id' => 'required|integer|exists:budget_lines,id',
-            'to_budget_line_id' => 'required|integer|exists:budget_lines,id|different:from_budget_line_id',
+            'from_budget_line_id' => ['required', 'integer', $this->ownedLine()],
+            'to_budget_line_id' => ['required', 'integer', $this->ownedLine(), 'different:from_budget_line_id'],
             'amount' => 'required|numeric|min:0.01',
             'reason' => 'required|string|max:500',
             'notes' => 'nullable|string|max:2000',
@@ -57,18 +60,12 @@ class BudgetTransferController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $transfer = BudgetTransfer::with([
-            'fromBudget', 'fromBudgetLine', 'toBudget', 'toBudgetLine',
-            'requester:id,name', 'approver:id,name',
-        ])->findOrFail($id);
-
-        return $this->success($transfer);
+        return $this->success($this->service->findWithDetails($id));
     }
 
     public function submit(Request $request, string $id): JsonResponse
     {
-        $transfer = BudgetTransfer::findOrFail($id);
-        $updated = $this->service->submit($transfer);
+        $updated = $this->service->submit($this->service->find($id));
 
         return $this->success($updated, 'Budget transfer submitted for approval');
     }
@@ -80,7 +77,7 @@ class BudgetTransferController extends Controller
             'reason' => 'required_if:action,reject|string|max:500',
         ]);
 
-        $transfer = BudgetTransfer::findOrFail($id);
+        $transfer = $this->service->find($id);
 
         if ($validated['action'] === 'approve') {
             $updated = $this->service->approve($transfer, $request->user());
@@ -91,5 +88,11 @@ class BudgetTransferController extends Controller
         $updated = $this->service->reject($transfer, $request->user(), $validated['reason']);
 
         return $this->success($updated, 'Budget transfer rejected');
+    }
+
+    /** A budget line whose budget belongs to the caller's organization. */
+    private function ownedLine(): Exists
+    {
+        return $this->ownedThrough('budget_lines', 'budget_id', 'budgets');
     }
 }

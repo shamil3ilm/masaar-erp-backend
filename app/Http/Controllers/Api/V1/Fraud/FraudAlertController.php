@@ -5,37 +5,34 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Fraud;
 
 use App\Http\Controllers\Controller;
-use App\Models\Fraud\FraudAlert;
-use App\Models\Fraud\FraudRule;
-use App\Services\Fraud\FraudRuleTemplates;
+use App\Services\Fraud\FraudReviewService;
+use App\Services\Fraud\FraudRuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class FraudAlertController extends Controller
 {
+    public function __construct(
+        private readonly FraudReviewService $reviews,
+        private readonly FraudRuleService $rules,
+    ) {}
+
     // -------------------------------------------------------------------------
     // Alerts
     // -------------------------------------------------------------------------
 
     /**
      * Paginated list of fraud alerts for the authenticated organization.
-     * Filterable by status, severity, and entity_type.
+     * Filterable by status, severity, entity_type and creation date.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = FraudAlert::with(['rule', 'user', 'reviewer'])
-            ->where('organization_id', Auth::user()->organization_id)
-            ->orderByDesc('created_at')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->input('status')))
-            ->when($request->filled('severity'), fn($q) => $q->where('severity', $request->input('severity')))
-            ->when($request->filled('entity_type'), fn($q) => $q->where('entity_type', $request->input('entity_type')))
-            ->when($request->filled('from_date'), fn($q) => $q->where('created_at', '>=', $request->input('from_date')))
-            ->when($request->filled('to_date'), fn($q) => $q->where('created_at', '<=', $request->input('to_date')));
-
-        $alerts = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($alerts);
+        return $this->paginated($this->reviews->paginateAlerts(
+            Auth::user()->organization_id,
+            $this->filledFilters($request, ['status', 'severity', 'entity_type', 'from_date', 'to_date']),
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -43,11 +40,7 @@ class FraudAlertController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $alert = FraudAlert::with(['rule', 'user', 'reviewer'])
-            ->where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($id);
-
-        return $this->success($alert);
+        return $this->success($this->reviews->findAlert(Auth::user()->organization_id, $id));
     }
 
     /**
@@ -60,19 +53,15 @@ class FraudAlertController extends Controller
             'notes'   => 'nullable|string|max:2000',
         ]);
 
-        $alert = FraudAlert::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($id);
+        $alert = $this->reviews->review(
+            Auth::user()->organization_id,
+            $id,
+            $validated['status'],
+            $validated['notes'] ?? null,
+            Auth::id(),
+        );
 
-        $alert->fill([
-            'status'          => $validated['status'],
-            'reviewer_notes'  => $validated['notes'] ?? null,
-            'reviewed_by'     => Auth::id(),
-            'reviewed_at'     => now(),
-        ]);
-
-        $alert->save();
-
-        return $this->success($alert->fresh(['rule', 'reviewer']), 'Alert status updated.');
+        return $this->success($alert, 'Alert status updated.');
     }
 
     // -------------------------------------------------------------------------
@@ -84,15 +73,14 @@ class FraudAlertController extends Controller
      */
     public function rules(Request $request): JsonResponse
     {
-        $query = FraudRule::where('organization_id', Auth::user()->organization_id)
-            ->orderBy('name')
-            ->when($request->filled('rule_type'), fn($q) => $q->where('rule_type', $request->input('rule_type')))
-            ->when($request->filled('entity_type'), fn($q) => $q->where('entity_type', $request->input('entity_type')))
-            ->when($request->boolean('active_only'), fn($q) => $q->active());
+        $filters = $this->filledFilters($request, ['rule_type', 'entity_type']);
+        $filters['active_only'] = $request->boolean('active_only');
 
-        $rules = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($rules);
+        return $this->paginated($this->rules->paginateRules(
+            Auth::user()->organization_id,
+            $filters,
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -111,10 +99,7 @@ class FraudAlertController extends Controller
             'score_impact' => 'integer|min:1|max:100',
         ]);
 
-        $rule = FraudRule::create(array_merge($validated, [
-            'organization_id' => Auth::user()->organization_id,
-            'created_by'      => Auth::id(),
-        ]));
+        $rule = $this->rules->create($validated, Auth::user()->organization_id, Auth::id());
 
         return $this->created($rule, 'Fraud rule created.');
     }
@@ -124,14 +109,11 @@ class FraudAlertController extends Controller
      */
     public function toggleRule(int $id): JsonResponse
     {
-        $rule = FraudRule::where('organization_id', Auth::user()->organization_id)
-            ->findOrFail($id);
-
-        $rule->update(['is_active' => !$rule->is_active]);
+        $rule = $this->rules->toggle(Auth::user()->organization_id, $id);
 
         $state = $rule->is_active ? 'enabled' : 'disabled';
 
-        return $this->success($rule->fresh(), "Fraud rule {$state}.");
+        return $this->success($rule, "Fraud rule {$state}.");
     }
 
     /**
@@ -139,25 +121,27 @@ class FraudAlertController extends Controller
      */
     public function seedDefaults(): JsonResponse
     {
-        $organizationId = Auth::user()->organization_id;
-        $userId         = Auth::id();
-        $created        = 0;
+        $created = $this->rules->seedDefaults(Auth::user()->organization_id, Auth::id());
 
-        foreach (FraudRuleTemplates::defaults() as $template) {
-            $exists = FraudRule::where('organization_id', $organizationId)
-                ->where('name', $template['name'])
-                ->exists();
+        return $this->success(['created' => $created], "{$created} default rules seeded.");
+    }
 
-            if (!$exists) {
-                FraudRule::create(array_merge($template, [
-                    'organization_id' => $organizationId,
-                    'created_by'      => $userId,
-                ]));
+    /**
+     * The given query parameters the request fills, by name.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    private function filledFilters(Request $request, array $keys): array
+    {
+        $filters = [];
 
-                ++$created;
+        foreach ($keys as $key) {
+            if ($request->filled($key)) {
+                $filters[$key] = $request->input($key);
             }
         }
 
-        return $this->success(['created' => $created], "{$created} default rules seeded.");
+        return $filters;
     }
 }

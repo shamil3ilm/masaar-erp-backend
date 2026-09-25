@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Compliance;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
 use App\Http\Controllers\Controller;
-use App\Models\Core\Branch;
-use App\Services\Compliance\ComplianceResult;
-use App\Services\Compliance\MasaarClient;
+use App\Services\Compliance\ZatcaOnboardingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class OnboardingController extends Controller
 {
+    use ReportsBusinessRules;
+
     public function __construct(
-        private readonly MasaarClient $client
+        private readonly ZatcaOnboardingService $onboarding
     ) {}
 
     /**
@@ -22,17 +24,13 @@ class OnboardingController extends Controller
      */
     public function status(string $branchId): JsonResponse
     {
-        $branch = Branch::where('uuid', $branchId)->firstOrFail();
+        $branch = $this->onboarding->findBranch($branchId);
 
-        if ($branch->zatca_branch_id === null) {
-            return $this->error(
-                'Branch has no ZATCA ID',
-                'ZATCA_NOT_CONFIGURED',
-                400
-            );
+        try {
+            $result = $this->onboarding->status($branch);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $result = $this->client->getOnboardingStatus($branch->zatca_branch_id);
 
         return $this->success([
             'zatca_branch_id' => $branch->zatca_branch_id,
@@ -47,30 +45,14 @@ class OnboardingController extends Controller
      */
     public function requestCcsid(Request $request, string $branchId): JsonResponse
     {
-        $branch = Branch::where('uuid', $branchId)->firstOrFail();
+        $branch = $this->onboarding->findBranch($branchId);
 
         $validated = $request->validate([
             'otp' => ['required', 'string'],
             'csr' => ['required', 'array'],
         ]);
 
-        $zatcaBranchId = $branch->zatca_branch_id ?? $branchId;
-
-        $result = $this->client->requestCcsid($zatcaBranchId, $validated['otp'], $validated['csr']);
-
-        if ($this->isOnboardingSuccess($result)) {
-            $updates = ['zatca_onboarding_status' => 'ccsid_issued'];
-
-            if ($branch->zatca_branch_id === null) {
-                $newZatcaId = $result->response['data']['branch_id']
-                    ?? $result->response['branch_id']
-                    ?? $zatcaBranchId;
-                $updates['zatca_branch_id'] = $newZatcaId;
-            }
-
-            $branch->update($updates);
-            $branch->refresh();
-        }
+        $result = $this->onboarding->requestCcsid($branch, $validated['otp'], $validated['csr']);
 
         return $this->success([
             'zatca_branch_id' => $branch->zatca_branch_id,
@@ -84,21 +66,12 @@ class OnboardingController extends Controller
      */
     public function complianceCheck(string $branchId): JsonResponse
     {
-        $branch = Branch::where('uuid', $branchId)->firstOrFail();
+        $branch = $this->onboarding->findBranch($branchId);
 
-        if ($branch->zatca_branch_id === null) {
-            return $this->error(
-                'Branch has no ZATCA ID',
-                'ZATCA_NOT_CONFIGURED',
-                400
-            );
-        }
-
-        $result = $this->client->runComplianceCheck($branch->zatca_branch_id);
-
-        if ($this->isOnboardingSuccess($result)) {
-            $branch->update(['zatca_onboarding_status' => 'compliance_checked']);
-            $branch->refresh();
+        try {
+            $result = $this->onboarding->runComplianceCheck($branch);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
         return $this->success([
@@ -113,31 +86,12 @@ class OnboardingController extends Controller
      */
     public function requestPcsid(string $branchId): JsonResponse
     {
-        $branch = Branch::where('uuid', $branchId)->firstOrFail();
+        $branch = $this->onboarding->findBranch($branchId);
 
-        if ($branch->zatca_branch_id === null) {
-            return $this->error(
-                'Branch has no ZATCA ID',
-                'ZATCA_NOT_CONFIGURED',
-                400
-            );
-        }
-
-        $result = $this->client->requestPcsid($branch->zatca_branch_id);
-
-        if ($this->isOnboardingSuccess($result)) {
-            $updates = ['zatca_onboarding_status' => 'pcsid_issued'];
-
-            $expiresAt = $result->response['data']['expires_at']
-                ?? $result->response['expires_at']
-                ?? null;
-
-            if ($expiresAt !== null) {
-                $updates['zatca_certificate_expires_at'] = $expiresAt;
-            }
-
-            $branch->update($updates);
-            $branch->refresh();
+        try {
+            $result = $this->onboarding->requestPcsid($branch);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
         return $this->success([
@@ -146,24 +100,5 @@ class OnboardingController extends Controller
             'zatca_certificate_expires_at' => $branch->zatca_certificate_expires_at?->toISOString(),
             'compliance_result' => $result->response,
         ]);
-    }
-
-    /**
-     * Whether an onboarding call actually advanced the branch.
-     *
-     * Absence of an error is not success. The compliance check answers 200
-     * with passed false when ZATCA refuses one of its six test invoices, and
-     * recording that as a completed step would leave a branch believing it is
-     * onboarded when it is not.
-     */
-    private function isOnboardingSuccess(ComplianceResult $result): bool
-    {
-        if (in_array($result->status, ['error', 'not_applicable', 'rejected', 'failed'], true)) {
-            return false;
-        }
-
-        $passed = $result->response['data']['passed'] ?? $result->response['passed'] ?? null;
-
-        return $passed !== false;
     }
 }

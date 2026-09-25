@@ -45,32 +45,7 @@ class ControllerQueryTest extends TestCase
      *
      * @var array<string, int>
      */
-    private const OFFENDERS = [
-        'Api/V1/Aml/AmlController.php' => 5,
-        'Api/V1/Auth/AuthController.php' => 14,
-        'Api/V1/Billing/BillingInvoiceController.php' => 1,
-        'Api/V1/Billing/SubscriptionController.php' => 6,
-        'Api/V1/Billing/SubscriptionPlanController.php' => 2,
-        'Api/V1/Billing/UsageController.php' => 3,
-        'Api/V1/Budget/BudgetController.php' => 16,
-        'Api/V1/Budget/BudgetTransferController.php' => 3,
-        'Api/V1/Compliance/DeniedPartyScreeningController.php' => 13,
-        'Api/V1/Compliance/OnboardingController.php' => 4,
-        'Api/V1/Compliance/ZatcaWebhookController.php' => 1,
-        'Api/V1/Ecommerce/EcommerceChannelController.php' => 1,
-        'Api/V1/Ecommerce/EcommerceOrderController.php' => 2,
-        'Api/V1/Ecommerce/OnlinePaymentController.php' => 1,
-        'Api/V1/Ecommerce/PaymentGatewayController.php' => 2,
-        'Api/V1/Expense/ExpenseBudgetController.php' => 1,
-        'Api/V1/Expense/ExpenseCategoryController.php' => 2,
-        'Api/V1/Expense/ExpenseController.php' => 2,
-        'Api/V1/Expense/ExpenseReportController.php' => 1,
-        'Api/V1/Fraud/FraudAlertController.php' => 8,
-        'Api/V1/RealEstate/VacancyController.php' => 4,
-        'Api/V1/TM/TransportationController.php' => 1,
-        'Api/V1/Tax/TaxDeterminationController.php' => 1,
-        'Api/V1/Tax/VatReturnController.php' => 3,
-    ];
+    private const OFFENDERS = [];
 
     public function test_controllers_leave_queries_to_services(): void
     {

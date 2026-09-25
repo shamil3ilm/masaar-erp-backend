@@ -6,6 +6,7 @@ namespace App\Models\Compliance;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DpsScreeningRun extends Model
 {
-    use HasFactory, BelongsToOrganization, HasUuid;
+    use HasFactory, BelongsToOrganization, HasUuid, LocksForTransition;
 
     protected $table = 'dps_screening_runs';
 

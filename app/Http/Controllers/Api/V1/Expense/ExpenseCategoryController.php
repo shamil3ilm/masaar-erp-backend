@@ -4,34 +4,38 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Expense;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Expense\ExpenseCategory;
+use App\Services\Expense\ExpenseCategoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class ExpenseCategoryController extends Controller
 {
+    use ReportsBusinessRules;
+    use ValidatesOwnedRows;
+
+    public function __construct(
+        private readonly ExpenseCategoryService $categories
+    ) {}
+
     /**
      * List expense categories (tree structure).
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ExpenseCategory::with(['children', 'defaultAccount:id,code,name'])
-            ->when($request->has('is_active'), fn($q) => $q->where('is_active', $request->boolean('is_active')));
+        $isActive = $request->has('is_active') ? $request->boolean('is_active') : null;
 
         if ($request->boolean('flat', false)) {
             // Flat list for dropdowns
-            $categories = $query->orderBy('name')->get();
-            return $this->success($categories);
+            return $this->success($this->categories->allCategories($isActive));
         }
 
-        // Tree structure - only root categories
-        $query->whereNull('parent_id');
-
-        $categories = $query->orderBy('name')->paginate($request->integer('per_page', 15));
-
-        return $this->paginated($categories);
+        return $this->paginated($this->categories->paginateRootCategories($isActive, $request->integer('per_page', 15)));
     }
 
     /**
@@ -40,13 +44,13 @@ class ExpenseCategoryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'parent_id' => ['nullable', 'exists:expense_categories,id'],
+            'parent_id' => ['nullable', $this->ownedBy('expense_categories')],
             'name' => ['required', 'string', 'max:255'],
             'code' => ['nullable', 'string', 'max:20', Rule::unique('expense_categories', 'code')->where('organization_id', auth()->user()->organization_id)],
             'icon' => ['nullable', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'max:7'],
             'description' => ['nullable', 'string'],
-            'default_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'default_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'is_active' => ['nullable', 'boolean'],
             'requires_receipt' => ['nullable', 'boolean'],
             'budget_limit' => ['nullable', 'numeric', 'min:0'],
@@ -54,12 +58,7 @@ class ExpenseCategoryController extends Controller
 
         $validated['organization_id'] = $this->organizationId($request);
 
-        $category = ExpenseCategory::create($validated);
-
-        return $this->created(
-            $category->load(['parent', 'defaultAccount:id,code,name']),
-            'Expense category created successfully'
-        );
+        return $this->created($this->categories->create($validated), 'Expense category created successfully');
     }
 
     /**
@@ -78,29 +77,25 @@ class ExpenseCategoryController extends Controller
     public function update(Request $request, ExpenseCategory $expenseCategory): JsonResponse
     {
         $validated = $request->validate([
-            'parent_id' => ['nullable', 'exists:expense_categories,id'],
+            'parent_id' => ['nullable', $this->ownedBy('expense_categories')],
             'name' => ['sometimes', 'string', 'max:255'],
             'code' => ['nullable', 'string', 'max:20'],
             'icon' => ['nullable', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'max:7'],
             'description' => ['nullable', 'string'],
-            'default_account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'default_account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
             'is_active' => ['nullable', 'boolean'],
             'requires_receipt' => ['nullable', 'boolean'],
             'budget_limit' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        // Prevent setting parent to itself or its own children
-        if (isset($validated['parent_id']) && $validated['parent_id'] == $expenseCategory->id) {
-            return $this->error('A category cannot be its own parent', 'VALIDATION_ERROR', 422);
+        try {
+            $category = $this->categories->update($expenseCategory, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        $expenseCategory->update($validated);
-
-        return $this->success(
-            $expenseCategory->fresh(['parent', 'children', 'defaultAccount:id,code,name']),
-            'Expense category updated successfully'
-        );
+        return $this->success($category, 'Expense category updated successfully');
     }
 
     /**
@@ -108,17 +103,11 @@ class ExpenseCategoryController extends Controller
      */
     public function destroy(ExpenseCategory $expenseCategory): JsonResponse
     {
-        // Check if category has expenses
-        if ($expenseCategory->expenses()->exists()) {
-            return $this->error('Cannot delete category with existing expenses', 'HAS_DEPENDENCIES', 400);
+        try {
+            $this->categories->delete($expenseCategory);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        // Check if category has children
-        if ($expenseCategory->children()->exists()) {
-            return $this->error('Cannot delete category with sub-categories', 'HAS_DEPENDENCIES', 400);
-        }
-
-        $expenseCategory->delete();
 
         return $this->success(null, 'Expense category deleted successfully');
     }

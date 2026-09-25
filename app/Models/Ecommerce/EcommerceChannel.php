@@ -20,6 +20,9 @@ class EcommerceChannel extends Model
 
     protected $guarded = ['id'];
 
+    /** Store API tokens and keys; they are used server-side and never returned. */
+    protected $hidden = ['credentials'];
+
     // Status values
     public const STATUS_ACTIVE = 'active';
     public const STATUS_PAUSED = 'paused';

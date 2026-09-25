@@ -51,7 +51,8 @@ class VacancyPeriod extends Model
 
     public function getDaysVacant(): int
     {
-        $end = $this->vacant_to ?? now()->toDateObject();
+        // An open vacancy runs to today.
+        $end = $this->vacant_to ?? today();
         return (int) $this->vacant_from->diffInDays($end);
     }
 

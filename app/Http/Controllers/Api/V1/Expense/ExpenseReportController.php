@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Expense;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Expense\ExpenseReport;
 use App\Services\Expense\ExpenseReportService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ExpenseReportController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ExpenseReportService $reportService
     ) {}
@@ -21,23 +24,10 @@ class ExpenseReportController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ExpenseReport::with(['approvedBy:id,name'])
-            ->orderByDesc('created_at')
-            ->when($request->has('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->has('employee_id'), fn($q) => $q->where('employee_id', $request->employee_id))
-            ->when($request->has('start_date'), fn($q) => $q->whereDate('period_start', '>=', $request->start_date))
-            ->when($request->has('end_date'), fn($q) => $q->whereDate('period_end', '<=', $request->end_date))
-            ->when($request->has('search'), function ($q) use ($request) {
-                $search = $request->search;
-                $q->where(function ($q) use ($search) {
-                    $q->where('report_number', 'like', "%{$search}%")
-                        ->orWhere('title', 'like', "%{$search}%");
-                });
-            });
-
-        $reports = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($reports);
+        return $this->paginated($this->reportService->paginateReports(
+            $request->only(['status', 'employee_id', 'start_date', 'end_date', 'search']),
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -46,13 +36,13 @@ class ExpenseReportController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => ['required', 'exists:employees,id'],
+            'employee_id' => ['required', $this->ownedBy('employees')],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'period_start' => ['required', 'date'],
             'period_end' => ['required', 'date', 'after_or_equal:period_start'],
             'expense_ids' => ['nullable', 'array'],
-            'expense_ids.*' => ['exists:expenses,id'],
+            'expense_ids.*' => [$this->ownedBy('expenses')],
         ]);
 
         try {
@@ -88,7 +78,7 @@ class ExpenseReportController extends Controller
     {
         $validated = $request->validate([
             'expense_ids' => ['required', 'array', 'min:1'],
-            'expense_ids.*' => ['exists:expenses,id'],
+            'expense_ids.*' => [$this->ownedBy('expenses')],
         ]);
 
         return $this->tryAction(
@@ -119,7 +109,7 @@ class ExpenseReportController extends Controller
     {
         $validated = $request->validate([
             'item_approvals' => ['nullable', 'array'],
-            'item_approvals.*.expense_id' => ['required_with:item_approvals', 'exists:expenses,id'],
+            'item_approvals.*.expense_id' => ['required_with:item_approvals', $this->ownedBy('expenses')],
             'item_approvals.*.approved_amount' => ['required_with:item_approvals', 'numeric', 'min:0'],
             'item_approvals.*.notes' => ['nullable', 'string'],
         ]);
