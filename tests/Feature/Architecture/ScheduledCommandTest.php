@@ -49,6 +49,7 @@ class ScheduledCommandTest extends TestCase
             'exports:cleanup' => ['exports:cleanup', []],
             'webhooks:process retry' => ['webhooks:process', ['--retry' => true]],
             'webhooks:process cleanup' => ['webhooks:process', ['--cleanup' => true, '--days' => 30]],
+            'automation:process-schedules' => ['automation:process-schedules', []],
             'invoices:mark-overdue' => ['invoices:mark-overdue', []],
             'bills:mark-overdue' => ['bills:mark-overdue', []],
             'erp:archive' => ['erp:archive', []],
