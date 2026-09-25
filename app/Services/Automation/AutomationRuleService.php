@@ -95,6 +95,19 @@ class AutomationRuleService
     }
 
     /**
+     * The service that keeps a scheduled rule's next run.
+     *
+     * It is resolved on use instead of being a constructor dependency because
+     * AutomationScheduleService takes this service to evaluate and run a rule
+     * that falls due, so injecting it here would close a cycle the container
+     * cannot build.
+     */
+    private function scheduleService(): AutomationScheduleService
+    {
+        return app(AutomationScheduleService::class);
+    }
+
+    /**
      * Create a new automation rule.
      */
     public function create(array $data, int $userId): AutomationRule
@@ -109,7 +122,7 @@ class AutomationRuleService
 
             // If it's a scheduled rule, create the initial schedule
             if ($rule->isScheduled() && !empty($rule->trigger_schedule)) {
-                app(AutomationScheduleService::class)->create($rule);
+                $this->scheduleService()->create($rule);
             }
 
             return $rule;
@@ -127,7 +140,7 @@ class AutomationRuleService
             // If the schedule changed, update scheduled jobs
             if (isset($data['trigger_schedule']) && $rule->isScheduled()) {
                 $rule->schedules()->pending()->delete();
-                app(AutomationScheduleService::class)->create($rule);
+                $this->scheduleService()->create($rule);
             }
 
             return $rule->fresh();
@@ -144,7 +157,7 @@ class AutomationRuleService
 
             // If it's a scheduled rule, create the next schedule
             if ($rule->isScheduled()) {
-                app(AutomationScheduleService::class)->create($rule);
+                $this->scheduleService()->create($rule);
             }
 
             return $rule->fresh();

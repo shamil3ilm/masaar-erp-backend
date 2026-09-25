@@ -6,6 +6,7 @@ namespace App\Models\Messaging;
 
 use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -39,16 +40,26 @@ class MessagingConfiguration extends Model
         'settings',
         'sender_name',
         'sender_address',
-        'is_default',
+        'default_for_type',
         'is_active',
     ];
 
     /**
-     * Provider secrets (API keys, auth tokens, SMTP passwords). The cast decrypts
-     * them for the sender; they never leave in a response.
+     * Read as the is_default attribute below, which is what a response carries.
+     */
+    protected $appends = [
+        'is_default',
+    ];
+
+    /**
+     * credentials holds the provider secrets (API keys, auth tokens, SMTP
+     * passwords); the cast decrypts them for the sender and they never leave in
+     * a response. default_for_type is the storage behind is_default and says
+     * nothing is_default does not.
      */
     protected $hidden = [
         'credentials',
+        'default_for_type',
     ];
 
     protected function casts(): array
@@ -56,7 +67,6 @@ class MessagingConfiguration extends Model
         return [
             'credentials' => 'encrypted:array',
             'settings' => 'array',
-            'is_default' => 'boolean',
             'is_active' => 'boolean',
         ];
     }
@@ -75,7 +85,7 @@ class MessagingConfiguration extends Model
 
     public function scopeDefault(Builder $query): Builder
     {
-        return $query->where('is_default', true);
+        return $query->whereNotNull('default_for_type');
     }
 
     public function scopeForProvider(Builder $query, string $provider): Builder
@@ -90,9 +100,13 @@ class MessagingConfiguration extends Model
         return $this->is_active;
     }
 
-    public function isDefault(): bool
+    /**
+     * Whether this channel is its organization's default for its channel type,
+     * which default_for_type records by naming that type.
+     */
+    protected function isDefault(): Attribute
     {
-        return $this->is_default;
+        return Attribute::get(fn (): bool => $this->default_for_type !== null);
     }
 
     /**

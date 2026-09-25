@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 49 migrations.
+978 tables across 50 migrations.
 
 ## Contents
 
@@ -57,6 +57,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0510_recurring_profile_log_created_nullable.php`: changes to recurring_profile_logs
 - `0520_continue_number_sequences_after_stored_numbers.php`: data only, no schema changes
 - `0530_purchase_order_pending_approval_status.php`: changes to purchase_orders
+- `0540_messaging_channel_default_marker.php`: changes to messaging_channels
 
 ## 0010_accounting.php
 
@@ -13446,6 +13447,13 @@ Indexes:
 - `$table->unique(['organization_id', 'channel_type', 'is_default'], 'msg_channels_org_type_default_unique')`
 - `$table->index(['organization_id', 'is_active'])`
 
+Added by later migrations:
+
+- `0540_messaging_channel_default_marker.php`: `$table->dropUnique('msg_channels_org_type_default_unique')`
+- `0540_messaging_channel_default_marker.php`: `$table->string('default_for_type', 30)->nullable()->after('sender_address')`
+- `0540_messaging_channel_default_marker.php`: `$table->dropColumn('is_default')`
+- `0540_messaging_channel_default_marker.php`: `$table->unique(['organization_id', 'default_for_type'], 'msg_channels_org_default_unique')`
+
 ### messaging_automations
 
 | Column | Type | Details |
@@ -25255,3 +25263,7 @@ Changes no table structure; it only reads or writes data.
 ## 0530_purchase_order_pending_approval_status.php
 
 Changes tables created earlier: `purchase_orders`.
+
+## 0540_messaging_channel_default_marker.php
+
+Changes tables created earlier: `messaging_channels`.
