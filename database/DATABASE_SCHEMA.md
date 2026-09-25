@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 53 migrations.
+978 tables across 54 migrations.
 
 ## Contents
 
@@ -61,6 +61,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0550_organization_parent.php`: changes to organizations
 - `0560_accounting_numbers_per_organization.php`: changes to activity_confirmations, cost_center_budget_supplements, cost_reconciliation_runs, fx_forwards, intercompany_reconciliation_sessions, xbrl_taxonomies
 - `0570_budget_transfer_numbers_per_organization.php`: changes to budget_transfers
+- `0580_core_codes_per_organization.php`: changes to business_partners, class_assignments, class_characteristic_values, class_characteristics, email_templates
 
 ## 0010_accounting.php
 
@@ -922,6 +923,11 @@ Indexes:
 - `$table->index(['organization_id', 'contact_id'])`
 - `$table->index(['organization_id', 'supplier_id'])`
 
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('business_partners_bp_number_unique')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'bp_number'], 'business_partners_org_bp_number_unq')`
+
 ### business_partner_roles
 
 | Column | Type | Details |
@@ -963,6 +969,11 @@ Indexes:
 - `$table->unique(['classification_class_id', 'object_type', 'object_id'], 'ca_class_obj_unq')`
 - `$table->index(['object_type', 'object_id'], 'ca_obj_idx')`
 
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('ca_class_obj_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'classification_class_id', 'object_type', 'object_id'], 'ca_org_class_obj_unq')`
+
 ### class_characteristic_values
 
 | Column | Type | Details |
@@ -984,6 +995,11 @@ Indexes:
 
 - `$table->unique(['class_characteristic_id', 'object_type', 'object_id'], 'ccv_char_obj_unq')`
 - `$table->index(['object_type', 'object_id'], 'ccv_obj_idx')`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('ccv_char_obj_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'class_characteristic_id', 'object_type', 'object_id'], 'ccv_org_char_obj_unq')`
 
 ### class_characteristics
 
@@ -1009,6 +1025,11 @@ Indexes:
 Indexes:
 
 - `$table->unique(['classification_class_id', 'characteristic_code'], 'cchar_class_code_unq')`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('cchar_class_code_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'classification_class_id', 'characteristic_code'], 'cchar_org_class_code_unq')`
 
 ### dashboard_widgets
 
@@ -1455,6 +1476,11 @@ Indexes:
 Indexes:
 
 - `$table->unique(['organization_id', 'code', 'language'])`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('email_templates_code_unique')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'code', 'language'], 'email_templates_org_code_lang_unq')`
 
 ### gdpr_processing_activities
 
@@ -25322,3 +25348,7 @@ Changes tables created earlier: `activity_confirmations`, `cost_center_budget_su
 ## 0570_budget_transfer_numbers_per_organization.php
 
 Changes tables created earlier: `budget_transfers`.
+
+## 0580_core_codes_per_organization.php
+
+Changes tables created earlier: `business_partners`, `class_assignments`, `class_characteristic_values`, `class_characteristics`, `email_templates`.
