@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Sales;
 
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Sales\IntercompanyBillingDocumentResource;
 use App\Http\Resources\Sales\IntercompanySalesOrderResource;
@@ -21,6 +22,7 @@ use Illuminate\Validation\Rule;
 class IntercompanySalesController extends Controller
 {
     use ReportsBusinessRules;
+    use ValidatesOwnedRows;
 
     public function __construct(
         private IntercompanySalesService $service
@@ -52,14 +54,14 @@ class IntercompanySalesController extends Controller
 
         $validated = $request->validate([
             'selling_organization_id'    => [
-                'required', 'integer', 'exists:organizations,id',
+                'required', 'integer', $this->inCallerGroup(),
                 function (string $attribute, mixed $value, \Closure $fail) use ($request, $callerOrganizationId): void {
                     if ((int) $value !== $callerOrganizationId && $request->integer('buying_organization_id') !== $callerOrganizationId) {
                         $fail('Your organization must be the selling or the buying organization.');
                     }
                 },
             ],
-            'buying_organization_id'     => 'required|integer|exists:organizations,id|different:selling_organization_id',
+            'buying_organization_id'     => ['required', 'integer', $this->inCallerGroup(), 'different:selling_organization_id'],
             'order_number'               => 'required|string|max:50',
             'order_date'                 => 'required|date',
             'requested_delivery_date'    => 'nullable|date|after_or_equal:order_date',

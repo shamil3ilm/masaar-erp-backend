@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\ConsolidationEntity;
 use App\Models\Accounting\ConsolidationGroup;
@@ -11,7 +12,9 @@ use App\Models\Accounting\ConsolidationPeriod;
 use App\Models\Accounting\EliminationEntry;
 use App\Models\Accounting\FiscalYear;
 use App\Models\Core\Organization;
+use App\Services\Accounting\ConsolidationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 use Tests\Traits\TestHelpers;
 
@@ -175,7 +178,7 @@ class ConsolidationTest extends TestCase
     public function test_add_entity_to_group(): void
     {
         $group     = $this->makeGroup();
-        $otherOrg  = \App\Models\Core\Organization::factory()->create();
+        $otherOrg  = Organization::factory()->create(['parent_organization_id' => $this->organization->id]);
 
         $response = $this->withToken($this->token)
             ->postJson('/api/v1/consolidation/groups/' . $group->id . '/entities', [
@@ -620,5 +623,80 @@ class ConsolidationTest extends TestCase
     {
         $this->getJson('/api/v1/consolidation/groups')->assertStatus(401);
         $this->getJson('/api/v1/consolidation/periods')->assertStatus(401);
+    }
+    // -------------------------------------------------------------------------
+    // Organization group
+    // -------------------------------------------------------------------------
+
+    public function test_add_entity_refuses_an_organization_outside_the_group_and_accepts_the_parent_and_a_sibling(): void
+    {
+        $parent   = Organization::factory()->create();
+        $sibling  = Organization::factory()->create(['parent_organization_id' => $parent->id]);
+        $stranger = Organization::factory()->create();
+
+        $this->organization->parent_organization_id = $parent->id;
+        $this->organization->save();
+
+        $group = $this->makeGroup();
+
+        $this->addEntity($group, $stranger)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('entity_organization_id');
+
+        $this->addEntity($group, $parent)->assertStatus(201);
+        $this->addEntity($group, $sibling)->assertStatus(201);
+
+        $this->assertSame(2, ConsolidationEntity::count());
+    }
+
+    private function addEntity(ConsolidationGroup $group, Organization $entity): TestResponse
+    {
+        return $this->withToken($this->token)
+            ->postJson('/api/v1/consolidation/groups/' . $group->id . '/entities', [
+                'entity_organization_id' => $entity->id,
+                'name'                   => 'Member ' . $entity->id,
+                'ownership_percent'      => 40,
+            ]);
+    }
+
+    public function test_store_group_refuses_an_entity_outside_the_callers_group(): void
+    {
+        $stranger = Organization::factory()->create();
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/consolidation/groups', [
+                'name'          => 'Gulf Entities',
+                'currency_code' => 'SAR',
+                'entities'      => [
+                    ['entity_organization_id' => $stranger->id, 'name' => 'Their company'],
+                ],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('entities.0.entity_organization_id');
+
+        $this->assertSame(0, ConsolidationGroup::count());
+    }
+
+    /**
+     * The request rule is not the only guard: consolidation reads an entity's
+     * ledger, so a caller reaching the service directly must not pull in a
+     * tenant outside the group.
+     */
+    public function test_the_service_refuses_an_entity_outside_the_group(): void
+    {
+        $group    = $this->makeGroup();
+        $stranger = Organization::factory()->create();
+
+        try {
+            app(ConsolidationService::class)->addEntity($group, [
+                'entity_organization_id' => $stranger->id,
+                'name'                   => 'Their company',
+            ], $this->user->id);
+            $this->fail('The service added an entity outside the group.');
+        } catch (BusinessRuleException $e) {
+            $this->assertSame('ORGANIZATION_OUTSIDE_GROUP', $e->getErrorCode());
+        }
+
+        $this->assertSame(0, ConsolidationEntity::count());
     }
 }

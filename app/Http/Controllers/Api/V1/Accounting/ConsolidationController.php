@@ -60,7 +60,7 @@ class ConsolidationController extends Controller
             'description'                   => 'nullable|string',
             'currency_code'                 => 'required|string|size:3',
             'entities'                      => 'nullable|array',
-            'entities.*.entity_organization_id' => 'required_with:entities|exists:organizations,id',
+            'entities.*.entity_organization_id' => ['required_with:entities', $this->inCallerGroup()],
             'entities.*.name'               => 'required_with:entities|string|max:255',
             'entities.*.ownership_percent'  => 'nullable|numeric|min:0|max:100',
             'entities.*.consolidation_method' => 'nullable|in:full,proportional,equity',
@@ -135,7 +135,7 @@ class ConsolidationController extends Controller
         }
 
         $validated = $request->validate([
-            'entity_organization_id' => 'required|exists:organizations,id',
+            'entity_organization_id' => ['required', $this->inCallerGroup()],
             'name'                   => 'required|string|max:255',
             'ownership_percent'      => 'nullable|numeric|min:0|max:100',
             'consolidation_method'   => 'nullable|in:full,proportional,equity',
@@ -201,7 +201,9 @@ class ConsolidationController extends Controller
     /**
      * Create a consolidation period.
      *
-     * The group and fiscal year must belong to the caller's organisation.
+     * The group and fiscal year must belong to the caller's organisation:
+     * ConsolidationGroup is scoped to one organisation, so a period naming
+     * another company's group could not read it back.
      */
     public function storePeriod(Request $request): JsonResponse
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Accounting;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\AssetTransfer;
 use App\Models\Accounting\FixedAsset;
@@ -13,6 +14,8 @@ use Illuminate\Http\Request;
 
 class AssetTransferController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly AssetTransferService $transferService,
     ) {}
@@ -49,7 +52,7 @@ class AssetTransferController extends Controller
     public function store(Request $request, FixedAsset $fixedAsset): JsonResponse
     {
         $validated = $request->validate([
-            'receiving_organization_id' => ['required', 'integer', 'exists:organizations,id'],
+            'receiving_organization_id' => ['required', 'integer', $this->inCallerGroup()],
             'transfer_date' => ['required', 'date'],
             'transfer_type' => ['sometimes', 'in:book_value,gross_value,negotiated_price'],
             'transfer_price' => ['required_if:transfer_type,negotiated_price', 'nullable', 'numeric', 'min:0'],

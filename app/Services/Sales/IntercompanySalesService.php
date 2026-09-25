@@ -6,6 +6,7 @@ namespace App\Services\Sales;
 
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Accounting\Account;
+use App\Models\Core\Organization;
 use App\Models\Sales\IntercompanyBillingDocument;
 use App\Models\Sales\IntercompanyPurchaseOrderLink;
 use App\Models\Sales\IntercompanySalesOrder;
@@ -129,6 +130,8 @@ class IntercompanySalesService
     public function create(array $data): IntercompanySalesOrder
     {
         return DB::transaction(function () use ($data): IntercompanySalesOrder {
+            $this->assertSameGroup((int) $data['selling_organization_id'], (int) $data['buying_organization_id']);
+
             $linesData = $data['lines'] ?? [];
             unset($data['lines']);
 
@@ -183,6 +186,8 @@ class IntercompanySalesService
     {
         return DB::transaction(function () use ($order): IntercompanySalesOrder {
             $order = $this->lockedOrder($order);
+
+            $this->assertSameGroup((int) $order->selling_organization_id, (int) $order->buying_organization_id);
 
             if (! $order->canConfirm()) {
                 throw new BusinessRuleException(
@@ -407,6 +412,25 @@ class IntercompanySalesService
 
             return $order->fresh();
         });
+    }
+
+    /**
+     * Refuses a seller and a buyer that are not in one parent-subsidiary
+     * group.
+     *
+     * Confirming an order commits both ledgers, so membership is re-checked
+     * on the locked order and not only in the request rule: an order stored
+     * before the two organizations were separated, or reached through the
+     * service directly, must still not bill across tenants.
+     */
+    private function assertSameGroup(int $sellingOrganizationId, int $buyingOrganizationId): void
+    {
+        if (! in_array($buyingOrganizationId, Organization::groupIds($sellingOrganizationId), true)) {
+            throw new BusinessRuleException(
+                'The selling and buying organizations are not in one group.',
+                'ORGANIZATION_OUTSIDE_GROUP'
+            );
+        }
     }
 
     /**
