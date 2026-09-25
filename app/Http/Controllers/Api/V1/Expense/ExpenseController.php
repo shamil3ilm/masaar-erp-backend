@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Expense;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Expense\Expense;
-use App\Models\Expense\RecurringExpense;
 use App\Services\Expense\ExpenseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ExpenseController extends Controller
 {
+    use ReportsBusinessRules;
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ExpenseService $expenseService
     ) {}
@@ -22,31 +27,20 @@ class ExpenseController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Expense::with(['category:id,name', 'createdBy:id,name'])
-            ->orderByDesc('expense_date')
-            ->orderByDesc('id');
+        $filters = [
+            'status' => $request->status,
+            'category_id' => $request->category_id,
+            'employee_id' => $request->employee_id,
+            'start_date' => $request->start_date,
+            'end_date' => $request->end_date,
+            'search' => $request->search,
+        ];
 
-        $query
-            ->when($request->status, fn ($q, $v) => $q->where('status', $v))
-            ->when($request->category_id, fn ($q, $v) => $q->where('category_id', $v))
-            ->when($request->employee_id, fn ($q, $v) => $q->where('employee_id', $v))
-            ->when($request->start_date, fn ($q, $v) => $q->whereDate('expense_date', '>=', $v))
-            ->when($request->end_date, fn ($q, $v) => $q->whereDate('expense_date', '<=', $v))
-            ->when(
-                $request->has('is_reimbursable'),
-                fn ($q) => $q->where('is_reimbursable', $request->boolean('is_reimbursable'))
-            )
-            ->when($request->search, function ($q, $search) {
-                $q->where(function ($inner) use ($search) {
-                    $inner->where('expense_number', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%")
-                        ->orWhere('reference', 'like', "%{$search}%");
-                });
-            });
+        if ($request->has('is_reimbursable')) {
+            $filters['is_reimbursable'] = $request->boolean('is_reimbursable');
+        }
 
-        $expenses = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($expenses);
+        return $this->paginated($this->expenseService->paginateExpenses($filters, $request->integer('per_page', 20)));
     }
 
     /**
@@ -55,10 +49,10 @@ class ExpenseController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => ['nullable', 'exists:branches,id'],
-            'category_id' => ['required', 'exists:expense_categories,id'],
-            'employee_id' => ['nullable', 'exists:employees,id'],
-            'supplier_id' => ['nullable', 'exists:contacts,id'],
+            'branch_id' => ['nullable', $this->ownedBy('branches')],
+            'category_id' => ['required', $this->ownedBy('expense_categories')],
+            'employee_id' => ['nullable', $this->ownedBy('employees')],
+            'supplier_id' => ['nullable', $this->ownedBy('contacts')],
             'expense_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date'],
             'payment_method' => ['nullable', 'string', 'in:cash,card,bank_transfer,petty_cash'],
@@ -71,19 +65,19 @@ class ExpenseController extends Controller
             'total_amount' => ['nullable', 'numeric', 'min:0.01'],
             'is_reimbursable' => ['nullable', 'boolean'],
             'is_billable' => ['nullable', 'boolean'],
-            'customer_id' => ['nullable', 'exists:contacts,id'],
-            'account_id' => ['nullable', 'exists:chart_of_accounts,id'],
-            'bank_account_id' => ['nullable', 'exists:bank_accounts,id'],
+            'customer_id' => ['nullable', $this->ownedBy('contacts')],
+            'account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'bank_account_id' => ['nullable', $this->ownedBy('bank_accounts')],
             'notes' => ['nullable', 'string'],
             'custom_fields' => ['nullable', 'array'],
             'items' => ['nullable', 'array'],
-            'items.*.category_id' => ['nullable', 'exists:expense_categories,id'],
+            'items.*.category_id' => ['nullable', $this->ownedBy('expense_categories')],
             'items.*.description' => ['required', 'string'],
             'items.*.amount' => ['required', 'numeric', 'min:0.01'],
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0'],
             'items.*.tax_amount' => ['nullable', 'numeric', 'min:0'],
             'items.*.total_amount' => ['nullable', 'numeric', 'min:0.01'],
-            'items.*.account_id' => ['nullable', 'exists:chart_of_accounts,id'],
+            'items.*.account_id' => ['nullable', $this->ownedBy('chart_of_accounts')],
         ]);
 
         try {
@@ -123,7 +117,7 @@ class ExpenseController extends Controller
     public function update(Request $request, Expense $expense): JsonResponse
     {
         $validated = $request->validate([
-            'category_id' => ['sometimes', 'exists:expense_categories,id'],
+            'category_id' => ['sometimes', $this->ownedBy('expense_categories')],
             'expense_date' => ['sometimes', 'date'],
             'due_date' => ['nullable', 'date'],
             'payment_method' => ['nullable', 'string', 'in:cash,card,bank_transfer,petty_cash'],
@@ -153,11 +147,11 @@ class ExpenseController extends Controller
      */
     public function destroy(Expense $expense): JsonResponse
     {
-        if ($expense->status !== Expense::STATUS_DRAFT) {
-            return $this->error('Only draft expenses can be deleted', 'INVALID_STATUS', 400);
+        try {
+            $this->expenseService->delete($expense);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $expense->delete();
 
         return $this->success(null, 'Expense deleted successfully');
     }
@@ -203,17 +197,10 @@ class ExpenseController extends Controller
      */
     public function recurringIndex(Request $request): JsonResponse
     {
-        $query = RecurringExpense::with(['category:id,name', 'createdBy:id,name'])
-            ->orderByDesc('created_at');
-
-        $query->when(
-            $request->has('is_active'),
-            fn ($q) => $q->where('is_active', $request->boolean('is_active'))
-        );
-
-        $recurring = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($recurring);
+        return $this->paginated($this->expenseService->paginateRecurring(
+            $request->has('is_active') ? $request->boolean('is_active') : null,
+            $request->integer('per_page', 20),
+        ));
     }
 
     /**
@@ -222,8 +209,8 @@ class ExpenseController extends Controller
     public function createRecurring(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'category_id' => ['required', 'exists:expense_categories,id'],
-            'supplier_id' => ['nullable', 'exists:contacts,id'],
+            'category_id' => ['required', $this->ownedBy('expense_categories')],
+            'supplier_id' => ['nullable', $this->ownedBy('contacts')],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'amount' => ['required', 'numeric', 'min:0.01'],

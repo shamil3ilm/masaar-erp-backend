@@ -6,6 +6,7 @@ namespace Tests\Feature\Compliance;
 
 use App\Models\Sales\Contact;
 use App\Models\Sales\Invoice;
+use App\Notifications\Sales\InvoiceSentNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
@@ -193,6 +194,35 @@ class ZatcaWebhookTest extends TestCase
         $this->send('invoice.cleared', [])->assertStatus(200);
 
         $this->assertSame(Invoice::COMPLIANCE_REJECTED, $this->invoice->refresh()->compliance_status);
+    }
+
+    public function test_a_clearance_notifies_the_customer_of_a_standard_invoice_once(): void
+    {
+        Notification::fake();
+        $this->invoice->update(['invoice_type' => Invoice::TYPE_STANDARD]);
+
+        $this->send('invoice.cleared', [])->assertStatus(200);
+        $this->send('invoice.cleared', [])->assertStatus(200);
+
+        Notification::assertSentTimes(InvoiceSentNotification::class, 1);
+    }
+
+    /**
+     * A clearance that arrives after a rejection is dropped as a downgrade,
+     * so the customer must not be told the invoice was sent.
+     */
+    public function test_a_clearance_dropped_as_a_downgrade_notifies_nobody(): void
+    {
+        Notification::fake();
+        $this->invoice->update([
+            'invoice_type' => Invoice::TYPE_STANDARD,
+            'compliance_status' => Invoice::COMPLIANCE_REJECTED,
+        ]);
+
+        $this->send('invoice.cleared', [])->assertStatus(200);
+
+        $this->assertSame(Invoice::COMPLIANCE_REJECTED, $this->invoice->refresh()->compliance_status);
+        Notification::assertNothingSent();
     }
 
     public function test_an_unknown_event_is_acknowledged(): void

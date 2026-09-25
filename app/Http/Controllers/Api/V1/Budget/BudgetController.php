@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Budget;
 
+use App\Exceptions\ERP\BusinessRuleException;
+use App\Http\Concerns\ReportsBusinessRules;
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
-use App\Models\Budget\Budget;
-use App\Models\Budget\BudgetCommitment;
-use App\Models\Budget\BudgetLine;
 use App\Services\Accounting\BudgetService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use RuntimeException;
 
 class BudgetController extends Controller
 {
+    use ReportsBusinessRules;
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly BudgetService $budgetService,
     ) {}
@@ -29,16 +31,14 @@ class BudgetController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Budget::with(['fiscalYear:id,name', 'creator:id,name'])
-            ->orderByDesc('created_at')
-            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
-            ->when($request->filled('budget_type'), fn($q) => $q->where('budget_type', $request->budget_type))
-            ->when($request->filled('fiscal_year_id'), fn($q) => $q->where('fiscal_year_id', $request->integer('fiscal_year_id')))
-            ->when($request->filled('search'), fn($q) => $q->where('name', 'like', "%{$request->search}%"));
+        $filters = array_filter([
+            'status'         => $request->filled('status') ? $request->input('status') : null,
+            'budget_type'    => $request->filled('budget_type') ? $request->input('budget_type') : null,
+            'fiscal_year_id' => $request->filled('fiscal_year_id') ? $request->integer('fiscal_year_id') : null,
+            'search'         => $request->filled('search') ? $request->input('search') : null,
+        ], fn ($value) => $value !== null);
 
-        $budgets = $query->paginate($request->integer('per_page', 20));
-
-        return $this->paginated($budgets);
+        return $this->paginated($this->budgetService->paginateBudgets($filters, $request->integer('per_page', 20)));
     }
 
     /**
@@ -47,7 +47,7 @@ class BudgetController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'fiscal_year_id'         => ['nullable', 'exists:fiscal_years,id'],
+            'fiscal_year_id'         => ['nullable', $this->ownedBy('fiscal_years')],
             'name'                   => ['required', 'string', 'max:255'],
             'budget_type'            => ['nullable', 'string', 'in:annual,quarterly,project,department'],
             'period_start'           => ['required', 'date'],
@@ -56,9 +56,9 @@ class BudgetController extends Controller
             'description'            => ['nullable', 'string'],
             'lines'                  => ['nullable', 'array'],
             'lines.*.name'           => ['required_with:lines', 'string', 'max:255'],
-            'lines.*.account_id'     => ['nullable', 'exists:chart_of_accounts,id'],
-            'lines.*.cost_center_id' => ['nullable', 'exists:cost_centers,id'],
-            'lines.*.department_id'  => ['nullable', 'exists:departments,id'],
+            'lines.*.account_id'     => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'lines.*.cost_center_id' => ['nullable', $this->ownedBy('cost_centers')],
+            'lines.*.department_id'  => ['nullable', $this->ownedBy('departments')],
             'lines.*.q1_amount'      => ['nullable', 'numeric', 'min:0'],
             'lines.*.q2_amount'      => ['nullable', 'numeric', 'min:0'],
             'lines.*.q3_amount'      => ['nullable', 'numeric', 'min:0'],
@@ -78,15 +78,7 @@ class BudgetController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $budget = Budget::with([
-            'fiscalYear:id,name',
-            'lines.account:id,code,name',
-            'lines.costCenter:id,code,name',
-            'lines.department:id,name',
-            'revisions.creator:id,name',
-            'approver:id,name',
-            'creator:id,name',
-        ])->find($id);
+        $budget = $this->budgetService->findBudgetWithDetails($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
@@ -100,14 +92,14 @@ class BudgetController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $budget = Budget::find($id);
+        $budget = $this->budgetService->findBudget($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
         $validated = $request->validate([
-            'fiscal_year_id' => ['nullable', 'exists:fiscal_years,id'],
+            'fiscal_year_id' => ['nullable', $this->ownedBy('fiscal_years')],
             'name'           => ['sometimes', 'string', 'max:255'],
             'budget_type'    => ['sometimes', 'string', 'in:annual,quarterly,project,department'],
             'period_start'   => ['sometimes', 'date'],
@@ -117,16 +109,12 @@ class BudgetController extends Controller
         ]);
 
         try {
-            if (!$budget->isEditable()) {
-                throw new InvalidArgumentException('Only draft or submitted budgets can be edited.');
-            }
-
-            $budget->update($validated);
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'BUDGET_NOT_EDITABLE', 422);
+            $budget = $this->budgetService->updateBudget($budget, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
-        return $this->success($budget->fresh(['lines', 'fiscalYear']));
+        return $this->success($budget);
     }
 
     /**
@@ -134,17 +122,17 @@ class BudgetController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $budget = Budget::find($id);
+        $budget = $this->budgetService->findBudget($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
-        if (!$budget->isEditable()) {
-            return $this->error('Only draft or submitted budgets can be deleted.', 'BUDGET_NOT_DELETABLE', 422);
+        try {
+            $this->budgetService->deleteBudget($budget);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
-
-        $budget->delete();
 
         return $this->success(null, 'Budget deleted successfully.');
     }
@@ -158,19 +146,7 @@ class BudgetController extends Controller
      */
     public function submit(int $id): JsonResponse
     {
-        $budget = Budget::find($id);
-
-        if ($budget === null) {
-            return $this->notFound('Budget not found.');
-        }
-
-        try {
-            $budget = $this->budgetService->submitBudget($budget, auth()->id());
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'INVALID_TRANSITION', 422);
-        }
-
-        return $this->success($budget, 'Budget submitted for approval.');
+        return $this->transition($id, 'submitBudget', 'Budget submitted for approval.');
     }
 
     /**
@@ -178,19 +154,7 @@ class BudgetController extends Controller
      */
     public function approve(int $id): JsonResponse
     {
-        $budget = Budget::find($id);
-
-        if ($budget === null) {
-            return $this->notFound('Budget not found.');
-        }
-
-        try {
-            $budget = $this->budgetService->approveBudget($budget, auth()->id());
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'INVALID_TRANSITION', 422);
-        }
-
-        return $this->success($budget, 'Budget approved.');
+        return $this->transition($id, 'approveBudget', 'Budget approved.');
     }
 
     /**
@@ -198,19 +162,7 @@ class BudgetController extends Controller
      */
     public function activate(int $id): JsonResponse
     {
-        $budget = Budget::find($id);
-
-        if ($budget === null) {
-            return $this->notFound('Budget not found.');
-        }
-
-        try {
-            $budget = $this->budgetService->activateBudget($budget, auth()->id());
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'INVALID_TRANSITION', 422);
-        }
-
-        return $this->success($budget, 'Budget activated.');
+        return $this->transition($id, 'activateBudget', 'Budget activated.');
     }
 
     // ----------------------------------------------------------------
@@ -222,7 +174,7 @@ class BudgetController extends Controller
      */
     public function storeLine(Request $request, int $id): JsonResponse
     {
-        $budget = Budget::find($id);
+        $budget = $this->budgetService->findBudget($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
@@ -230,9 +182,9 @@ class BudgetController extends Controller
 
         $validated = $request->validate([
             'name'           => ['required', 'string', 'max:255'],
-            'account_id'     => ['nullable', 'exists:chart_of_accounts,id'],
-            'cost_center_id' => ['nullable', 'exists:cost_centers,id'],
-            'department_id'  => ['nullable', 'exists:departments,id'],
+            'account_id'     => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'cost_center_id' => ['nullable', $this->ownedBy('cost_centers')],
+            'department_id'  => ['nullable', $this->ownedBy('departments')],
             'q1_amount'      => ['nullable', 'numeric', 'min:0'],
             'q2_amount'      => ['nullable', 'numeric', 'min:0'],
             'q3_amount'      => ['nullable', 'numeric', 'min:0'],
@@ -241,24 +193,9 @@ class BudgetController extends Controller
         ]);
 
         try {
-            if (!$budget->isEditable()) {
-                throw new InvalidArgumentException('Only draft or submitted budgets can be edited.');
-            }
-
-            $q1 = (string) ($validated['q1_amount'] ?? 0);
-            $q2 = (string) ($validated['q2_amount'] ?? 0);
-            $q3 = (string) ($validated['q3_amount'] ?? 0);
-            $q4 = (string) ($validated['q4_amount'] ?? 0);
-
-            $line = $budget->lines()->create(array_merge($validated, [
-                'total_amount'     => bcadd(bcadd(bcadd($q1, $q2, 4), $q3, 4), $q4, 4),
-                'committed_amount' => 0,
-                'actual_amount'    => 0,
-            ]));
-
-            $budget->update(['total_amount' => $budget->getTotalBudgeted()]);
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'BUDGET_NOT_EDITABLE', 422);
+            $line = $this->budgetService->addLine($budget, $validated);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
         return $this->created($line);
@@ -269,13 +206,13 @@ class BudgetController extends Controller
      */
     public function updateLine(Request $request, int $budgetId, int $lineId): JsonResponse
     {
-        $budget = Budget::find($budgetId);
+        $budget = $this->budgetService->findBudget($budgetId);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
-        $line = BudgetLine::where('budget_id', $budgetId)->find($lineId);
+        $line = $this->budgetService->findLine($budget, $lineId);
 
         if ($line === null) {
             return $this->notFound('Budget line not found.');
@@ -283,9 +220,9 @@ class BudgetController extends Controller
 
         $validated = $request->validate([
             'name'           => ['sometimes', 'string', 'max:255'],
-            'account_id'     => ['nullable', 'exists:chart_of_accounts,id'],
-            'cost_center_id' => ['nullable', 'exists:cost_centers,id'],
-            'department_id'  => ['nullable', 'exists:departments,id'],
+            'account_id'     => ['nullable', $this->ownedBy('chart_of_accounts')],
+            'cost_center_id' => ['nullable', $this->ownedBy('cost_centers')],
+            'department_id'  => ['nullable', $this->ownedBy('departments')],
             'q1_amount'      => ['sometimes', 'numeric', 'min:0'],
             'q2_amount'      => ['sometimes', 'numeric', 'min:0'],
             'q3_amount'      => ['sometimes', 'numeric', 'min:0'],
@@ -293,7 +230,11 @@ class BudgetController extends Controller
             'notes'          => ['nullable', 'string', 'max:500'],
         ]);
 
-        $line = $this->budgetService->updateLine($line, $validated, auth()->id());
+        try {
+            $line = $this->budgetService->updateLine($line, $validated, auth()->id());
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
+        }
 
         return $this->success($line->load(['account', 'costCenter', 'department']));
     }
@@ -303,27 +244,22 @@ class BudgetController extends Controller
      */
     public function destroyLine(int $budgetId, int $lineId): JsonResponse
     {
-        $budget = Budget::find($budgetId);
+        $budget = $this->budgetService->findBudget($budgetId);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
-        $line = BudgetLine::where('budget_id', $budgetId)->find($lineId);
+        $line = $this->budgetService->findLine($budget, $lineId);
 
         if ($line === null) {
             return $this->notFound('Budget line not found.');
         }
 
         try {
-            if (!$budget->isEditable()) {
-                throw new InvalidArgumentException('Only draft or submitted budgets can be edited.');
-            }
-
-            $line->delete();
-            $budget->update(['total_amount' => $budget->getTotalBudgeted()]);
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 'BUDGET_NOT_EDITABLE', 422);
+            $this->budgetService->removeLine($budget, $line);
+        } catch (BusinessRuleException $e) {
+            return $this->ruleError($e);
         }
 
         return $this->success(null, 'Budget line deleted successfully.');
@@ -338,17 +274,18 @@ class BudgetController extends Controller
      */
     public function storeRevision(Request $request, int $id): JsonResponse
     {
-        $budget = Budget::find($id);
+        $budget = $this->budgetService->findBudget($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
+        // A line total is the sum of its quarters, so only quarters are revised.
         $validated = $request->validate([
             'reason'                         => ['required', 'string'],
             'line_changes'                   => ['required', 'array', 'min:1'],
-            'line_changes.*.budget_line_id'  => ['required', 'exists:budget_lines,id'],
-            'line_changes.*.field_changed'   => ['required', 'string', 'in:q1_amount,q2_amount,q3_amount,q4_amount,total_amount'],
+            'line_changes.*.budget_line_id'  => ['required', $this->ownedThrough('budget_lines', 'budget_id', 'budgets')],
+            'line_changes.*.field_changed'   => ['required', 'string', 'in:q1_amount,q2_amount,q3_amount,q4_amount'],
             'line_changes.*.new_value'       => ['required', 'numeric', 'min:0'],
         ]);
 
@@ -375,20 +312,13 @@ class BudgetController extends Controller
      */
     public function commitments(int $id): JsonResponse
     {
-        $budget = Budget::find($id);
+        $budget = $this->budgetService->findBudget($id);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
-        $lineIds = $budget->lines()->pluck('id');
-
-        $commitments = BudgetCommitment::with(['budgetLine', 'creator:id,name'])
-            ->whereIn('budget_line_id', $lineIds)
-            ->orderByDesc('committed_at')
-            ->get();
-
-        return $this->success($commitments);
+        return $this->success($this->budgetService->commitmentsFor($budget));
     }
 
     // ----------------------------------------------------------------
@@ -401,17 +331,37 @@ class BudgetController extends Controller
     public function vsActual(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'budget_id' => ['required', 'exists:budgets,id'],
+            'budget_id' => ['required', $this->ownedBy('budgets')],
         ]);
 
-        $budget = Budget::find((int) $validated['budget_id']);
+        $budget = $this->budgetService->findBudget((int) $validated['budget_id']);
 
         if ($budget === null) {
             return $this->notFound('Budget not found.');
         }
 
-        $report = $this->budgetService->getBudgetVsActual($budget);
+        return $this->success($this->budgetService->getBudgetVsActual($budget));
+    }
 
-        return $this->success($report);
+    /**
+     * Runs a lifecycle transition on the budget and reports a refused one as INVALID_TRANSITION.
+     *
+     * @param  'submitBudget'|'approveBudget'|'activateBudget'  $method
+     */
+    private function transition(int $id, string $method, string $message): JsonResponse
+    {
+        $budget = $this->budgetService->findBudget($id);
+
+        if ($budget === null) {
+            return $this->notFound('Budget not found.');
+        }
+
+        try {
+            $budget = $this->budgetService->{$method}($budget, auth()->id());
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 'INVALID_TRANSITION', 422);
+        }
+
+        return $this->success($budget, $message);
     }
 }

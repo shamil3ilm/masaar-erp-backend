@@ -4,19 +4,94 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Budget\Budget;
 use App\Models\Budget\BudgetCommitment;
 use App\Models\Budget\BudgetLine;
 use App\Models\Budget\BudgetRevision;
 use App\Models\Budget\BudgetRevisionLine;
 use App\Models\Accounting\JournalEntryLine;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 
+/**
+ * Budgets, their lines, lifecycle, revisions, commitments and reports.
+ *
+ * Every change to a budget or its lines runs on the locked budget row and
+ * checks its status there, so a line cannot be added to a budget that another
+ * request is approving, and two approvals cannot both pass their guard.
+ */
 class BudgetService
 {
+    /** The amounts a line is planned in; its total is always their sum. */
+    private const QUARTER_FIELDS = ['q1_amount', 'q2_amount', 'q3_amount', 'q4_amount'];
+
+    // ----------------------------------------------------------------
+    // Queries
+    // ----------------------------------------------------------------
+
+    /**
+     * The organization's budgets, newest first.
+     *
+     * @param  array{status?: string, budget_type?: string, fiscal_year_id?: int, search?: string}  $filters
+     */
+    public function paginateBudgets(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return Budget::with(['fiscalYear:id,name', 'creator:id,name'])
+            ->orderByDesc('created_at')
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['budget_type']), fn ($q) => $q->where('budget_type', $filters['budget_type']))
+            ->when(isset($filters['fiscal_year_id']), fn ($q) => $q->where('fiscal_year_id', $filters['fiscal_year_id']))
+            ->when(isset($filters['search']), fn ($q) => $q->where('name', 'like', "%{$filters['search']}%"))
+            ->paginate($perPage);
+    }
+
+    public function findBudget(int $id): ?Budget
+    {
+        return Budget::find($id);
+    }
+
+    /**
+     * A budget with its lines, revisions and the people who created and approved it.
+     */
+    public function findBudgetWithDetails(int $id): ?Budget
+    {
+        return Budget::with([
+            'fiscalYear:id,name',
+            'lines.account:id,code,name',
+            'lines.costCenter:id,code,name',
+            'lines.department:id,name',
+            'revisions.creator:id,name',
+            'approver:id,name',
+            'creator:id,name',
+        ])->find($id);
+    }
+
+    /**
+     * A line of this budget, or null when the id belongs to another budget.
+     */
+    public function findLine(Budget $budget, int $lineId): ?BudgetLine
+    {
+        return $budget->lines()->find($lineId);
+    }
+
+    /**
+     * The commitments recorded against the budget's lines, latest first.
+     *
+     * @return Collection<int, BudgetCommitment>
+     */
+    public function commitmentsFor(Budget $budget): Collection
+    {
+        return BudgetCommitment::with(['budgetLine', 'creator:id,name'])
+            ->whereIn('budget_line_id', $budget->lines()->select('id'))
+            ->orderByDesc('committed_at')
+            ->get();
+    }
+
     // ----------------------------------------------------------------
     // Budget lifecycle
     // ----------------------------------------------------------------
@@ -47,21 +122,17 @@ class BudgetService
             $totalBudget = '0';
 
             foreach ($lines as $lineData) {
-                $q1 = (string) ($lineData['q1_amount'] ?? 0);
-                $q2 = (string) ($lineData['q2_amount'] ?? 0);
-                $q3 = (string) ($lineData['q3_amount'] ?? 0);
-                $q4 = (string) ($lineData['q4_amount'] ?? 0);
-                $lineTotal = bcadd(bcadd(bcadd($q1, $q2, 4), $q3, 4), $q4, 4);
+                $lineTotal = $this->quarterTotal($lineData);
 
                 $budget->lines()->create([
                     'account_id'      => $lineData['account_id'] ?? null,
                     'cost_center_id'  => $lineData['cost_center_id'] ?? null,
                     'department_id'   => $lineData['department_id'] ?? null,
                     'name'            => $lineData['name'],
-                    'q1_amount'       => $q1,
-                    'q2_amount'       => $q2,
-                    'q3_amount'       => $q3,
-                    'q4_amount'       => $q4,
+                    'q1_amount'       => (string) ($lineData['q1_amount'] ?? 0),
+                    'q2_amount'       => (string) ($lineData['q2_amount'] ?? 0),
+                    'q3_amount'       => (string) ($lineData['q3_amount'] ?? 0),
+                    'q4_amount'       => (string) ($lineData['q4_amount'] ?? 0),
                     'total_amount'    => $lineTotal,
                     'committed_amount' => 0,
                     'actual_amount'   => 0,
@@ -78,17 +149,49 @@ class BudgetService
     }
 
     /**
+     * Changes the header of a draft or submitted budget.
+     *
+     * @throws BusinessRuleException when the budget is past submission
+     */
+    public function updateBudget(Budget $budget, array $data): Budget
+    {
+        return $budget->lockForTransition(function (Budget $locked) use ($data): Budget {
+            $this->assertEditable($locked, 'Only draft or submitted budgets can be edited.', 'BUDGET_NOT_EDITABLE');
+
+            $locked->update($data);
+
+            return $locked->fresh(['lines', 'fiscalYear']);
+        });
+    }
+
+    /**
+     * Deletes a draft or submitted budget.
+     *
+     * @throws BusinessRuleException when the budget is past submission
+     */
+    public function deleteBudget(Budget $budget): void
+    {
+        $budget->lockForTransition(function (Budget $locked): void {
+            $this->assertEditable($locked, 'Only draft or submitted budgets can be deleted.', 'BUDGET_NOT_DELETABLE');
+
+            $locked->delete();
+        });
+    }
+
+    /**
      * Transition budget from draft → submitted.
      */
     public function submitBudget(Budget $budget, int $userId): Budget
     {
-        if ($budget->status !== Budget::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft budgets can be submitted.');
-        }
+        return $budget->lockForTransition(function (Budget $locked): Budget {
+            if ($locked->status !== Budget::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft budgets can be submitted.');
+            }
 
-        $budget->update(['status' => Budget::STATUS_SUBMITTED]);
+            $locked->update(['status' => Budget::STATUS_SUBMITTED]);
 
-        return $budget->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
@@ -96,18 +199,20 @@ class BudgetService
      */
     public function approveBudget(Budget $budget, int $userId): Budget
     {
-        if ($budget->status !== Budget::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted budgets can be approved.');
-        }
+        return $budget->lockForTransition(function (Budget $locked) use ($userId): Budget {
+            if ($locked->status !== Budget::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted budgets can be approved.');
+            }
 
-        $budget->update([
-            'status'          => Budget::STATUS_APPROVED,
-            'approved_amount' => $budget->total_amount,
-            'approved_by'     => $userId,
-            'approved_at'     => now(),
-        ]);
+            $locked->update([
+                'status'          => Budget::STATUS_APPROVED,
+                'approved_amount' => $locked->total_amount,
+                'approved_by'     => $userId,
+                'approved_at'     => now(),
+            ]);
 
-        return $budget->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
@@ -115,13 +220,15 @@ class BudgetService
      */
     public function activateBudget(Budget $budget, int $userId): Budget
     {
-        if ($budget->status !== Budget::STATUS_APPROVED) {
-            throw new InvalidArgumentException('Only approved budgets can be activated.');
-        }
+        return $budget->lockForTransition(function (Budget $locked): Budget {
+            if ($locked->status !== Budget::STATUS_APPROVED) {
+                throw new InvalidArgumentException('Only approved budgets can be activated.');
+            }
 
-        $budget->update(['status' => Budget::STATUS_ACTIVE]);
+            $locked->update(['status' => Budget::STATUS_ACTIVE]);
 
-        return $budget->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
@@ -129,13 +236,15 @@ class BudgetService
      */
     public function closeBudget(Budget $budget, int $userId): Budget
     {
-        if ($budget->status !== Budget::STATUS_ACTIVE) {
-            throw new InvalidArgumentException('Only active budgets can be closed.');
-        }
+        return $budget->lockForTransition(function (Budget $locked): Budget {
+            if ($locked->status !== Budget::STATUS_ACTIVE) {
+                throw new InvalidArgumentException('Only active budgets can be closed.');
+            }
 
-        $budget->update(['status' => Budget::STATUS_CLOSED]);
+            $locked->update(['status' => Budget::STATUS_CLOSED]);
 
-        return $budget->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
@@ -143,15 +252,17 @@ class BudgetService
      */
     public function cancelBudget(Budget $budget, int $userId): Budget
     {
-        $cancellable = [Budget::STATUS_DRAFT, Budget::STATUS_SUBMITTED, Budget::STATUS_APPROVED];
+        return $budget->lockForTransition(function (Budget $locked): Budget {
+            $cancellable = [Budget::STATUS_DRAFT, Budget::STATUS_SUBMITTED, Budget::STATUS_APPROVED];
 
-        if (!in_array($budget->status, $cancellable, true)) {
-            throw new InvalidArgumentException('Budget cannot be cancelled in its current status.');
-        }
+            if (!in_array($locked->status, $cancellable, true)) {
+                throw new InvalidArgumentException('Budget cannot be cancelled in its current status.');
+            }
 
-        $budget->update(['status' => Budget::STATUS_CANCELLED]);
+            $locked->update(['status' => Budget::STATUS_CANCELLED]);
 
-        return $budget->fresh();
+            return $locked->fresh();
+        });
     }
 
     // ----------------------------------------------------------------
@@ -159,33 +270,73 @@ class BudgetService
     // ----------------------------------------------------------------
 
     /**
+     * Adds a line to a draft or submitted budget and refreshes the budget total.
+     *
+     * @throws BusinessRuleException when the budget is past submission
+     */
+    public function addLine(Budget $budget, array $data): BudgetLine
+    {
+        return $budget->lockForTransition(function (Budget $locked) use ($data): BudgetLine {
+            $this->assertEditable($locked, 'Only draft or submitted budgets can be edited.', 'BUDGET_NOT_EDITABLE');
+
+            $line = $locked->lines()->create(array_merge($data, [
+                'total_amount'     => $this->quarterTotal($data),
+                'committed_amount' => 0,
+                'actual_amount'    => 0,
+            ]));
+
+            $locked->update(['total_amount' => $locked->getTotalBudgeted()]);
+
+            return $line;
+        });
+    }
+
+    /**
+     * Removes a line from a draft or submitted budget and refreshes the budget total.
+     *
+     * @throws BusinessRuleException when the budget is past submission
+     */
+    public function removeLine(Budget $budget, BudgetLine $line): void
+    {
+        $budget->lockForTransition(function (Budget $locked) use ($line): void {
+            $this->assertEditable($locked, 'Only draft or submitted budgets can be edited.', 'BUDGET_NOT_EDITABLE');
+
+            $line->delete();
+
+            $locked->update(['total_amount' => $locked->getTotalBudgeted()]);
+        });
+    }
+
+    /**
      * Update a single budget line's quarterly amounts.
      * Recalculates line total and refreshes the budget header total.
+     *
+     * Only a draft or submitted budget's lines change here; an approved or
+     * active budget changes through a revision, which records each change.
+     *
+     * @throws BusinessRuleException when the budget is past submission
      */
     public function updateLine(BudgetLine $line, array $data, int $userId): BudgetLine
     {
-        return DB::transaction(function () use ($line, $data, $userId) {
-            $q1 = (string) (isset($data['q1_amount']) ? $data['q1_amount'] : $line->q1_amount);
-            $q2 = (string) (isset($data['q2_amount']) ? $data['q2_amount'] : $line->q2_amount);
-            $q3 = (string) (isset($data['q3_amount']) ? $data['q3_amount'] : $line->q3_amount);
-            $q4 = (string) (isset($data['q4_amount']) ? $data['q4_amount'] : $line->q4_amount);
-            $lineTotal = bcadd(bcadd(bcadd($q1, $q2, 4), $q3, 4), $q4, 4);
+        return DB::transaction(function () use ($line, $data) {
+            $budget = $line->budget()->lockForUpdate()->firstOrFail();
+
+            $this->assertEditable($budget, 'Only draft or submitted budgets can be edited.', 'BUDGET_NOT_EDITABLE');
+
+            $amounts = [];
+
+            foreach (self::QUARTER_FIELDS as $field) {
+                $amounts[$field] = (string) (isset($data[$field]) ? $data[$field] : $line->{$field});
+            }
 
             $line->update(array_merge(
                 array_intersect_key($data, array_flip([
                     'name', 'account_id', 'cost_center_id', 'department_id', 'notes',
                 ])),
-                [
-                    'q1_amount'    => $q1,
-                    'q2_amount'    => $q2,
-                    'q3_amount'    => $q3,
-                    'q4_amount'    => $q4,
-                    'total_amount' => $lineTotal,
-                ]
+                $amounts,
+                ['total_amount' => $this->quarterTotal($amounts)]
             ));
 
-            // Refresh budget header total
-            $budget = $line->budget;
             $budget->update(['total_amount' => $budget->getTotalBudgeted()]);
 
             return $line->fresh();
@@ -197,9 +348,10 @@ class BudgetService
     // ----------------------------------------------------------------
 
     /**
-     * Create a budget revision, recording before/after for each changed line.
+     * Revises quarter amounts of an approved or active budget, recording the
+     * old and new value of each change as a revision line.
      *
-     * @param  array  $lineChanges  Each item: ['budget_line_id' => int, 'q1_amount' => float, ...]
+     * @param  list<array{budget_line_id: int, field_changed: string, new_value: float|int|string}>  $lineChanges
      */
     public function reviseBudget(
         Budget $budget,
@@ -207,73 +359,70 @@ class BudgetService
         string $reason,
         int    $userId
     ): BudgetRevision {
-        if (!in_array($budget->status, [Budget::STATUS_APPROVED, Budget::STATUS_ACTIVE], true)) {
-            throw new InvalidArgumentException('Only approved or active budgets can be revised.');
-        }
-
-        return DB::transaction(function () use ($budget, $lineChanges, $reason, $userId) {
-            $revisionNumber = $budget->revisions()->max('revision_number') + 1;
-            $previousTotal  = $budget->total_amount;
+        return $budget->lockForTransition(function (Budget $locked) use ($lineChanges, $reason, $userId): BudgetRevision {
+            if (!in_array($locked->status, [Budget::STATUS_APPROVED, Budget::STATUS_ACTIVE], true)) {
+                throw new InvalidArgumentException('Only approved or active budgets can be revised.');
+            }
 
             $revision = BudgetRevision::create([
-                'organization_id' => $budget->organization_id,
-                'budget_id'       => $budget->id,
-                'revision_number' => $revisionNumber,
+                'organization_id' => $locked->organization_id,
+                'budget_id'       => $locked->id,
+                'revision_number' => $locked->revisions()->max('revision_number') + 1,
                 'reason'          => $reason,
-                'previous_total'  => $previousTotal,
-                'new_total'       => $previousTotal, // updated below
+                'previous_total'  => $locked->total_amount,
+                'new_total'       => $locked->total_amount, // updated below
                 'status'          => BudgetRevision::STATUS_DRAFT,
                 'created_by'      => $userId,
             ]);
 
             foreach ($lineChanges as $change) {
-                $line = BudgetLine::findOrFail((int) $change['budget_line_id']);
-
-                if ($line->budget_id !== $budget->id) {
-                    throw new InvalidArgumentException(
-                        "Budget line {$line->id} does not belong to this budget."
-                    );
-                }
-
-                $quarterFields = ['q1_amount', 'q2_amount', 'q3_amount', 'q4_amount'];
-
-                foreach ($quarterFields as $field) {
-                    if (!isset($change[$field])) {
-                        continue;
-                    }
-
-                    $oldValue = (float) $line->{$field};
-                    $newValue = (float) $change[$field];
-
-                    if (bccomp((string) $newValue, (string) $oldValue, 4) === 0) {
-                        continue;
-                    }
-
-                    BudgetRevisionLine::create([
-                        'budget_revision_id' => $revision->id,
-                        'budget_line_id'     => $line->id,
-                        'field_changed'      => $field,
-                        'old_value'          => $oldValue,
-                        'new_value'          => $newValue,
-                    ]);
-
-                    $line->update([$field => $newValue]);
-                }
-
-                // Recalculate line total
-                $line->refresh();
-                $lineTotal = bcadd(bcadd(bcadd((string) $line->q1_amount, (string) $line->q2_amount, 4), (string) $line->q3_amount, 4), (string) $line->q4_amount, 4);
-                $line->update(['total_amount' => $lineTotal]);
+                $this->applyRevisionChange($locked, $revision, $change);
             }
 
-            // Refresh budget header total
-            $budget->update(['total_amount' => $budget->getTotalBudgeted()]);
-            $budget->refresh();
+            $locked->update(['total_amount' => $locked->getTotalBudgeted()]);
+            $locked->refresh();
 
-            $revision->update(['new_total' => $budget->total_amount]);
+            $revision->update(['new_total' => $locked->total_amount]);
 
             return $revision->fresh(['lines']);
         });
+    }
+
+    /**
+     * @param  array{budget_line_id: int, field_changed: string, new_value: float|int|string}  $change
+     */
+    private function applyRevisionChange(Budget $budget, BudgetRevision $revision, array $change): void
+    {
+        $field = $change['field_changed'];
+
+        if (!in_array($field, self::QUARTER_FIELDS, true)) {
+            throw new InvalidArgumentException('Only quarter amounts can be revised; a line total is the sum of its quarters.');
+        }
+
+        $line = $budget->lines()->find((int) $change['budget_line_id']);
+
+        if ($line === null) {
+            throw new InvalidArgumentException("Budget line {$change['budget_line_id']} does not belong to this budget.");
+        }
+
+        $oldValue = (string) $line->{$field};
+        $newValue = (string) $change['new_value'];
+
+        if (bccomp($newValue, $oldValue, 4) === 0) {
+            return;
+        }
+
+        BudgetRevisionLine::create([
+            'budget_revision_id' => $revision->id,
+            'budget_line_id'     => $line->id,
+            'field_changed'      => $field,
+            'old_value'          => $oldValue,
+            'new_value'          => $newValue,
+        ]);
+
+        $line->{$field} = $newValue;
+        $line->total_amount = $this->quarterTotal($line->only(self::QUARTER_FIELDS));
+        $line->save();
     }
 
     /**
@@ -292,6 +441,27 @@ class BudgetService
         ]);
 
         return $revision->fresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $amounts  quarter amounts; a missing quarter counts as zero
+     */
+    private function quarterTotal(array $amounts): string
+    {
+        $total = '0';
+
+        foreach (self::QUARTER_FIELDS as $field) {
+            $total = bcadd($total, (string) ($amounts[$field] ?? 0), 4);
+        }
+
+        return $total;
+    }
+
+    private function assertEditable(Budget $budget, string $message, string $errorCode): void
+    {
+        if (!$budget->isEditable()) {
+            throw new BusinessRuleException($message, $errorCode, 422);
+        }
     }
 
     // ----------------------------------------------------------------

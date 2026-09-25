@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace App\Services\Billing;
 
+use App\Exceptions\ERP\BusinessRuleException;
 use App\Models\Billing\BillingInvoice;
 use App\Models\Billing\DiscountCode;
 use App\Models\Billing\OrganizationSubscription;
+use App\Models\Billing\SubscriptionAddon;
+use App\Models\Billing\SubscriptionAddonPurchase;
 use App\Models\Billing\SubscriptionPlan;
+use App\Models\Billing\UsageAlert;
 use App\Models\Billing\UsageMetric;
 use App\Models\Billing\UsageSnapshot;
 use App\Models\Core\Organization;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -21,6 +27,125 @@ class BillingService
         return SubscriptionPlan::where('is_active', true)
             ->where('is_public', true)
             ->orderBy('display_order')
+            ->get();
+    }
+
+    public function createPlan(array $data): SubscriptionPlan
+    {
+        return SubscriptionPlan::create($data);
+    }
+
+    public function updatePlan(SubscriptionPlan $plan, array $data): SubscriptionPlan
+    {
+        $plan->update($data);
+
+        return $plan->fresh();
+    }
+
+    public function deletePlan(SubscriptionPlan $plan): void
+    {
+        $plan->delete();
+    }
+
+    /**
+     * The organization's most recent subscription, whatever its status.
+     */
+    public function currentSubscription(int $organizationId): ?OrganizationSubscription
+    {
+        return OrganizationSubscription::where('organization_id', $organizationId)
+            ->with('plan')
+            ->latest()
+            ->first();
+    }
+
+    public function activeSubscription(int $organizationId): OrganizationSubscription
+    {
+        return OrganizationSubscription::where('organization_id', $organizationId)
+            ->where('status', OrganizationSubscription::STATUS_ACTIVE)
+            ->firstOrFail();
+    }
+
+    /**
+     * The organization's subscription that is active or in trial, if any.
+     */
+    public function cancellableSubscription(int $organizationId): ?OrganizationSubscription
+    {
+        return OrganizationSubscription::where('organization_id', $organizationId)
+            ->whereIn('status', [OrganizationSubscription::STATUS_ACTIVE, OrganizationSubscription::STATUS_TRIAL])
+            ->first();
+    }
+
+    /**
+     * @return Collection<int, SubscriptionAddon>
+     */
+    public function activeAddons(): Collection
+    {
+        return SubscriptionAddon::where('is_active', true)->get();
+    }
+
+    public function purchaseAddon(OrganizationSubscription $subscription, int $addonId, int $quantity): SubscriptionAddonPurchase
+    {
+        $addon = SubscriptionAddon::where('is_active', true)->findOrFail($addonId);
+
+        return $subscription->addonPurchases()->create([
+            'addon_id' => $addon->id,
+            'quantity' => $quantity,
+            'unit_price' => $addon->price,
+            'total_price' => $addon->price * $quantity,
+            'starts_at' => now(),
+            'status' => 'active',
+        ]);
+    }
+
+    public function paginateInvoices(int $organizationId, int $perPage): LengthAwarePaginator
+    {
+        return BillingInvoice::where('organization_id', $organizationId)
+            ->with('subscription.plan')
+            ->orderByDesc('invoice_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * Records the invoice as paid in full, once, on the locked row.
+     *
+     * @throws BusinessRuleException when the invoice is already paid
+     */
+    public function markInvoicePaid(BillingInvoice $invoice): BillingInvoice
+    {
+        return DB::transaction(function () use ($invoice): BillingInvoice {
+            $locked = BillingInvoice::query()->lockForUpdate()->findOrFail($invoice->getKey());
+
+            if ($locked->status === 'paid') {
+                throw new BusinessRuleException('This invoice is already paid.', 'INVOICE_ALREADY_PAID', 422);
+            }
+
+            $locked->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+                'amount_paid' => $locked->total,
+                'amount_due' => 0,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
+
+    public function paginateUsageHistory(int $organizationId, ?string $metricType, int $perPage): LengthAwarePaginator
+    {
+        return UsageMetric::where('organization_id', $organizationId)
+            ->when($metricType, fn ($q, $type) => $q->where('metric_type', $type))
+            ->orderByDesc('metric_date')
+            ->paginate($perPage);
+    }
+
+    /**
+     * @return Collection<int, UsageAlert>
+     */
+    public function usageAlerts(int $organizationId, ?string $status): Collection
+    {
+        return UsageAlert::where('organization_id', $organizationId)
+            ->when($status, fn ($q, $value) => $q->where('status', $value))
+            ->orderByDesc('created_at')
             ->get();
     }
 

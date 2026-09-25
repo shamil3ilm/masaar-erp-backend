@@ -67,54 +67,61 @@ class BudgetTransferService
     /** Advance draft → submitted for approval. */
     public function submit(BudgetTransfer $transfer): BudgetTransfer
     {
-        $this->assertTransition($transfer, BudgetTransfer::STATUS_SUBMITTED);
+        return $transfer->lockForTransition(function (BudgetTransfer $locked): BudgetTransfer {
+            $this->assertTransition($locked, BudgetTransfer::STATUS_SUBMITTED);
 
-        $transfer->update(['status' => BudgetTransfer::STATUS_SUBMITTED]);
+            $locked->update(['status' => BudgetTransfer::STATUS_SUBMITTED]);
 
-        return $transfer->fresh();
+            return $locked->fresh();
+        });
     }
 
     /** Approve and immediately post the transfer. */
     public function approve(BudgetTransfer $transfer, User $approver): BudgetTransfer
     {
-        $this->assertTransition($transfer, BudgetTransfer::STATUS_APPROVED);
+        return $transfer->lockForTransition(function (BudgetTransfer $locked) use ($approver): BudgetTransfer {
+            $this->assertTransition($locked, BudgetTransfer::STATUS_APPROVED);
 
-        return DB::transaction(function () use ($transfer, $approver): BudgetTransfer {
-            $transfer->update([
+            $locked->update([
                 'status'      => BudgetTransfer::STATUS_APPROVED,
                 'approved_by' => $approver->id,
                 'approved_at' => now(),
             ]);
 
-            return $this->post($transfer, $approver);
+            return $this->post($locked, $approver);
         });
     }
 
     /** Reject a submitted transfer. */
     public function reject(BudgetTransfer $transfer, User $rejector, string $reason): BudgetTransfer
     {
-        $this->assertTransition($transfer, BudgetTransfer::STATUS_REJECTED);
+        return $transfer->lockForTransition(function (BudgetTransfer $locked) use ($rejector, $reason): BudgetTransfer {
+            $this->assertTransition($locked, BudgetTransfer::STATUS_REJECTED);
 
-        $transfer->update([
-            'status'           => BudgetTransfer::STATUS_REJECTED,
-            'approved_by'      => $rejector->id,
-            'rejection_reason' => $reason,
-        ]);
+            $locked->update([
+                'status'           => BudgetTransfer::STATUS_REJECTED,
+                'approved_by'      => $rejector->id,
+                'rejection_reason' => $reason,
+            ]);
 
-        return $transfer->fresh();
+            return $locked->fresh();
+        });
     }
 
     /**
      * Post an approved transfer: debit source line, credit target line.
      *
-     * Re-validates availability at post time to guard against concurrent
-     * transfers consuming the same budget.
+     * The transfer row is locked and its status re-checked there, so a
+     * transfer is posted once however many requests approve it. Availability
+     * is re-validated on the locked lines against concurrent transfers
+     * consuming the same budget.
      */
     public function post(BudgetTransfer $transfer, User $postedBy): BudgetTransfer
     {
-        $this->assertTransition($transfer, BudgetTransfer::STATUS_POSTED);
-
         return DB::transaction(function () use ($transfer, $postedBy): BudgetTransfer {
+            $transfer = $transfer->lockedCopy();
+            $this->assertTransition($transfer, BudgetTransfer::STATUS_POSTED);
+
             $fromLine = BudgetLine::lockForUpdate()->findOrFail($transfer->from_budget_line_id);
             $toLine   = BudgetLine::lockForUpdate()->findOrFail($transfer->to_budget_line_id);
 
@@ -140,10 +147,27 @@ class BudgetTransferService
     // Queries
     // ----------------------------------------------------------------
 
+    public function find(string $id): BudgetTransfer
+    {
+        return BudgetTransfer::findOrFail($id);
+    }
+
+    public function findWithDetails(string $id): BudgetTransfer
+    {
+        return BudgetTransfer::with([
+            'fromBudget', 'fromBudgetLine', 'toBudget', 'toBudgetLine',
+            'requester:id,name', 'approver:id,name',
+        ])->findOrFail($id);
+    }
+
+    /**
+     * The organization's transfers, latest first. Requester and approver are
+     * shown by name only, as on a single transfer.
+     */
     public function getForOrganization(int $organizationId, array $filters = [])
     {
         $query = BudgetTransfer::where('organization_id', $organizationId)
-            ->with(['fromBudget', 'fromBudgetLine', 'toBudget', 'toBudgetLine', 'requester', 'approver']);
+            ->with(['fromBudget', 'fromBudgetLine', 'toBudget', 'toBudgetLine', 'requester:id,name', 'approver:id,name']);
 
         if (isset($filters['status'])) {
             $query->where('status', $filters['status']);

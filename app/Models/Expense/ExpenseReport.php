@@ -6,6 +6,7 @@ namespace App\Models\Expense;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,6 +18,7 @@ class ExpenseReport extends Model
 {
     use HasFactory;
     use HasUuid;
+    use LocksForTransition;
     use BelongsToOrganization;
 
     public const STATUS_DRAFT = 'draft';

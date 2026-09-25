@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Billing;
 
 use App\Http\Controllers\Controller;
-use App\Models\Billing\OrganizationSubscription;
-use App\Models\Billing\SubscriptionAddon;
 use App\Services\Billing\BillingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class SubscriptionController extends Controller
 {
@@ -17,10 +17,7 @@ class SubscriptionController extends Controller
 
     public function current(): JsonResponse
     {
-        $subscription = OrganizationSubscription::where('organization_id', auth()->user()->organization_id)
-            ->with('plan')
-            ->latest()
-            ->first();
+        $subscription = $this->billingService->currentSubscription(auth()->user()->organization_id);
 
         if (!$subscription) {
             return $this->success([
@@ -42,7 +39,7 @@ class SubscriptionController extends Controller
     public function subscribe(Request $request): JsonResponse
     {
         $request->validate([
-            'plan_id' => 'required|integer|exists:subscription_plans,id',
+            'plan_id' => ['required', 'integer', $this->offeredPlan()],
             'billing_cycle' => 'required|string|in:monthly,yearly,quarterly',
         ]);
 
@@ -58,12 +55,10 @@ class SubscriptionController extends Controller
     public function changePlan(Request $request): JsonResponse
     {
         $request->validate([
-            'plan_id' => 'required|integer|exists:subscription_plans,id',
+            'plan_id' => ['required', 'integer', $this->offeredPlan()],
         ]);
 
-        $subscription = OrganizationSubscription::where('organization_id', auth()->user()->organization_id)
-            ->where('status', 'active')
-            ->firstOrFail();
+        $subscription = $this->billingService->activeSubscription(auth()->user()->organization_id);
 
         $updated = $this->billingService->changePlan($subscription, $request->input('plan_id'));
         return $this->success($updated->load('plan'));
@@ -71,9 +66,7 @@ class SubscriptionController extends Controller
 
     public function cancel(Request $request): JsonResponse
     {
-        $subscription = OrganizationSubscription::where('organization_id', auth()->user()->organization_id)
-            ->whereIn('status', ['active', 'trial'])
-            ->first();
+        $subscription = $this->billingService->cancellableSubscription(auth()->user()->organization_id);
 
         if (!$subscription) {
             return $this->success(null, 'No active subscription to cancel');
@@ -85,32 +78,36 @@ class SubscriptionController extends Controller
 
     public function availableAddons(): JsonResponse
     {
-        $addons = SubscriptionAddon::where('is_active', true)->get();
-        return $this->success($addons);
+        return $this->success($this->billingService->activeAddons());
     }
 
     public function purchaseAddon(Request $request): JsonResponse
     {
         $request->validate([
-            'addon_id' => 'required|integer|exists:subscription_addons,id',
+            'addon_id' => ['required', 'integer', Rule::exists('subscription_addons', 'id')->where('is_active', true)],
             'quantity' => 'nullable|integer|min:1',
         ]);
 
-        $subscription = OrganizationSubscription::where('organization_id', auth()->user()->organization_id)
-            ->where('status', 'active')
-            ->firstOrFail();
+        $subscription = $this->billingService->activeSubscription(auth()->user()->organization_id);
 
-        $addon = SubscriptionAddon::findOrFail($request->input('addon_id'));
-
-        $purchase = $subscription->addonPurchases()->create([
-            'addon_id' => $addon->id,
-            'quantity' => $request->input('quantity', 1),
-            'unit_price' => $addon->price,
-            'total_price' => $addon->price * $request->input('quantity', 1),
-            'starts_at' => now(),
-            'status' => 'active',
-        ]);
+        $purchase = $this->billingService->purchaseAddon(
+            $subscription,
+            (int) $request->input('addon_id'),
+            (int) $request->input('quantity', 1),
+        );
 
         return $this->created($purchase);
+    }
+
+    /**
+     * A plan the platform offers: active, public and not deleted. A tenant
+     * cannot take a private or retired plan by naming its id.
+     */
+    private function offeredPlan(): Exists
+    {
+        return Rule::exists('subscription_plans', 'id')
+            ->where('is_active', true)
+            ->where('is_public', true)
+            ->whereNull('deleted_at');
     }
 }

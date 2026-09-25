@@ -172,4 +172,14 @@ class TaxDeterminationService
     {
         $rule->delete();
     }
+
+    /**
+     * A rule of the organization with its tax category and rate, or null for no rule.
+     */
+    public function findRuleWithRates(?int $ruleId): ?TaxDeterminationRule
+    {
+        return $ruleId === null
+            ? null
+            : TaxDeterminationRule::with(['taxCategory', 'taxRate'])->find($ruleId);
+    }
 }

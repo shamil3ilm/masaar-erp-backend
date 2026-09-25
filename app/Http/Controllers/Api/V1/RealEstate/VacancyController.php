@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\RealEstate;
 
 use App\Http\Controllers\Controller;
-use App\Models\RealEstate\Building;
-use App\Models\RealEstate\RentalUnit;
 use App\Services\RealEstate\VacancyManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,7 +34,7 @@ class VacancyController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $unit = RentalUnit::findOrFail($id);
+        $unit = $this->service->findUnit($id);
         $vacancy = $this->service->openVacancy(
             $unit,
             $validated['vacant_from'],
@@ -54,7 +52,7 @@ class VacancyController extends Controller
             'occupied_from' => 'required|date',
         ]);
 
-        $unit = RentalUnit::findOrFail($id);
+        $unit = $this->service->findUnit($id);
         $closed = $this->service->closeVacancy($unit, $validated['occupied_from']);
 
         return $this->success($closed, 'Vacancy period closed');
@@ -62,7 +60,7 @@ class VacancyController extends Controller
 
     public function vacancyHistory(string $id): JsonResponse
     {
-        $unit = RentalUnit::findOrFail($id);
+        $unit = $this->service->findUnit($id);
         $history = $this->service->getVacancyHistory($unit);
 
         return $this->success($history);
@@ -104,7 +102,7 @@ class VacancyController extends Controller
             'date' => 'nullable|date',
         ]);
 
-        $building = Building::findOrFail($buildingId);
+        $building = $this->service->findBuilding($buildingId);
         $snapshot = $this->service->snapshotBuilding($building, $validated['date'] ?? null);
 
         return $this->success($snapshot, 'Occupancy snapshot taken');

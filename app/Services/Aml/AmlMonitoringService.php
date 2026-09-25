@@ -259,12 +259,13 @@ class AmlMonitoringService
         array  $transactionIds,
         string $description,
         int    $createdBy,
+        ?string $reportType = null,
     ): AmlSuspiciousActivity {
         $contact = Contact::where('organization_id', $organizationId)->find($contactId);
 
         return AmlSuspiciousActivity::create([
             'organization_id'        => $organizationId,
-            'report_type'            => AmlSuspiciousActivity::SAR,
+            'report_type'            => $reportType ?? AmlSuspiciousActivity::SAR,
             'status'                 => AmlSuspiciousActivity::STATUS_DRAFT,
             'contact_id'             => $contactId,
             'contact_name'           => $contact ? ($contact->company_name ?? $contact->contact_name) : null,

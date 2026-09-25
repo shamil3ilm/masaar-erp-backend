@@ -5,9 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Billing;
 
 use App\Http\Controllers\Controller;
-use App\Models\Billing\UsageAlert;
-use App\Models\Billing\UsageMetric;
-use App\Models\Billing\UsageSnapshot;
 use App\Services\Billing\BillingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,10 +20,10 @@ class UsageController extends Controller
     {
         $organizationId = auth()->user()->organization_id;
 
-        $snapshot = UsageSnapshot::where('organization_id', $organizationId)->first();
+        $snapshot = $this->billingService->getUsageSummary($organizationId);
 
         if (!$snapshot) {
-            // Return a default usage snapshot if none exists
+            // An organization not yet measured reads as using nothing.
             return $this->success([
                 'organization_id' => $organizationId,
                 'users_count' => 0,
@@ -51,12 +48,11 @@ class UsageController extends Controller
 
     public function history(Request $request): JsonResponse
     {
-        $metrics = UsageMetric::where('organization_id', auth()->user()->organization_id)
-            ->when($request->input('metric_type'), fn ($q, $type) => $q->where('metric_type', $type))
-            ->orderByDesc('metric_date')
-            ->paginate($request->input('per_page', 30));
-
-        return $this->paginated($metrics);
+        return $this->paginated($this->billingService->paginateUsageHistory(
+            auth()->user()->organization_id,
+            $request->input('metric_type'),
+            (int) $request->input('per_page', 30),
+        ));
     }
 
     /**
@@ -64,11 +60,9 @@ class UsageController extends Controller
      */
     public function alerts(Request $request): JsonResponse
     {
-        $alerts = UsageAlert::where('organization_id', auth()->user()->organization_id)
-            ->when($request->input('status'), fn ($q, $status) => $q->where('status', $status))
-            ->orderByDesc('created_at')
-            ->get();
-
-        return $this->success($alerts);
+        return $this->success($this->billingService->usageAlerts(
+            auth()->user()->organization_id,
+            $request->input('status'),
+        ));
     }
 }

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ecommerce;
 
+use App\Models\Sales\Contact;
+use App\Models\Sales\Invoice;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Ecommerce\EcommerceChannel;
 use App\Models\Ecommerce\EcommerceOrder;
 use App\Models\Ecommerce\EcommerceOrderItem;
@@ -50,6 +53,57 @@ class EcommerceOrderService
 
             return $order->load('items');
         });
+    }
+
+    /**
+     * The organization's orders, latest first, each with its channel and its
+     * customer by reference.
+     *
+     * @param  array<string, mixed>  $filters  channel_id, status, from_date, to_date and search apply when
+     *                                         present; unprocessed when true
+     */
+    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return EcommerceOrder::with(['channel', $this->customerReference()])
+            ->latest('ordered_at')
+            ->when(array_key_exists('channel_id', $filters), fn ($q) => $q->byChannel($filters['channel_id']))
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->byStatus($filters['status']))
+            ->when(array_key_exists('from_date', $filters), fn ($q) => $q->where('ordered_at', '>=', $filters['from_date']))
+            ->when(array_key_exists('to_date', $filters), fn ($q) => $q->where('ordered_at', '<=', $filters['to_date']))
+            ->when(! empty($filters['unprocessed']), fn ($q) => $q->unprocessed())
+            ->when(array_key_exists('search', $filters), function ($q) use ($filters) {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search) {
+                    $q->where('order_number', 'like', "%{$search}%")
+                        ->orWhere('customer_name', 'like', "%{$search}%")
+                        ->orWhere('customer_email', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
+     * The order with its items and products, and its customer and invoice by reference.
+     */
+    public function present(EcommerceOrder $order): EcommerceOrder
+    {
+        return $order->load([
+            'channel',
+            $this->customerReference(),
+            'items.product',
+            'invoice:'.implode(',', Invoice::REFERENCE_COLUMNS),
+            'salesOrder',
+        ]);
+    }
+
+    public function findChannel(int $channelId): EcommerceChannel
+    {
+        return EcommerceChannel::findOrFail($channelId);
+    }
+
+    private function customerReference(): string
+    {
+        return 'customer:'.implode(',', Contact::REFERENCE_COLUMNS);
     }
 
     /**

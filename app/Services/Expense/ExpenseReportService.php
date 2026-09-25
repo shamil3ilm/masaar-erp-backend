@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Expense;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\Models\Expense\Expense;
 use App\Models\Expense\ExpenseReport;
 use App\Models\Expense\ExpenseReportItem;
@@ -45,20 +46,46 @@ class ExpenseReportService
     }
 
     /**
+     * The organization's expense reports, newest first.
+     *
+     * @param  array<string, mixed>  $filters  status, employee_id, start_date, end_date and search, each applied when present
+     */
+    public function paginateReports(array $filters, int $perPage): LengthAwarePaginator
+    {
+        return ExpenseReport::with(['approvedBy:id,name'])
+            ->orderByDesc('created_at')
+            ->when(array_key_exists('status', $filters), fn ($q) => $q->where('status', $filters['status']))
+            ->when(array_key_exists('employee_id', $filters), fn ($q) => $q->where('employee_id', $filters['employee_id']))
+            ->when(array_key_exists('start_date', $filters), fn ($q) => $q->whereDate('period_start', '>=', $filters['start_date']))
+            ->when(array_key_exists('end_date', $filters), fn ($q) => $q->whereDate('period_end', '<=', $filters['end_date']))
+            ->when(array_key_exists('search', $filters), function ($q) use ($filters) {
+                $search = $filters['search'];
+                $q->where(function ($q) use ($search) {
+                    $q->where('report_number', 'like', "%{$search}%")
+                        ->orWhere('title', 'like', "%{$search}%");
+                });
+            })
+            ->paginate($perPage);
+    }
+
+    /**
      * Add expenses to a report.
+     *
+     * This and each transition below check the report's status on its locked
+     * row, so a report two requests act on at once changes once.
      */
     public function addExpenses(ExpenseReport $report, array $expenseIds): ExpenseReport
     {
-        if ($report->status !== ExpenseReport::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Can only add expenses to draft reports.');
-        }
+        return $report->lockForTransition(function (ExpenseReport $locked) use ($expenseIds): ExpenseReport {
+            if ($locked->status !== ExpenseReport::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Can only add expenses to draft reports.');
+            }
 
-        return DB::transaction(function () use ($report, $expenseIds) {
             foreach ($expenseIds as $expenseId) {
                 $expense = Expense::findOrFail($expenseId);
 
                 // Verify expense belongs to same organization
-                if ($expense->organization_id !== $report->organization_id) {
+                if ($expense->organization_id !== $locked->organization_id) {
                     throw new InvalidArgumentException("Expense #{$expenseId} does not belong to this organization.");
                 }
 
@@ -73,15 +100,15 @@ class ExpenseReportService
                     throw new InvalidArgumentException("Expense #{$expenseId} has invalid status for reporting.");
                 }
 
-                $report->reportItems()->create([
+                $locked->reportItems()->create([
                     'expense_id' => $expenseId,
                     'approved_amount' => null,
                 ]);
             }
 
-            $report->recalculateTotals();
+            $locked->recalculateTotals();
 
-            return $report->fresh(['reportItems.expense']);
+            return $locked->fresh(['reportItems.expense']);
         });
     }
 
@@ -90,17 +117,18 @@ class ExpenseReportService
      */
     public function submit(ExpenseReport $report): ExpenseReport
     {
-        if ($report->status !== ExpenseReport::STATUS_DRAFT) {
-            throw new InvalidArgumentException('Only draft reports can be submitted.');
-        }
+        return $report->lockForTransition(function (ExpenseReport $locked): ExpenseReport {
+            if ($locked->status !== ExpenseReport::STATUS_DRAFT) {
+                throw new InvalidArgumentException('Only draft reports can be submitted.');
+            }
 
-        if ($report->reportItems()->count() === 0) {
-            throw new InvalidArgumentException('Cannot submit an empty report.');
-        }
+            if ($locked->reportItems()->count() === 0) {
+                throw new InvalidArgumentException('Cannot submit an empty report.');
+            }
 
-        return DB::transaction(function () use ($report) {
-            $report->update(['status' => ExpenseReport::STATUS_SUBMITTED]);
-            return $report->fresh();
+            $locked->update(['status' => ExpenseReport::STATUS_SUBMITTED]);
+
+            return $locked->fresh();
         });
     }
 
@@ -109,15 +137,15 @@ class ExpenseReportService
      */
     public function approve(ExpenseReport $report, int $approverId, ?array $itemApprovals = null): ExpenseReport
     {
-        if ($report->status !== ExpenseReport::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted reports can be approved.');
-        }
+        return $report->lockForTransition(function (ExpenseReport $locked) use ($approverId, $itemApprovals): ExpenseReport {
+            if ($locked->status !== ExpenseReport::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted reports can be approved.');
+            }
 
-        return DB::transaction(function () use ($report, $approverId, $itemApprovals) {
             // Apply individual item approvals if provided
             if ($itemApprovals) {
                 foreach ($itemApprovals as $approval) {
-                    ExpenseReportItem::where('report_id', $report->id)
+                    ExpenseReportItem::where('report_id', $locked->id)
                         ->where('expense_id', $approval['expense_id'])
                         ->update([
                             'approved_amount' => $approval['approved_amount'],
@@ -126,23 +154,23 @@ class ExpenseReportService
                 }
             } else {
                 // Auto-approve all at expense total amounts
-                $report->reportItems()->each(function ($item) {
+                $locked->reportItems()->with('expense')->each(function ($item) {
                     $item->update([
                         'approved_amount' => $item->expense->total_amount,
                     ]);
                 });
             }
 
-            $approvedAmount = $report->reportItems()->sum('approved_amount');
+            $approvedAmount = $locked->reportItems()->sum('approved_amount');
 
-            $report->update([
+            $locked->update([
                 'status' => ExpenseReport::STATUS_APPROVED,
                 'approved_amount' => $approvedAmount,
                 'approved_by' => $approverId,
                 'approved_at' => now(),
             ]);
 
-            return $report->fresh(['reportItems.expense', 'approvedBy']);
+            return $locked->fresh(['reportItems.expense', 'approvedBy']);
         });
     }
 
@@ -151,17 +179,17 @@ class ExpenseReportService
      */
     public function reject(ExpenseReport $report, string $reason): ExpenseReport
     {
-        if ($report->status !== ExpenseReport::STATUS_SUBMITTED) {
-            throw new InvalidArgumentException('Only submitted reports can be rejected.');
-        }
+        return $report->lockForTransition(function (ExpenseReport $locked) use ($reason): ExpenseReport {
+            if ($locked->status !== ExpenseReport::STATUS_SUBMITTED) {
+                throw new InvalidArgumentException('Only submitted reports can be rejected.');
+            }
 
-        return DB::transaction(function () use ($report, $reason) {
-            $report->update([
+            $locked->update([
                 'status' => ExpenseReport::STATUS_REJECTED,
                 'rejection_reason' => $reason,
             ]);
 
-            return $report->fresh();
+            return $locked->fresh();
         });
     }
 
@@ -170,28 +198,28 @@ class ExpenseReportService
      */
     public function reimburse(ExpenseReport $report, array $data = []): ExpenseReport
     {
-        if ($report->status !== ExpenseReport::STATUS_APPROVED) {
-            throw new InvalidArgumentException('Only approved reports can be reimbursed.');
-        }
+        return $report->lockForTransition(function (ExpenseReport $locked) use ($data): ExpenseReport {
+            if ($locked->status !== ExpenseReport::STATUS_APPROVED) {
+                throw new InvalidArgumentException('Only approved reports can be reimbursed.');
+            }
 
-        return DB::transaction(function () use ($report, $data) {
-            $reimbursedAmount = $data['reimbursed_amount'] ?? $report->approved_amount;
+            $reimbursedAmount = $data['reimbursed_amount'] ?? $locked->approved_amount;
 
-            $report->update([
+            $locked->update([
                 'status' => ExpenseReport::STATUS_PAID,
                 'reimbursed_amount' => $reimbursedAmount,
                 'paid_at' => now(),
             ]);
 
             // Mark associated expenses as paid
-            $report->reportItems()->each(function ($item) {
+            $locked->reportItems()->with('expense')->each(function ($item) {
                 $item->expense->update([
                     'status' => Expense::STATUS_PAID,
                     'paid_at' => now(),
                 ]);
             });
 
-            return $report->fresh(['reportItems.expense']);
+            return $locked->fresh(['reportItems.expense']);
         });
     }
 }

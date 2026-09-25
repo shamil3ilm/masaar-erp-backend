@@ -12,6 +12,7 @@ use App\Models\RealEstate\RentalUnit;
 use App\Models\RealEstate\VacancyPeriod;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * RE-FX Vacancy Management Service.
@@ -34,25 +35,27 @@ class VacancyManagementService
         ?float $marketRent = null,
         ?string $notes = null,
     ): VacancyPeriod {
-        // Close any open period first (guard against duplicates)
-        $this->closeOpenPeriod($unit, $vacantFrom);
+        return DB::transaction(function () use ($unit, $vacantFrom, $reason, $marketRent, $notes): VacancyPeriod {
+            // Close any open period first (guard against duplicates)
+            $this->closeOpenPeriod($unit, $vacantFrom);
 
-        $vacancy = VacancyPeriod::create([
-            'organization_id' => $unit->organization_id,
-            'rental_unit_id' => $unit->id,
-            'building_id' => $unit->building_id,
-            'property_id' => $unit->building?->property_id ?? null,
-            'portfolio_id' => $unit->building?->property?->portfolio_id ?? null,
-            'vacant_from' => $vacantFrom,
-            'vacant_to' => null,
-            'vacancy_reason' => $reason,
-            'market_rent' => $marketRent,
-            'notes' => $notes,
-        ]);
+            $vacancy = VacancyPeriod::create([
+                'organization_id' => $unit->organization_id,
+                'rental_unit_id' => $unit->id,
+                'building_id' => $unit->building_id,
+                'property_id' => $unit->building?->property_id ?? null,
+                'portfolio_id' => $unit->building?->property?->portfolio_id ?? null,
+                'vacant_from' => $vacantFrom,
+                'vacant_to' => null,
+                'vacancy_reason' => $reason,
+                'market_rent' => $marketRent,
+                'notes' => $notes,
+            ]);
 
-        $unit->update(['status' => 'vacant']);
+            $unit->update(['status' => 'vacant']);
 
-        return $vacancy;
+            return $vacancy;
+        });
     }
 
     /**
@@ -60,7 +63,7 @@ class VacancyManagementService
      */
     public function closeVacancy(RentalUnit $unit, string $occupiedFrom): ?VacancyPeriod
     {
-        return $this->closeOpenPeriod($unit, $occupiedFrom);
+        return DB::transaction(fn (): ?VacancyPeriod => $this->closeOpenPeriod($unit, $occupiedFrom));
     }
 
     // ----------------------------------------------------------------
@@ -195,14 +198,27 @@ class VacancyManagementService
             return null;
         }
 
-        $loss = $open->computeVacancyLoss();
-        $open->update([
-            'vacant_to' => $closedAt,
-            'vacancy_loss' => $loss,
-        ]);
+        // The loss runs to the closing date, so the period is closed before it is computed.
+        $open->vacant_to = $closedAt;
+        $open->vacancy_loss = $open->computeVacancyLoss();
+        $open->save();
 
         $unit->update(['status' => 'occupied']);
 
         return $open->fresh();
+    }
+
+    // ----------------------------------------------------------------
+    // Lookups
+    // ----------------------------------------------------------------
+
+    public function findUnit(string $id): RentalUnit
+    {
+        return RentalUnit::findOrFail($id);
+    }
+
+    public function findBuilding(string $id): Building
+    {
+        return Building::findOrFail($id);
     }
 }

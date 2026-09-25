@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Tax;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Tax\TaxDeterminationRule;
 use App\Services\Tax\TaxDeterminationService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class TaxDeterminationController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly TaxDeterminationService $taxDeterminationService,
     ) {}
@@ -43,7 +46,7 @@ class TaxDeterminationController extends Controller
             'to_country_code'   => 'nullable|string|size:2',
             'from_region'       => 'nullable|string|max:100',
             'to_region'         => 'nullable|string|max:100',
-            'tax_category_id'   => 'nullable|exists:tax_categories,id',
+            'tax_category_id'   => ['nullable', $this->ownedBy('tax_categories')],
             'customer_type'     => 'nullable|in:b2b,b2c,government,exempt,any',
             'tax_type'          => 'required|in:standard,zero,exempt,reverse_charge,out_of_scope',
             'tax_rate_id'       => 'nullable|exists:tax_rates,id',
@@ -82,7 +85,7 @@ class TaxDeterminationController extends Controller
             'to_country_code'   => 'nullable|string|size:2',
             'from_region'       => 'nullable|string|max:100',
             'to_region'         => 'nullable|string|max:100',
-            'tax_category_id'   => 'nullable|exists:tax_categories,id',
+            'tax_category_id'   => ['nullable', $this->ownedBy('tax_categories')],
             'customer_type'     => 'nullable|in:b2b,b2c,government,exempt,any',
             'tax_type'          => 'sometimes|in:standard,zero,exempt,reverse_charge,out_of_scope',
             'tax_rate_id'       => 'nullable|exists:tax_rates,id',
@@ -120,7 +123,7 @@ class TaxDeterminationController extends Controller
             'to_country'      => 'nullable|string|size:2',
             'from_region'     => 'nullable|string|max:100',
             'to_region'       => 'nullable|string|max:100',
-            'tax_category_id' => 'nullable|exists:tax_categories,id',
+            'tax_category_id' => ['nullable', $this->ownedBy('tax_categories')],
             'customer_type'   => 'nullable|in:b2b,b2c,government,exempt,any',
             'amount'          => 'required|numeric|min:0',
         ]);
@@ -131,9 +134,7 @@ class TaxDeterminationController extends Controller
         $determination = $this->taxDeterminationService->determineForLine($validated);
         $calculation   = $this->taxDeterminationService->calculateTax($amount, $determination);
 
-        $rule = $determination['rule_id']
-            ? TaxDeterminationRule::with(['taxCategory', 'taxRate'])->find($determination['rule_id'])
-            : null;
+        $rule = $this->taxDeterminationService->findRuleWithRates($determination['rule_id']);
 
         return $this->success([
             'determination' => $determination,
