@@ -158,6 +158,28 @@ class CounterBasedMaintenanceEndpointsTest extends TestCase
         $this->assertSame('2026-09-10', $order->fresh()->actual_end->toDateString());
     }
 
+    public function test_a_plan_number_another_organization_uses_is_accepted(): void
+    {
+        $theirs = $this->plan($this->other, $this->counter($this->other));
+
+        $this->apiPost('/maintenance/counter-plans', [
+            'plan_number' => $theirs->plan_number,
+            'plan_type' => 'counter_based',
+            'counter_interval' => 100,
+        ])->assertCreated();
+    }
+
+    public function test_a_plan_number_the_organization_already_uses_is_refused(): void
+    {
+        $mine = $this->plan($this->organization, $this->counter($this->organization));
+
+        $this->apiPost('/maintenance/counter-plans', [
+            'plan_number' => $mine->plan_number,
+            'plan_type' => 'counter_based',
+            'counter_interval' => 100,
+        ])->assertStatus(422)->assertJsonValidationErrors(['plan_number']);
+    }
+
     private function location(Organization $organization): FunctionalLocation
     {
         return FunctionalLocation::create([
