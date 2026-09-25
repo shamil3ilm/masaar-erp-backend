@@ -7,6 +7,7 @@ namespace App\Services\Accounting;
 use App\Models\Accounting\FxForward;
 use App\Models\Accounting\FxHedgeRelation;
 use App\Models\Accounting\FxValuation;
+use App\Models\Accounting\JournalEntry;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -117,6 +118,11 @@ class FxDerivativeService
      * Fair value = (spot_rate - forward_rate) × notional  [simplified linear MTM]
      *
      * For cash-flow hedges: splits into effective/ineffective portions.
+     *
+     * The valuation and the entry that carries it are one act: a forward
+     * carried in the general ledger is journalled, and a mapping it needs and
+     * does not have refuses the valuation rather than recording a fair value
+     * the ledger never hears about.
      */
     public function recordValuation(
         FxForward $forward,
@@ -150,12 +156,17 @@ class FxDerivativeService
                 'ineffective_portion' => $ineffectivePortion,
             ]);
 
-            // Post journal entry if accounts configured
-            if ($forward->derivative_asset_account_id && $forward->unrealised_gain_loss_account_id && $fairValueChange !== 0.0) {
-                $this->postValuationJournalEntry($forward, $valuation);
+            // A forward with no derivative balance account is not carried in
+            // the general ledger, so its valuation has nothing to book
+            // against; a fair value that did not move books nothing either.
+            if ($forward->derivative_asset_account_id === null || $fairValueChange === 0.0) {
+                return $valuation;
             }
 
-            return $valuation;
+            $entry = $this->postValuationJournalEntry($forward, $valuation, $fairValueChange);
+            $valuation->update(['journal_entry_id' => $entry->id]);
+
+            return $valuation->fresh();
         });
     }
 
@@ -191,27 +202,59 @@ class FxDerivativeService
 
     // ----------------------------------------------------------------
 
-    private function postValuationJournalEntry(FxForward $forward, FxValuation $valuation): void
+    /**
+     * Book the period's fair-value movement against the derivative balance.
+     *
+     * The sign gives the direction: a rise raises the balance and is credited
+     * to the result account, a fall lowers it and is debited there. The result
+     * account is the one the contract names, or the account the organization
+     * mapped for that side — fx_unrealised_gain_account_id or
+     * fx_unrealised_loss_account_id. Without either the entry would be
+     * one-sided, so nothing is valued.
+     *
+     * @throws RuntimeException when no result account is configured
+     */
+    private function postValuationJournalEntry(FxForward $forward, FxValuation $valuation, float $fairValueChange): JournalEntry
     {
-        $amount = abs((float) $valuation->fair_value_change);
-        $isGain = (float) $valuation->fair_value_change >= 0;
+        $organizationId = (int) $forward->organization_id;
+        $isGain = $fairValueChange > 0;
+        $side = $isGain ? 'gain' : 'loss';
+        $mappingKey = "fx_unrealised_{$side}_account_id";
 
-        $this->journalService->createEntry([
-            'organization_id' => $forward->organization_id,
+        $resultAccountId = $forward->unrealised_gain_loss_account_id
+            ?? $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
+
+        if ($resultAccountId === null) {
+            throw new RuntimeException(
+                "FX forward {$forward->contract_number} was valued at an unrealised {$side}, but no "
+                . "{$mappingKey} is mapped in the organization's accounting settings."
+            );
+        }
+
+        $amount = number_format(abs($fairValueChange), 4, '.', '');
+        $zero = '0.0000';
+
+        return $this->journalService->createAndPost([
+            'organization_id' => $organizationId,
             'entry_date'      => $valuation->valuation_date,
+            'reference'       => $forward->contract_number,
             'description'     => "FX forward MTM: {$forward->contract_number} @ {$valuation->valuation_date}",
             'source_type'     => FxValuation::class,
             'source_id'       => $valuation->id,
         ], [
             [
-                'account_id' => $forward->derivative_asset_account_id,
-                'debit'      => $isGain ? $amount : 0,
-                'credit'     => $isGain ? 0 : $amount,
+                'account_id'  => $forward->derivative_asset_account_id,
+                'debit'       => $isGain ? $amount : $zero,
+                'credit'      => $isGain ? $zero : $amount,
+                'description' => "FX forward mark-to-market — {$forward->contract_number}",
+                'line_order'  => 0,
             ],
             [
-                'account_id' => $forward->unrealised_gain_loss_account_id,
-                'debit'      => $isGain ? 0 : $amount,
-                'credit'     => $isGain ? $amount : 0,
+                'account_id'  => $resultAccountId,
+                'debit'       => $isGain ? $zero : $amount,
+                'credit'      => $isGain ? $amount : $zero,
+                'description' => "Unrealised FX {$side} — {$forward->contract_number}",
+                'line_order'  => 1,
             ],
         ]);
     }
