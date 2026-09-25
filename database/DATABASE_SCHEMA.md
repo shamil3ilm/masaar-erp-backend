@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 57 migrations.
+978 tables across 58 migrations.
 
 ## Contents
 
@@ -65,6 +65,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0590_crm_ticket_numbers_per_organization.php`: changes to service_tickets
 - `0600_hr_numbers_per_organization.php`: changes to manager_team_views, personnel_actions, travel_expense_reports
 - `0610_inventory_numbers_per_organization.php`: changes to ewm_transfer_orders, goods_issues, inventory_valuation_types, storage_types
+- `0620_maintenance_numbers_per_organization.php`: changes to counter_based_orders, counter_based_plans, maintenance_fault_codes, maintenance_notifications, maintenance_service_orders, maintenance_task_lists
 
 ## 0010_accounting.php
 
@@ -11989,6 +11990,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_fault_codes_code_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'code'], 'maint_fault_codes_org_code_unq')`
+
 ### maintenance_kpis
 
 | Column | Type | Details |
@@ -12082,6 +12088,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('equipment_id')->references('id')->on('equipment')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_notifications_notification_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'notification_number'], 'maint_notifications_org_number_unq')`
 
 ### maintenance_notification_items
 
@@ -12355,6 +12366,11 @@ Indexes:
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['organization_id', 'vendor_id'])`
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_service_orders_service_order_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'service_order_number'], 'maint_service_orders_org_number_unq')`
+
 ### maintenance_task_lists
 
 | Column | Type | Details |
@@ -12371,6 +12387,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_task_lists_task_list_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'task_list_number'], 'maint_task_lists_org_number_unq')`
 
 ### permit_safety_checks
 
@@ -25159,6 +25180,11 @@ Foreign keys:
 - `$table->foreign('counter_id', 'pm_plan_ctr_fk')->references('id')->on('equipment_counters')->nullOnDelete()`
 - `$table->foreign('task_list_id', 'pm_plan_tl_fk')->references('id')->on('maintenance_task_lists')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('counter_based_plans_plan_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'plan_number'], 'counter_based_plans_org_number_unq')`
+
 ### counter_based_orders
 
 | Column | Type | Details |
@@ -25189,6 +25215,11 @@ Foreign keys:
 - `$table->foreign('maintenance_plan_id', 'pm_order_plan_fk')->references('id')->on('counter_based_plans')->nullOnDelete()`
 - `$table->foreign('floc_id', 'pm_order_floc_fk')->references('id')->on('functional_locations')->nullOnDelete()`
 - `$table->foreign('assigned_to', 'pm_order_usr_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('counter_based_orders_order_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'order_number'], 'counter_based_orders_org_number_unq')`
 
 ### counter_readings
 
@@ -25407,3 +25438,7 @@ Changes tables created earlier: `manager_team_views`, `personnel_actions`, `trav
 ## 0610_inventory_numbers_per_organization.php
 
 Changes tables created earlier: `ewm_transfer_orders`, `goods_issues`, `inventory_valuation_types`, `storage_types`.
+
+## 0620_maintenance_numbers_per_organization.php
+
+Changes tables created earlier: `counter_based_orders`, `counter_based_plans`, `maintenance_fault_codes`, `maintenance_notifications`, `maintenance_service_orders`, `maintenance_task_lists`.
