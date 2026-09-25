@@ -9,6 +9,7 @@ use App\Models\Concerns\HasUuid;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
@@ -17,6 +18,13 @@ class Organization extends Model
 {
     use HasFactory, SoftDeletes, HasUuid, HasAuditTrail;
 
+    /**
+     * parent_organization_id is left out on purpose: a request that fills an
+     * organization from its own input must not be able to join a group. Only
+     * App\Services\Admin\PlatformOrganizationService sets it.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
         'name',
         'legal_name',
@@ -76,6 +84,16 @@ class Organization extends Model
     }
 
     // Relationships
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_organization_id');
+    }
+
+    public function subsidiaries(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_organization_id');
+    }
+
     public function branches(): HasMany
     {
         return $this->hasMany(Branch::class);
@@ -98,6 +116,35 @@ class Organization extends Model
     }
 
     // Methods
+
+    /**
+     * The ids of the organizations sharing $organizationId's group.
+     *
+     * A group's root is parent_organization_id when the organization has a
+     * parent and its own id otherwise, and two organizations share a group
+     * when their roots match. So a parent and all its subsidiaries form one
+     * group, and an organization with neither a parent nor a subsidiary is a
+     * group of one. An id that names no organization has an empty group,
+     * which accepts nothing.
+     *
+     * @return list<int>
+     */
+    public static function groupIds(int $organizationId): array
+    {
+        $organization = static::query()->select('id', 'parent_organization_id')->find($organizationId);
+
+        if ($organization === null) {
+            return [];
+        }
+
+        $rootId = $organization->parent_organization_id ?? $organization->id;
+
+        return static::query()
+            ->where(fn ($query) => $query->whereKey($rootId)->orWhere('parent_organization_id', $rootId))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
 
     /**
      * Countries whose invoices this ERP files with a tax authority.
