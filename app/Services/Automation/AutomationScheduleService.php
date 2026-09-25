@@ -11,10 +11,17 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Keeps a scheduled rule's next run: reads its cron expression, holds the
+ * pending entry for it, and runs the rule over its entity set when due.
+ *
+ * Whether a record matches the rule, and what happens when it does, is
+ * AutomationRuleRunner's work.
+ */
 class AutomationScheduleService
 {
     public function __construct(
-        private AutomationRuleService $ruleService
+        private AutomationRuleRunner $runner
     ) {}
 
     /**
@@ -120,7 +127,7 @@ class AutomationScheduleService
      */
     protected function executeScheduledRule(AutomationRule $rule): void
     {
-        $entityClass = $this->resolveEntityClass($rule->entity_type);
+        $entityClass = $this->runner->entityClassFor($rule->entity_type);
 
         if (!$entityClass || !class_exists($entityClass)) {
             Log::warning("Unknown entity type for automation rule", [
@@ -135,9 +142,9 @@ class AutomationScheduleService
             ->get();
 
         foreach ($entities as $entity) {
-            if ($this->ruleService->evaluate($rule, $entity)) {
+            if ($this->runner->evaluate($rule, $entity)) {
                 try {
-                    $this->ruleService->executeActions($rule, $entity);
+                    $this->runner->executeActions($rule, $entity);
                 } catch (\Throwable $e) {
                     Log::warning("Scheduled rule action failed for entity", [
                         'rule_id' => $rule->id,
@@ -165,26 +172,5 @@ class AutomationScheduleService
             ]);
             return null;
         }
-    }
-
-    /**
-     * Resolve entity class from entity type string.
-     */
-    protected function resolveEntityClass(string $entityType): ?string
-    {
-        $map = [
-            'invoice' => \App\Models\Sales\Invoice::class,
-            'customer' => \App\Models\Sales\Contact::class,
-            'expense' => null,
-            'payment' => \App\Models\Sales\PaymentReceived::class,
-            'quotation' => \App\Models\Sales\Quotation::class,
-            'purchase_order' => \App\Models\Purchase\PurchaseOrder::class,
-            'bill' => \App\Models\Purchase\Bill::class,
-            'lead' => \App\Models\CRM\Lead::class,
-            'opportunity' => \App\Models\CRM\Opportunity::class,
-            'employee' => \App\Models\HR\Employee::class,
-        ];
-
-        return $map[$entityType] ?? null;
     }
 }
