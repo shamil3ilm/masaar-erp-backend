@@ -33,6 +33,19 @@ class AutomationSchedule extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        // pending_rule_id carries the rule id while the entry is pending and
+        // null otherwise, and a unique index on it keeps a rule to one pending
+        // entry. Deriving it from the status here means every path that moves
+        // an entry on or off pending takes the marker with it.
+        static::saving(function (self $schedule): void {
+            $schedule->pending_rule_id = ($schedule->status ?? self::STATUS_PENDING) === self::STATUS_PENDING
+                ? $schedule->rule_id
+                : null;
+        });
+    }
+
     // Relationships
 
     public function rule(): BelongsTo
