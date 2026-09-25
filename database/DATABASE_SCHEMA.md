@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 51 migrations.
+978 tables across 63 migrations.
 
 ## Contents
 
@@ -59,6 +59,18 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0530_purchase_order_pending_approval_status.php`: changes to purchase_orders
 - `0540_messaging_channel_default_marker.php`: changes to messaging_channels
 - `0550_organization_parent.php`: changes to organizations
+- `0560_accounting_numbers_per_organization.php`: changes to activity_confirmations, cost_center_budget_supplements, cost_reconciliation_runs, fx_forwards, intercompany_reconciliation_sessions, xbrl_taxonomies
+- `0570_budget_transfer_numbers_per_organization.php`: changes to budget_transfers
+- `0580_core_codes_per_organization.php`: changes to business_partners, class_assignments, class_characteristic_values, class_characteristics, email_templates
+- `0590_crm_ticket_numbers_per_organization.php`: changes to service_tickets
+- `0600_hr_numbers_per_organization.php`: changes to manager_team_views, personnel_actions, travel_expense_reports
+- `0610_inventory_numbers_per_organization.php`: changes to ewm_transfer_orders, goods_issues, inventory_valuation_types, storage_types
+- `0620_maintenance_numbers_per_organization.php`: changes to counter_based_orders, counter_based_plans, maintenance_fault_codes, maintenance_notifications, maintenance_service_orders, maintenance_task_lists
+- `0630_manufacturing_numbers_per_organization.php`: changes to audit_plans, capa_8d, capa_records, complaints, production_confirmations, scheduling_runs, shop_floor_papers, staging_requests, supplier_ncr_records, usage_decisions
+- `0640_purchase_numbers_per_organization.php`: changes to service_entry_sheets, service_purchase_orders
+- `0650_report_definition_codes_per_organization.php`: changes to report_definitions
+- `0660_sales_numbers_per_organization.php`: changes to cash_sales, commission_payments, customer_account_groups, delivery_documents, free_goods_conditions, material_account_groups, pick_documents
+- `0670_carrier_codes_per_organization.php`: changes to carriers
 
 ## 0010_accounting.php
 
@@ -120,6 +132,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['source_type', 'source_id'])`
+
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('cost_reconciliation_runs_run_number_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'run_number'], 'cost_recon_runs_org_number_unq')`
 
 ### cost_reconciliation_entries
 
@@ -238,6 +255,11 @@ Indexes:
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['organization_id', 'maturity_date'])`
 
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('fx_forwards_contract_number_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'contract_number'], 'fx_forwards_org_contract_number_unq')`
+
 ### fx_hedge_relations
 
 | Column | Type | Details |
@@ -337,6 +359,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['organization_id', 'fiscal_year', 'period'], 'ic_recon_sessions_org_fy_period_idx')`
+
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('intercompany_reconciliation_sessions_session_number_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'session_number'], 'icr_sessions_org_number_unq')`
 
 ### intercompany_reconciliation_items
 
@@ -860,6 +887,11 @@ Indexes:
 - `$table->index(['from_budget_line_id'])`
 - `$table->index(['to_budget_line_id'])`
 
+Added by later migrations:
+
+- `0570_budget_transfer_numbers_per_organization.php`: `$table->dropUnique('budget_transfers_transfer_number_unique')`
+- `0570_budget_transfer_numbers_per_organization.php`: `$table->unique(['organization_id', 'transfer_number'], 'budget_transfers_org_number_unq')`
+
 ## 0030_core.php
 
 ### business_partners
@@ -899,6 +931,11 @@ Indexes:
 - `$table->index(['organization_id', 'bp_number'])`
 - `$table->index(['organization_id', 'contact_id'])`
 - `$table->index(['organization_id', 'supplier_id'])`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('business_partners_bp_number_unique')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'bp_number'], 'business_partners_org_bp_number_unq')`
 
 ### business_partner_roles
 
@@ -941,6 +978,11 @@ Indexes:
 - `$table->unique(['classification_class_id', 'object_type', 'object_id'], 'ca_class_obj_unq')`
 - `$table->index(['object_type', 'object_id'], 'ca_obj_idx')`
 
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('ca_class_obj_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'classification_class_id', 'object_type', 'object_id'], 'ca_org_class_obj_unq')`
+
 ### class_characteristic_values
 
 | Column | Type | Details |
@@ -962,6 +1004,11 @@ Indexes:
 
 - `$table->unique(['class_characteristic_id', 'object_type', 'object_id'], 'ccv_char_obj_unq')`
 - `$table->index(['object_type', 'object_id'], 'ccv_obj_idx')`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('ccv_char_obj_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'class_characteristic_id', 'object_type', 'object_id'], 'ccv_org_char_obj_unq')`
 
 ### class_characteristics
 
@@ -987,6 +1034,11 @@ Indexes:
 Indexes:
 
 - `$table->unique(['classification_class_id', 'characteristic_code'], 'cchar_class_code_unq')`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('cchar_class_code_unq')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'classification_class_id', 'characteristic_code'], 'cchar_org_class_code_unq')`
 
 ### dashboard_widgets
 
@@ -1433,6 +1485,11 @@ Indexes:
 Indexes:
 
 - `$table->unique(['organization_id', 'code', 'language'])`
+
+Added by later migrations:
+
+- `0580_core_codes_per_organization.php`: `$table->dropUnique('email_templates_code_unique')`
+- `0580_core_codes_per_organization.php`: `$table->unique(['organization_id', 'code', 'language'], 'email_templates_org_code_lang_unq')`
 
 ### gdpr_processing_activities
 
@@ -5682,6 +5739,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'is_active'])`
 
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('xbrl_taxonomies_namespace_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'namespace'], 'xbrl_taxonomies_org_namespace_unq')`
+
 ### xbrl_filings
 
 | Column | Type | Details |
@@ -8533,6 +8595,11 @@ Indexes:
 
 - `$table->unique(['manager_id', 'employee_id'], 'mtv_manager_employee_unq')`
 
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('mtv_manager_employee_unq')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'manager_id', 'employee_id'], 'mtv_org_manager_employee_unq')`
+
 ### off_cycle_payroll_items
 
 | Column | Type | Details |
@@ -8991,6 +9058,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'employee_id'])`
 - `$table->index(['organization_id', 'status'])`
+
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('personnel_actions_action_number_unique')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'action_number'], 'personnel_actions_org_number_unq')`
 
 ### personnel_action_steps
 
@@ -10098,6 +10170,11 @@ Indexes:
 - `$table->index(['organization_id', 'employee_id'])`
 - `$table->index(['organization_id', 'status'])`
 
+Added by later migrations:
+
+- `0600_hr_numbers_per_organization.php`: `$table->dropUnique('travel_expense_reports_report_number_unique')`
+- `0600_hr_numbers_per_organization.php`: `$table->unique(['organization_id', 'report_number'], 'travel_exp_reports_org_number_unq')`
+
 ### travel_expense_report_lines
 
 | Column | Type | Details |
@@ -10409,6 +10486,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'status'], 'cc_bdgt_supp_org_status_idx')`
 - `$table->index(['cost_center_budget_id'], 'cc_bdgt_supp_budget_idx')`
+
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('cost_center_budget_supplements_supplement_number_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'supplement_number'], 'ccbs_org_supplement_number_unq')`
 
 ### costing_sheet_rows
 
@@ -11173,6 +11255,11 @@ Indexes:
 - `$table->unique(['valuation_category_id', 'type_code'])`
 - `$table->index(['organization_id', 'valuation_category_id'], 'inv_val_types_org_cat_idx')`
 
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('inventory_valuation_types_valuation_category_id_type_code_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'valuation_category_id', 'type_code'], 'inv_val_types_org_category_code_unq')`
+
 ### qr_code_configs
 
 | Column | Type | Details |
@@ -11244,6 +11331,11 @@ Indexes:
 
 - `$table->unique(['warehouse_id', 'storage_type_code'], 'st_warehouse_code_unq')`
 - `$table->index(['organization_id', 'warehouse_id'], 'st_org_warehouse_idx')`
+
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('st_warehouse_code_unq')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'warehouse_id', 'storage_type_code'], 'st_org_warehouse_code_unq')`
 
 ### units_of_measure
 
@@ -11507,6 +11599,11 @@ Foreign keys:
 - `$table->foreign('reversed_by')->references('id')->on('users')->nullOnDelete()`
 - `$table->foreign('journal_entry_id')->references('id')->on('journal_entries')->nullOnDelete()`
 - `$table->foreign('created_by')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('goods_issues_gi_number_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'gi_number'], 'goods_issues_org_gi_number_unq')`
 
 ### physical_inventory_documents
 
@@ -11898,6 +11995,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_fault_codes_code_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'code'], 'maint_fault_codes_org_code_unq')`
+
 ### maintenance_kpis
 
 | Column | Type | Details |
@@ -11991,6 +12093,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('equipment_id')->references('id')->on('equipment')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_notifications_notification_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'notification_number'], 'maint_notifications_org_number_unq')`
 
 ### maintenance_notification_items
 
@@ -12264,6 +12371,11 @@ Indexes:
 - `$table->index(['organization_id', 'status'])`
 - `$table->index(['organization_id', 'vendor_id'])`
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_service_orders_service_order_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'service_order_number'], 'maint_service_orders_org_number_unq')`
+
 ### maintenance_task_lists
 
 | Column | Type | Details |
@@ -12280,6 +12392,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('maintenance_task_lists_task_list_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'task_list_number'], 'maint_task_lists_org_number_unq')`
 
 ### permit_safety_checks
 
@@ -12460,6 +12577,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('lead_auditor_id', 'audit_plan_auditor_fk')->references('id')->on('users')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('audit_plans_plan_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'plan_number'], 'audit_plans_org_plan_number_unq')`
+
 ### audit_checklists
 
 | Column | Type | Details |
@@ -12575,6 +12697,11 @@ Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('owner_id', 'capa_owner_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('capa_records_capa_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'capa_number'], 'capa_records_org_capa_number_unq')`
 
 ### capa_actions
 
@@ -12971,6 +13098,11 @@ Indexes:
 Indexes:
 
 - `$table->index(['organization_id', 'status'])`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('capa_8d_capa_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'capa_number'], 'capa_8d_org_capa_number_unq')`
 
 ### dynamic_modification_rules
 
@@ -14390,6 +14522,11 @@ Foreign keys:
 - `$table->foreign('sales_rep_id', 'comm_pay_usr_fk')->references('id')->on('users')->onDelete('cascade')`
 - `$table->foreign('payslip_id', 'comm_pay_payslip_fk')->references('id')->on('payslips')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('commission_payments_payment_reference_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'payment_reference'], 'commission_payments_org_reference_unq')`
+
 ### commission_rules
 
 | Column | Type | Details |
@@ -14428,6 +14565,11 @@ Foreign keys:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('customer_account_groups_group_code_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'group_code'], 'customer_account_groups_org_code_unq')`
 
 ### customer_groups
 
@@ -14614,6 +14756,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('material_account_groups_group_code_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'group_code'], 'material_account_groups_org_code_unq')`
 
 ### output_types
 
@@ -15555,6 +15702,11 @@ Foreign keys:
 - `$table->foreign('ship_to_contact_id', 'del_doc_ship_fk')->references('id')->on('contacts')->onDelete('set null')`
 - `$table->foreign('warehouse_id', 'del_doc_wh_fk')->references('id')->on('warehouses')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('delivery_documents_delivery_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'delivery_number'], 'delivery_documents_org_number_unq')`
+
 ### intercompany_sales_orders
 
 | Column | Type | Details |
@@ -15743,6 +15895,11 @@ Foreign keys:
 - `$table->foreign('invoice_id', 'cs_inv_fk')->references('id')->on('invoices')->onDelete('set null')`
 - `$table->foreign('voided_by', 'cs_void_usr_fk')->references('id')->on('users')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('cash_sales_cash_sale_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'cash_sale_number'], 'cash_sales_org_number_unq')`
+
 ### commission_calculations
 
 | Column | Type | Details |
@@ -15814,6 +15971,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
 - `$table->foreign('delivery_document_id', 'pick_doc_del_fk')->references('id')->on('delivery_documents')->onDelete('cascade')`
 - `$table->foreign('assigned_to', 'pick_doc_usr_fk')->references('id')->on('users')->onDelete('set null')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('pick_documents_pick_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'pick_number'], 'pick_documents_org_number_unq')`
 
 ### rebate_accruals
 
@@ -16963,6 +17125,11 @@ Foreign keys:
 - `$table->foreign('sla_policy_id')->references('id')->on('sla_policies')->onDelete('set null')`
 - `$table->foreign('created_by')->references('id')->on('users')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0590_crm_ticket_numbers_per_organization.php`: `$table->dropUnique('service_tickets_ticket_number_unique')`
+- `0590_crm_ticket_numbers_per_organization.php`: `$table->unique(['organization_id', 'ticket_number'], 'service_tickets_org_number_unq')`
+
 ### service_ticket_comments
 
 | Column | Type | Details |
@@ -17354,6 +17521,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete()`
 - `$table->foreign('contact_id', 'complaint_contact_fk')->references('id')->on('contacts')->nullOnDelete()`
 - `$table->foreign('assigned_to_id', 'complaint_assignee_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('complaints_complaint_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'complaint_number'], 'complaints_org_number_unq')`
 
 ### complaint_communications
 
@@ -18009,6 +18181,11 @@ Foreign keys:
 - `$table->foreign('vendor_id')->references('id')->on('contacts')`
 - `$table->foreign('created_by')->references('id')->on('users')`
 
+Added by later migrations:
+
+- `0640_purchase_numbers_per_organization.php`: `$table->dropUnique('service_purchase_orders_po_number_unique')`
+- `0640_purchase_numbers_per_organization.php`: `$table->unique(['organization_id', 'po_number'], 'service_purchase_orders_org_number_unq')`
+
 ### service_entry_sheets
 
 | Column | Type | Details |
@@ -18038,6 +18215,11 @@ Foreign keys:
 - `$table->foreign('vendor_id')->references('id')->on('contacts')`
 - `$table->foreign('submitted_by')->references('id')->on('users')`
 - `$table->foreign('approved_by')->references('id')->on('users')`
+
+Added by later migrations:
+
+- `0640_purchase_numbers_per_organization.php`: `$table->dropUnique('service_entry_sheets_ses_number_unique')`
+- `0640_purchase_numbers_per_organization.php`: `$table->unique(['organization_id', 'ses_number'], 'service_entry_sheets_org_number_unq')`
 
 ### service_acceptances
 
@@ -19362,6 +19544,11 @@ Indexes:
 - `$table->index(['organization_id', 'warehouse_id', 'status'])`
 - `$table->index(['organization_id', 'movement_type', 'status'])`
 - `$table->index(['reference_type', 'reference_id'])`
+
+Added by later migrations:
+
+- `0610_inventory_numbers_per_organization.php`: `$table->dropUnique('ewm_transfer_orders_to_number_unique')`
+- `0610_inventory_numbers_per_organization.php`: `$table->unique(['organization_id', 'to_number'], 'ewm_transfer_orders_org_number_unq')`
 
 ### ewm_labor_tasks
 
@@ -21788,6 +21975,11 @@ Foreign keys:
 - `$table->foreign('supplier_id', 'sq_ncr_supplier_fk')->references('id')->on('contacts')->cascadeOnDelete()`
 - `$table->foreign('product_id', 'sq_ncr_product_fk')->references('id')->on('products')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('supplier_ncr_records_ncr_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'ncr_number'], 'supplier_ncr_records_org_number_unq')`
+
 ### usage_decisions
 
 | Column | Type | Details |
@@ -21810,6 +22002,11 @@ Foreign keys:
 Indexes:
 
 - `$table->index(['organization_id', 'inspection_lot_id'])`
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('usage_decisions_decision_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'decision_number'], 'usage_decisions_org_number_unq')`
 
 ## 0390_purchase_3.php
 
@@ -23013,6 +23210,11 @@ Foreign keys:
 - `$table->foreign('product_id', 'fg_cond_prod_fk')->references('id')->on('products')->onDelete('cascade')`
 - `$table->foreign('free_product_id', 'fg_cond_free_prod_fk')->references('id')->on('products')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('free_goods_conditions_condition_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'condition_number'], 'free_goods_conditions_org_number_unq')`
+
 ### intercompany_sales_order_lines
 
 | Column | Type | Details |
@@ -23847,6 +24049,11 @@ Foreign keys:
 
 - `$table->foreign('reversal_id', 'co_act_conf_reversal_fk')->references('id')->on('activity_confirmations')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0560_accounting_numbers_per_organization.php`: `$table->dropUnique('activity_confirmations_confirmation_number_unique')`
+- `0560_accounting_numbers_per_organization.php`: `$table->unique(['organization_id', 'confirmation_number'], 'act_conf_org_number_unq')`
+
 ## 0420_tm.php
 
 ### carriers
@@ -23875,6 +24082,11 @@ Indexes:
 
 - `$table->index(['organization_id', 'status'], 'carriers_org_status_idx')`
 - `$table->index(['organization_id', 'type', 'status'], 'carriers_org_type_status_idx')`
+
+Added by later migrations:
+
+- `0670_carrier_codes_per_organization.php`: `$table->dropUnique('carriers_code_unique')`
+- `0670_carrier_codes_per_organization.php`: `$table->unique(['organization_id', 'code'], 'carriers_org_code_unq')`
 
 ### carrier_performance
 
@@ -24717,6 +24929,11 @@ Foreign keys:
 | updated_at | `timestamp` | nullable |
 | deleted_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('production_confirmations_confirmation_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'confirmation_number'], 'prod_confirmations_org_number_unq')`
+
 ### promotion_customers
 
 | Column | Type | Details |
@@ -24776,6 +24993,11 @@ Indexes:
 
 - `$table->index(['module', 'is_active'])`
 
+Added by later migrations:
+
+- `0650_report_definition_codes_per_organization.php`: `$table->dropUnique('report_definitions_code_unique')`
+- `0650_report_definition_codes_per_organization.php`: `$table->unique(['organization_id', 'code'], 'report_definitions_org_code_unq')`
+
 ### role_permissions
 
 | Column | Type | Details |
@@ -24810,6 +25032,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('scheduling_runs_run_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'run_number'], 'scheduling_runs_org_number_unq')`
+
 ### sessions
 
 | Column | Type | Details |
@@ -24838,6 +25065,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('shop_floor_papers_paper_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'paper_number'], 'shop_floor_papers_org_number_unq')`
+
 ### staging_requests
 
 | Column | Type | Details |
@@ -24854,6 +25086,11 @@ Indexes:
 | created_at | `timestamp` | nullable |
 | updated_at | `timestamp` | nullable |
 | deleted_at | `timestamp` | nullable |
+
+Added by later migrations:
+
+- `0630_manufacturing_numbers_per_organization.php`: `$table->dropUnique('staging_requests_request_number_unique')`
+- `0630_manufacturing_numbers_per_organization.php`: `$table->unique(['organization_id', 'request_number'], 'staging_requests_org_number_unq')`
 
 ### staging_request_lines
 
@@ -25053,6 +25290,11 @@ Foreign keys:
 - `$table->foreign('counter_id', 'pm_plan_ctr_fk')->references('id')->on('equipment_counters')->nullOnDelete()`
 - `$table->foreign('task_list_id', 'pm_plan_tl_fk')->references('id')->on('maintenance_task_lists')->nullOnDelete()`
 
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('counter_based_plans_plan_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'plan_number'], 'counter_based_plans_org_number_unq')`
+
 ### counter_based_orders
 
 | Column | Type | Details |
@@ -25083,6 +25325,11 @@ Foreign keys:
 - `$table->foreign('maintenance_plan_id', 'pm_order_plan_fk')->references('id')->on('counter_based_plans')->nullOnDelete()`
 - `$table->foreign('floc_id', 'pm_order_floc_fk')->references('id')->on('functional_locations')->nullOnDelete()`
 - `$table->foreign('assigned_to', 'pm_order_usr_fk')->references('id')->on('users')->nullOnDelete()`
+
+Added by later migrations:
+
+- `0620_maintenance_numbers_per_organization.php`: `$table->dropUnique('counter_based_orders_order_number_unique')`
+- `0620_maintenance_numbers_per_organization.php`: `$table->unique(['organization_id', 'order_number'], 'counter_based_orders_org_number_unq')`
 
 ### counter_readings
 
@@ -25277,3 +25524,51 @@ Changes tables created earlier: `messaging_channels`.
 ## 0550_organization_parent.php
 
 Changes tables created earlier: `organizations`.
+
+## 0560_accounting_numbers_per_organization.php
+
+Changes tables created earlier: `activity_confirmations`, `cost_center_budget_supplements`, `cost_reconciliation_runs`, `fx_forwards`, `intercompany_reconciliation_sessions`, `xbrl_taxonomies`.
+
+## 0570_budget_transfer_numbers_per_organization.php
+
+Changes tables created earlier: `budget_transfers`.
+
+## 0580_core_codes_per_organization.php
+
+Changes tables created earlier: `business_partners`, `class_assignments`, `class_characteristic_values`, `class_characteristics`, `email_templates`.
+
+## 0590_crm_ticket_numbers_per_organization.php
+
+Changes tables created earlier: `service_tickets`.
+
+## 0600_hr_numbers_per_organization.php
+
+Changes tables created earlier: `manager_team_views`, `personnel_actions`, `travel_expense_reports`.
+
+## 0610_inventory_numbers_per_organization.php
+
+Changes tables created earlier: `ewm_transfer_orders`, `goods_issues`, `inventory_valuation_types`, `storage_types`.
+
+## 0620_maintenance_numbers_per_organization.php
+
+Changes tables created earlier: `counter_based_orders`, `counter_based_plans`, `maintenance_fault_codes`, `maintenance_notifications`, `maintenance_service_orders`, `maintenance_task_lists`.
+
+## 0630_manufacturing_numbers_per_organization.php
+
+Changes tables created earlier: `audit_plans`, `capa_8d`, `capa_records`, `complaints`, `production_confirmations`, `scheduling_runs`, `shop_floor_papers`, `staging_requests`, `supplier_ncr_records`, `usage_decisions`.
+
+## 0640_purchase_numbers_per_organization.php
+
+Changes tables created earlier: `service_entry_sheets`, `service_purchase_orders`.
+
+## 0650_report_definition_codes_per_organization.php
+
+Changes tables created earlier: `report_definitions`.
+
+## 0660_sales_numbers_per_organization.php
+
+Changes tables created earlier: `cash_sales`, `commission_payments`, `customer_account_groups`, `delivery_documents`, `free_goods_conditions`, `material_account_groups`, `pick_documents`.
+
+## 0670_carrier_codes_per_organization.php
+
+Changes tables created earlier: `carriers`.

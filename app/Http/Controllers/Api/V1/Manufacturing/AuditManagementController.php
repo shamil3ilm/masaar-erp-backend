@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Manufacturing\AuditManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class AuditManagementController extends Controller
 {
@@ -24,7 +25,7 @@ class AuditManagementController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'plan_number'      => 'required|string|max:50|unique:audit_plans',
+            'plan_number'      => ['required', 'string', 'max:50', Rule::unique('audit_plans', 'plan_number')->where('organization_id', $request->user()->organization_id)],
             'title'            => 'required|string|max:255',
             'audit_type'       => 'required|in:internal,supplier,customer,regulatory,certification',
             'planned_start'    => 'required|date',

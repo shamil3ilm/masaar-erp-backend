@@ -7,11 +7,12 @@ namespace Tests\Feature\Manufacturing;
 use App\Models\Manufacturing\AuditPlan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Traits\BuildsTenantRows;
 use Tests\Traits\TestHelpers;
 
 class AuditManagementTest extends TestCase
 {
-    use RefreshDatabase, TestHelpers;
+    use BuildsTenantRows, RefreshDatabase, TestHelpers;
 
     protected function setUp(): void
     {
@@ -128,6 +129,46 @@ class AuditManagementTest extends TestCase
             'audit_plan_id' => $plan->id,
             'item_number'   => '1.1',
         ]);
+    }
+
+    // ─── number scope ─────────────────────────────────────────────────────────
+
+    public function test_store_accepts_a_plan_number_another_organization_uses(): void
+    {
+        $this->tenantRow('audit_plans', $this->otherTenant()->id, ['plan_number' => 'AUD-2026-900']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/audit-plans',
+            [
+                'plan_number'   => 'AUD-2026-900',
+                'title'         => 'ISO 9001 Internal Audit',
+                'audit_type'    => 'internal',
+                'planned_start' => now()->addDays(7)->format('Y-m-d'),
+                'planned_end'   => now()->addDays(8)->format('Y-m-d'),
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertCreated();
+    }
+
+    public function test_store_refuses_a_plan_number_the_organization_already_uses(): void
+    {
+        $this->tenantRow('audit_plans', $this->organization->id, ['plan_number' => 'AUD-2026-901']);
+
+        $response = $this->postJson(
+            '/api/v1/manufacturing/audit-plans',
+            [
+                'plan_number'   => 'AUD-2026-901',
+                'title'         => 'ISO 9001 Internal Audit',
+                'audit_type'    => 'internal',
+                'planned_start' => now()->addDays(7)->format('Y-m-d'),
+                'planned_end'   => now()->addDays(8)->format('Y-m-d'),
+            ],
+            $this->authHeaders()
+        );
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['plan_number']);
     }
 
     // ─── auth guard ───────────────────────────────────────────────────────────
