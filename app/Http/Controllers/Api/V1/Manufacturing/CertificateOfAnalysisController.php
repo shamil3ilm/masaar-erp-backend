@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Manufacturing;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Manufacturing\CertificateOfAnalysis;
 use App\Services\Manufacturing\CertificateOfAnalysisService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class CertificateOfAnalysisController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private readonly CertificateOfAnalysisService $service
     ) {}
@@ -41,10 +44,10 @@ class CertificateOfAnalysisController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'        => ['required', 'integer', 'exists:products,id'],
+            'product_id'        => ['required', 'integer', $this->ownedBy('products')],
             'batch_number'      => ['nullable', 'string', 'max:100'],
             'inspection_lot_id' => ['nullable', 'integer'],
-            'contact_id'        => ['nullable', 'integer', 'exists:contacts,id'],
+            'contact_id'        => ['nullable', 'integer', $this->ownedBy('contacts')],
             'issue_date'        => ['nullable', 'date'],
             'test_date'         => ['nullable', 'date'],
             'test_results'      => ['required', 'array', 'min:1'],
@@ -86,7 +89,7 @@ class CertificateOfAnalysisController extends Controller
 
         $validated = $request->validate([
             'batch_number'      => ['nullable', 'string', 'max:100'],
-            'contact_id'        => ['nullable', 'integer', 'exists:contacts,id'],
+            'contact_id'        => ['nullable', 'integer', $this->ownedBy('contacts')],
             'issue_date'        => ['nullable', 'date'],
             'test_date'         => ['nullable', 'date'],
             'test_results'      => ['nullable', 'array', 'min:1'],
@@ -134,7 +137,7 @@ class CertificateOfAnalysisController extends Controller
     public function issue(Request $request, CertificateOfAnalysis $certificateOfAnalysis): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'contact_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
         ]);
 
         $this->service->issue($certificateOfAnalysis, $validated['contact_id'] ?? null);

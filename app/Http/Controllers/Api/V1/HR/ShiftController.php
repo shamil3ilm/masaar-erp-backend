@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\HR;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\HR\EmployeeService;
 use App\Services\HR\ShiftService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class ShiftController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private ShiftService $shiftService,
         private EmployeeService $employeeService,
@@ -98,8 +101,8 @@ class ShiftController extends Controller
     public function assign(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'employee_id' => 'required|exists:employees,id',
-            'shift_id' => 'required|exists:shifts,id',
+            'employee_id' => ['required', $this->ownedBy('employees')],
+            'shift_id' => ['required', $this->ownedBy('shifts')],
             'effective_from' => 'required|date',
             'effective_to' => 'nullable|date|after_or_equal:effective_from',
         ]);

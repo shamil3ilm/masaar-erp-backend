@@ -12,7 +12,6 @@ use App\Services\Purchase\OutlineAgreementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\Rule;
 
 class OutlineAgreementController extends Controller
 {
@@ -131,7 +130,7 @@ class OutlineAgreementController extends Controller
             'outline_agreement_item_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('outline_agreement_items', 'id')->where('outline_agreement_id', $agreement->id),
+                $this->ownedBy('outline_agreement_items')->where('outline_agreement_id', $agreement->id),
             ],
             'purchase_order_id'         => ['nullable', 'integer', $this->ownedBy('purchase_orders')],
             'release_date'              => 'required|date',

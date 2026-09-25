@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Reports;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Reports\SavedReport;
 use App\Services\Reports\FinancialReportService;
@@ -21,6 +22,8 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportsController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         protected FinancialReportService $financialService,
         protected InventoryReportService $inventoryService,
@@ -55,7 +58,7 @@ class ReportsController extends Controller
         $request->validate([
             'as_of_date' => 'required|date',
             'compare_to' => 'nullable|date',
-            'fiscal_year_id' => 'nullable|integer|exists:fiscal_years,id',
+            'fiscal_year_id' => ['nullable', 'integer', $this->ownedBy('fiscal_years')],
         ]);
 
         $data = $this->financialService->getBalanceSheet(

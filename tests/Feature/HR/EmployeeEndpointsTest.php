@@ -68,7 +68,7 @@ class EmployeeEndpointsTest extends TestCase
             'salary_structure_id' => $theirs->id,
             'effective_from' => '2026-01-01',
             'components' => ['BASIC' => 5000],
-        ])->assertNotFound();
+        ])->assertUnprocessable()->assertJsonValidationErrors('salary_structure_id');
 
         $this->assertDatabaseMissing('employee_salaries', ['employee_id' => $employee->id]);
     }

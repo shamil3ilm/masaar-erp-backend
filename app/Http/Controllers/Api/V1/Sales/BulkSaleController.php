@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Models\Sales\BulkSaleBatch;
 use App\Services\Sales\BulkSaleService;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 
 class BulkSaleController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private BulkSaleService $bulkSaleService
     ) {}
@@ -44,7 +47,7 @@ class BulkSaleController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'nullable|integer|exists:branches,id',
+            'branch_id' => ['nullable', 'integer', $this->ownedBy('branches')],
             'name' => 'nullable|string|max:255',
             'sale_date' => 'required|date',
             'currency_code' => 'nullable|string|size:3',
@@ -52,15 +55,15 @@ class BulkSaleController extends Controller
             'auto_send_email' => 'boolean',
             'generate_receipts' => 'boolean',
             'payment_method' => 'nullable|string|max:50',
-            'bank_account_id' => 'nullable|integer|exists:bank_accounts,id',
+            'bank_account_id' => ['nullable', 'integer', $this->ownedBy('bank_accounts')],
             'notes' => 'nullable|string|max:2000',
             'items' => 'required|array|min:1',
-            'items.*.customer_id' => 'nullable|integer|exists:contacts,id',
+            'items.*.customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'items.*.customer_name' => 'nullable|string|max:255',
             'items.*.customer_email' => 'nullable|email|max:255',
             'items.*.customer_phone' => 'nullable|string|max:50',
             'items.*.customer_tax_number' => 'nullable|string|max:50',
-            'items.*.product_id' => 'nullable|integer|exists:products,id',
+            'items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
             'items.*.description' => 'required|string|max:500',
             'items.*.quantity' => 'required|numeric|gt:0',
             'items.*.unit_price' => 'required|numeric|min:0',
@@ -117,15 +120,15 @@ class BulkSaleController extends Controller
             'auto_send_email' => 'boolean',
             'generate_receipts' => 'boolean',
             'payment_method' => 'nullable|string|max:50',
-            'bank_account_id' => 'nullable|integer|exists:bank_accounts,id',
+            'bank_account_id' => ['nullable', 'integer', $this->ownedBy('bank_accounts')],
             'notes' => 'nullable|string|max:2000',
             'items' => 'nullable|array',
-            'items.*.customer_id' => 'nullable|integer|exists:contacts,id',
+            'items.*.customer_id' => ['nullable', 'integer', $this->ownedBy('contacts')],
             'items.*.customer_name' => 'nullable|string|max:255',
             'items.*.customer_email' => 'nullable|email|max:255',
             'items.*.customer_phone' => 'nullable|string|max:50',
             'items.*.customer_tax_number' => 'nullable|string|max:50',
-            'items.*.product_id' => 'nullable|integer|exists:products,id',
+            'items.*.product_id' => ['nullable', 'integer', $this->ownedBy('products')],
             'items.*.description' => 'required|string|max:500',
             'items.*.quantity' => 'required|numeric|gt:0',
             'items.*.unit_price' => 'required|numeric|min:0',

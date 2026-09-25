@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Sales;
 
+use App\Http\Concerns\ValidatesOwnedRows;
 use App\Http\Controllers\Controller;
 use App\Services\Sales\AtpService;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +12,8 @@ use Illuminate\Http\Request;
 
 class AtpController extends Controller
 {
+    use ValidatesOwnedRows;
+
     public function __construct(
         private AtpService $atpService
     ) {}
@@ -22,10 +25,10 @@ class AtpController extends Controller
     public function check(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id'     => 'required|integer|exists:products,id',
+            'product_id'     => ['required', 'integer', $this->ownedBy('products')],
             'quantity'       => 'required|numeric|min:0.0001',
             'requested_date' => 'required|date',
-            'warehouse_id'   => 'nullable|integer|exists:warehouses,id',
+            'warehouse_id'   => ['nullable', 'integer', $this->ownedBy('warehouses')],
         ]);
 
         $orgId = $this->organizationId($request);
@@ -48,12 +51,12 @@ class AtpController extends Controller
     public function checkOrder(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'contact_id'             => 'required|integer|exists:contacts,id',
+            'contact_id'             => ['required', 'integer', $this->ownedBy('contacts')],
             'lines'                  => 'required|array|min:1',
-            'lines.*.product_id'     => 'required|integer|exists:products,id',
+            'lines.*.product_id'     => ['required', 'integer', $this->ownedBy('products')],
             'lines.*.quantity'       => 'required|numeric|min:0.0001',
             'lines.*.requested_date' => 'required|date',
-            'lines.*.warehouse_id'   => 'nullable|integer|exists:warehouses,id',
+            'lines.*.warehouse_id'   => ['nullable', 'integer', $this->ownedBy('warehouses')],
             'persist'                => 'nullable|boolean',
             'source_document_type'   => 'nullable|string|max:30',
             'source_document_id'     => 'nullable|integer',
