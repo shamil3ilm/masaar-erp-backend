@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 61 migrations.
+978 tables across 62 migrations.
 
 ## Contents
 
@@ -69,6 +69,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0630_manufacturing_numbers_per_organization.php`: changes to audit_plans, capa_8d, capa_records, complaints, production_confirmations, scheduling_runs, shop_floor_papers, staging_requests, supplier_ncr_records, usage_decisions
 - `0640_purchase_numbers_per_organization.php`: changes to service_entry_sheets, service_purchase_orders
 - `0650_report_definition_codes_per_organization.php`: changes to report_definitions
+- `0660_sales_numbers_per_organization.php`: changes to cash_sales, commission_payments, customer_account_groups, delivery_documents, free_goods_conditions, material_account_groups, pick_documents
 
 ## 0010_accounting.php
 
@@ -14520,6 +14521,11 @@ Foreign keys:
 - `$table->foreign('sales_rep_id', 'comm_pay_usr_fk')->references('id')->on('users')->onDelete('cascade')`
 - `$table->foreign('payslip_id', 'comm_pay_payslip_fk')->references('id')->on('payslips')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('commission_payments_payment_reference_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'payment_reference'], 'commission_payments_org_reference_unq')`
+
 ### commission_rules
 
 | Column | Type | Details |
@@ -14558,6 +14564,11 @@ Foreign keys:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('customer_account_groups_group_code_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'group_code'], 'customer_account_groups_org_code_unq')`
 
 ### customer_groups
 
@@ -14744,6 +14755,11 @@ Indexes:
 Foreign keys:
 
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('material_account_groups_group_code_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'group_code'], 'material_account_groups_org_code_unq')`
 
 ### output_types
 
@@ -15685,6 +15701,11 @@ Foreign keys:
 - `$table->foreign('ship_to_contact_id', 'del_doc_ship_fk')->references('id')->on('contacts')->onDelete('set null')`
 - `$table->foreign('warehouse_id', 'del_doc_wh_fk')->references('id')->on('warehouses')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('delivery_documents_delivery_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'delivery_number'], 'delivery_documents_org_number_unq')`
+
 ### intercompany_sales_orders
 
 | Column | Type | Details |
@@ -15873,6 +15894,11 @@ Foreign keys:
 - `$table->foreign('invoice_id', 'cs_inv_fk')->references('id')->on('invoices')->onDelete('set null')`
 - `$table->foreign('voided_by', 'cs_void_usr_fk')->references('id')->on('users')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('cash_sales_cash_sale_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'cash_sale_number'], 'cash_sales_org_number_unq')`
+
 ### commission_calculations
 
 | Column | Type | Details |
@@ -15944,6 +15970,11 @@ Foreign keys:
 - `$table->foreign('organization_id')->references('id')->on('organizations')->onDelete('cascade')`
 - `$table->foreign('delivery_document_id', 'pick_doc_del_fk')->references('id')->on('delivery_documents')->onDelete('cascade')`
 - `$table->foreign('assigned_to', 'pick_doc_usr_fk')->references('id')->on('users')->onDelete('set null')`
+
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('pick_documents_pick_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'pick_number'], 'pick_documents_org_number_unq')`
 
 ### rebate_accruals
 
@@ -23178,6 +23209,11 @@ Foreign keys:
 - `$table->foreign('product_id', 'fg_cond_prod_fk')->references('id')->on('products')->onDelete('cascade')`
 - `$table->foreign('free_product_id', 'fg_cond_free_prod_fk')->references('id')->on('products')->onDelete('set null')`
 
+Added by later migrations:
+
+- `0660_sales_numbers_per_organization.php`: `$table->dropUnique('free_goods_conditions_condition_number_unique')`
+- `0660_sales_numbers_per_organization.php`: `$table->unique(['organization_id', 'condition_number'], 'free_goods_conditions_org_number_unq')`
+
 ### intercompany_sales_order_lines
 
 | Column | Type | Details |
@@ -25522,3 +25558,7 @@ Changes tables created earlier: `service_entry_sheets`, `service_purchase_orders
 ## 0650_report_definition_codes_per_organization.php
 
 Changes tables created earlier: `report_definitions`.
+
+## 0660_sales_numbers_per_organization.php
+
+Changes tables created earlier: `cash_sales`, `commission_payments`, `customer_account_groups`, `delivery_documents`, `free_goods_conditions`, `material_account_groups`, `pick_documents`.
