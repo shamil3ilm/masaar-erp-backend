@@ -22,6 +22,9 @@ class MultiCurrencyService
     /** The scale the revaluation amount columns hold. */
     private const SCALE = 4;
 
+    /** The scale the rate columns hold. */
+    private const RATE_SCALE = 8;
+
     public function __construct(
         private readonly JournalService $journalService,
         private readonly NumberGeneratorService $numberGenerator,
@@ -447,6 +450,8 @@ class MultiCurrencyService
                 continue;
             }
 
+            $newRate = self::rate($newRate);
+
             // 4. Get the previous rate (most recent posted revaluation for this currency).
             $lastRevaluation = CurrencyRevaluation::withoutGlobalScopes()
                 ->where('organization_id', $organizationId)
@@ -456,21 +461,15 @@ class MultiCurrencyService
                 ->orderByDesc('revaluation_date')
                 ->first();
 
-            $oldRate = $lastRevaluation ? (float) $lastRevaluation->new_rate : 0;
+            $oldRate = $lastRevaluation ? self::rate($lastRevaluation->new_rate) : self::rate('0');
 
             // 5. Compute foreign-currency balance for each account from posted journal lines.
             $accountsData = [];
             foreach ($accounts as $account) {
-                $balance = DB::table('journal_entry_lines as jel')
-                    ->join('journal_entries as je', 'jel.journal_entry_id', '=', 'je.id')
-                    ->where('je.organization_id', $organizationId)
-                    ->where('jel.account_id', $account->id)
-                    ->where('je.status', 'posted')
-                    ->selectRaw('COALESCE(SUM(jel.debit), 0) - COALESCE(SUM(jel.credit), 0) as net_balance')
-                    ->value('net_balance') ?? 0;
+                $balance = $this->postedBalance($organizationId, (int) $account->id);
 
                 // Only include accounts with a non-zero balance.
-                if (abs((float) $balance) < 0.00005) {
+                if (bccomp($balance, '0', self::SCALE) === 0) {
                     continue;
                 }
 
@@ -483,7 +482,7 @@ class MultiCurrencyService
                 $accountsData[] = [
                     'account_id'               => $account->id,
                     'account_type'             => $accountType,
-                    'foreign_currency_balance' => (float) $balance,
+                    'foreign_currency_balance' => $balance,
                 ];
             }
 
@@ -520,15 +519,94 @@ class MultiCurrencyService
     }
 
     /**
-     * Convert an amount from one currency to another using organization exchange rates.
+     * Convert an amount from one currency to another using organization
+     * exchange rates, as a decimal string at the scale the amount columns
+     * hold. Null when no rate is configured for the pair on that date.
+     *
+     * The product is truncated rather than rounded, the way every other
+     * amount this module stores is, so a converted figure never comes out a
+     * ten-thousandth above what the ledger would post.
      */
     public function convert(
-        float $amount,
+        float|string $amount,
         string $fromCurrency,
         string $toCurrency,
         int $organizationId,
         ?string $date = null
-    ): ?float {
-        return ExchangeRate::convert($amount, $fromCurrency, $toCurrency, $organizationId, $date);
+    ): ?string {
+        $rate = ExchangeRate::getRate($organizationId, $fromCurrency, $toCurrency, $date);
+
+        if ($rate === null) {
+            return null;
+        }
+
+        return bcmul(self::amount($amount), self::rate($rate), self::SCALE);
+    }
+
+    /**
+     * An account's balance from posted journal lines: the debits less the
+     * credits, at the scale the line columns hold.
+     *
+     * The lines are added here rather than summed in SQL. A database SUM comes
+     * back as a float on some connections and as a decimal string on others,
+     * and a float loses the ten-thousandths the columns hold as soon as the
+     * total passes what a double can state — which a balance in a
+     * hyperinflated currency does.
+     */
+    private function postedBalance(int $organizationId, int $accountId): string
+    {
+        $balance = bcadd('0', '0', self::SCALE);
+
+        $lines = DB::table('journal_entry_lines as jel')
+            ->join('journal_entries as je', 'jel.journal_entry_id', '=', 'je.id')
+            ->where('je.organization_id', $organizationId)
+            ->where('jel.account_id', $accountId)
+            ->where('je.status', 'posted')
+            ->select(['jel.debit', 'jel.credit'])
+            ->cursor();
+
+        foreach ($lines as $line) {
+            $movement = bcsub(self::amount($line->debit), self::amount($line->credit), self::SCALE);
+            $balance = bcadd($balance, $movement, self::SCALE);
+        }
+
+        return $balance;
+    }
+
+    /**
+     * An amount as a decimal string at the scale the amount columns hold.
+     *
+     * A decimal column reaches here as a string on one connection and as a
+     * float on another, and a caller may pass either. A float is written out
+     * at the scale rather than cast, so an exponent form never reaches the
+     * arithmetic.
+     */
+    private static function amount(float|int|string|null $amount): string
+    {
+        return self::decimal($amount, self::SCALE);
+    }
+
+    /** A rate as a decimal string at the scale the rate columns hold. */
+    private static function rate(float|int|string|null $rate): string
+    {
+        return self::decimal($rate, self::RATE_SCALE);
+    }
+
+    /** A value of any of the shapes the database and callers use, at a scale. */
+    private static function decimal(float|int|string|null $value, int $scale): string
+    {
+        if ($value === null) {
+            return bcadd('0', '0', $scale);
+        }
+
+        if (is_int($value)) {
+            return bcadd((string) $value, '0', $scale);
+        }
+
+        if (is_string($value) && preg_match('/^-?\d+(\.\d+)?$/', $value) === 1) {
+            return bcadd($value, '0', $scale);
+        }
+
+        return number_format((float) $value, $scale, '.', '');
     }
 }
