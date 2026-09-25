@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 60 migrations.
+978 tables across 61 migrations.
 
 ## Contents
 
@@ -68,6 +68,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0620_maintenance_numbers_per_organization.php`: changes to counter_based_orders, counter_based_plans, maintenance_fault_codes, maintenance_notifications, maintenance_service_orders, maintenance_task_lists
 - `0630_manufacturing_numbers_per_organization.php`: changes to audit_plans, capa_8d, capa_records, complaints, production_confirmations, scheduling_runs, shop_floor_papers, staging_requests, supplier_ncr_records, usage_decisions
 - `0640_purchase_numbers_per_organization.php`: changes to service_entry_sheets, service_purchase_orders
+- `0650_report_definition_codes_per_organization.php`: changes to report_definitions
 
 ## 0010_accounting.php
 
@@ -24950,6 +24951,11 @@ Indexes:
 
 - `$table->index(['module', 'is_active'])`
 
+Added by later migrations:
+
+- `0650_report_definition_codes_per_organization.php`: `$table->dropUnique('report_definitions_code_unique')`
+- `0650_report_definition_codes_per_organization.php`: `$table->unique(['organization_id', 'code'], 'report_definitions_org_code_unq')`
+
 ### role_permissions
 
 | Column | Type | Details |
@@ -25512,3 +25518,7 @@ Changes tables created earlier: `audit_plans`, `capa_8d`, `capa_records`, `compl
 ## 0640_purchase_numbers_per_organization.php
 
 Changes tables created earlier: `service_entry_sheets`, `service_purchase_orders`.
+
+## 0650_report_definition_codes_per_organization.php
+
+Changes tables created earlier: `report_definitions`.
