@@ -10,6 +10,7 @@ use App\Models\Accounting\FxValuation;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * FX Derivative & Hedge Accounting — SAP TRM / IFRS 9.
@@ -25,7 +26,10 @@ use Illuminate\Support\Facades\DB;
  */
 class FxDerivativeService
 {
-    public function __construct(private readonly JournalService $journalService) {}
+    public function __construct(
+        private readonly JournalService $journalService,
+        private readonly AccountResolver $accountResolver,
+    ) {}
 
     // ----------------------------------------------------------------
     // Forward lifecycle
@@ -174,8 +178,10 @@ class FxDerivativeService
                 'settled_at'           => $settlementDate,
             ]);
 
-            // Post realised gain/loss entry if accounts configured
-            if ($forward->realised_gain_loss_account_id && $gainLoss !== 0.0) {
+            // A forward with no derivative balance account is not carried in
+            // the general ledger, so its settlement has nothing to book
+            // against. One that is carried there is always journalled.
+            if ($forward->derivative_asset_account_id && $gainLoss !== 0.0) {
                 $this->postRealisedGainLoss($forward, $gainLoss, $settlementDate);
             }
 
@@ -210,27 +216,59 @@ class FxDerivativeService
         ]);
     }
 
+    /**
+     * Book the settlement's realised result against the derivative balance.
+     *
+     * The sign gives the direction: a gain raises the balance and is credited
+     * to the result account, a loss lowers it and is debited there. The result
+     * account is the one the contract names, or the account the organization
+     * mapped for that side — fx_gain_account_id or fx_loss_account_id.
+     * Without either the entry would be one-sided, so nothing is settled.
+     *
+     * @throws RuntimeException when no result account is configured
+     */
     private function postRealisedGainLoss(FxForward $forward, float $gainLoss, Carbon $date): void
     {
-        $amount = abs($gainLoss);
+        $organizationId = (int) $forward->organization_id;
         $isGain = $gainLoss >= 0;
+        $side = $isGain ? 'gain' : 'loss';
+        $mappingKey = "fx_{$side}_account_id";
 
-        $this->journalService->createJournalEntry(
-            organizationId: $forward->organization_id,
-            description: "FX forward settled: {$forward->contract_number} — realised " . ($isGain ? 'gain' : 'loss'),
-            lines: [
-                [
-                    'account_id' => $forward->derivative_asset_account_id,
-                    'type'       => $isGain ? 'credit' : 'debit',
-                    'amount'     => $amount,
-                ],
-                [
-                    'account_id' => $forward->realised_gain_loss_account_id,
-                    'type'       => $isGain ? 'credit' : 'debit',
-                    'amount'     => $amount,
-                ],
+        $resultAccountId = $forward->realised_gain_loss_account_id
+            ?? $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
+
+        if ($resultAccountId === null) {
+            throw new RuntimeException(
+                "FX forward {$forward->contract_number} settled at a realised {$side}, but no "
+                . "{$mappingKey} is mapped in the organization's accounting settings."
+            );
+        }
+
+        $amount = number_format(abs($gainLoss), 4, '.', '');
+        $zero = '0.0000';
+
+        $this->journalService->createAndPost([
+            'organization_id' => $organizationId,
+            'entry_date'      => $date->toDateString(),
+            'reference'       => $forward->contract_number,
+            'description'     => "FX forward settled: {$forward->contract_number} — realised {$side}",
+            'source_type'     => FxForward::class,
+            'source_id'       => $forward->id,
+        ], [
+            [
+                'account_id'  => $forward->derivative_asset_account_id,
+                'debit'       => $isGain ? $amount : $zero,
+                'credit'      => $isGain ? $zero : $amount,
+                'description' => "FX forward settlement — {$forward->contract_number}",
+                'line_order'  => 0,
             ],
-            date: $date,
-        );
+            [
+                'account_id'  => $resultAccountId,
+                'debit'       => $isGain ? $zero : $amount,
+                'credit'      => $isGain ? $amount : $zero,
+                'description' => "Realised FX {$side} — {$forward->contract_number}",
+                'line_order'  => 1,
+            ],
+        ]);
     }
 }
