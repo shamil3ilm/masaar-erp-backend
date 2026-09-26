@@ -365,7 +365,10 @@ class FinancialReportService
 
         // Summary via single GROUP BY query
         $bucketRows = (clone $baseQuery)
-            ->selectRaw("{$bucketExpr} as bucket, SUM(amount_due) as total", $bucketDates)
+            ->selectRaw(
+                "{$bucketExpr} as bucket, SUM(invoices.amount_due * invoices.exchange_rate) as total",
+                $bucketDates
+            )
             ->groupBy('bucket')
             ->pluck('total', 'bucket');
 
@@ -377,7 +380,9 @@ class FinancialReportService
                 invoices.customer_id, invoices.customer_name,
                 COALESCE(ar_cust.company_name, invoices.customer_name) as customer_display,
                 invoices.invoice_date, invoices.due_date,
-                invoices.total, invoices.amount_due
+                invoices.currency_code,
+                invoices.total, invoices.amount_due,
+                (invoices.amount_due * invoices.exchange_rate) as base_amount_due
             ')
             ->orderBy('invoices.due_date')
             ->limit(200)
@@ -387,14 +392,7 @@ class FinancialReportService
 
         return [
             'as_of_date' => $today->format('Y-m-d'),
-            'summary' => [
-                'current' => (float) ($bucketRows['current'] ?? 0),
-                '1_30_days' => (float) ($bucketRows['1_30'] ?? 0),
-                '31_60_days' => (float) ($bucketRows['31_60'] ?? 0),
-                '61_90_days' => (float) ($bucketRows['61_90'] ?? 0),
-                'over_90_days' => (float) ($bucketRows['over_90'] ?? 0),
-                'total' => (float) $bucketRows->sum(),
-            ],
+            'summary' => $this->agingSummary($bucketRows),
             'details' => $details,
         ];
     }
@@ -415,7 +413,10 @@ class FinancialReportService
 
         // Summary via single GROUP BY query
         $apBuckets = (clone $apBase)
-            ->selectRaw("{$bucketExpr} as bucket, SUM(amount_due) as total", $bucketDates)
+            ->selectRaw(
+                "{$bucketExpr} as bucket, SUM(bills.amount_due * bills.exchange_rate) as total",
+                $bucketDates
+            )
             ->groupBy('bucket')
             ->pluck('total', 'bucket');
 
@@ -427,7 +428,9 @@ class FinancialReportService
                 bills.supplier_id, bills.supplier_name,
                 COALESCE(ap_sup.company_name, bills.supplier_name) as supplier_display,
                 bills.bill_date, bills.due_date,
-                bills.total, bills.amount_due
+                bills.currency_code,
+                bills.total, bills.amount_due,
+                (bills.amount_due * bills.exchange_rate) as base_amount_due
             ')
             ->orderBy('bills.due_date')
             ->limit(200)
@@ -437,15 +440,35 @@ class FinancialReportService
 
         return [
             'as_of_date' => $today->format('Y-m-d'),
-            'summary' => [
-                'current' => (float) ($apBuckets['current'] ?? 0),
-                '1_30_days' => (float) ($apBuckets['1_30'] ?? 0),
-                '31_60_days' => (float) ($apBuckets['31_60'] ?? 0),
-                '61_90_days' => (float) ($apBuckets['61_90'] ?? 0),
-                'over_90_days' => (float) ($apBuckets['over_90'] ?? 0),
-                'total' => (float) $apBuckets->sum(),
-            ],
+            'summary' => $this->agingSummary($apBuckets),
             'details' => $apDetails,
+        ];
+    }
+
+    /**
+     * The ageing summary for the amounts already grouped into buckets.
+     *
+     * The bucket figures are base-currency amounts due, so a chart carrying
+     * documents in several currencies still adds up to one figure, and the
+     * total is summed as decimals rather than through float addition.
+     *
+     * @param  \Illuminate\Support\Collection<string, mixed>  $buckets
+     */
+    private function agingSummary(\Illuminate\Support\Collection $buckets): array
+    {
+        $total = Decimal::zero(4);
+
+        foreach ($buckets as $amount) {
+            $total = bcadd($total, Decimal::at($amount, 4), 4);
+        }
+
+        return [
+            'current' => (float) Decimal::at($buckets['current'] ?? 0, 4),
+            '1_30_days' => (float) Decimal::at($buckets['1_30'] ?? 0, 4),
+            '31_60_days' => (float) Decimal::at($buckets['31_60'] ?? 0, 4),
+            '61_90_days' => (float) Decimal::at($buckets['61_90'] ?? 0, 4),
+            'over_90_days' => (float) Decimal::at($buckets['over_90'] ?? 0, 4),
+            'total' => (float) $total,
         ];
     }
 
