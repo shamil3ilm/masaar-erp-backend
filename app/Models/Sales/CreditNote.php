@@ -64,6 +64,9 @@ class CreditNote extends Model
             'applied_amount' => 'decimal:2',
             'available_amount' => 'decimal:2',
             'exchange_rate' => 'decimal:6',
+            'base_total' => 'decimal:2',
+            'discount_amount' => 'decimal:2',
+            'refunded_amount' => 'decimal:2',
             'approved_at' => 'datetime',
         ];
     }

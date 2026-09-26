@@ -14,4 +14,13 @@ class PurchaseReturn extends Model
     use BelongsToOrganization, HasFactory, HasUuid;
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return [
+            'subtotal' => 'decimal:2',
+            'tax_amount' => 'decimal:2',
+            'total' => 'decimal:2',
+        ];
+    }
 }

@@ -31,6 +31,7 @@ class VendorAdvance extends Model
         'amount'           => 'decimal:2',
         'adjusted_amount'  => 'decimal:2',
         'remaining_amount' => 'decimal:2',
+        'exchange_rate'    => 'decimal:6',
         'payment_date'     => 'date',
     ];
 

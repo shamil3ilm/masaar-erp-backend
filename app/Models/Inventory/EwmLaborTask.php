@@ -40,8 +40,8 @@ class EwmLaborTask extends Model
     protected function casts(): array
     {
         return [
-            'standard_minutes' => 'float',
-            'actual_minutes'   => 'float',
+            'standard_minutes' => 'decimal:2',
+            'actual_minutes'   => 'decimal:2',
             'assigned_at'      => 'datetime',
             'started_at'       => 'datetime',
             'completed_at'     => 'datetime',

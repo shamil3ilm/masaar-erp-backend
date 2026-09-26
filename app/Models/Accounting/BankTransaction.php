@@ -46,8 +46,8 @@ class BankTransaction extends Model
         return [
             'transaction_date' => 'date',
             'value_date'       => 'date',
-            'amount'           => 'decimal:4',
-            'balance'          => 'decimal:4',
+            'amount'           => 'decimal:2',
+            'balance'          => 'decimal:2',
             'matched_at'       => 'datetime',
             'raw_data'         => 'array',
         ];

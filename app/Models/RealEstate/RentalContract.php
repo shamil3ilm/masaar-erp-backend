@@ -49,6 +49,9 @@ class RentalContract extends Model
         'payment_day' => 'integer',
         'auto_renew' => 'boolean',
         'auto_renew_months' => 'integer',
+        'ibr_percent' => 'decimal:4',
+        'lease_liability_amount' => 'decimal:4',
+        'rou_asset_amount' => 'decimal:4',
     ];
 
     public function rentalUnit(): BelongsTo

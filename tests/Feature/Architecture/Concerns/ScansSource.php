@@ -51,6 +51,57 @@ trait ScansSource
         return $this->withoutComments((string) file_get_contents($path));
     }
 
+    /**
+     * The Schema::create and Schema::table bodies of one migration, keyed by table.
+     *
+     * Brace matching rather than a regex: these bodies contain closures and
+     * strings, and a lazy match stops at the first "});" inside one. A table
+     * both created and altered here has its bodies concatenated, creates
+     * first, so a caller reading column by column sees an altered declaration
+     * after the original one.
+     *
+     * @param  list<string>  $kinds  which Schema:: calls to read
+     * @return array<string, string> table => body
+     */
+    private function schemaBlocks(string $source, array $kinds = ['create', 'table']): array
+    {
+        $blocks = [];
+
+        foreach ($kinds as $kind) {
+            $offset = 0;
+
+            while (preg_match("/Schema::{$kind}\(\s*'([a-z_0-9]+)'/", $source, $match, PREG_OFFSET_CAPTURE, $offset)) {
+                $table = $match[1][0];
+                $start = strpos($source, '{', $match[0][1]);
+
+                if ($start === false) {
+                    break;
+                }
+
+                $depth = 0;
+                $i = $start;
+                $length = strlen($source);
+
+                while ($i < $length) {
+                    if ($source[$i] === '{') {
+                        $depth++;
+                    } elseif ($source[$i] === '}') {
+                        $depth--;
+                        if ($depth === 0) {
+                            break;
+                        }
+                    }
+                    $i++;
+                }
+
+                $blocks[$table] = ($blocks[$table] ?? '')."\n".substr($source, $start, $i - $start);
+                $offset = $i;
+            }
+        }
+
+        return $blocks;
+    }
+
     /** The source with line endings normalised and comments replaced by spaces. */
     private function withoutComments(string $source): string
     {

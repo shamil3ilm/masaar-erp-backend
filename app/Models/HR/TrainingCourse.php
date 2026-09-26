@@ -72,11 +72,11 @@ class TrainingCourse extends Model
     protected function casts(): array
     {
         return [
-            'duration_hours'       => 'float',
+            'duration_hours'       => 'decimal:1',
             'max_participants'     => 'integer',
             'is_mandatory'         => 'boolean',
             'validity_months'      => 'integer',
-            'cost_per_participant' => 'float',
+            'cost_per_participant' => 'decimal:2',
             'is_active'            => 'boolean',
         ];
     }

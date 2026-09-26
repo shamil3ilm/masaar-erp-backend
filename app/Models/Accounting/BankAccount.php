@@ -52,6 +52,7 @@ class BankAccount extends Model
         return [
             'current_balance' => 'decimal:4',
             'last_reconciled_balance' => 'decimal:4',
+            'bank_balance' => 'decimal:2',
             'last_reconciled_date' => 'date',
             'is_default' => 'boolean',
             'is_active' => 'boolean',
