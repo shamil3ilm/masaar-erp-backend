@@ -23,6 +23,16 @@ class LoanPayment extends Model
     public const METHOD_CHEQUE = 'cheque';
     public const METHOD_ONLINE = 'online';
 
+    protected function casts(): array
+    {
+        return [
+            'interest_paid' => 'decimal:2',
+            'penalty_paid' => 'decimal:2',
+            'principal_paid' => 'decimal:2',
+            'total_paid' => 'decimal:2',
+        ];
+    }
+
     // -------------------------------------------------------------------------
     // Relationships
     // -------------------------------------------------------------------------

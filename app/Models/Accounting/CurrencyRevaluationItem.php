@@ -15,6 +15,16 @@ class CurrencyRevaluationItem extends Model
 
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return [
+            'foreign_currency_balance' => 'decimal:4',
+            'gain_loss_amount' => 'decimal:4',
+            'new_base_amount' => 'decimal:4',
+            'old_base_amount' => 'decimal:4',
+        ];
+    }
+
     public function revaluation(): BelongsTo
     {
         return $this->belongsTo(CurrencyRevaluation::class, 'revaluation_id');

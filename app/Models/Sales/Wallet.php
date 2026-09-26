@@ -33,6 +33,8 @@ class Wallet extends Model
         return [
             'balance' => 'decimal:2',
             'credit_limit' => 'decimal:2',
+            'total_credits' => 'decimal:2',
+            'total_debits' => 'decimal:2',
             'is_active' => 'boolean',
         ];
     }

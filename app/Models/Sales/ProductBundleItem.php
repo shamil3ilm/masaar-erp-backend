@@ -22,6 +22,8 @@ class ProductBundleItem extends Model
         'quantity' => 'decimal:4',
         'original_price' => 'decimal:4',
         'bundle_price' => 'decimal:4',
+        'discount_percentage' => 'decimal:4',
+        'unit_price' => 'decimal:4',
         'is_optional' => 'boolean',
         'is_default_selected' => 'boolean',
     ];

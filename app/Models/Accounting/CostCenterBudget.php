@@ -38,7 +38,7 @@ class CostCenterBudget extends Model
     {
         return [
             'fiscal_year'  => 'integer',
-            'total_budget' => 'float',
+            'total_budget' => 'decimal:4',
             'approved_at'  => 'datetime',
         ];
     }
