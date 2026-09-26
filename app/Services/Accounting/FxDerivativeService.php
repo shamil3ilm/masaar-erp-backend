@@ -11,7 +11,7 @@ use App\Models\Accounting\JournalEntry;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
+use InvalidArgumentException;
 
 /**
  * FX Derivative & Hedge Accounting — SAP TRM / IFRS 9.
@@ -233,7 +233,7 @@ class FxDerivativeService
      * fx_unrealised_loss_account_id. Without either the entry would be
      * one-sided, so nothing is valued.
      *
-     * @throws RuntimeException when no result account is configured
+     * @throws InvalidArgumentException when no result account is configured
      */
     private function postValuationJournalEntry(FxForward $forward, FxValuation $valuation, string $fairValueChange): JournalEntry
     {
@@ -246,7 +246,7 @@ class FxDerivativeService
             ?? $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
 
         if ($resultAccountId === null) {
-            throw new RuntimeException(
+            throw new InvalidArgumentException(
                 "FX forward {$forward->contract_number} was valued at an unrealised {$side}, but no "
                 . "{$mappingKey} is mapped in the organization's accounting settings."
             );
@@ -289,7 +289,7 @@ class FxDerivativeService
      * mapped for that side — fx_gain_account_id or fx_loss_account_id.
      * Without either the entry would be one-sided, so nothing is settled.
      *
-     * @throws RuntimeException when no result account is configured
+     * @throws InvalidArgumentException when no result account is configured
      */
     private function postRealisedGainLoss(FxForward $forward, string $gainLoss, Carbon $date): void
     {
@@ -302,7 +302,7 @@ class FxDerivativeService
             ?? $this->accountResolver->mapped($organizationId, $mappingKey)?->id;
 
         if ($resultAccountId === null) {
-            throw new RuntimeException(
+            throw new InvalidArgumentException(
                 "FX forward {$forward->contract_number} settled at a realised {$side}, but no "
                 . "{$mappingKey} is mapped in the organization's accounting settings."
             );

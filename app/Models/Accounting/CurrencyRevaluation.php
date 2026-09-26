@@ -24,6 +24,9 @@ class CurrencyRevaluation extends Model
     public const STATUS_POSTED = 'posted';
     public const STATUS_REVERSED = 'reversed';
 
+    /** The scale the total and item amount columns hold. */
+    private const SCALE = 4;
+
     protected $fillable = [
         'organization_id',
         'revaluation_number',
@@ -135,17 +138,59 @@ class CurrencyRevaluation extends Model
         return $this->status === self::STATUS_POSTED;
     }
 
+    /**
+     * Restate the stored totals from the items: the gains and the losses each
+     * as a positive figure, and the net as their sum.
+     *
+     * The items are added in decimal strings at the scale the total columns
+     * hold, so a total states every ten-thousandth the items carry rather than
+     * what a float sum happens to land on, and agrees with the net the posting
+     * books.
+     */
     public function recalculateTotals(): void
     {
-        $items = $this->items;
+        $zero = bcadd('0', '0', self::SCALE);
+        $gains = $zero;
+        $losses = $zero;
 
-        $gains = $items->where('gain_loss_amount', '>', 0)->sum('gain_loss_amount');
-        $losses = $items->where('gain_loss_amount', '<', 0)->sum('gain_loss_amount');
+        foreach ($this->items as $item) {
+            $amount = self::amount($item->gain_loss_amount);
 
-        $this->total_unrealized_gain = abs($gains);
-        $this->total_unrealized_loss = abs($losses);
-        $this->net_gain_loss = $gains + $losses;
+            if (bccomp($amount, $zero, self::SCALE) > 0) {
+                $gains = bcadd($gains, $amount, self::SCALE);
+            } else {
+                $losses = bcadd($losses, $amount, self::SCALE);
+            }
+        }
+
+        $this->total_unrealized_gain = $gains;
+        $this->total_unrealized_loss = bcsub($zero, $losses, self::SCALE);
+        $this->net_gain_loss = bcadd($gains, $losses, self::SCALE);
 
         $this->saveQuietly();
+    }
+
+    /**
+     * An item amount as a decimal string at the scale the amount columns hold.
+     *
+     * A decimal column reaches here as a string on one connection and as a
+     * float on another. A float is written out at the scale rather than cast,
+     * so an exponent form never reaches the arithmetic.
+     */
+    private static function amount(float|int|string|null $amount): string
+    {
+        if ($amount === null) {
+            return bcadd('0', '0', self::SCALE);
+        }
+
+        if (is_int($amount)) {
+            return bcadd((string) $amount, '0', self::SCALE);
+        }
+
+        if (is_string($amount) && preg_match('/^-?\d+(\.\d+)?$/', $amount) === 1) {
+            return bcadd($amount, '0', self::SCALE);
+        }
+
+        return number_format((float) $amount, self::SCALE, '.', '');
     }
 }

@@ -268,6 +268,23 @@ class FxDerivativeTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // Notional in the sell currency
+    // -------------------------------------------------------------------------
+
+    public function test_the_notional_in_sell_currency_truncates_the_way_the_settlement_posts(): void
+    {
+        // 33,333,333.3333 at 0.00000015 is 4.999999999995, which is 4.9999 at
+        // the four decimals the amount columns hold. Rounding the float landed
+        // a ten-thousandth above the figure settling the contract books.
+        $forward = $this->makeForward([
+            'notional_amount' => '33333333.3333',
+            'forward_rate'    => '0.00000015',
+        ]);
+
+        $this->assertSame('4.9999', $forward->notionalInSellCurrency());
+    }
+
+    // -------------------------------------------------------------------------
     // Auth guard
     // -------------------------------------------------------------------------
 
