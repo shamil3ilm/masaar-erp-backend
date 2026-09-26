@@ -10,7 +10,7 @@ use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use RuntimeException;
+use InvalidArgumentException;
 
 class FxDerivativeController extends Controller
 {
@@ -107,7 +107,7 @@ class FxDerivativeController extends Controller
                 valuationDate:  Carbon::parse($data['valuation_date']),
                 spotRate:       (string) $data['spot_rate'],
             );
-        } catch (RuntimeException $e) {
+        } catch (InvalidArgumentException $e) {
             // The service refuses a valuation it cannot journal and names the
             // account mapping it is missing. That is a rule the caller can put
             // right, so it is reported as a refusal rather than a fault.
@@ -131,7 +131,7 @@ class FxDerivativeController extends Controller
                 settlementRate:  (string) $data['settlement_rate'],
                 settlementDate:  Carbon::parse($data['settlement_date']),
             );
-        } catch (RuntimeException $e) {
+        } catch (InvalidArgumentException $e) {
             // A settlement it cannot journal leaves the forward untouched, and
             // the message names the account mapping that is missing.
             return $this->error($e->getMessage(), 'SETTLEMENT_REFUSED', 422);
