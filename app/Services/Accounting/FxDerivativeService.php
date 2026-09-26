@@ -8,6 +8,7 @@ use App\Models\Accounting\FxForward;
 use App\Models\Accounting\FxHedgeRelation;
 use App\Models\Accounting\FxValuation;
 use App\Models\Accounting\JournalEntry;
+use App\Support\Decimal;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -336,25 +337,15 @@ class FxDerivativeService
         ]);
     }
 
-    /**
-     * A rate as a decimal string at the scale the rate columns hold.
-     *
-     * A rate reaches the service as a request value, which is a float once a
-     * JSON body is decoded. A float is written out at that scale rather than
-     * cast, so an exponent form never reaches the arithmetic.
-     */
+    /** A rate as a decimal string at the scale the rate columns hold. */
     private static function rate(float|string $rate): string
     {
-        if (is_string($rate) && preg_match('/^-?\d+(\.\d+)?$/', $rate) === 1) {
-            return bcadd($rate, '0', self::RATE_SCALE);
-        }
-
-        return number_format((float) $rate, self::RATE_SCALE, '.', '');
+        return Decimal::at($rate, self::RATE_SCALE);
     }
 
     /** An amount at the scale the fair-value and gain/loss columns hold. */
     private static function amount(string $amount): string
     {
-        return bcadd($amount, '0', self::AMOUNT_SCALE);
+        return Decimal::at($amount, self::AMOUNT_SCALE);
     }
 }

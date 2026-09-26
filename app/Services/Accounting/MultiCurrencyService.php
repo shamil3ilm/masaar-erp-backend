@@ -12,6 +12,7 @@ use App\Models\Accounting\ForexGainLossEntry;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\OrganizationCurrency;
 use App\Services\Core\NumberGeneratorService;
+use App\Support\Decimal;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -580,40 +581,15 @@ class MultiCurrencyService
         return $balance;
     }
 
-    /**
-     * An amount as a decimal string at the scale the amount columns hold.
-     *
-     * A decimal column reaches here as a string on one connection and as a
-     * float on another, and a caller may pass either. A float is written out
-     * at the scale rather than cast, so an exponent form never reaches the
-     * arithmetic.
-     */
+    /** An amount as a decimal string at the scale the amount columns hold. */
     private static function amount(float|int|string|null $amount): string
     {
-        return self::decimal($amount, self::SCALE);
+        return Decimal::at($amount, self::SCALE);
     }
 
     /** A rate as a decimal string at the scale the rate columns hold. */
     private static function rate(float|int|string|null $rate): string
     {
-        return self::decimal($rate, self::RATE_SCALE);
-    }
-
-    /** A value of any of the shapes the database and callers use, at a scale. */
-    private static function decimal(float|int|string|null $value, int $scale): string
-    {
-        if ($value === null) {
-            return bcadd('0', '0', $scale);
-        }
-
-        if (is_int($value)) {
-            return bcadd((string) $value, '0', $scale);
-        }
-
-        if (is_string($value) && preg_match('/^-?\d+(\.\d+)?$/', $value) === 1) {
-            return bcadd($value, '0', $scale);
-        }
-
-        return number_format((float) $value, $scale, '.', '');
+        return Decimal::at($rate, self::RATE_SCALE);
     }
 }
