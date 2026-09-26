@@ -10,6 +10,7 @@ use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
 
 class FxDerivativeController extends Controller
 {
@@ -100,11 +101,18 @@ class FxDerivativeController extends Controller
             'spot_rate'      => ['required', 'numeric', 'min:0.000001'],
         ]);
 
-        $valuation = $this->service->recordValuation(
-            forward:        $fxForward,
-            valuationDate:  Carbon::parse($data['valuation_date']),
-            spotRate:       (string) $data['spot_rate'],
-        );
+        try {
+            $valuation = $this->service->recordValuation(
+                forward:        $fxForward,
+                valuationDate:  Carbon::parse($data['valuation_date']),
+                spotRate:       (string) $data['spot_rate'],
+            );
+        } catch (InvalidArgumentException $e) {
+            // The service refuses a valuation it cannot journal and names the
+            // account mapping it is missing. That is a rule the caller can put
+            // right, so it is reported as a refusal rather than a fault.
+            return $this->error($e->getMessage(), 'VALUATION_REFUSED', 422);
+        }
 
         return $this->success($valuation, 'MTM valuation recorded', 201);
     }
@@ -117,11 +125,17 @@ class FxDerivativeController extends Controller
             'settlement_date' => ['required', 'date'],
         ]);
 
-        $forward = $this->service->settle(
-            forward:         $fxForward,
-            settlementRate:  (string) $data['settlement_rate'],
-            settlementDate:  Carbon::parse($data['settlement_date']),
-        );
+        try {
+            $forward = $this->service->settle(
+                forward:         $fxForward,
+                settlementRate:  (string) $data['settlement_rate'],
+                settlementDate:  Carbon::parse($data['settlement_date']),
+            );
+        } catch (InvalidArgumentException $e) {
+            // A settlement it cannot journal leaves the forward untouched, and
+            // the message names the account mapping that is missing.
+            return $this->error($e->getMessage(), 'SETTLEMENT_REFUSED', 422);
+        }
 
         return $this->success($forward, 'FX forward settled');
     }

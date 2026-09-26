@@ -12,7 +12,7 @@ use App\Models\System\Setting;
 use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use RuntimeException;
+use InvalidArgumentException;
 use Tests\TestCase;
 use Tests\Traits\BuildsLedger;
 use Tests\Traits\TestHelpers;
@@ -82,7 +82,7 @@ class FxValuationPostingTest extends TestCase
         try {
             app(FxDerivativeService::class)
                 ->recordValuation($this->forward(), Carbon::parse('2025-03-31'), '3.76000000');
-        } catch (RuntimeException $e) {
+        } catch (InvalidArgumentException $e) {
             $refusal = $e;
         }
 
