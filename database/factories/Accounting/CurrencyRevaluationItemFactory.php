@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Database\Factories\Accounting;
 
-use App\Models\Accounting\CurrencyRevaluationItem;
+use App\Models\Accounting\Account;
 use App\Models\Accounting\CurrencyRevaluation;
+use App\Models\Accounting\CurrencyRevaluationItem;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CurrencyRevaluationItemFactory extends Factory
@@ -16,7 +17,7 @@ class CurrencyRevaluationItemFactory extends Factory
     {
         return [
             'revaluation_id' => CurrencyRevaluation::factory(),
-            'account_id' => null,
+            'account_id' => Account::factory(),
             'account_type' => fake()->randomElement(['receivable', 'payable', 'bank']),
             'foreign_currency_balance' => fake()->randomFloat(4, 100, 100000),
             'old_base_amount' => fake()->randomFloat(4, 100, 100000),

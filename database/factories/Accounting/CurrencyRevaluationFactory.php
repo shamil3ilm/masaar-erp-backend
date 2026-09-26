@@ -6,6 +6,7 @@ namespace Database\Factories\Accounting;
 
 use App\Models\Accounting\CurrencyRevaluation;
 use App\Models\Core\Organization;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CurrencyRevaluationFactory extends Factory
@@ -29,7 +30,7 @@ class CurrencyRevaluationFactory extends Factory
             'journal_entry_id' => null,
             'status' => fake()->randomElement(['draft', 'posted']),
             'notes' => fake()->optional(0.3)->sentence(),
-            'created_by' => null,
+            'created_by' => User::factory(),
         ];
     }
 }
