@@ -88,7 +88,9 @@ class FraudRuleEngine
             }
         }
 
-        $flagged = $totalScore > 0;
+        // A rule that matched is an alert, whatever it contributes to the
+        // score: a zero-scoring rule still names something a reviewer must see.
+        $flagged = $triggeredRules !== [];
 
         if ($flagged) {
             $this->persistAlerts($triggeredRules, $entityType, $entityData, $organizationId, $highestSeverity, $totalScore);
@@ -217,7 +219,8 @@ class FraudRuleEngine
 
         $since = now()->subDays($windowDays);
 
-        // Count payments by the same contact that are between threshold-10% and threshold
+        // The band runs from 20% under the threshold up to just below it:
+        // payments deliberately kept short of a reporting line.
         $lowerBound = $threshold * 0.8;
 
         $count = PaymentReceived::withoutGlobalScope('organization')
@@ -259,7 +262,8 @@ class FraudRuleEngine
             return false;
         }
 
-        // A round amount has no fractional part (e.g. 10000.00, 50000.00)
+        // A round amount is a whole multiple of 1000 (e.g. 10000.00, 50000.00);
+        // 10500.00 is whole but not round by this measure.
         return fmod($amount, 1000) === 0.0;
     }
 

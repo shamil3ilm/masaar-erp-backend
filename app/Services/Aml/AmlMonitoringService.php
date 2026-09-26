@@ -49,6 +49,12 @@ class AmlMonitoringService
     private const HIGH_RISK_COUNTRIES = ['IR', 'KP', 'SY', 'CU', 'SD', 'VE', 'MM'];
 
     /**
+     * The kinds of match a screening records, and reads back from its cache.
+     */
+    private const MATCH_HIGH_RISK_COUNTRY = 'high_risk_country';
+    private const MATCH_PEP_KEYWORD = 'pep_keyword';
+
+    /**
      * Screen a transaction (invoice or payment) for AML concerns.
      * All operations are non-blocking; errors are logged and swallowed.
      */
@@ -162,13 +168,7 @@ class AmlMonitoringService
             ->first();
 
         if ($cached !== null) {
-            return new AmlScreeningResult(
-                sanctionsHit: (bool) $cached->is_match,
-                pepHit:       false,
-                matchDetails: json_decode($cached->match_details ?? '[]', true) ?? [],
-                dataHash:     $dataHash,
-                fromCache:    true,
-            );
+            return $this->resultFromCache($cached, $dataHash);
         }
 
         $matchDetails = [];
@@ -180,7 +180,7 @@ class AmlMonitoringService
         if ($countryCode !== null && in_array(strtoupper($countryCode), self::HIGH_RISK_COUNTRIES, true)) {
             $sanctionsHit   = true;
             $matchDetails[] = [
-                'type'    => 'high_risk_country',
+                'type'    => self::MATCH_HIGH_RISK_COUNTRY,
                 'value'   => $countryCode,
                 'list'    => 'ofac',
             ];
@@ -192,7 +192,7 @@ class AmlMonitoringService
             if (stripos($jobTitle, $keyword) !== false) {
                 $pepHit         = true;
                 $matchDetails[] = [
-                    'type'    => 'pep_keyword',
+                    'type'    => self::MATCH_PEP_KEYWORD,
                     'keyword' => $keyword,
                 ];
                 break;
@@ -251,17 +251,22 @@ class AmlMonitoringService
 
     /**
      * Generate a Suspicious Activity Report.
+     *
+     * @param  ?int  $contactId  the contact the activity concerns, absent when the flags name none
+     * @param  ?int  $createdBy  the officer filing it, absent when escalation files it automatically
      */
     public function createSar(
         int    $organizationId,
-        int    $contactId,
+        ?int   $contactId,
         string $activityType,
         array  $transactionIds,
         string $description,
-        int    $createdBy,
+        ?int   $createdBy,
         ?string $reportType = null,
     ): AmlSuspiciousActivity {
-        $contact = Contact::where('organization_id', $organizationId)->find($contactId);
+        $contact = $contactId === null
+            ? null
+            : Contact::where('organization_id', $organizationId)->find($contactId);
 
         return AmlSuspiciousActivity::create([
             'organization_id'        => $organizationId,
@@ -279,6 +284,37 @@ class AmlMonitoringService
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * A cached screening, read back with the kind of each hit intact.
+     *
+     * The cache stores one is_match flag over both lists, so the kinds come
+     * from the recorded details: without them a PEP keyword would be reported
+     * as a sanctions match and the PEP hit itself would disappear, which is
+     * both a false sanctions alert and a missed one.
+     */
+    private function resultFromCache(object $cached, string $dataHash): AmlScreeningResult
+    {
+        $matchDetails = json_decode($cached->match_details ?? '[]', true) ?? [];
+        $types        = array_column($matchDetails, 'type');
+
+        $sanctionsHit = in_array(self::MATCH_HIGH_RISK_COUNTRY, $types, true);
+        $pepHit       = in_array(self::MATCH_PEP_KEYWORD, $types, true);
+
+        // A recorded match whose details name no kind is still a match, and is
+        // reported on the sanctions side rather than dropped.
+        if (! $sanctionsHit && ! $pepHit && (bool) $cached->is_match) {
+            $sanctionsHit = true;
+        }
+
+        return new AmlScreeningResult(
+            sanctionsHit: $sanctionsHit,
+            pepHit:       $pepHit,
+            matchDetails: $matchDetails,
+            dataHash:     $dataHash,
+            fromCache:    true,
+        );
+    }
 
     private function isStructuringPattern(int $organizationId, int $contactId, string $transactionType): bool
     {
@@ -347,8 +383,14 @@ class AmlMonitoringService
             'kyc_status'           => 0,
         ];
 
+        // Every count below is the organization's own history of this contact:
+        // the global scope is off because scoring runs on a queue with no
+        // authenticated user, so the organization is named explicitly instead.
+        $organizationId = $contact->organization_id;
+
         // Transaction velocity: many payments in 30 days
         $recentPayments = PaymentReceived::withoutGlobalScope('organization')
+            ->where('organization_id', $organizationId)
             ->where('customer_id', $contact->id)
             ->where('created_at', '>=', now()->subDays(30))
             ->count();
@@ -369,6 +411,7 @@ class AmlMonitoringService
         $contactAgeInDays = (int) $contact->created_at?->diffInDays(now());
         if ($contactAgeInDays < 30) {
             $recentLargeInvoice = Invoice::withoutGlobalScope('organization')
+                ->where('organization_id', $organizationId)
                 ->where('customer_id', $contact->id)
                 ->where('total', '>=', self::TRANSACTION_THRESHOLD)
                 ->where('created_at', '>=', now()->subDays(30))
@@ -395,11 +438,13 @@ class AmlMonitoringService
 
         // Unpaid invoices ratio (>50% unpaid = +10)
         $totalInvoices = Invoice::withoutGlobalScope('organization')
+            ->where('organization_id', $organizationId)
             ->where('customer_id', $contact->id)
             ->count();
 
         if ($totalInvoices > 0) {
             $unpaidInvoices = Invoice::withoutGlobalScope('organization')
+                ->where('organization_id', $organizationId)
                 ->where('customer_id', $contact->id)
                 ->whereIn('status', ['sent', 'partial', 'overdue'])
                 ->count();
@@ -412,6 +457,7 @@ class AmlMonitoringService
 
         // KYC/CDD status: no completed CDD record = +10
         $hasCdd = DB::table('aml_cdd_records')
+            ->where('organization_id', $organizationId)
             ->where('contact_id', $contact->id)
             ->where('status', 'completed')
             ->exists();
