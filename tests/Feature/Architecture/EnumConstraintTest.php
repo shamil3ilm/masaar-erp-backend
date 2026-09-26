@@ -6,6 +6,7 @@ namespace Tests\Feature\Architecture;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Feature\Architecture\Concerns\ScansSource;
 use Tests\TestCase;
 
 /**
@@ -33,6 +34,7 @@ use Tests\TestCase;
 class EnumConstraintTest extends TestCase
 {
     use RefreshDatabase;
+    use ScansSource;
 
     private const MIGRATIONS = __DIR__.'/../../../database/migrations';
 
@@ -96,7 +98,7 @@ class EnumConstraintTest extends TestCase
         foreach (glob(self::MIGRATIONS.'/*.php') ?: [] as $file) {
             $src = (string) file_get_contents($file);
 
-            foreach ($this->createBlocks($src) as $table => $body) {
+            foreach ($this->schemaBlocks($src, ['create']) as $table => $body) {
                 preg_match_all(
                     '/\$table->enum\(\s*\'([a-z_0-9]+)\'\s*,\s*\[(.*?)\]/s',
                     $body, $matches, PREG_SET_ORDER
@@ -134,45 +136,4 @@ class EnumConstraintTest extends TestCase
         return $out;
     }
 
-    /**
-     * Schema::create bodies, keyed by table.
-     *
-     * Brace matching rather than a regex: these bodies contain closures and
-     * strings, and a lazy match stops at the first "});" inside one.
-     */
-    private function createBlocks(string $src): array
-    {
-        $out = [];
-        $offset = 0;
-
-        while (preg_match("/Schema::create\(\s*'([a-z_0-9]+)'/", $src, $m, PREG_OFFSET_CAPTURE, $offset)) {
-            $table = $m[1][0];
-            $start = strpos($src, '{', $m[0][1]);
-
-            if ($start === false) {
-                break;
-            }
-
-            $depth = 0;
-            $i = $start;
-            $length = strlen($src);
-
-            while ($i < $length) {
-                if ($src[$i] === '{') {
-                    $depth++;
-                } elseif ($src[$i] === '}') {
-                    $depth--;
-                    if ($depth === 0) {
-                        break;
-                    }
-                }
-                $i++;
-            }
-
-            $out[$table] = substr($src, $start, $i - $start);
-            $offset = $i;
-        }
-
-        return $out;
-    }
 }
