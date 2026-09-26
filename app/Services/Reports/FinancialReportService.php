@@ -8,6 +8,7 @@ use App\Models\Accounting\Account;
 use App\Models\Budget\Budget;
 use App\Models\Purchase\Bill;
 use App\Models\Sales\Invoice;
+use App\Support\Decimal;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -29,9 +30,12 @@ class FinancialReportService
             ->where('je.organization_id', $orgId)
             ->where('je.status', 'posted')
             ->whereIn('a.account_type', ['income', 'expense'])
-            ->where('a.is_header', false)
-            ->where('a.is_active', true)
-            ->whereBetween('je.entry_date', [$startDate->toDateString(), $endDate->toDateString()])
+            // The account's current flags are deliberately not filtered on: a
+            // posting only ever reaches a postable account, and an account
+            // marked inactive or turned into a header afterwards still has to
+            // carry the history the trial balance shows against it.
+            ->whereDate('je.entry_date', '>=', $startDate)
+            ->whereDate('je.entry_date', '<=', $endDate)
             ->select([
                 'a.id as account_id',
                 'a.code as account_code',
@@ -113,8 +117,9 @@ class FinancialReportService
             ->where('je.organization_id', $orgId)
             ->where('je.status', 'posted')
             ->whereIn('a.account_type', $bsTypes)
-            ->where('a.is_header', false)
-            ->where('a.is_active', true)
+            // As in the P&L: an account's current flags do not decide whether
+            // its history counts, or a chart tidied up after the fact would
+            // leave the sheet unbalanced against the trial balance.
             ->whereDate('je.entry_date', '<=', $asOfDate)
             ->select([
                 'a.id as account_id',
@@ -167,7 +172,10 @@ class FinancialReportService
                     break;
 
                 case 'liability':
-                    if (in_array($row->sub_type, ['payable', 'current_liability'])) {
+                    // The three sub-types a liability account can carry that
+                    // are settled within the year. 'other_liability' is the
+                    // only one left, and holds the long-term borrowings.
+                    if (in_array($row->sub_type, ['payable', 'credit_card', 'tax_payable'])) {
                         $liabilities['current'][] = $item;
                     } else {
                         $liabilities['long_term'][] = $item;
@@ -229,13 +237,31 @@ class FinancialReportService
             ->whereIn('sub_type', ['bank', 'cash'])
             ->pluck('id');
 
-        // Join journal_entries directly — avoids N+1 from eager-loading.
-        $cashMovements = DB::table('journal_entry_lines as jel')
+        $movementsInPeriod = fn () => DB::table('journal_entry_lines as jel')
             ->join('journal_entries as je', 'je.id', '=', 'jel.journal_entry_id')
             ->whereIn('jel.account_id', $cashAccountIds)
             ->where('je.organization_id', $orgId)
             ->where('je.status', 'posted')
-            ->whereBetween('je.entry_date', [$startDate->toDateString(), $endDate->toDateString()])
+            ->whereDate('je.entry_date', '>=', $startDate)
+            ->whereDate('je.entry_date', '<=', $endDate);
+
+        // The totals come off every movement, grouped in the database. The
+        // listing below is capped, and summing that capped page instead would
+        // silently understate a busy period's cash.
+        $totalsBySource = $movementsInPeriod()
+            ->groupBy('je.source_type')
+            ->selectRaw('je.source_type as source_type, COALESCE(SUM(jel.base_debit), 0) - COALESCE(SUM(jel.base_credit), 0) as net')
+            ->get();
+
+        $cashFlow = ['operating' => Decimal::zero(4), 'investing' => Decimal::zero(4), 'financing' => Decimal::zero(4)];
+
+        foreach ($totalsBySource as $group) {
+            $activity = $this->cashFlowActivity($group->source_type);
+            $cashFlow[$activity] = bcadd($cashFlow[$activity], Decimal::at($group->net, 4), 4);
+        }
+
+        // Join journal_entries directly — avoids N+1 from eager-loading.
+        $cashMovements = $movementsInPeriod()
             ->select([
                 'je.entry_date',
                 'je.reference',
@@ -249,40 +275,19 @@ class FinancialReportService
             ->limit(2000)
             ->get();
 
-        $operatingCashFlow = 0;
-        $investingCashFlow = 0;
-        $financingCashFlow = 0;
-
-        $operatingActivities = [];
-        $investingActivities = [];
-        $financingActivities = [];
+        $activities = ['operating' => [], 'investing' => [], 'financing' => []];
 
         foreach ($cashMovements as $line) {
-            $cashChange = bcsub((string) $line->debit, (string) $line->credit, 4);
-            $sourceType = $line->source_type ?? '';
-
-            $activity = [
+            $activities[$this->cashFlowActivity($line->source_type)][] = [
                 'date' => $line->entry_date,
                 'reference' => $line->reference,
                 'description' => $line->line_description ?? $line->entry_description,
-                'amount' => (float) $cashChange,
+                'amount' => (float) bcsub(Decimal::at($line->debit, 4), Decimal::at($line->credit, 4), 4),
             ];
-
-            // Classify based on source type
-            if (str_contains($sourceType, 'Invoice') || str_contains($sourceType, 'Bill') || str_contains($sourceType, 'Payment')) {
-                $operatingActivities[] = $activity;
-                $operatingCashFlow = bcadd((string) $operatingCashFlow, (string) $cashChange, 4);
-            } elseif (str_contains($sourceType, 'Asset') || str_contains($sourceType, 'Depreciation')) {
-                $investingActivities[] = $activity;
-                $investingCashFlow = bcadd((string) $investingCashFlow, (string) $cashChange, 4);
-            } else {
-                $financingActivities[] = $activity;
-                $financingCashFlow = bcadd((string) $financingCashFlow, (string) $cashChange, 4);
-            }
         }
 
         // Get opening balance via single aggregate — no N+1.
-        $openingBalance = DB::table('journal_entry_lines as jel')
+        $openingBalance = Decimal::at(DB::table('journal_entry_lines as jel')
             ->join('journal_entries as je', 'je.id', '=', 'jel.journal_entry_id')
             ->whereIn('jel.account_id', $cashAccountIds)
             ->where('je.organization_id', $orgId)
@@ -290,15 +295,15 @@ class FinancialReportService
             ->whereDate('je.entry_date', '<', $startDate)
             ->selectRaw('COALESCE(SUM(jel.base_debit), 0) - COALESCE(SUM(jel.base_credit), 0) as balance')
             ->first()
-            ->balance ?? 0;
+            ->balance ?? 0, 4);
 
         $netCashChange = bcadd(
-            bcadd((string) $operatingCashFlow, (string) $investingCashFlow, 4),
-            (string) $financingCashFlow,
+            bcadd($cashFlow['operating'], $cashFlow['investing'], 4),
+            $cashFlow['financing'],
             4
         );
 
-        $closingBalance = bcadd((string) $openingBalance, (string) $netCashChange, 4);
+        $closingBalance = bcadd($openingBalance, $netCashChange, 4);
 
         return [
             'period' => [
@@ -307,20 +312,41 @@ class FinancialReportService
             ],
             'opening_balance' => (float) $openingBalance,
             'operating_activities' => [
-                'items' => $operatingActivities,
-                'total' => (float) $operatingCashFlow,
+                'items' => $activities['operating'],
+                'total' => (float) $cashFlow['operating'],
             ],
             'investing_activities' => [
-                'items' => $investingActivities,
-                'total' => (float) $investingCashFlow,
+                'items' => $activities['investing'],
+                'total' => (float) $cashFlow['investing'],
             ],
             'financing_activities' => [
-                'items' => $financingActivities,
-                'total' => (float) $financingCashFlow,
+                'items' => $activities['financing'],
+                'total' => (float) $cashFlow['financing'],
             ],
             'net_cash_change' => (float) $netCashChange,
             'closing_balance' => (float) $closingBalance,
         ];
+    }
+
+    /**
+     * The cash flow section a movement belongs to, read from the document that
+     * produced its journal entry.
+     *
+     * Anything the classification does not recognise — a manual entry, an
+     * opening balance, a capital injection — is treated as financing.
+     */
+    private function cashFlowActivity(?string $sourceType): string
+    {
+        $sourceType ??= '';
+
+        return match (true) {
+            str_contains($sourceType, 'Invoice'),
+            str_contains($sourceType, 'Bill'),
+            str_contains($sourceType, 'Payment') => 'operating',
+            str_contains($sourceType, 'Asset'),
+            str_contains($sourceType, 'Depreciation') => 'investing',
+            default => 'financing',
+        };
     }
 
     /**
@@ -487,7 +513,11 @@ class FinancialReportService
     {
         $orgId = auth()->user()->organization_id;
 
-        // One query: sum debits/credits per account up to $asOfDate.
+        // One query: sum debits/credits per account up to $asOfDate. The base
+        // columns hold every entry converted at its own rate, so a chart
+        // carrying foreign-currency entries still adds up, and the figures
+        // reconcile against the balance sheet and the P&L, which read the same
+        // columns.
         $rows = DB::table('journal_entry_lines as jel')
             ->join('journal_entries as je', 'jel.journal_entry_id', '=', 'je.id')
             ->join('chart_of_accounts as coa', 'jel.account_id', '=', 'coa.id')
@@ -501,43 +531,45 @@ class FinancialReportService
                 'coa.code',
                 'coa.name',
                 'coa.account_type',
-                DB::raw('COALESCE(SUM(jel.debit), 0) as total_debit'),
-                DB::raw('COALESCE(SUM(jel.credit), 0) as total_credit'),
+                DB::raw('COALESCE(SUM(jel.base_debit), 0) as total_debit'),
+                DB::raw('COALESCE(SUM(jel.base_credit), 0) as total_credit'),
             ])
             ->get();
 
         $lines = [];
-        $totalDebit = '0';
-        $totalCredit = '0';
+        $totalDebit = Decimal::zero(4);
+        $totalCredit = Decimal::zero(4);
 
         foreach ($rows as $row) {
-            $debit = (string) $row->total_debit;
-            $credit = (string) $row->total_credit;
+            $debit = Decimal::at($row->total_debit, 4);
+            $credit = Decimal::at($row->total_credit, 4);
 
             if (bccomp($debit, '0', 4) === 0 && bccomp($credit, '0', 4) === 0) {
                 continue;
             }
 
-            // Balance direction follows account normal balance convention.
-            $balance = match ($row->account_type) {
-                'asset', 'expense' => bcsub($debit, $credit, 4),
-                default => bcsub($credit, $debit, 4),
-            };
+            // A trial balance states the net of an account on the side it falls:
+            // debits over credits is a debit balance whatever the account type,
+            // so the two columns sum to the same figure on a balanced ledger.
+            // Netting by the account's normal side instead would post every
+            // normal balance, income and liabilities included, to the debit
+            // column.
+            $balance = bcsub($debit, $credit, 4);
 
-            $balanceDebit = bccomp($balance, '0', 4) > 0 ? (float) $balance : 0.0;
-            $balanceCredit = bccomp($balance, '0', 4) < 0 ? (float) bcsub('0', $balance, 4) : 0.0;
+            $balanceDebit = bccomp($balance, '0', 4) > 0 ? $balance : Decimal::zero(4);
+            $balanceCredit = bccomp($balance, '0', 4) < 0 ? bcsub('0', $balance, 4) : Decimal::zero(4);
 
             $lines[] = [
                 'account_id' => $row->account_id,
                 'account_code' => $row->code,
                 'account_name' => $row->name,
                 'account_type' => $row->account_type,
-                'debit' => $balanceDebit,
-                'credit' => $balanceCredit,
+                'debit' => (float) $balanceDebit,
+                'credit' => (float) $balanceCredit,
             ];
 
-            $totalDebit = bcadd($totalDebit, (string) $balanceDebit, 4);
-            $totalCredit = bcadd($totalCredit, (string) $balanceCredit, 4);
+            $totalDebit = bcadd($totalDebit, $balanceDebit, 4);
+            $totalCredit = bcadd($totalCredit, $balanceCredit, 4);
         }
 
         return [
