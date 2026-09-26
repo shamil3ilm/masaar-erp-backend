@@ -31,7 +31,8 @@ class SalesReportService
             ->leftJoin('contacts as c', 'i.customer_id', '=', 'c.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate]);
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate);
 
         if ($this->branchId) {
             $query->where('i.branch_id', $this->branchId);
@@ -114,17 +115,15 @@ class SalesReportService
         ?int $productId = null,
         int $limit = 50
     ): array {
-        $query = DB::table('document_lines as dl')
-            ->join('invoices as i', function ($join) {
-                $join->on('dl.document_id', '=', 'i.id')
-                    ->where('dl.document_type', '=', 'invoice');
-            })
+        $query = DB::table('invoice_lines as dl')
+            ->join('invoices as i', 'dl.invoice_id', '=', 'i.id')
             ->leftJoin('products as p', 'dl.product_id', '=', 'p.id')
             ->leftJoin('categories as c', 'p.category_id', '=', 'c.id')
             ->leftJoin('units_of_measure as u', 'dl.unit_id', '=', 'u.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate]);
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate);
 
         if ($this->branchId) {
             $query->where('i.branch_id', $this->branchId);
@@ -138,7 +137,16 @@ class SalesReportService
             $query->where('dl.product_id', $productId);
         }
 
-        $products = $query->groupBy('dl.product_id', 'p.sku', 'p.name', 'dl.description', 'c.name', 'u.symbol')
+        // Grouped on the name the report prints, not on the line's own free
+        // text as well: a product sold twice under two wordings is one product,
+        // while a line carrying no product is still told apart by its text.
+        $products = $query->groupBy(
+            'dl.product_id',
+            'p.sku',
+            DB::raw('COALESCE(p.name, dl.description)'),
+            'c.name',
+            'u.symbol'
+        )
             ->select([
                 'dl.product_id',
                 'p.sku',
@@ -239,7 +247,8 @@ class SalesReportService
             ->leftJoin('users as u', 'i.salesperson_id', '=', 'u.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate]);
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate);
 
         if ($this->branchId) {
             $query->where('i.branch_id', $this->branchId);
@@ -269,7 +278,8 @@ class SalesReportService
         $quotations = !empty($salespersonIds) ? DB::table('quotations')
             ->where('organization_id', $this->organizationId)
             ->whereIn('salesperson_id', $salespersonIds)
-            ->whereBetween('quotation_date', [$startDate, $endDate])
+            ->whereDate('quotation_date', '>=', $startDate)
+            ->whereDate('quotation_date', '<=', $endDate)
             ->groupBy('salesperson_id')
             ->select([
                 'salesperson_id',
@@ -353,7 +363,8 @@ class SalesReportService
         $query = DB::table('invoices')
             ->where('organization_id', $this->organizationId)
             ->whereIn('status', ['sent', 'partial', 'paid'])
-            ->whereBetween('invoice_date', [$startDate, $endDate]);
+            ->whereDate('invoice_date', '>=', $startDate)
+            ->whereDate('invoice_date', '<=', $endDate);
 
         if ($this->branchId) {
             $query->where('branch_id', $this->branchId);
@@ -432,7 +443,8 @@ class SalesReportService
             $query = DB::table('invoices')
                 ->where('organization_id', $this->organizationId)
                 ->whereIn('status', ['sent', 'partial', 'paid'])
-                ->whereBetween('invoice_date', [$startDate, $endDate]);
+                ->whereDate('invoice_date', '>=', $startDate)
+                ->whereDate('invoice_date', '<=', $endDate);
 
             if ($this->branchId) {
                 $query->where('branch_id', $this->branchId);
@@ -490,17 +502,15 @@ class SalesReportService
             ->toArray();
 
         // Top 5 products
-        $topProducts = DB::table('document_lines as dl')
-            ->join('invoices as i', function ($join) {
-                $join->on('dl.document_id', '=', 'i.id')
-                    ->where('dl.document_type', '=', 'invoice');
-            })
+        $topProducts = DB::table('invoice_lines as dl')
+            ->join('invoices as i', 'dl.invoice_id', '=', 'i.id')
             ->leftJoin('products as p', 'dl.product_id', '=', 'p.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate])
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate)
             ->when($this->branchId, fn($q) => $q->where('i.branch_id', $this->branchId))
-            ->groupBy('dl.product_id', 'p.name', 'dl.description')
+            ->groupBy('dl.product_id', DB::raw('COALESCE(p.name, dl.description)'))
             ->select([
                 'dl.product_id',
                 DB::raw('COALESCE(p.name, dl.description) as product_name'),
