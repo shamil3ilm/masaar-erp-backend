@@ -32,7 +32,7 @@ class AssessmentPosting extends Model
         return [
             'fiscal_year' => 'integer',
             'period'      => 'integer',
-            'amount'      => 'float',
+            'amount'      => 'decimal:4',
         ];
     }
 

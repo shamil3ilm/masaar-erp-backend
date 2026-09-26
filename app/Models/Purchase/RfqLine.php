@@ -18,6 +18,13 @@ class RfqLine extends Model
 
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return [
+            'quantity' => 'decimal:4',
+        ];
+    }
+
     // ----------------------------------------------------------------
     // Relationships
     // ----------------------------------------------------------------

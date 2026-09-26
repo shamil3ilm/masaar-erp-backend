@@ -18,6 +18,13 @@ class BankReconciliationItem extends Model
 
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+        ];
+    }
+
     public function bankTransaction(): BelongsTo
     {
         return $this->belongsTo(BankTransaction::class, 'bank_transaction_id');

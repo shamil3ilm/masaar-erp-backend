@@ -13,4 +13,11 @@ class PromotionUsage extends Model
     use HasFactory;
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return [
+            'discount_amount' => 'decimal:4',
+        ];
+    }
 }

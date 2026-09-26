@@ -13,4 +13,15 @@ class ExchangeOrderItem extends Model
     use HasFactory;
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return [
+            'original_quantity' => 'decimal:4',
+            'original_unit_price' => 'decimal:4',
+            'price_difference' => 'decimal:2',
+            'replacement_quantity' => 'decimal:4',
+            'replacement_unit_price' => 'decimal:4',
+        ];
+    }
 }

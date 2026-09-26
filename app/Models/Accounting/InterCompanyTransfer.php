@@ -28,6 +28,13 @@ class InterCompanyTransfer extends Model
 
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+        ];
+    }
+
     protected function getStateColumn(): string
     {
         return 'status';

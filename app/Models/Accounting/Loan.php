@@ -35,6 +35,7 @@ class Loan extends Model
             'total_amount' => 'decimal:2',
             'outstanding_amount' => 'decimal:2',
             'emi_amount' => 'decimal:2',
+            'monthly_deduction' => 'decimal:2',
             'deduct_from_payroll' => 'boolean',
         ];
     }

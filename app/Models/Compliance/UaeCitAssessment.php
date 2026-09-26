@@ -58,19 +58,19 @@ class UaeCitAssessment extends Model
     ];
 
     protected $casts = [
-        'accounting_income'       => 'float',
-        'add_backs'               => 'float',
-        'deductions'              => 'float',
-        'taxable_income'          => 'float',
-        'zero_rate_threshold'     => 'float',
-        'small_business_threshold' => 'float',
-        'cit_rate'                => 'float',
-        'small_business_relief'   => 'boolean',
-        'cit_due'                 => 'float',
-        'cit_paid'                => 'float',
-        'cit_remaining'           => 'float',
-        'filing_due_date'         => 'date',
-        'filed_at'                => 'date',
+        'accounting_income'        => 'decimal:4',
+        'add_backs'                => 'decimal:4',
+        'deductions'               => 'decimal:4',
+        'taxable_income'           => 'decimal:4',
+        'zero_rate_threshold'      => 'decimal:4',
+        'small_business_threshold' => 'decimal:4',
+        'cit_rate'                 => 'decimal:4',
+        'small_business_relief'    => 'boolean',
+        'cit_due'                  => 'decimal:4',
+        'cit_paid'                 => 'decimal:4',
+        'cit_remaining'            => 'decimal:4',
+        'filing_due_date'          => 'date',
+        'filed_at'                 => 'date',
     ];
 
     public function isDraft(): bool

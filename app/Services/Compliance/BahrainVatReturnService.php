@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Compliance;
 
 use App\Models\Compliance\BahrainVatReturn;
+use App\Support\Decimal;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -182,14 +183,14 @@ class BahrainVatReturnService
     {
         $rows = [
             ['Box', 'Description', 'Amount (BHD)'],
-            ['1', 'Standard-rated supplies', number_format($return->standard_rated_supplies, 2)],
-            ['2', 'Zero-rated supplies',      number_format($return->zero_rated_supplies, 2)],
-            ['3', 'Exempt supplies',           number_format($return->exempt_supplies, 2)],
-            ['4', 'Output VAT',               number_format($return->output_vat, 2)],
-            ['5', 'Standard-rated purchases', number_format($return->standard_rated_purchases, 2)],
-            ['6', 'Capital goods input tax',  number_format($return->capital_goods_input_tax, 2)],
-            ['7', 'Total input VAT',           number_format($return->total_input_vat, 2)],
-            ['8', 'Net VAT payable',           number_format($return->net_vat_payable, 2)],
+            ['1', 'Standard-rated supplies', $this->formatAmount($return->standard_rated_supplies)],
+            ['2', 'Zero-rated supplies',      $this->formatAmount($return->zero_rated_supplies)],
+            ['3', 'Exempt supplies',           $this->formatAmount($return->exempt_supplies)],
+            ['4', 'Output VAT',               $this->formatAmount($return->output_vat)],
+            ['5', 'Standard-rated purchases', $this->formatAmount($return->standard_rated_purchases)],
+            ['6', 'Capital goods input tax',  $this->formatAmount($return->capital_goods_input_tax)],
+            ['7', 'Total input VAT',           $this->formatAmount($return->total_input_vat)],
+            ['8', 'Net VAT payable',           $this->formatAmount($return->net_vat_payable)],
         ];
 
         $csv = '';
@@ -203,6 +204,30 @@ class BahrainVatReturnService
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * A box amount as the two-fils figure the NBR form asks for, grouped in
+     * thousands and rounded half-up.
+     *
+     * The figure never passes through a float. These columns hold four
+     * decimals over as many as eleven whole digits, which is more than the
+     * fourteen significant digits a double prints, so casting one would alter
+     * the return being filed. Half a fils is added away from zero and bcadd
+     * truncates the rest, which rounds the way the form is filled; only the
+     * whole part, well inside an integer, reaches number_format for its
+     * separators.
+     */
+    private function formatAmount(float|int|string|null $amount): string
+    {
+        $exact = Decimal::at($amount, 4);
+        $rounded = bcadd($exact, str_starts_with($exact, '-') ? '-0.005' : '0.005', 2);
+
+        [$whole, $fils] = explode('.', $rounded);
+
+        $sign = str_starts_with($whole, '-') ? '-' : '';
+
+        return $sign.number_format((int) ltrim($whole, '-'), 0).'.'.$fils;
+    }
 
     /** @return array{0: string, 1: string} */
     private function resolvePeriodDates(int $year, ?int $quarter, ?int $month): array

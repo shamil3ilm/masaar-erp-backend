@@ -57,9 +57,12 @@ class AdvancePayment extends Model
     {
         return [
             'payment_date' => 'date',
-            'amount' => 'decimal:4',
-            'applied_amount' => 'decimal:4',
-            'available_amount' => 'decimal:4',
+            'amount' => 'decimal:2',
+            'applied_amount' => 'decimal:2',
+            'available_amount' => 'decimal:2',
+            'base_amount' => 'decimal:2',
+            'exchange_rate' => 'decimal:6',
+            'refunded_amount' => 'decimal:2',
         ];
     }
 

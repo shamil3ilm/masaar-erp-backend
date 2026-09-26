@@ -52,9 +52,9 @@ class PerformanceAppraisal extends Model
         'self_submitted_at' => 'datetime',
         'manager_submitted_at' => 'datetime',
         'acknowledged_at' => 'datetime',
-        'overall_self_rating' => 'float',
-        'overall_manager_rating' => 'float',
-        'final_rating' => 'float',
+        'overall_self_rating' => 'decimal:2',
+        'overall_manager_rating' => 'decimal:2',
+        'final_rating' => 'decimal:2',
     ];
 
     // ---------------------------------------------------------------------------

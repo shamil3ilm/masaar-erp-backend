@@ -21,6 +21,9 @@ class CampaignTierOffer extends Model
 
     protected $casts = [
         'extra_discount_percent' => 'decimal:2',
+        'discount_value' => 'decimal:2',
+        'max_discount' => 'decimal:2',
+        'min_purchase_amount' => 'decimal:2',
         'early_access' => 'boolean',
     ];
 

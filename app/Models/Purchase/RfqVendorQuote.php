@@ -17,8 +17,11 @@ class RfqVendorQuote extends Model
     protected $guarded = ['id'];
 
     protected $casts = [
-        'unit_price'  => 'decimal:4',
-        'total_price' => 'decimal:4',
+        'unit_price'   => 'decimal:4',
+        'total_price'  => 'decimal:4',
+        'discount_pct' => 'decimal:2',
+        'quantity'     => 'decimal:4',
+        'tax_rate'     => 'decimal:2',
     ];
 
     // ----------------------------------------------------------------

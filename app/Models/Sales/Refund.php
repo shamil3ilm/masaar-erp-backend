@@ -39,6 +39,13 @@ class Refund extends Model
     public const METHOD_WALLET = 'wallet';
     public const METHOD_CREDIT_NOTE = 'credit_note';
 
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+        ];
+    }
+
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'contact_id');

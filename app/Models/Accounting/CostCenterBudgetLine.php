@@ -22,10 +22,10 @@ class CostCenterBudgetLine extends Model
     {
         return [
             'period'           => 'integer',
-            'budgeted_amount'  => 'float',
-            'committed_amount' => 'float',
-            'actual_amount'    => 'float',
-            'available_amount' => 'float',
+            'budgeted_amount'  => 'decimal:4',
+            'committed_amount' => 'decimal:4',
+            'actual_amount'    => 'decimal:4',
+            'available_amount' => 'decimal:4',
         ];
     }
 

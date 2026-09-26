@@ -14,6 +14,13 @@ class ExpenseReportItem extends Model
 
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return [
+            'approved_amount' => 'decimal:2',
+        ];
+    }
+
     public function report(): BelongsTo
     {
         return $this->belongsTo(ExpenseReport::class, 'report_id');
