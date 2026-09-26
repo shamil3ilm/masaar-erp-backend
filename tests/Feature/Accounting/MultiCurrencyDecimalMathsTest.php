@@ -9,6 +9,7 @@ use App\Models\Accounting\Currency;
 use App\Models\Accounting\CurrencyRevaluation;
 use App\Models\Accounting\CurrencyRevaluationItem;
 use App\Models\Accounting\ExchangeRate;
+use App\Models\Accounting\ForexGainLossEntry;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Accounting\JournalEntryLine;
 use App\Services\Accounting\MultiCurrencyService;
@@ -139,6 +140,22 @@ class MultiCurrencyDecimalMathsTest extends TestCase
         $this->assertSame('12345678901.0000', (string) $revaluation->net_gain_loss);
     }
 
+    public function test_the_forex_report_totals_a_result_a_float_cannot_state(): void
+    {
+        // One hundred trillion fits the amount column and a float can only
+        // write it as 1.0E+14, which is not a figure bcmath will take.
+        $this->forexEntry('100000000000000.0000');
+        $this->forexEntry('-2.5000');
+
+        $report = app(MultiCurrencyService::class)
+            ->getExchangeGainLossReport($this->organization->id);
+
+        $this->assertSame(2, $report['summary']['count']);
+        $this->assertEqualsWithDelta(1.0e14, $report['summary']['total_gains'], 0.0001);
+        $this->assertEqualsWithDelta(2.5, $report['summary']['total_losses'], 0.0001);
+        $this->assertEqualsWithDelta(99999999999997.5, $report['summary']['net_gain_loss'], 0.0001);
+    }
+
     public function test_a_revaluation_with_no_items_totals_nothing(): void
     {
         $revaluation = $this->draftRevaluation();
@@ -235,6 +252,24 @@ class MultiCurrencyDecimalMathsTest extends TestCase
             'old_base_amount' => '0.0000',
             'new_base_amount' => $gainLoss,
             'gain_loss_amount' => $gainLoss,
+        ]);
+    }
+
+    private function forexEntry(string $gainLoss): ForexGainLossEntry
+    {
+        return ForexGainLossEntry::withoutGlobalScopes()->create([
+            'organization_id' => $this->organization->id,
+            'entry_type' => ForexGainLossEntry::TYPE_REALIZED,
+            'transaction_type' => ForexGainLossEntry::TRANSACTION_PAYMENT,
+            'source_type' => 'PaymentReceived',
+            'source_id' => 1,
+            'foreign_currency' => 'ZWL',
+            'base_currency' => 'SAR',
+            'foreign_amount' => '1000.0000',
+            'original_rate' => '1.00000000',
+            'settlement_rate' => '1.00000000',
+            'gain_loss_amount' => $gainLoss,
+            'transaction_date' => '2025-06-30',
         ]);
     }
 

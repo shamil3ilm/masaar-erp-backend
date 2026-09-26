@@ -382,22 +382,29 @@ class MultiCurrencyService
 
         $entries = $query->orderBy('transaction_date')->get();
 
-        $totalGains = $entries->where('gain_loss_amount', '>', 0)->sum('gain_loss_amount');
-        $totalLosses = $entries->where('gain_loss_amount', '<', 0)->sum('gain_loss_amount');
+        // Added entry by entry in decimals. A float sum of the column is not a
+        // figure bcmath will take back once it is large enough to be written
+        // as an exponent, and it loses ten-thousandths long before that.
+        $zero = bcadd('0', '0', self::SCALE);
+        $totalGains = $zero;
+        $totalLosses = $zero;
 
-        $totalGainsStr = bcadd((string) $totalGains, '0', 4);
-        $totalLossesStr = bcadd((string) $totalLosses, '0', 4);
-        // Absolute value: strip leading minus if present
-        $totalLossesAbs = bccomp($totalLossesStr, '0', 4) < 0
-            ? bcsub('0', $totalLossesStr, 4)
-            : $totalLossesStr;
+        foreach ($entries as $entry) {
+            $amount = self::amount($entry->gain_loss_amount);
+
+            if (bccomp($amount, $zero, self::SCALE) > 0) {
+                $totalGains = bcadd($totalGains, $amount, self::SCALE);
+            } else {
+                $totalLosses = bcadd($totalLosses, $amount, self::SCALE);
+            }
+        }
 
         return [
             'entries' => $entries,
             'summary' => [
-                'total_gains' => (float) $totalGainsStr,
-                'total_losses' => (float) $totalLossesAbs,
-                'net_gain_loss' => (float) bcadd($totalGainsStr, $totalLossesStr, 4),
+                'total_gains' => (float) $totalGains,
+                'total_losses' => (float) bcsub($zero, $totalLosses, self::SCALE),
+                'net_gain_loss' => (float) bcadd($totalGains, $totalLosses, self::SCALE),
                 'count' => $entries->count(),
             ],
         ];
