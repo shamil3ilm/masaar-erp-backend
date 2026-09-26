@@ -59,23 +59,27 @@ class MultiCurrencyDecimalMathsTest extends TestCase
         ]);
     }
 
-    public function test_the_auto_run_balance_keeps_a_total_a_float_cannot_state(): void
+    public function test_the_auto_run_balance_is_summed_at_the_scale_the_columns_hold(): void
     {
-        // Eight postings of 12,500,000,000,000 make a balance of one hundred
-        // trillion, which the amount columns hold to four decimals and a float
-        // can only write as 1.0E+14.
-        $this->postLedgerBalance(array_fill(0, 8, '12500000000000.0000'));
+        // Eight postings of 12,000,000,000,000 make a balance of ninety-six
+        // trillion. The figure is kept under the column's ceiling on purpose:
+        // decimal(18,4) stops at 99,999,999,999,999.9999, and only that exact
+        // ceiling is large enough for a float to write as 1.0E+14 - a figure
+        // SQLite then cannot read back to the last decimal, so no assertion
+        // could hold on both drivers. The exponent is covered where it belongs,
+        // in Tests\Unit\Support\DecimalTest, which needs no database at all.
+        $this->postLedgerBalance(array_fill(0, 8, '12000000000000.0000'));
         $this->previousRevaluation('0.50000000');
         $this->publishRate('0.50000100');
 
         $revaluation = app(MultiCurrencyService::class)
             ->autoRun($this->organization->id, '2025-06-30', 'SAR');
 
-        // The rate moved by one hundred-thousandth, so the balance gained
-        // 100,000,000 exactly.
-        $this->assertSame('100000000.0000', (string) $revaluation->total_unrealized_gain);
-        $this->assertSame('100000000.0000', (string) $revaluation->net_gain_loss);
-        $this->assertEqualsWithDelta(1.0e14, (float) $revaluation->items->sole()->foreign_currency_balance, 0.0001);
+        // The rate moved by one millionth, so the balance gained 96,000,000
+        // exactly.
+        $this->assertSame('96000000.0000', (string) $revaluation->total_unrealized_gain);
+        $this->assertSame('96000000.0000', (string) $revaluation->net_gain_loss);
+        $this->assertSame('96000000000000.0000', (string) $revaluation->items->sole()->foreign_currency_balance);
     }
 
     public function test_the_auto_run_previous_rate_keeps_the_decimals_the_rate_column_holds(): void
@@ -142,9 +146,12 @@ class MultiCurrencyDecimalMathsTest extends TestCase
 
     public function test_the_forex_report_totals_a_result_a_float_cannot_state(): void
     {
-        // One hundred trillion fits the amount column and a float can only
-        // write it as 1.0E+14, which is not a figure bcmath will take.
-        $this->forexEntry('100000000000000.0000');
+        // The largest figure decimal(18,4) holds. A float writes it as
+        // 1.0E+14, which is not a figure bcmath will take - the old code threw
+        // rather than reporting a total. One digit more is out of range: MySQL
+        // refuses the row outright while SQLite keeps it as a float, so an
+        // out-of-range fixture passes here and fails there.
+        $this->forexEntry('99999999999999.9999');
         $this->forexEntry('-2.5000');
 
         $report = app(MultiCurrencyService::class)

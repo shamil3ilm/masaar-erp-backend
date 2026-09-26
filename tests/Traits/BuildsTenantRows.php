@@ -96,11 +96,28 @@ trait BuildsTenantRows
     }
 
     /**
-     * Allowed values of each enum column, read from the SQLite check constraints.
+     * Allowed values of each enum column.
+     *
+     * The two drivers keep the list in different places: MySQL carries it in
+     * the column's own type, enum('draft','posted'), while SQLite stores the
+     * column as a varchar and keeps the list in a check constraint. Reading
+     * only the SQLite one left every enum column unknown on MySQL, so it got a
+     * placeholder string, which MySQL refuses outright - and every test built
+     * on this trait failed there while passing here.
      *
      * @return array<string, list<string>>
      */
     private function enumValues(string $table): array
+    {
+        return DB::connection()->getDriverName() === 'sqlite'
+            ? $this->enumValuesFromCheckConstraints($table)
+            : $this->enumValuesFromColumnTypes($table);
+    }
+
+    /**
+     * @return array<string, list<string>>
+     */
+    private function enumValuesFromCheckConstraints(string $table): array
     {
         $sql = (string) DB::table('sqlite_master')->where('type', 'table')->where('name', $table)->value('sql');
         preg_match_all('/check \("(\w+)" in \(([^)]*)\)\)/i', $sql, $matches, PREG_SET_ORDER);
@@ -109,6 +126,29 @@ trait BuildsTenantRows
         foreach ($matches as [, $column, $list]) {
             preg_match_all("/'([^']*)'/", $list, $items);
             $values[$column] = $items[1];
+        }
+
+        return $values;
+    }
+
+    /**
+     * @return array<string, list<string>>
+     */
+    private function enumValuesFromColumnTypes(string $table): array
+    {
+        $values = [];
+
+        foreach (Schema::getColumns($table) as $column) {
+            if (preg_match('/^(?:enum|set)\((.*)\)$/i', (string) ($column['type'] ?? ''), $match) !== 1) {
+                continue;
+            }
+
+            preg_match_all("/'((?:[^']|'')*)'/", $match[1], $items);
+
+            $values[$column['name']] = array_map(
+                static fn (string $item): string => str_replace("''", "'", $item),
+                $items[1],
+            );
         }
 
         return $values;
