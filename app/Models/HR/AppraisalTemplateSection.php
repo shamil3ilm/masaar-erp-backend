@@ -19,7 +19,7 @@ class AppraisalTemplateSection extends Model
     ];
 
     protected $casts = [
-        'weight_percent' => 'float',
+        'weight_percent' => 'decimal:2',
         'sort_order' => 'integer',
     ];
 

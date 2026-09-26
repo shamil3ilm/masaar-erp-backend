@@ -19,7 +19,7 @@ class DistributionSegmentReceiver extends Model
     protected function casts(): array
     {
         return [
-            'fixed_percentage' => 'float',
+            'fixed_percentage' => 'decimal:4',
         ];
     }
 

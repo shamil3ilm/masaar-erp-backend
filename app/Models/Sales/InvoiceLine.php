@@ -67,6 +67,7 @@ class InvoiceLine extends Model
             'igst_amount' => 'decimal:4',
             'subtotal' => 'decimal:4',
             'total' => 'decimal:4',
+            'original_price' => 'decimal:4',
             'line_order' => 'integer',
         ];
     }

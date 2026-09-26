@@ -64,6 +64,7 @@ class FixedAsset extends Model
             'last_depreciation_date' => 'date',
             'disposal_date' => 'date',
             'disposal_amount' => 'decimal:4',
+            'auc_settled_amount' => 'decimal:4',
         ];
     }
 

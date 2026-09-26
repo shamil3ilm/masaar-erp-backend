@@ -42,6 +42,7 @@ class StockLevel extends Model
             'reorder_level' => 'decimal:4',
             'reorder_quantity' => 'decimal:4',
             'maximum_stock' => 'decimal:4',
+            'available_quantity' => 'decimal:4',
             'last_count_date' => 'datetime',
         ];
     }

@@ -36,8 +36,8 @@ class CostCenterBudgetSupplement extends Model
     protected function casts(): array
     {
         return [
-            'requested_amount' => 'float',
-            'approved_amount'  => 'float',
+            'requested_amount' => 'decimal:4',
+            'approved_amount'  => 'decimal:4',
         ];
     }
 

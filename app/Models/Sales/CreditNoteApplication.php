@@ -13,4 +13,12 @@ class CreditNoteApplication extends Model
     use HasFactory;
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:4',
+            'applied_amount' => 'decimal:2',
+        ];
+    }
 }

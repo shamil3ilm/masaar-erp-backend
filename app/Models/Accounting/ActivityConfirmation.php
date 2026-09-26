@@ -49,11 +49,11 @@ class ActivityConfirmation extends Model
     protected function casts(): array
     {
         return [
-            'confirmed_quantity' => 'float',
-            'planned_quantity'   => 'float',
-            'actual_rate'        => 'float',
-            'planned_rate'       => 'float',
-            'actual_cost'        => 'float',
+            'confirmed_quantity' => 'decimal:4',
+            'planned_quantity'   => 'decimal:4',
+            'actual_rate'        => 'decimal:4',
+            'planned_rate'       => 'decimal:4',
+            'actual_cost'        => 'decimal:4',
             'fiscal_year'        => 'integer',
             'period'             => 'integer',
             'confirmation_date'  => 'date',

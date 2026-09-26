@@ -54,6 +54,7 @@ class ProductBarcode extends Model
     protected function casts(): array
     {
         return [
+            'quantity' => 'decimal:4',
             'is_primary' => 'boolean',
             'is_active' => 'boolean',
         ];

@@ -48,7 +48,7 @@ class PerformanceGoal extends Model
 
     protected $casts = [
         'target_date' => 'date',
-        'weight_percent' => 'float',
+        'weight_percent' => 'decimal:2',
         'progress_percent' => 'integer',
         'self_rating' => 'integer',
         'manager_rating' => 'integer',

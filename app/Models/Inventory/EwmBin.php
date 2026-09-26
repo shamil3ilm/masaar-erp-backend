@@ -26,11 +26,11 @@ class EwmBin extends Model
     protected function casts(): array
     {
         return [
-            'max_weight_kg'      => 'float',
-            'max_volume_m3'      => 'float',
-            'current_weight_kg'  => 'float',
-            'fill_pct'           => 'float',
-            'mixed_products'     => 'boolean',
+            'max_weight_kg'     => 'decimal:2',
+            'max_volume_m3'     => 'decimal:4',
+            'current_weight_kg' => 'decimal:2',
+            'fill_pct'          => 'decimal:2',
+            'mixed_products'    => 'boolean',
         ];
     }
 

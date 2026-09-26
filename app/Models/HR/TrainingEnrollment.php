@@ -51,7 +51,7 @@ class TrainingEnrollment extends Model
         return [
             'enrolled_at'     => 'datetime',
             'completion_date' => 'date',
-            'score'           => 'float',
+            'score'           => 'decimal:2',
         ];
     }
 

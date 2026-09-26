@@ -42,7 +42,7 @@ class RecurringExpense extends Model
     protected function casts(): array
     {
         return [
-            'amount' => 'decimal:4',
+            'amount' => 'decimal:2',
             'start_date' => 'date',
             'end_date' => 'date',
             'next_occurrence' => 'date',

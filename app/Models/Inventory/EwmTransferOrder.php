@@ -36,9 +36,9 @@ class EwmTransferOrder extends Model
     protected function casts(): array
     {
         return [
-            'requested_qty'           => 'float',
-            'confirmed_qty'           => 'float',
-            'actual_duration_minutes' => 'float',
+            'requested_qty'           => 'decimal:4',
+            'confirmed_qty'           => 'decimal:4',
+            'actual_duration_minutes' => 'decimal:2',
             'assigned_at'             => 'datetime',
             'started_at'              => 'datetime',
             'confirmed_at'            => 'datetime',
