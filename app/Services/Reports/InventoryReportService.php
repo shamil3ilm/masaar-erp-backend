@@ -502,7 +502,7 @@ class InventoryReportService
         $expiringLater = [];
 
         foreach ($batches as $batch) {
-            $expiryDate = \Carbon\Carbon::parse($batch->expiry_date);
+            $expiryDate = Carbon::parse($batch->expiry_date);
             $daysUntilExpiry = now()->startOfDay()->diffInDays($expiryDate, false);
             $value = bcmul((string) $batch->quantity, (string) ($batch->unit_cost ?? 0), 4);
 

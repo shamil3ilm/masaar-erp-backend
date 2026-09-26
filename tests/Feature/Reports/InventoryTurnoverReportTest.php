@@ -6,6 +6,7 @@ namespace Tests\Feature\Reports;
 
 use App\Models\Reports\SavedReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 use Tests\Traits\BuildsPostings;
 use Tests\Traits\TestHelpers;
@@ -62,7 +63,7 @@ class InventoryTurnoverReportTest extends TestCase
         $this->assertSame([], $data['by_category']);
     }
 
-    private function runSaved(array $parameters): \Illuminate\Testing\TestResponse
+    private function runSaved(array $parameters): TestResponse
     {
         $report = SavedReport::withoutGlobalScopes()->create([
             'organization_id' => $this->organization->id,

@@ -10,6 +10,7 @@ use App\Models\Purchase\Bill;
 use App\Models\Sales\Invoice;
 use App\Support\Decimal;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class FinancialReportService
@@ -452,9 +453,9 @@ class FinancialReportService
      * documents in several currencies still adds up to one figure, and the
      * total is summed as decimals rather than through float addition.
      *
-     * @param  \Illuminate\Support\Collection<string, mixed>  $buckets
+     * @param  Collection<string, mixed>  $buckets
      */
-    private function agingSummary(\Illuminate\Support\Collection $buckets): array
+    private function agingSummary(Collection $buckets): array
     {
         $total = Decimal::zero(4);
 
