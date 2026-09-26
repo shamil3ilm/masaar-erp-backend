@@ -10,25 +10,22 @@ namespace App\Support;
  *
  * A decimal column arrives as a string on one driver and as a float on
  * another, and a request body decodes its numbers as floats. A float large or
- * small enough is written as an exponent - 1.0E+14, 1.2E-7 - which bcmath
- * refuses outright, so a figure that never went through here failed the
- * arithmetic rather than rounding badly in it.
+ * small enough casts to an exponent - 1.0E+14, 1.2E-7 - which bcmath refuses
+ * outright, so a figure that never came through here failed the arithmetic
+ * rather than merely losing a digit in it.
  *
- * Every shape truncates at the scale, so the same number gives the same
- * answer whichever shape it arrived in, and the arithmetic keeps the module's
- * convention of truncating rather than rounding.
+ * An exact figure - a string or an integer - is truncated at the scale, the
+ * way the rest of the module's arithmetic treats a figure finer than the
+ * column it is going into.
+ *
+ * A float is rounded at the scale instead, because it is an approximation of
+ * a number the column already holds there: 823045260.0823 is kept as a float
+ * a shade below itself, so truncating would shave a ten-thousandth off it on
+ * every read, and off every figure summed from it.
  */
 final class Decimal
 {
-    /**
-     * How much finer than the scale a float is written before it is
-     * truncated. A float carries about seventeen significant digits, so a few
-     * spare places are enough to hold what it knows and let the truncation,
-     * rather than the formatting, decide the last digit.
-     */
-    private const GUARD = 6;
-
-    /** $value as a decimal string at $scale, truncated, never rounded. */
+    /** $value as a decimal string at $scale. */
     public static function at(float|int|string|null $value, int $scale): string
     {
         if ($value === null) {
@@ -43,9 +40,9 @@ final class Decimal
             return bcadd($value, '0', $scale);
         }
 
-        // Written out in full at a finer scale first: casting the float to a
-        // string is what produces the exponent bcmath will not take.
-        return bcadd(number_format((float) $value, $scale + self::GUARD, '.', ''), '0', $scale);
+        // Written out rather than cast: casting is what produces the exponent
+        // bcmath will not take.
+        return number_format((float) $value, $scale, '.', '');
     }
 
     /** Zero at $scale, for starting a sum. */
