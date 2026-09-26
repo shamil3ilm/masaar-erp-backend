@@ -82,10 +82,11 @@ class RunAmlEscalationJob implements ShouldQueue
         try {
             $service->createSar(
                 organizationId: $this->organizationId,
-                contactId:      $contactId ?? 0,
+                contactId:      $contactId,
                 activityType:   AmlTransactionFlag::STRUCTURING,
                 transactionIds: $transactionIds,
                 description:    $description,
+                createdBy:      null,
             );
 
             // Mark flags as escalated
