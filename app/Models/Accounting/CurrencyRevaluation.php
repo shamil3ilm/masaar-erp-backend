@@ -7,6 +7,7 @@ namespace App\Models\Accounting;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\HasUuid;
 use App\Models\User;
+use App\Support\Decimal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -170,27 +171,9 @@ class CurrencyRevaluation extends Model
         $this->saveQuietly();
     }
 
-    /**
-     * An item amount as a decimal string at the scale the amount columns hold.
-     *
-     * A decimal column reaches here as a string on one connection and as a
-     * float on another. A float is written out at the scale rather than cast,
-     * so an exponent form never reaches the arithmetic.
-     */
+    /** An item amount as a decimal string at the scale the amount columns hold. */
     private static function amount(float|int|string|null $amount): string
     {
-        if ($amount === null) {
-            return bcadd('0', '0', self::SCALE);
-        }
-
-        if (is_int($amount)) {
-            return bcadd((string) $amount, '0', self::SCALE);
-        }
-
-        if (is_string($amount) && preg_match('/^-?\d+(\.\d+)?$/', $amount) === 1) {
-            return bcadd($amount, '0', self::SCALE);
-        }
-
-        return number_format((float) $amount, self::SCALE, '.', '');
+        return Decimal::at($amount, self::SCALE);
     }
 }
