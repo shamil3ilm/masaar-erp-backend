@@ -25,27 +25,34 @@ class DecimalTest extends TestCase
         $this->assertSame('0.00000012', Decimal::at(1.2e-7, 8));
     }
 
-    public function test_a_float_and_its_string_read_the_same(): void
+    public function test_a_stored_figure_reads_the_same_as_a_string_or_a_float(): void
     {
-        // A decimal column arrives as a string on one driver and a float on
-        // another. Reading the same number two ways has to give one answer,
-        // or a figure differs between the database the tests run on and the
-        // one that holds the books.
-        foreach (['1.00005', '2.99999', '-1.00005', '0.12345'] as $number) {
+        // The same column is handed over as a string on one driver and as a
+        // float on another. Both have to give the figure that was stored, or
+        // a total differs between the database the tests run on and the one
+        // that holds the books.
+        foreach (['823045260.0823', '12.3400', '-0.2345', '0.0001'] as $stored) {
             $this->assertSame(
-                Decimal::at($number, 4),
-                Decimal::at((float) $number, 4),
-                "{$number} read as a string and as a float must agree",
+                Decimal::at($stored, 4),
+                Decimal::at((float) $stored, 4),
+                "{$stored} must read the same as a string and as a float",
             );
         }
     }
 
-    public function test_it_truncates_rather_than_rounds(): void
+    public function test_a_float_is_rounded_back_to_the_figure_it_stands_for(): void
+    {
+        // 823045260.0823 is held as 823045260.08229994. Truncating it would
+        // take a ten-thousandth off every read, and off every sum of them.
+        $this->assertSame('823045260.0823', Decimal::at(823045260.0823, 4));
+        $this->assertSame('0.1000', Decimal::at(0.1, 4));
+    }
+
+    public function test_an_exact_figure_finer_than_the_scale_is_truncated(): void
     {
         $this->assertSame('1.0000', Decimal::at('1.00005', 4));
-        $this->assertSame('1.0000', Decimal::at(1.00005, 4));
-        $this->assertSame('2.9999', Decimal::at(2.99999, 4));
-        $this->assertSame('-1.0000', Decimal::at(-1.00005, 4));
+        $this->assertSame('2.9999', Decimal::at('2.99999', 4));
+        $this->assertSame('-1.0000', Decimal::at('-1.00005', 4));
     }
 
     public function test_zero_starts_a_sum_at_the_scale(): void
