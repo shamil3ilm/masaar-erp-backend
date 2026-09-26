@@ -11,7 +11,7 @@ use App\Models\System\Setting;
 use App\Services\Accounting\FxDerivativeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use RuntimeException;
+use InvalidArgumentException;
 use Tests\TestCase;
 use Tests\Traits\BuildsLedger;
 use Tests\Traits\TestHelpers;
@@ -76,7 +76,7 @@ class FxRealisedGainLossPostingTest extends TestCase
 
         try {
             app(FxDerivativeService::class)->settle($forward, 3.78, Carbon::parse('2025-06-30'));
-        } catch (RuntimeException $e) {
+        } catch (InvalidArgumentException $e) {
             $refusal = $e;
         }
 
