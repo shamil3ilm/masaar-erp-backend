@@ -35,6 +35,18 @@ class ReportsController extends Controller
     ) {}
 
     /**
+     * An id filter as an integer, or null when the request left it out.
+     *
+     * A query string hands every value over as text, and the report services
+     * take their filters as ints, so a filter passed straight through is a
+     * type error rather than a filtered report.
+     */
+    private function optionalId(Request $request, string $key): ?int
+    {
+        return $request->filled($key) ? $request->integer($key) : null;
+    }
+
+    /**
      * Get available report types.
      */
     public function types(): JsonResponse
@@ -155,8 +167,8 @@ class ReportsController extends Controller
         $this->inventoryService->setContext($user->organization_id, $user->current_branch_id);
 
         $data = $this->inventoryService->generateStockValuation(
-            $request->get('warehouse_id'),
-            $request->get('category_id'),
+            $this->optionalId($request, 'warehouse_id'),
+            $this->optionalId($request, 'category_id'),
             $request->get('valuation_method')
         );
 
@@ -183,8 +195,8 @@ class ReportsController extends Controller
         $data = $this->inventoryService->generateStockMovement(
             $request->get('start_date'),
             $request->get('end_date'),
-            $request->get('product_id'),
-            $request->get('warehouse_id'),
+            $this->optionalId($request, 'product_id'),
+            $this->optionalId($request, 'warehouse_id'),
             $request->get('movement_type')
         );
 
@@ -201,7 +213,7 @@ class ReportsController extends Controller
         $this->inventoryService->setContext($user->organization_id, $user->current_branch_id);
 
         $data = $this->inventoryService->generateLowStockReport(
-            $request->get('warehouse_id')
+            $this->optionalId($request, 'warehouse_id')
         );
 
         return $this->success($data);
@@ -239,8 +251,8 @@ class ReportsController extends Controller
         $this->inventoryService->setContext($user->organization_id, $user->current_branch_id);
 
         $data = $this->inventoryService->generateExpiryReport(
-            $request->get('days_ahead', 90),
-            $request->get('warehouse_id')
+            $request->integer('days_ahead', 90),
+            $this->optionalId($request, 'warehouse_id')
         );
 
         return $this->success($data);
@@ -269,8 +281,8 @@ class ReportsController extends Controller
         $data = $this->salesService->generateSalesByCustomer(
             $request->get('start_date'),
             $request->get('end_date'),
-            $request->get('customer_id'),
-            $request->get('limit', 50)
+            $this->optionalId($request, 'customer_id'),
+            $request->integer('limit', 50)
         );
 
         return $this->success($data);
@@ -296,9 +308,9 @@ class ReportsController extends Controller
         $data = $this->salesService->generateSalesByProduct(
             $request->get('start_date'),
             $request->get('end_date'),
-            $request->get('category_id'),
-            $request->get('product_id'),
-            $request->get('limit', 50)
+            $this->optionalId($request, 'category_id'),
+            $this->optionalId($request, 'product_id'),
+            $request->integer('limit', 50)
         );
 
         return $this->success($data);

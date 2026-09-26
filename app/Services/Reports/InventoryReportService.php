@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Reports;
 
+use App\Support\Decimal;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -390,49 +392,52 @@ class InventoryReportService
      */
     public function generateInventoryTurnover(string $startDate, string $endDate): array
     {
+        // Both figures below are divided by the day count, so a period that
+        // ends before it starts is refused rather than divided by.
+        $periodDays = (int) Carbon::parse($startDate)->startOfDay()
+            ->diffInDays(Carbon::parse($endDate)->startOfDay()) + 1;
+
+        if ($periodDays < 1) {
+            throw new \InvalidArgumentException('The turnover period ends before it starts.');
+        }
+
         // Get average inventory value for the period
-        $avgInventory = DB::table('stock_levels')
+        $avgInventory = Decimal::at(DB::table('stock_levels')
             ->where('organization_id', $this->organizationId)
             ->selectRaw('AVG(quantity * average_cost) as avg_value')
-            ->value('avg_value') ?? 0;
+            ->value('avg_value') ?? 0, 4);
 
         // Get COGS for the period
-        $cogs = DB::table('document_lines as dl')
-            ->join('invoices as i', function ($join) {
-                $join->on('dl.document_id', '=', 'i.id')
-                    ->where('dl.document_type', '=', 'invoice');
-            })
+        $cogs = Decimal::at(DB::table('invoice_lines as il')
+            ->join('invoices as i', 'il.invoice_id', '=', 'i.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate])
-            ->join('products as p', 'dl.product_id', '=', 'p.id')
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate)
+            ->join('products as p', 'il.product_id', '=', 'p.id')
             ->where('p.type', 'goods')
-            ->selectRaw('SUM(dl.quantity * COALESCE(p.purchase_price, 0)) as cogs')
-            ->value('cogs') ?? 0;
+            ->selectRaw('SUM(il.quantity * COALESCE(p.purchase_price, 0)) as cogs')
+            ->value('cogs') ?? 0, 4);
 
-        // Calculate turnover metrics
-        $periodDays = \Carbon\Carbon::parse($startDate)->diffInDays($endDate) + 1;
-        $turnoverRatio = bccomp((string) $avgInventory, '0', 4) > 0
-            ? bcdiv((string) $cogs, (string) $avgInventory, 8)
+        $turnoverRatio = bccomp($avgInventory, '0', 4) > 0
+            ? bcdiv($cogs, $avgInventory, 8)
             : '0';
         $daysInInventory = bccomp($turnoverRatio, '0', 8) > 0
             ? bcdiv((string) $periodDays, $turnoverRatio, 4)
             : '0';
 
         // Get turnover by category
-        $byCategory = DB::table('document_lines as dl')
-            ->join('invoices as i', function ($join) {
-                $join->on('dl.document_id', '=', 'i.id')
-                    ->where('dl.document_type', '=', 'invoice');
-            })
-            ->join('products as p', 'dl.product_id', '=', 'p.id')
+        $byCategory = DB::table('invoice_lines as il')
+            ->join('invoices as i', 'il.invoice_id', '=', 'i.id')
+            ->join('products as p', 'il.product_id', '=', 'p.id')
             ->leftJoin('categories as c', 'p.category_id', '=', 'c.id')
             ->where('i.organization_id', $this->organizationId)
             ->whereIn('i.status', ['sent', 'partial', 'paid'])
-            ->whereBetween('i.invoice_date', [$startDate, $endDate])
+            ->whereDate('i.invoice_date', '>=', $startDate)
+            ->whereDate('i.invoice_date', '<=', $endDate)
             ->where('p.type', 'goods')
             ->groupBy('c.id', 'c.name')
-            ->selectRaw('c.name as category, SUM(dl.quantity) as units_sold, SUM(dl.total) as revenue')
+            ->selectRaw('c.name as category, SUM(il.quantity) as units_sold, SUM(il.total) as revenue')
             ->orderByDesc('revenue')
             ->get()
             ->toArray();
