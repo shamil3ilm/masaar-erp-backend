@@ -38,8 +38,9 @@ run-tests*.php
 run-mfg-test*.php
 run-module-tests*.php
 
-# Claude Code: share project settings, ignore local/runtime files
+# Claude Code: settings hold machine-specific paths; ignore them and local/runtime files
 .claude/settings.local.json
+.claude/settings.json
 .claude/worktrees/
 .claude/projects/
 .claude/sessions/
