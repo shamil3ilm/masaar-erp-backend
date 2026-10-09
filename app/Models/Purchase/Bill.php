@@ -7,6 +7,7 @@ namespace App\Models\Purchase;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\CalculatesDocumentTotals;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
@@ -14,7 +15,6 @@ use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\LocksForTransition;
 use App\Models\Sales\Contact;
 use App\Models\User;
-use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
 
 class Bill extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
+    use BelongsToOrganization, CalculatesDocumentTotals, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_STANDARD = 'standard';
     public const TYPE_DEBIT_NOTE = 'debit_note';
@@ -193,24 +193,16 @@ class Bill extends Model
             );
         }
 
-        $subtotal = $this->lines()->sum('subtotal');
-        $taxAmount = $this->lines()->sum('tax_amount');
-
-        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
-            (string) $subtotal,
-            (string) $taxAmount,
-            $this->discount_type,
-            $this->discount_value === null ? null : (string) $this->discount_value,
-        );
-        $baseTotal = bcmul((string) $total, (string) $this->exchange_rate, 4);
+        $totals = $this->documentTotals();
+        $baseTotal = bcmul($totals['total'], (string) $this->exchange_rate, 4);
 
         $this->update([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discountAmount,
-            'tax_amount' => $taxAmount,
-            'total' => $total,
+            'subtotal' => $totals['subtotal'],
+            'discount_amount' => $totals['discount'],
+            'tax_amount' => $totals['tax'],
+            'total' => $totals['total'],
             'base_total' => $baseTotal,
-            'amount_due' => bcsub((string) $total, (string) $this->amount_paid, 4),
+            'amount_due' => bcsub($totals['total'], (string) $this->amount_paid, 4),
         ]);
     }
 

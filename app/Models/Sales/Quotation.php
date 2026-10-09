@@ -6,13 +6,13 @@ namespace App\Models\Sales;
 
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\CalculatesDocumentTotals;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
-use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -22,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Quotation extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
+    use HasFactory, BelongsToOrganization, CalculatesDocumentTotals, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SENT = 'sent';
@@ -146,21 +146,13 @@ class Quotation extends Model
      */
     public function recalculateTotals(): void
     {
-        $subtotal = $this->lines()->sum('subtotal');
-        $taxAmount = $this->lines()->sum('tax_amount');
-
-        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
-            (string) $subtotal,
-            (string) $taxAmount,
-            $this->discount_type,
-            $this->discount_value === null ? null : (string) $this->discount_value,
-        );
+        $totals = $this->documentTotals();
 
         $this->update([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discountAmount,
-            'tax_amount' => $taxAmount,
-            'total' => $total,
+            'subtotal' => $totals['subtotal'],
+            'discount_amount' => $totals['discount'],
+            'tax_amount' => $totals['tax'],
+            'total' => $totals['total'],
         ]);
     }
 

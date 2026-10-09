@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Concerns;
 
+use App\Support\Decimal;
 use App\Support\TaxMath;
 
 /**
@@ -55,6 +56,34 @@ trait CalculatesLineTotals
         }
 
         $this->total = bcadd($amounts['subtotal'], (string) $this->tax_amount, TaxMath::SCALE);
+    }
+
+    /**
+     * The rate this line's tax was actually charged at: an inter-state IGST
+     * rate on its own, an intra-state CGST and SGST pair together, otherwise
+     * the line's own tax rate.
+     *
+     * A document shares its discount out across the rates its lines carry and
+     * taxes each reduced base, so it has to read the same rate the line used.
+     */
+    public function appliedTaxRate(int $scale = TaxMath::SCALE): string
+    {
+        if ($this->splitsGst()) {
+            $igst = Decimal::at($this->igst_rate, $scale);
+
+            if (bccomp($igst, '0', $scale) > 0) {
+                return $igst;
+            }
+
+            $cgst = Decimal::at($this->cgst_rate, $scale);
+            $sgst = Decimal::at($this->sgst_rate, $scale);
+
+            if (bccomp($cgst, '0', $scale) > 0 || bccomp($sgst, '0', $scale) > 0) {
+                return bcadd($cgst, $sgst, $scale);
+            }
+        }
+
+        return Decimal::at($this->tax_rate, $scale);
     }
 
     /** Whether this line's table has the CGST, SGST and IGST columns. */

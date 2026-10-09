@@ -29,7 +29,7 @@ class TaxService
      */
     public function calculateTaxOnExclusive(string $amount, string $taxRate, int $decimals = 4): TaxCalculation
     {
-        $taxAmount = TaxMath::percentOf($amount, $taxRate, $decimals);
+        $taxAmount = TaxMath::tax($amount, $taxRate, $decimals);
         $totalAmount = bcadd($amount, $taxAmount, $decimals);
 
         return new TaxCalculation(
