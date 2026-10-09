@@ -6,6 +6,7 @@ namespace App\Models\Purchase;
 
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\CalculatesDocumentTotals;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
@@ -14,7 +15,6 @@ use App\Models\Concerns\LocksForTransition;
 use App\Models\Inventory\Warehouse;
 use App\Models\Sales\Contact;
 use App\Models\User;
-use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PurchaseOrder extends Model
 {
-    use BelongsToOrganization, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
+    use BelongsToOrganization, CalculatesDocumentTotals, HasAuditTrail, HasFactory, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
@@ -199,21 +199,13 @@ class PurchaseOrder extends Model
 
     public function recalculateTotals(): void
     {
-        $subtotal = $this->lines()->sum('subtotal');
-        $taxAmount = $this->lines()->sum('tax_amount');
-
-        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
-            (string) $subtotal,
-            (string) $taxAmount,
-            $this->discount_type,
-            $this->discount_value === null ? null : (string) $this->discount_value,
-        );
+        $totals = $this->documentTotals();
 
         $this->update([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discountAmount,
-            'tax_amount' => $taxAmount,
-            'total' => $total,
+            'subtotal' => $totals['subtotal'],
+            'discount_amount' => $totals['discount'],
+            'tax_amount' => $totals['tax'],
+            'total' => $totals['total'],
         ]);
     }
 

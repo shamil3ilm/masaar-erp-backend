@@ -18,9 +18,9 @@ use Tests\TestCase;
 /**
  * The amounts a document line stores when it is saved.
  *
- * Every figure is bcmath truncation at four decimals, with a percentage
- * divided by 100 at six. A line discount comes off before tax. The cases pick
- * inputs where truncation and half-up rounding give different results.
+ * Every figure is at four decimals: a discount truncates there, tax rounds
+ * half away from zero there. A line discount comes off before tax. The cases
+ * pick inputs where truncation and half-up give different results.
  */
 class LineTotalsTest extends TestCase
 {
@@ -61,10 +61,12 @@ class LineTotalsTest extends TestCase
             'tax_rate' => '5',
         ]);
 
+        // The discount truncates (0.2880471195), the tax rounds half up
+        // (0.417675).
         $this->assertSame('0.2880', $line->discount_amount);
         $this->assertSame('8.3535', $line->subtotal);
-        $this->assertSame('0.4176', $line->tax_amount);
-        $this->assertSame('8.7711', $line->total);
+        $this->assertSame('0.4177', $line->tax_amount);
+        $this->assertSame('8.7712', $line->total);
     }
 
     #[DataProvider('lineModels')]
@@ -111,12 +113,13 @@ class LineTotalsTest extends TestCase
             'sgst_rate' => '2.5',
         ]);
 
+        // 10.0030 at 2.5% is 0.250075, which rounds half up to 0.2501.
         $this->assertSame('10.0030', $line->subtotal);
-        $this->assertSame('0.2500', $line->cgst_amount);
-        $this->assertSame('0.2500', $line->sgst_amount);
+        $this->assertSame('0.2501', $line->cgst_amount);
+        $this->assertSame('0.2501', $line->sgst_amount);
         $this->assertSame('0.0000', $line->igst_amount);
-        $this->assertSame('0.5000', $line->tax_amount);
-        $this->assertSame('10.5030', $line->total);
+        $this->assertSame('0.5002', $line->tax_amount);
+        $this->assertSame('10.5032', $line->total);
     }
 
     #[DataProvider('gstLineModels')]

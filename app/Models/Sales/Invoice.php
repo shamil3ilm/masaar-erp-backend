@@ -7,13 +7,13 @@ namespace App\Models\Sales;
 use App\Models\Accounting\JournalEntry;
 use App\Models\Core\Branch;
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\CalculatesDocumentTotals;
 use App\Models\Concerns\DispatchesWebhooks;
 use App\Models\Concerns\HasAuditTrail;
 use App\Models\Concerns\HasStateMachine;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\LocksForTransition;
 use App\Models\User;
-use App\Support\TaxMath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 
 class Invoice extends Model
 {
-    use HasFactory, BelongsToOrganization, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
+    use HasFactory, BelongsToOrganization, CalculatesDocumentTotals, HasAuditTrail, HasUuid, HasStateMachine, LocksForTransition, SoftDeletes, DispatchesWebhooks;
 
     public const TYPE_STANDARD = 'standard';
     public const TYPE_SIMPLIFIED = 'simplified';
@@ -255,33 +255,25 @@ class Invoice extends Model
             );
         }
 
-        $subtotal = $this->lines()->sum('subtotal');
-        $taxAmount = $this->lines()->sum('tax_amount');
+        $totals = $this->documentTotals();
 
         // Validate discount
         if (bccomp((string)($this->discount_value ?? 0), '0', 4) < 0) {
             throw new \InvalidArgumentException('Discount value cannot be negative.');
         }
-        if ($this->discount_type === 'fixed' && bccomp((string)($this->discount_value ?? 0), (string)$subtotal, 4) > 0) {
+        if ($this->discount_type === 'fixed' && bccomp((string)($this->discount_value ?? 0), $totals['subtotal'], 4) > 0) {
             throw new \InvalidArgumentException('Fixed discount cannot exceed subtotal.');
         }
 
-        // The document discount comes off after tax, so it does not reduce the VAT.
-        ['discount' => $discountAmount, 'total' => $total] = TaxMath::document(
-            (string) $subtotal,
-            (string) $taxAmount,
-            $this->discount_type,
-            $this->discount_value === null ? null : (string) $this->discount_value,
-        );
-        $baseTotal = bcmul((string) $total, (string) $this->exchange_rate, 4);
+        $baseTotal = bcmul($totals['total'], (string) $this->exchange_rate, 4);
 
         $this->update([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discountAmount,
-            'tax_amount' => $taxAmount,
-            'total' => $total,
+            'subtotal' => $totals['subtotal'],
+            'discount_amount' => $totals['discount'],
+            'tax_amount' => $totals['tax'],
+            'total' => $totals['total'],
             'base_total' => $baseTotal,
-            'amount_due' => bcsub((string) $total, (string) $this->amount_paid, 4),
+            'amount_due' => bcsub($totals['total'], (string) $this->amount_paid, 4),
         ]);
     }
 
