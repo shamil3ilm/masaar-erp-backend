@@ -56,7 +56,13 @@ class AmlMonitoringService
 
     /**
      * Screen a transaction (invoice or payment) for AML concerns.
-     * All operations are non-blocking; errors are logged and swallowed.
+     *
+     * A failure is logged and then re-thrown, so a screening that cannot be
+     * completed is never mistaken for a clean one. That makes this unsafe to
+     * call inline from the service that records the document: the throw would
+     * roll the invoice or payment back over a compliance fault that has
+     * nothing to do with it. Call it from RunAmlTransactionScreeningJob, where
+     * the failure stays on the queue.
      */
     public function screenTransaction(
         string $transactionType,
