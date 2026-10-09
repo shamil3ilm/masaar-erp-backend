@@ -40,7 +40,13 @@ trait CalculatesDocumentTotals
 
     /**
      * The net this document's lines charge at each rate they were taxed at,
-     * in the order the rates first appear.
+     * lowest rate first.
+     *
+     * The order decides which rate takes the ten-thousandth the rounded
+     * shares of the discount leave, so it is fixed by the rate rather than
+     * left to the order the driver happens to return the lines in. A caller
+     * that groups the same lines by rate reaches the same totals whatever
+     * order it reads them in.
      *
      * @return list<array{rate: string, net: string}>
      */
@@ -59,6 +65,8 @@ trait CalculatesDocumentTotals
                 $scale,
             );
         }
+
+        uksort($nets, static fn (string $a, string $b): int => bccomp($a, $b, $scale));
 
         return array_map(
             static fn (string $rate, string $net): array => ['rate' => $rate, 'net' => $net],

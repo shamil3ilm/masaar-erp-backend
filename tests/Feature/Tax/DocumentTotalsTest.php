@@ -174,6 +174,32 @@ class DocumentTotalsTest extends TestCase
         $this->assertTotals($quotation->fresh(), subtotal: '100.0000', tax: '0.0000', discount: '100.0000', total: '0.0000');
     }
 
+    public function test_the_line_order_does_not_change_what_a_document_stores(): void
+    {
+        $totals = [];
+
+        foreach ([false, true] as $reversed) {
+            $order = SalesOrder::factory()->create($this->header() + [
+                'customer_id' => $this->customer->id,
+                'status' => 'draft',
+                'discount_type' => 'fixed',
+                'discount_value' => '5',
+            ]);
+
+            $this->addLines($order, $reversed);
+            $order->recalculateTotals();
+
+            $fresh = $order->fresh();
+            $totals[] = [$fresh->subtotal, $fresh->tax_amount, $fresh->discount_amount, $fresh->total];
+        }
+
+        // The rates are grouped lowest first, so which rate takes the
+        // ten-thousandth the rounded shares leave does not depend on the
+        // order the driver returns the lines in.
+        $this->assertSame($totals[0], $totals[1]);
+        $this->assertSame(['198.3535', '28.1887', '5.0000', '221.5422'], $totals[0]);
+    }
+
     public function test_a_document_with_no_discount_charges_each_rate_its_whole_net(): void
     {
         $order = SalesOrder::factory()->create($this->header() + [
@@ -323,24 +349,30 @@ class DocumentTotalsTest extends TestCase
     }
 
     /** One line with a percentage discount and one with a fixed discount, as LineTotalsTest pins them. */
-    private function addLines(Model $document): void
+    private function addLines(Model $document, bool $reversed = false): void
     {
-        $document->lines()->create([
-            'description' => 'Widget',
-            'quantity' => '7',
-            'unit_price' => '1.2345',
-            'discount_type' => 'percentage',
-            'discount_value' => '3.3333',
-            'tax_rate' => '5',
-        ]);
-        $document->lines()->create([
-            'description' => 'Crate',
-            'quantity' => '2',
-            'unit_price' => '100',
-            'discount_type' => 'fixed',
-            'discount_value' => '10',
-            'tax_rate' => '15',
-        ]);
+        $lines = [
+            [
+                'description' => 'Widget',
+                'quantity' => '7',
+                'unit_price' => '1.2345',
+                'discount_type' => 'percentage',
+                'discount_value' => '3.3333',
+                'tax_rate' => '5',
+            ],
+            [
+                'description' => 'Crate',
+                'quantity' => '2',
+                'unit_price' => '100',
+                'discount_type' => 'fixed',
+                'discount_value' => '10',
+                'tax_rate' => '15',
+            ],
+        ];
+
+        foreach ($reversed ? array_reverse($lines) : $lines as $line) {
+            $document->lines()->create($line);
+        }
     }
 
     /** @return list<array<string, string>> */
