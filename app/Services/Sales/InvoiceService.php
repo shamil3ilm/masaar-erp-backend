@@ -22,6 +22,7 @@ use App\Services\Inventory\StockService;
 use App\Services\Sales\RebateAccrualService;
 use App\Services\Tax\TaxCalculatorService;
 use App\Jobs\RetryComplianceSubmission;
+use App\Jobs\RunAmlTransactionScreeningJob;
 use App\Jobs\RunFraudChecksJob;
 use Illuminate\Http\Client\ConnectionException;
 use App\Models\Concerns\ChecksIdempotency;
@@ -47,6 +48,7 @@ use Illuminate\Support\Facades\DB;
  * - Deducts stock levels via StockService on send; returns stock on void
  * - Dispatches GenerateInvoiceDocumentJob (PDF + email) after send commits
  * - Dispatches RunFraudChecksJob asynchronously after create commits
+ * - Dispatches RunAmlTransactionScreeningJob asynchronously after create commits
  * - Creates CreditHold records when a credit limit is breached
  * - Tracks user events via UserEventService for INVOICE_CREATED and INVOICE_SENT
  * - Triggers rebate accrual via RebateAccrualService on send (non-blocking)
@@ -318,6 +320,24 @@ class InvoiceService
             )->afterCommit();
         } catch (\Throwable $e) {
             $this->logWarning('Fraud check dispatch failed for invoice', ['invoice_id' => $invoice->id, 'error' => $e->getMessage()]);
+        }
+
+        // Queue the AML screening on the same terms as the fraud check:
+        // afterCommit() so an outer transaction that rolls back leaves no
+        // screening behind. The screening re-throws on failure, which on a
+        // synchronous queue arrives here, so it is caught and logged rather
+        // than allowed to undo the invoice.
+        try {
+            RunAmlTransactionScreeningJob::dispatch(
+                'invoice',
+                $invoice->id,
+                (float) $invoice->total,
+                $invoice->currency_code,
+                $invoice->organization_id,
+                $invoice->customer_id,
+            )->afterCommit();
+        } catch (\Throwable $e) {
+            $this->logWarning('AML screening dispatch failed for invoice', ['invoice_id' => $invoice->id, 'error' => $e->getMessage()]);
         }
 
         return $invoice;

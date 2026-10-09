@@ -12,6 +12,7 @@ use App\Models\Sales\CustomerCredit;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\PaymentAllocation;
 use App\Models\Sales\PaymentReceived;
+use App\Jobs\RunAmlTransactionScreeningJob;
 use App\Jobs\RunFraudChecksJob;
 use App\Services\Accounting\JournalEntryFactory;
 use App\Services\Accounting\JournalService;
@@ -271,10 +272,15 @@ class PaymentService
      *
      * The journal entry is part of completing: when it cannot be posted, for a
      * missing account or a closed period, the payment stays pending.
+     *
+     * Completing is also where the payment is screened for AML: only a
+     * completed payment has reached the ledger, and only a pending payment can
+     * be completed, so each payment is screened once and a payment that is
+     * voided before it clears is never screened.
      */
     public function complete(PaymentReceived $payment): PaymentReceived
     {
-        return $payment->lockForTransition(function (PaymentReceived $payment): PaymentReceived {
+        $completed = $payment->lockForTransition(function (PaymentReceived $payment): PaymentReceived {
             if ($payment->status !== PaymentReceived::STATUS_PENDING) {
                 throw new \InvalidArgumentException('Only pending payments can be completed.');
             }
@@ -285,6 +291,26 @@ class PaymentService
 
             return $payment->fresh();
         });
+
+        // Queue the AML screening outside the transition, on the same terms as
+        // the fraud check on create: afterCommit() so an outer transaction that
+        // rolls back leaves no screening behind. The screening re-throws on
+        // failure, which on a synchronous queue arrives here, so it is caught
+        // and logged rather than allowed to undo the completion.
+        try {
+            RunAmlTransactionScreeningJob::dispatch(
+                'payment',
+                $completed->id,
+                (float) $completed->amount,
+                $completed->currency_code,
+                $completed->organization_id,
+                $completed->customer_id,
+            )->afterCommit();
+        } catch (\Throwable $e) {
+            Log::warning('AML screening dispatch failed for payment', ['payment_id' => $completed->id, 'error' => $e->getMessage()]);
+        }
+
+        return $completed;
     }
 
     /**
