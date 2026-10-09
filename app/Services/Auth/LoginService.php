@@ -6,6 +6,7 @@ namespace App\Services\Auth;
 
 use App\Exceptions\ERP\BusinessRuleException;
 use App\Jobs\RunFraudChecksJob;
+use App\Models\Core\LoginHistory;
 use App\Models\Core\UserEvent;
 use App\Models\User;
 use App\Services\Core\UserEventService;
@@ -76,6 +77,28 @@ final class LoginService
     {
         $user->recordLogin();
 
+        $country = $this->countryOf($request);
+
+        // Written here, and nowhere else, which is why it was never written at
+        // all: login_history has the user, the status and the indexes for
+        // "where has this account been seen from", a read endpoint, and no
+        // writer. login_attempts holds email, IP and success and drives
+        // lockout; it is not a history and carries no user.
+        //
+        // Successes only for now. A failed login carries no account when the
+        // email is unknown, and the question this feeds - has this user been
+        // here before - is about logins that worked. Failures continue to be
+        // recorded in login_attempts.
+        LoginHistory::create([
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'ip_address' => (string) $request->ip(),
+            'country_code' => $country,
+            'user_agent' => substr((string) $request->userAgent(), 0, 255),
+            'status' => LoginHistory::STATUS_SUCCESS,
+            'attempted_at' => now(),
+        ]);
+
         $this->events->track(UserEvent::USER_LOGIN, ['email' => $user->email], $user->id, $user->organization_id, $request);
 
         try {
@@ -85,7 +108,7 @@ final class LoginService
                 [
                     'user_id' => $user->id,
                     'ip_address' => $request->ip(),
-                    'country_code' => $request->header('CF-IPCountry') ?? $request->header('X-Country-Code'),
+                    'country_code' => $country,
                     'email' => $user->email,
                 ],
                 $user->organization_id,
@@ -94,6 +117,26 @@ final class LoginService
         } catch (\Throwable $e) {
             Log::warning('Fraud check dispatch failed for login', ['user_id' => $user->id, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * The country a request came from, as the edge reported it.
+     *
+     * Cloudflare's header first, then a generic one a reverse proxy may set.
+     * Two upper-case letters or nothing: the column holds two characters and
+     * the value is a header, so a proxy sending "XX, YY" or a hostile client
+     * sending anything at all must not reach it. Cloudflare answers XX for an
+     * address it cannot place, which is not a country either.
+     */
+    private function countryOf(Request $request): ?string
+    {
+        $country = strtoupper(trim(
+            (string) ($request->header('CF-IPCountry') ?? $request->header('X-Country-Code') ?? '')
+        ));
+
+        return preg_match('/^[A-Z]{2}$/', $country) === 1 && $country !== 'XX'
+            ? $country
+            : null;
     }
 
     private static function placeholderHash(): string

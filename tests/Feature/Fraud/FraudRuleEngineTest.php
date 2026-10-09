@@ -465,19 +465,87 @@ class FraudRuleEngineTest extends TestCase
     // GEOGRAPHIC rules
     // ----------------------------------------------------------------
 
-    public function test_the_new_country_login_rule_only_fires_for_a_high_risk_country(): void
+    /**
+     * The rule compares against where this user has actually been.
+     *
+     * It used to compare against a fixed high-risk list, which is a different
+     * rule under this one's name: a user whose logins all came from GB was not
+     * flagged when one came from BR, and a user whose own country is on the
+     * list was flagged every day. High-risk countries are block_high_risk's
+     * job, asserted separately below.
+     */
+    public function test_a_login_from_an_unseen_country_is_flagged(): void
     {
-        // The seeded "Login from new country" rule compares against a fixed
-        // high-risk list and never looks at where this user logged in before,
-        // so a first-ever login from GB passes. Listed as a finding.
         $this->rule([
             'entity_type' => 'login',
             'rule_type' => FraudRule::GEOGRAPHIC,
             'conditions' => ['behavior' => 'new_country_login'],
         ]);
 
-        $this->assertFalse($this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'GB'])->flagged);
-        $this->assertTrue($this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'IR'])->flagged);
+        $this->seenFrom('GB');
+
+        $this->assertFalse(
+            $this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'GB'])->flagged,
+            'A login from the country this user always uses was flagged.'
+        );
+        $this->assertTrue(
+            $this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'BR'])->flagged,
+            'A login from a country this user has never used was not flagged.'
+        );
+    }
+
+    /**
+     * A user with no history is not flagged. Their first login is from a new
+     * country in the trivial sense, and alerting on every account's first
+     * login teaches reviewers to dismiss the rule.
+     */
+    public function test_a_first_ever_login_is_not_flagged(): void
+    {
+        $this->rule([
+            'entity_type' => 'login',
+            'rule_type' => FraudRule::GEOGRAPHIC,
+            'conditions' => ['behavior' => 'new_country_login'],
+        ]);
+
+        $this->assertFalse(
+            $this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'IR'])->flagged,
+            'An account with no login history was flagged on its first login.'
+        );
+    }
+
+    /**
+     * And a high-risk country is no longer this rule's business, so a user who
+     * works from one is not flagged daily by it.
+     */
+    public function test_a_familiar_high_risk_country_is_not_flagged(): void
+    {
+        $this->rule([
+            'entity_type' => 'login',
+            'rule_type' => FraudRule::GEOGRAPHIC,
+            'conditions' => ['behavior' => 'new_country_login'],
+        ]);
+
+        $this->seenFrom('IR');
+
+        $this->assertFalse(
+            $this->evaluateLogin(['user_id' => $this->user->id, 'country_code' => 'IR'])->flagged,
+            'A user whose own country is high risk was flagged for logging in from it.'
+        );
+    }
+
+    /**
+     * A successful login already recorded for this user, from $country.
+     */
+    private function seenFrom(string $country): void
+    {
+        \App\Models\Core\LoginHistory::create([
+            'user_id' => $this->user->id,
+            'email' => $this->user->email,
+            'ip_address' => '203.0.113.7',
+            'country_code' => $country,
+            'status' => \App\Models\Core\LoginHistory::STATUS_SUCCESS,
+            'attempted_at' => now()->subDay(),
+        ]);
     }
 
     public function test_an_allowed_country_list_fires_for_a_country_outside_it(): void
@@ -702,7 +770,11 @@ class FraudRuleEngineTest extends TestCase
         $this->engine->evaluate('login', ['id' => 5, 'email' => 'target@example.test', 'country_code' => 'SA'], $this->organization->id);
         $this->assertSame(['Multiple failed logins'], $this->alertedRuleNames());
 
-        $this->engine->evaluate('login', ['id' => 6, 'email' => 'clean@example.test', 'country_code' => 'IR'], $this->organization->id);
+        // "Login from new country" needs a user with history to be new
+        // relative to; it compares against where this account has been, not
+        // against a list of countries.
+        $this->seenFrom('GB');
+        $this->engine->evaluate('login', ['id' => 6, 'user_id' => $this->user->id, 'email' => $this->user->email, 'country_code' => 'BR'], $this->organization->id);
         $this->assertSame(['Login from new country'], $this->alertedRuleNames());
     }
 

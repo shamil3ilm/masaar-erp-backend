@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Fraud;
 
+use App\Models\Core\LoginHistory;
 use App\Models\Fraud\FraudAlert;
 use App\Models\Fraud\FraudRule;
 use App\Models\Sales\Invoice;
@@ -327,6 +328,40 @@ class FraudRuleEngine
     // -------------------------------------------------------------------------
     // GEOGRAPHIC rules
     // conditions: {"allowed_countries": ["SA", "AE"], "block_high_risk": true}
+    /**
+     * Whether this user has been seen from this country before.
+     *
+     * This compared the country against the fixed high-risk list, which is a
+     * different rule wearing this one's name. A user whose logins all came
+     * from one country was not flagged when one came from another, because
+     * the other was not on the list; a user whose own country is on the list
+     * was flagged every single day. The useful signal - this account has
+     * never been here - was not computed at all.
+     *
+     * A user with no recorded history is not flagged. Their first login is
+     * from a country that is new in the trivial sense, and alerting on every
+     * account's first login is noise that teaches reviewers to dismiss the
+     * rule. High-risk countries remain covered by block_high_risk and
+     * allowed_countries below, which is where that check belongs.
+     *
+     * Nothing recorded a login's country until 2026-10-09, so for existing
+     * accounts the history begins then: every user's next login looks like
+     * their first and is not flagged, and the rule becomes useful for an
+     * account once it has logged in once more.
+     */
+    private function isNewCountryForUser(array $entityData, string $country): bool
+    {
+        $userId = $entityData['user_id'] ?? null;
+
+        if (! is_numeric($userId)) {
+            return false;
+        }
+
+        $seen = LoginHistory::countriesSeenFor((int) $userId);
+
+        return $seen !== [] && ! in_array($country, $seen, true);
+    }
+
     // -------------------------------------------------------------------------
     private function evaluateGeographic(FraudRule $rule, array $entityData): bool
     {
@@ -340,10 +375,10 @@ class FraudRuleEngine
             return false;
         }
 
-        // Behavior: new_country_login
         $behavior = $conditions['behavior'] ?? null;
+
         if ($behavior === 'new_country_login') {
-            return in_array($country, self::HIGH_RISK_COUNTRIES, true);
+            return $this->isNewCountryForUser($entityData, $country);
         }
 
         if ($blockHighRisk && in_array($country, self::HIGH_RISK_COUNTRIES, true)) {

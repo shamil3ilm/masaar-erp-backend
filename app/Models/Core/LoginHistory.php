@@ -33,6 +33,7 @@ class LoginHistory extends Model
         'user_id',
         'email',
         'ip_address',
+        'country_code',
         'user_agent',
         'status',
         'failure_reason',
@@ -83,6 +84,27 @@ class LoginHistory extends Model
     public function scopeFromIp($query, string $ipAddress)
     {
         return $query->where('ip_address', $ipAddress);
+    }
+
+    /**
+     * The distinct countries this user has successfully logged in from.
+     *
+     * What the geographic fraud rule compares against: a country absent from
+     * this list, for a user who has some history, is a login from somewhere
+     * new. Rows with no country are excluded - a request behind a proxy that
+     * sets no header is not evidence of anywhere.
+     *
+     * @return list<string>
+     */
+    public static function countriesSeenFor(int $userId): array
+    {
+        return self::query()
+            ->where('user_id', $userId)
+            ->where('status', self::STATUS_SUCCESS)
+            ->whereNotNull('country_code')
+            ->distinct()
+            ->pluck('country_code')
+            ->all();
     }
 
     public function scopeRecent($query, int $days = 30)
