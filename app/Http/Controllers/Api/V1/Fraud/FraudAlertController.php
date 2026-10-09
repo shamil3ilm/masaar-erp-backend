@@ -95,8 +95,34 @@ class FraudAlertController extends Controller
             'conditions'   => 'required|array',
             'severity'     => 'required|in:low,medium,high,critical',
             'is_active'    => 'boolean',
-            'auto_block'   => 'boolean',
+            // Refused while nothing honours it.
+            //
+            // FraudRuleEngine computes shouldBlock from this and puts it in
+            // its EvaluationResult, and the only thing that reads it is a log
+            // field in RunFraudChecksJob. Nothing blocks.
+            //
+            // It cannot, as the checks are arranged: the job is dispatched
+            // afterCommit() with tries = 1, so it runs once the invoice,
+            // payment or login it would block has already committed. A
+            // reviewer ticking this box would be told the transaction is
+            // stopped, and it would not be - which is worse than not offering
+            // the control. All six shipped templates set it false, so nothing
+            // relies on it today.
+            //
+            // Honouring it needs a decision rather than a patch: evaluate
+            // blocking rules synchronously before the commit (latency, and
+            // the fraud engine can then fail a sale), or redefine it as a
+            // post-hoc hold on the entity, which is a different control with
+            // a different name.
+            // 'sometimes' because declined is an implicit rule: without it the
+            // rule runs on an absent field and fails, which would refuse every
+            // request that simply does not mention auto_block.
+            'auto_block'   => 'sometimes|boolean|declined',
             'score_impact' => 'integer|min:1|max:100',
+        ], [
+            'auto_block.declined' => 'auto_block cannot be enabled: fraud rules are '
+                .'evaluated after the transaction commits, so nothing can be blocked. '
+                .'Use a high severity to raise an alert for review instead.',
         ]);
 
         $rule = $this->rules->create($validated, Auth::user()->organization_id, Auth::id());

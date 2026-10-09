@@ -121,6 +121,50 @@ class FraudEndpointsTest extends TestCase
             ->assertJsonPath('data.created_by', $this->user->id);
     }
 
+    /**
+     * A control that cannot work must not be offered.
+     *
+     * FraudRuleEngine computes shouldBlock from auto_block and the only thing
+     * that reads it is a log field in RunFraudChecksJob - nothing blocks. It
+     * cannot, as the checks are arranged: the job is dispatched afterCommit()
+     * with tries = 1, so it runs once the invoice, payment or login it would
+     * block has already committed.
+     *
+     * A reviewer who ticked the box would be told the transaction was stopped
+     * when it was not, which is worse than not having the option. Refused at
+     * the boundary until something honours it.
+     */
+    public function test_a_blocking_rule_is_refused(): void
+    {
+        $this->apiPost('/fraud/rules', [
+            'name' => 'Block the big ones',
+            'rule_type' => 'amount',
+            'entity_type' => 'payment',
+            'conditions' => ['min_amount' => 100000],
+            'severity' => 'critical',
+            'auto_block' => true,
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors('auto_block');
+
+        $this->assertDatabaseMissing('fraud_rules', ['name' => 'Block the big ones']);
+    }
+
+    /**
+     * And saying so explicitly is still allowed, so a client that sends the
+     * field with its only honoured value is not broken by the refusal.
+     */
+    public function test_a_rule_may_say_it_does_not_block(): void
+    {
+        $this->apiPost('/fraud/rules', [
+            'name' => 'Alert on the big ones',
+            'rule_type' => 'amount',
+            'entity_type' => 'payment',
+            'conditions' => ['min_amount' => 100000],
+            'severity' => 'critical',
+            'auto_block' => false,
+        ])->assertCreated();
+    }
+
     public function test_a_rule_is_toggled_off_and_on_again(): void
     {
         $this->apiPatch("/fraud/rules/{$this->rule->id}/toggle")
