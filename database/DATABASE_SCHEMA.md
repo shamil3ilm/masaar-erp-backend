@@ -4,7 +4,7 @@ Generated from `database/migrations` by `php artisan schema:doc`. Do not edit
 this file by hand: change a migration, then run the command again. Each
 column shows the Blueprint call and modifiers the migration wrote.
 
-978 tables across 64 migrations.
+978 tables across 65 migrations.
 
 ## Contents
 
@@ -72,6 +72,7 @@ column shows the Blueprint call and modifiers the migration wrote.
 - `0660_sales_numbers_per_organization.php`: changes to cash_sales, commission_payments, customer_account_groups, delivery_documents, free_goods_conditions, material_account_groups, pick_documents
 - `0670_carrier_codes_per_organization.php`: changes to carriers
 - `0671_automation_schedule_pending_marker.php`: changes to automation_schedules
+- `0672_login_history_country.php`: changes to login_history
 
 ## 0010_accounting.php
 
@@ -2684,6 +2685,11 @@ Indexes:
 - `$table->index(['user_id', 'attempted_at'])`
 - `$table->index(['ip_address', 'attempted_at'])`
 - `$table->index(['email', 'attempted_at'])`
+
+Added by later migrations:
+
+- `0672_login_history_country.php`: `$table->string('country_code', 2)->nullable()->after('ip_address')`
+- `0672_login_history_country.php`: `$table->index(['user_id', 'country_code'], 'login_history_user_country_index')`
 
 ### mentions
 
@@ -25582,3 +25588,7 @@ Changes tables created earlier: `carriers`.
 ## 0671_automation_schedule_pending_marker.php
 
 Changes tables created earlier: `automation_schedules`.
+
+## 0672_login_history_country.php
+
+Changes tables created earlier: `login_history`.
