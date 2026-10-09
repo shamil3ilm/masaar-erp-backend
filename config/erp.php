@@ -168,6 +168,18 @@ return [
         'receivable'     => env('ERP_ACCOUNT_RECEIVABLE', null),
         'payable'        => env('ERP_ACCOUNT_PAYABLE', null),
         'sales'          => env('ERP_ACCOUNT_SALES', null),
+
+        // A document discount is an allowance, and an allowance is posted, not
+        // netted off silently. Without these a discounted invoice cannot reach
+        // the ledger at all: debits came to the total, credits to the lines
+        // plus tax, and JournalService refuses an entry that does not balance.
+        //
+        // Contra accounts: sales_discount is a debit against revenue,
+        // purchase_discount a credit against expense. Both normally sit beside
+        // the revenue and expense accounts in the chart rather than as assets
+        // or liabilities.
+        'sales_discount'    => env('ERP_ACCOUNT_SALES_DISCOUNT', null),
+        'purchase_discount' => env('ERP_ACCOUNT_PURCHASE_DISCOUNT', null),
         'expense'        => env('ERP_ACCOUNT_EXPENSE', null),
         'cash'           => env('ERP_ACCOUNT_CASH', null),
         'tax_payable'    => env('ERP_ACCOUNT_TAX_PAYABLE', null),

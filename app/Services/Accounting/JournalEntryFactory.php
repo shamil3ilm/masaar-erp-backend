@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Accounting;
 
+use App\Exceptions\ApiException;
+use App\Exceptions\ErrorCodes;
 use App\Models\Accounting\JournalEntry;
 use App\Models\HR\Payslip;
 use App\Models\Purchase\Bill;
 use App\Models\Purchase\PaymentMade;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\PaymentReceived;
+use App\Support\Decimal;
 
 /**
  * Centralises all journal-entry construction for financial transactions.
@@ -28,6 +31,45 @@ class JournalEntryFactory
     /**
      * Sales Invoice: Debit AR, Credit revenue lines + tax payable.
      */
+    /**
+     * A document's allowance as a positive amount, or null when there is none.
+     *
+     * A decimal column arrives as a string on one driver and a float on
+     * another, so it is compared rather than trusted to be numeric, and a
+     * zero or negative value is no allowance at all.
+     */
+    private function allowance(float|int|string|null $amount): ?string
+    {
+        $discount = Decimal::at($amount, 4);
+
+        return bccomp($discount, '0', 4) > 0 ? $discount : null;
+    }
+
+    /**
+     * The account an allowance posts to, or a refusal that says which key to
+     * set.
+     *
+     * Left unset, the line would carry a null account and the entry would be
+     * rejected for a missing account_id on an unnamed line - which says
+     * nothing about discounts and sends whoever reads it looking in the wrong
+     * place.
+     */
+    private function allowanceAccount(string $key, string $envKey): string
+    {
+        $account = config("erp.default_accounts.{$key}");
+
+        if (!$account) {
+            throw new ApiException(
+                ErrorCodes::VALIDATION_FAILED,
+                ['config' => "erp.default_accounts.{$key}"],
+                "This document carries a discount and no account is configured to post it to. "
+                    ."Set {$envKey} to a contra account in the chart of accounts."
+            );
+        }
+
+        return (string) $account;
+    }
+
     public function forInvoice(Invoice $invoice): JournalEntry
     {
         $customer = $invoice->customer;
@@ -58,6 +100,23 @@ class JournalEntryFactory
                 'description' => "VAT/GST on Invoice {$invoice->invoice_number}",
                 'debit'       => 0,
                 'credit'      => $invoice->tax_amount,
+            ];
+        }
+
+        // The allowance, debited against revenue.
+        //
+        // Receivable is debited with the total, which is net of the discount,
+        // while the lines are credited with their own subtotals, which are
+        // gross of it. Without this line the entry was short by exactly the
+        // discount and JournalService refused it - so a discounted invoice
+        // could not be posted at all, and nothing noticed because every test
+        // that posts mocks either this factory or that service.
+        if ($discount = $this->allowance($invoice->discount_amount ?? 0)) {
+            $lines[] = [
+                'account_id'  => $this->allowanceAccount('sales_discount', 'ERP_ACCOUNT_SALES_DISCOUNT'),
+                'description' => "Discount on Invoice {$invoice->invoice_number}",
+                'debit'       => $discount,
+                'credit'      => 0,
             ];
         }
 
@@ -102,6 +161,18 @@ class JournalEntryFactory
                 'description' => "Input VAT/GST on Bill {$bill->bill_number}",
                 'debit'       => $bill->tax_amount,
                 'credit'      => 0,
+            ];
+        }
+
+        // The same allowance the other way about: the lines are debited gross
+        // and payable is credited net, so the credit side is short by the
+        // discount until this is added.
+        if ($discount = $this->allowance($bill->discount_amount ?? 0)) {
+            $lines[] = [
+                'account_id'  => $this->allowanceAccount('purchase_discount', 'ERP_ACCOUNT_PURCHASE_DISCOUNT'),
+                'description' => "Discount on Bill {$bill->bill_number}",
+                'debit'       => 0,
+                'credit'      => $discount,
             ];
         }
 

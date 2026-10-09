@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Accounting;
 
 use App\Exceptions\ApiException;
+use App\Exceptions\ErrorCodes;
 use App\Exceptions\ERP\ValidationException;
 use App\Models\Accounting\Account;
 use App\Models\Accounting\AccountingPeriod;
@@ -187,7 +188,16 @@ class JournalService
             $totalDebits = $entry->lines()->sum('debit');
             $totalCredits = $entry->lines()->sum('credit');
             if (bccomp((string) $totalDebits, (string) $totalCredits, 4) !== 0) {
-                throw new ApiException('Journal entry is unbalanced after line creation.');
+                // ApiException takes an error-code array, not a string, so
+                // this threw a TypeError rather than itself. It has never
+                // fired - the pre-create check refuses an unbalanced entry
+                // first - which is why a safety net that cannot report
+                // correctly went unnoticed.
+                throw new ApiException(
+                    ErrorCodes::ACCT_JOURNAL_UNBALANCED,
+                    ['debits' => (string) $totalDebits, 'credits' => (string) $totalCredits],
+                    'Journal entry is unbalanced after line creation.'
+                );
             }
 
             return $entry->fresh(['lines', 'lines.account']);
