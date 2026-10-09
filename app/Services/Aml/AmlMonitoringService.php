@@ -137,8 +137,15 @@ class AmlMonitoringService
                 );
             }
 
-            // 5. If multiple flags found, escalate
-            if (count($flags) >= 2) {
+            // 5. Escalate once there are enough flags to file on.
+            //
+            // The job's own threshold, not a second number: this dispatched at
+            // two while RunAmlEscalationJob files at three, so a two-flag
+            // transaction queued a job that found too few flags and returned
+            // having done nothing - and the common invoice-then-pay flow trips
+            // exactly two. Flags below the bar stay 'flagged' for a reviewer,
+            // which is what happened anyway, minus the pointless job.
+            if (count($flags) >= RunAmlEscalationJob::SAR_THRESHOLD) {
                 try {
                     RunAmlEscalationJob::dispatch($transactionType, $transactionId, $organizationId)->afterCommit();
                 } catch (\Throwable $e) {

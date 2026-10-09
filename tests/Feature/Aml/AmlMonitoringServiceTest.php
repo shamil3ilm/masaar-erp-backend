@@ -242,7 +242,15 @@ class AmlMonitoringServiceTest extends TestCase
     // Escalation
     // ----------------------------------------------------------------
 
-    public function test_two_flags_on_one_transaction_queue_an_escalation_and_one_flag_does_not(): void
+    /**
+     * The job is queued at the number of flags it will actually file on.
+     *
+     * It used to be queued at two while the job files at three, so a two-flag
+     * transaction queued work that read its flags, found too few and returned.
+     * The ordinary invoice-then-pay flow trips exactly two, so that was
+     * routine traffic queueing jobs that could not act.
+     */
+    public function test_escalation_is_queued_at_the_filing_threshold(): void
     {
         Queue::fake();
 
@@ -250,8 +258,15 @@ class AmlMonitoringServiceTest extends TestCase
         $this->assertSame([AmlTransactionFlag::THRESHOLD_BREACH], $this->flagReasons());
         Queue::assertNotPushed(RunAmlEscalationJob::class);
 
+        // Two: an invoice moments before the payment adds rapid_movement.
         $this->invoiceFor($this->organization->id, $this->contact->id);
         $this->screen(2, 25000.0, 'payment', 'SAR', $this->contact->id);
+        Queue::assertNotPushed(RunAmlEscalationJob::class);
+
+        // Three: a critical-risk contact adds high_risk_contact.
+        $this->riskScore($this->organization->id, $this->contact->id, AmlRiskScore::CRITICAL);
+        $this->invoiceFor($this->organization->id, $this->contact->id);
+        $this->screen(3, 25000.0, 'payment', 'SAR', $this->contact->id);
         Queue::assertPushed(RunAmlEscalationJob::class, 1);
     }
 
@@ -275,6 +290,13 @@ class AmlMonitoringServiceTest extends TestCase
         $this->assertNull($sar->created_by);
         $this->assertStringContainsString('3 AML flags', $sar->description);
 
+        // Layering, not structuring. Every auto-filed SAR was typed
+        // structuring whatever fired, so a transaction flagged for a threshold
+        // breach, rapid movement and a high-risk contact was reported as a
+        // specific offence there was no evidence of. rapid_movement is
+        // layering; none of these three flags is structuring.
+        $this->assertSame(AmlSuspiciousActivity::LAYERING, $sar->activity_type);
+
         $this->assertSame(
             [AmlTransactionFlag::STATUS_ESCALATED],
             AmlTransactionFlag::withoutGlobalScopes()->pluck('status')->unique()->all(),
@@ -293,11 +315,15 @@ class AmlMonitoringServiceTest extends TestCase
         $this->assertSame(1, AmlSuspiciousActivity::withoutGlobalScopes()->count());
     }
 
-    public function test_two_flags_are_below_the_bar_the_escalation_job_files_a_report_at(): void
+    /**
+     * Two flags raise flags and file nothing.
+     *
+     * Decided rather than discrepant: a SAR is a report to a regulator, and
+     * the invoice-then-pay pair that trips two flags is everyday trade. A
+     * reviewer sees the flags; the regulator does not see a report.
+     */
+    public function test_two_flags_file_no_report(): void
     {
-        // screenTransaction queues the job at two flags while the job files a
-        // report at three, so a two-flag transaction escalates to nothing.
-        // Listed for a decision on which number is right.
         $this->invoiceFor($this->organization->id, $this->contact->id);
         $this->screen(31, 25000.0, 'payment', 'SAR', $this->contact->id);
 

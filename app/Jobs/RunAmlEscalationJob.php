@@ -20,8 +20,25 @@ class RunAmlEscalationJob implements ShouldQueue
 
     public int $tries = 3;
 
-    /** Minimum number of flags required to auto-create a SAR. */
-    private const SAR_THRESHOLD = 3;
+    /**
+     * Minimum number of flags required to auto-create a SAR.
+     *
+     * Public because AmlMonitoringService decides whether to dispatch this job
+     * and has to decide on the same number. It had its own: it dispatched at
+     * two while this filed at three, so a two-flag transaction queued a job
+     * that read its flags, found too few, and returned having done nothing -
+     * leaving the flags at 'flagged' and no record of why nothing happened.
+     * The common invoice-then-pay-immediately flow trips exactly two
+     * (threshold_breach and rapid_movement), so that was ordinary traffic
+     * queueing work that could not act.
+     *
+     * Three rather than two. A SAR is a report to a regulator, and filing one
+     * automatically on an everyday invoice-and-payment pair is its own
+     * compliance problem - a false report costs the filer credibility and
+     * buries the real ones. Two flags still raise flags for a human to look
+     * at; they do not file.
+     */
+    public const SAR_THRESHOLD = 3;
 
     public function __construct(
         private readonly string $transactionType,
@@ -29,6 +46,41 @@ class RunAmlEscalationJob implements ShouldQueue
         private readonly int    $organizationId,
     ) {
         $this->onQueue('aml-escalation');
+    }
+
+    /**
+     * The kind of activity a set of flags describes.
+     *
+     * Every auto-filed SAR was typed 'structuring' regardless of what fired,
+     * so a transaction flagged for a threshold breach and a high-risk contact
+     * was reported to the regulator as structuring - which is a specific
+     * offence it had no evidence of. The reasons were already computed for the
+     * description and then discarded for the type.
+     *
+     * Most specific first. rapid_movement is layering in the ordinary AML
+     * sense: funds moved on quickly to obscure their origin.
+     *
+     * Two of the activity types are never assigned here, deliberately.
+     * sanctions_hit must come from actually screening a name against a
+     * sanctions list, which these flags do not do - a high-risk contact is not
+     * a sanctions match. smurfing means several people depositing on one
+     * party's behalf, which nothing here detects. Naming either on the
+     * strength of these flags would put a claim in a regulatory report that
+     * the evidence does not support.
+     *
+     * @param  list<string>  $reasons
+     */
+    private function activityTypeFor(array $reasons): string
+    {
+        if (in_array(AmlTransactionFlag::STRUCTURING, $reasons, true)) {
+            return AmlSuspiciousActivity::STRUCTURING;
+        }
+
+        if (in_array(AmlTransactionFlag::RAPID_MOVEMENT, $reasons, true)) {
+            return AmlSuspiciousActivity::LAYERING;
+        }
+
+        return AmlSuspiciousActivity::UNUSUAL_PATTERN;
     }
 
     public function handle(AmlMonitoringService $service): void
@@ -44,11 +96,17 @@ class RunAmlEscalationJob implements ShouldQueue
             return;
         }
 
-        // Idempotency: skip if a SAR already exists for this transaction (e.g. on job retry)
+        // Idempotency: skip if a SAR already exists for this transaction.
+        //
+        // Not filtered by activity type any more. It filtered on structuring,
+        // which was the only type this job ever wrote - so the check worked by
+        // coincidence, and the moment the type is derived from the flags
+        // (below) a retry would look for a structuring SAR, not find the
+        // layering one it had just filed, and file a second report on the same
+        // transaction. The transaction is what makes it a duplicate.
         $alreadyExists = AmlSuspiciousActivity::withoutGlobalScopes()
             ->where('organization_id', $this->organizationId)
             ->whereJsonContains('related_transaction_ids', $this->transactionId)
-            ->where('activity_type', AmlTransactionFlag::STRUCTURING)
             ->exists();
 
         if ($alreadyExists) {
@@ -83,7 +141,7 @@ class RunAmlEscalationJob implements ShouldQueue
             $service->createSar(
                 organizationId: $this->organizationId,
                 contactId:      $contactId,
-                activityType:   AmlTransactionFlag::STRUCTURING,
+                activityType:   $this->activityTypeFor($flags->pluck('flag_reason')->all()),
                 transactionIds: $transactionIds,
                 description:    $description,
                 createdBy:      null,
