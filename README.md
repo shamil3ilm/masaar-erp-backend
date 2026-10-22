@@ -1,6 +1,6 @@
 # Masaar ERP — Backend
 
-A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait). Built to SAP-parity standards — covering Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing, and Compliance.
+A full-featured, multi-tenant ERP backend built with Laravel 12, designed for businesses in the **GCC region** (Saudi Arabia, UAE, Qatar, Oman, Bahrain, Kuwait). Its module structure follows enterprise ERPs such as SAP (Financial Accounting, Controlling, HR, Inventory, Manufacturing, Sales, Purchasing) and adds GCC compliance.
 
 ---
 
@@ -30,6 +30,7 @@ This is the backend API for an enterprise-grade ERP system. It exposes a version
 - **Calendar** — Events, attendees, reminders, recurring rules
 - **Automation Engine** — Rule-based triggers, email templates, scheduled automations
 - **GCC Compliance** — ZATCA Phase 2 (Saudi e-invoicing), VAT (UAE/Qatar/Oman/Bahrain/Kuwait)
+- **AML & Fraud** — contact risk scores and screening of invoices and completed payments, flagged transactions and suspicious-activity reports; configurable fraud rules with alerts and review
 - **Platform** — RBAC, approval workflows, webhooks, audit trail, document vault, custom fields, notifications, 2FA
 - **Admin / Super Admin** — Platform administration, IP allowlists, support tickets, system announcements, feature flags
 
